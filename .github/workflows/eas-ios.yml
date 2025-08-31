@@ -13,10 +13,10 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up Node
+      - name: Set up Node.js (Expo-compatible)
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 18
 
       - name: Install EAS CLI
         run: npm install -g eas-cli
@@ -24,11 +24,14 @@ jobs:
       - name: Install dependencies
         run: npm ci || npm install
 
-      - name: Show EAS version
-        run: eas --version
+      - name: Show EAS/Node versions
+        run: |
+          node -v
+          npm -v
+          eas --version
 
-      - name: Build iOS and auto-submit to TestFlight
+      - name: Build iOS & auto-submit to TestFlight
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          eas build -p ios --profile production --auto-submit --non-interactive
+          eas build -p ios --profile production --non-interactive --auto-submit
