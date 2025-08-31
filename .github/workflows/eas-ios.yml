@@ -1,0 +1,43 @@
+name: EAS iOS Build & Submit (TestFlight)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-ios:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+
+      - name: Install deps
+        run: npm ci || npm install
+
+      # Recreate your Apple .p8 key from the GitHub Secret
+      - name: Write Apple .p8 from secret
+        run: echo "${{ secrets.APPLE_APPSTORE_PRIVATE_KEY }}" > AuthKey.p8
+
+      # Log in to Expo with your EXPO_TOKEN secret
+      - name: EAS login (token)
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: eas whoami || true
+
+      # Build for iOS and auto-submit to TestFlight
+      - name: Build iOS and auto-submit to TestFlight
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          APPLE_APPSTORE_ISSUER_ID: ${{ secrets.APPLE_APPSTORE_ISSUER_ID }}
+          APPLE_APPSTORE_KEY_ID: ${{ secrets.APPLE_APPSTORE_KEY_ID }}
+        run: |
+          eas --non-interactive build -p ios --profile production --auto-submit
