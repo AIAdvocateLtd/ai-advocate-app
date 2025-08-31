@@ -9,3 +9,5 @@ package-lock.json
 *.pem
 *.mobileprovision
 .env
+.DS_Store
+Thumbs.db
