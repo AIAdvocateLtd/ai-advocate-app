@@ -18,15 +18,8 @@
       }
     },
     "plugins": [
-      [
-        "expo-build-properties",
-        {
-          "ios": { "deploymentTarget": "15.0" }
-        }
-      ]
+      ["expo-build-properties", { "ios": { "deploymentTarget": "14.0" } }]
     ],
-    "extra": {
-      "eas": { "projectId": "08d43c8c-2c7e-47f2-ab08-e358475e4443" }
-    }
+    "extra": { "eas": { "projectId": "08d43c8c-2c7e-47f2-ab08-e358475e4443" } }
   }
 }
