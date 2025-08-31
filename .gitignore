@@ -1,0 +1,11 @@
+node_modules/
+.expo/
+.expo-shared/
+.eas/
+dist/
+build/
+package-lock.json
+*.p8
+*.pem
+*.mobileprovision
+.env

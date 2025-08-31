@@ -1,0 +1,30 @@
+{
+  "cli": {
+    "version": ">= 3.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "production": {
+      "ios": {
+        "image": "latest",
+        "simulator": false
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "6749704180"
+      }
+    }
+  },
+  "dependencies": {
+    "expo": "~53.0.20",
+    "expo-status-bar": "~1.12.1",
+    "react": "^18.2.0",
+    "react-native": "^0.74.3"
+  },
+  "devDependencies": {
+    "expo-modules-autolinking": "^2.1.14"
+  }
+}
