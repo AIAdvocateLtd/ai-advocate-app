@@ -5,6 +5,12 @@
     "owner": "aiadvocate",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
@@ -17,9 +23,20 @@
         "NSLocationWhenInUseUsageDescription": "AI Advocate may use your location to provide jurisdiction-specific legal guidance."
       }
     },
+    "extra": {
+      "eas": {
+        "projectId": "08d43c8c-2c7e-47f2-ab08-e358475e4443"
+      }
+    },
     "plugins": [
-      ["expo-build-properties", { "ios": { "deploymentTarget": "14.0" } }]
-    ],
-    "extra": { "eas": { "projectId": "08d43c8c-2c7e-47f2-ab08-e358475e4443" } }
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "13.4"
+          }
+        }
+      ]
+    ]
   }
 }
