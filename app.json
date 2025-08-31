@@ -12,7 +12,15 @@
       "supportsTablet": true,
       "bundleIdentifier": "uk.co.aiadvocate.app",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false,
+       "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "14.0"
         "NSCameraUsageDescription": "AI Advocate requires access to your camera for video evidence recording.",
         "NSMicrophoneUsageDescription": "AI Advocate requires access to your microphone for audio evidence recording.",
         "NSPhotoLibraryUsageDescription": "AI Advocate requires access to your photo library to save and upload evidence files.",
