@@ -1,16 +1,5 @@
 {
-  "cli": {
-    "version": ">= 3.0.0"
-  },
-  "build": {
-    "production": {
-      "ios": {
-        "workflow": "managed",
-        "buildType": "release"
-      }
-    }
-  },
-  "submit": {
-    "production": {}
-  }
+  "cli": { "version": ">= 3.0.0", "appVersionSource": "remote" },
+  "build": { "production": { "ios": { "image": "latest", "simulator": false } } },
+  "submit": { "production": { "ios": { "ascAppId": "6749704180" } } }
 }
