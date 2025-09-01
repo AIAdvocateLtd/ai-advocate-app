@@ -1,23 +1,37 @@
 {
-  "name": "ai-advocate",
+  "name": "ai-advocate-app",
+  "private": true,
   "version": "1.0.0",
   "main": "App.js",
-  "scripts": {
-    "start": "expo start",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "web": "expo start --web"
-  },
+  "scripts": { "start": "expo start" },
   "dependencies": {
-    "expo": "^50.0.0",
-    "expo-build-properties": "~0.8.0",
+    "expo": "~53.0.20",
+    "expo-status-bar": "~1.12.1",
     "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "react-native": "0.73.0",
-    "react-native-web": "0.19.10"
-  },
-  "devDependencies": {
-    "@babel/core": "^7.20.0"
-  },
-  "private": true
+    "react-native": "0.74.5",
+    "expo-build-properties": "~0.12.5"
+  }
+}
+2) app.json (overwrite)
+json
+Copy code
+{
+  "expo": {
+    "name": "AI Advocate",
+    "slug": "ai-advocate",
+    "owner": "aiadvocate",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "uk.co.aiadvocate.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": [
+      ["expo-build-properties", { "ios": { "deploymentTarget": "14.0" } }]
+    ]
+  }
 }
