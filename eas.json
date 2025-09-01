@@ -3,7 +3,7 @@
   "build": {
     "production": {
       "ios": {
-        "image": "macos-14",       // pin the runner (stable CocoaPods/Xcode)
+        "image": "macos-14", // pin the runner (stable CocoaPods/Xcode)
         "simulator": false
       }
     }
