@@ -12,26 +12,3 @@
     "expo-build-properties": "~0.12.5"
   }
 }
-2) app.json (overwrite)
-json
-Copy code
-{
-  "expo": {
-    "name": "AI Advocate",
-    "slug": "ai-advocate",
-    "owner": "aiadvocate",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "assetBundlePatterns": ["**/*"],
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "uk.co.aiadvocate.app",
-      "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
-      }
-    },
-    "plugins": [
-      ["expo-build-properties", { "ios": { "deploymentTarget": "14.0" } }]
-    ]
-  }
-}
