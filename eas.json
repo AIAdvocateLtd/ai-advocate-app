@@ -1,5 +1,5 @@
 {
   "cli": { "version": ">= 3.0.0", "appVersionSource": "remote" },
-  "build": { "production": { "ios": { "image": "latest", "simulator": false } } },
+  "build": { "production": { "ios": { "image": "macos-14", "simulator": false } } },
   "submit": { "production": { "ios": { "ascAppId": "6749704180" } } }
 }
