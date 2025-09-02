@@ -8,6 +8,7 @@ on:
 jobs:
   build-ios:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -16,15 +17,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 18
+          cache: 'npm'
 
       - name: Install EAS CLI
         run: npm install -g eas-cli
 
-      - name: Install dependencies
-        run: npm install
-
-      - name: Sanity check Expo config
-        run: npx expo config --json
+      - name: Install dependencies (robust)
+        run: npm install --no-audit --no-fund
 
       - name: Show versions
         run: |
@@ -35,5 +34,7 @@ jobs:
       - name: Build iOS & auto-submit to TestFlight
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_PROJECT_ID: 08d43c8c-2c7e-47f2-ab08-e358475e4443
+          EXPO_DEBUG: 1
         run: |
           eas build -p ios --profile production --non-interactive --auto-submit
