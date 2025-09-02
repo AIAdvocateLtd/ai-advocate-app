@@ -12,12 +12,10 @@
       "infoPlist": { "ITSAppUsesNonExemptEncryption": false }
     },
     "plugins": [
-      ["expo-build-properties", { "ios": { "deploymentTarget": "16.0", "useFrameworks":"static", "swiftVersion":"5.0", "flipper": false } }]
+      ["expo-build-properties", {
+        "ios": { "deploymentTarget": "16.0", "useFrameworks": "static", "swiftVersion": "5.0", "flipper": false }
+      }]
     ],
-    "extra": {
-      "eas": {
-        "projectId": "08d43c8c-2c7e-47f2-ab08-e358475e4443"
-      }
-    }
+    "extra": { "eas": { "projectId": "08d43c8c-2c7e-47f2-ab08-e358475e4443" } }
   }
 }
