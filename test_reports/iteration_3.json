@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 3 backend testing of new PDF export feature in AI Advocate (POST /api/pdf/inline + GET /api/pdf/file/{id}). Added 10 new pytest cases. Full suite 52/52 PASSED in 76.49s — no regressions across the 42 prior tests.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~946 lines (mixing auth, lex, voice, evidence, contracts, lawfirms, PDF, languages). Crossed the 700-line threshold from code-review guidelines; recommend splitting routes (routers/pdf.py, routers/lawfirms.py, etc.) and moving build_pdf into a services/pdf.py module.",
+    "POST /api/pdf/inline allows arbitrary title/body/meta of unbounded length from any authenticated user. Consider adding a max length on body (e.g. 200KB) to prevent oversized reportlab builds / memory pressure.",
+    "GET /api/pdf/file/{id} does not enforce trial/subscription gating (only ownership). A user with an expired trial can still download PDFs of files created earlier. Likely intentional (read-back of own data) but worth confirming product intent.",
+    "Content-Disposition filename in /pdf/file/{id} sanitises to alnum + space/-/_ only — good. But /pdf/inline echoes user-supplied filename verbatim into the header without sanitisation; a crafted filename could break the header (e.g. embedded quotes/CRLF). Recommend reusing the same sanitise routine.",
+    "PDF body escapes &/</> only; reportlab Paragraph still interprets <br/> from our explicit replacement, but otherwise user text cannot inject HTML — OK. Worth a brief comment in build_pdf for future maintainers.",
+    "build_pdf opens /app/frontend/public/assets/logo.jpg per request (fine for low traffic). For scale, cache the bytes once at startup.",
+    "No rate limiting on /pdf/inline — a logged-in user can spam PDF generation. Consider per-user throttle if exposed publicly later."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {
+    "backend": "100% (52/52)",
+    "frontend": "not tested (backend-only iteration per request)"
+  },
+  "test_credentials": "Auto-generated per run via /api/auth/signup (test_<rand>@advocate.app / Test12345!). Pre-seeded test@advocate.app / Test12345! also valid per /app/memory/test_credentials.md.",
+  "seed_data_creation": "test_pdf_file_recording seeds one synthetic legal_files doc of type='recording' directly into MongoDB (id stored in state['recording_id']) to exercise the 'recording' PDF branch without invoking real Whisper+Claude.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "PDF export stable. /api/pdf/inline returns application/pdf with bytes starting %PDF; /api/pdf/file/{id} works for letter, evidence, recording (and falls through to 'Contract Analysis' default for any other type). Cross-user 404 enforced via {id, user_id} query in pdf_for_file. Recording type was seeded directly in Mongo to avoid slow STT — if you need to test the real /record/analyze pipeline, expect 30–60s LLM latency.",
+  "rca of the issue": "N/A — no failures."
+}

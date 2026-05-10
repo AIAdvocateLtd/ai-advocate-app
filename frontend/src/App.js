@@ -4,9 +4,14 @@ import axios from "axios";
 import {
   MessageCircle, Mic, Folder, FileText, Gavel, Globe, Briefcase, Home as HomeIcon,
   Stethoscope, Scale, X, Send, Upload, Languages, LogOut, Check, ArrowLeft, Square, Play,
-  Camera, MapPin, Phone, ExternalLink, Settings as SettingsIcon, Star, Building2, Image as ImageIcon
+  Camera, MapPin, Phone, ExternalLink, Settings as SettingsIcon, Star, Building2, Image as ImageIcon,
+  Download
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
+import {
+  AskLexIcon, RecordIcon, CameraIcon, LawyerIcon, FilesIcon, LetterIcon,
+  CourtIcon, ImmigrationIcon, EmploymentIcon, PropertyIcon, MedicalIcon
+} from "@/icons";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -34,6 +39,24 @@ const api = axios.create({ baseURL: API });
 const setAuthHeader = (token) => {
   if (token) api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
   else delete api.defaults.headers.common["Authorization"];
+};
+
+// ---------- PDF download helper ----------
+const downloadBlob = (blob, filename) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; document.body.appendChild(a);
+  a.click(); a.remove(); URL.revokeObjectURL(url);
+};
+
+const pdfInline = async ({ title, body, subtitle, meta, filename }) => {
+  const r = await api.post("/pdf/inline", { title, body, subtitle, meta, filename }, { responseType: "blob" });
+  downloadBlob(r.data, filename || "ai_advocate.pdf");
+};
+
+const pdfForFile = async (fileId, filename) => {
+  const r = await api.get(`/pdf/file/${fileId}`, { responseType: "blob" });
+  downloadBlob(r.data, (filename || "ai_advocate") + ".pdf");
 };
 
 // ---------- Logo / Lex visuals ----------
@@ -403,7 +426,18 @@ function LegalLetterModal({ lang, country, onClose }) {
         ) : (
           <div style={{ overflowY: "auto" }}>
             <pre style={{ background: "#0a0a0a", padding: 16, borderRadius: 12, whiteSpace: "pre-wrap", color: "var(--text-dim)", fontSize: 13.5, fontFamily: "Outfit, sans-serif" }}>{letter}</pre>
-            <button className="btn-ghost w-full" onClick={() => setLetter("")} style={{ marginTop: 12 }}>New letter</button>
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button className="btn-gold" data-testid="letter-pdf-btn" onClick={() => pdfInline({
+                title: form.letter_type || "Legal Letter",
+                subtitle: `From: ${form.your_name} · To: ${form.recipient}`,
+                body: letter,
+                meta: { Date: new Date().toLocaleDateString() },
+                filename: `${(form.letter_type || "letter").replace(/[^A-Za-z0-9]/g, "_")}.pdf`
+              })} style={{ flex: 1 }}>
+                <Download size={16} style={{ display: "inline", marginRight: 6 }} />Download PDF
+              </button>
+              <button className="btn-ghost" onClick={() => setLetter("")} style={{ flex: 1 }}>New letter</button>
+            </div>
           </div>
         )}
       </div>
@@ -454,7 +488,12 @@ function RecordModal({ lang, country, onClose }) {
             <div style={{ background: "#0a0a0a", padding: 12, borderRadius: 10, color: "var(--text-dim)", fontSize: 13.5, marginBottom: 14 }}>{result.transcript}</div>
             <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6 }}>Lex's Analysis</div>
             <div style={{ background: "#0a0a0a", padding: 12, borderRadius: 10, color: "var(--text-dim)", fontSize: 13.5, whiteSpace: "pre-wrap" }}>{result.analysis}</div>
-            <button className="btn-ghost w-full" onClick={() => setResult(null)} style={{ marginTop: 14 }}>Record another</button>
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button className="btn-gold" data-testid="record-pdf-btn" onClick={() => pdfForFile(result.id, result.filename || "recording")} style={{ flex: 1 }}>
+                <Download size={16} style={{ display: "inline", marginRight: 6 }} />Download PDF
+              </button>
+              <button className="btn-ghost" onClick={() => setResult(null)} style={{ flex: 1 }}>Record another</button>
+            </div>
           </div>
         )}
       </div>
@@ -490,6 +529,9 @@ function FilesModal({ lang, onClose }) {
             <h3 style={{ color: "var(--gold)" }}>{open.filename}</h3>
             {open.transcript && <><div style={{ color: "var(--gold)", marginTop: 10 }}>Transcript</div><div style={{ background: "#0a0a0a", padding: 10, borderRadius: 8, color: "var(--text-dim)", fontSize: 13 }}>{open.transcript}</div></>}
             {(open.analysis || open.content) && <><div style={{ color: "var(--gold)", marginTop: 10 }}>Content</div><div style={{ background: "#0a0a0a", padding: 10, borderRadius: 8, whiteSpace: "pre-wrap", color: "var(--text-dim)", fontSize: 13 }}>{open.analysis || open.content}</div></>}
+            <button className="btn-gold w-full" data-testid="file-pdf-btn" onClick={() => pdfForFile(open.id, open.filename || "ai_advocate")} style={{ marginTop: 14 }}>
+              <Download size={16} style={{ display: "inline", marginRight: 6 }} />Download PDF
+            </button>
           </div>
         )}
       </div>
@@ -598,9 +640,14 @@ function SnapEvidenceModal({ lang, country, onClose }) {
           <div style={{ overflowY: "auto" }}>
             <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 8 }}>{result.filename}</div>
             <div style={{ whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.6, color: "var(--text-dim)" }}>{result.analysis}</div>
-            <button className="btn-ghost w-full" onClick={() => { setResult(null); setFile(null); setPreview(null); setDescription(""); }} style={{ marginTop: 16 }}>
-              Snap another
-            </button>
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button className="btn-gold" data-testid="evidence-pdf-btn" onClick={() => pdfForFile(result.id, result.filename || "evidence")} style={{ flex: 1 }}>
+                <Download size={16} style={{ display: "inline", marginRight: 6 }} />Download PDF
+              </button>
+              <button className="btn-ghost" onClick={() => { setResult(null); setFile(null); setPreview(null); setDescription(""); }} style={{ flex: 1 }}>
+                Snap another
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -987,17 +1034,17 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
   const [showAdvertise, setShowAdvertise] = useState(false);
 
   const tiles = [
-    { id: "ask_lex", label: t(lang, "askLex"), sub: t(lang, "askLexSub"), Icon: MessageCircle, cat: "ask_lex" },
-    { id: "record", label: t(lang, "recordLegal"), Icon: Mic, cat: "record" },
-    { id: "snap", label: t(lang, "snapEvidence"), Icon: Camera },
-    { id: "lawyers", label: t(lang, "findLawyer"), Icon: Building2 },
-    { id: "files", label: t(lang, "myFiles"), Icon: Folder },
-    { id: "letter", label: t(lang, "generateLetter"), Icon: FileText },
-    { id: "court_prep", label: t(lang, "courtPrep"), Icon: Gavel, cat: "court_prep" },
-    { id: "immigration", label: t(lang, "immigration"), Icon: Globe, cat: "immigration" },
-    { id: "employment", label: t(lang, "employment"), Icon: Briefcase, cat: "employment" },
-    { id: "property", label: t(lang, "property"), Icon: HomeIcon, cat: "property" },
-    { id: "medical", label: t(lang, "medical"), Icon: Stethoscope, cat: "medical_negligence" },
+    { id: "ask_lex", label: t(lang, "askLex"), sub: t(lang, "askLexSub"), Icon: AskLexIcon, cat: "ask_lex" },
+    { id: "record", label: t(lang, "recordLegal"), Icon: RecordIcon, cat: "record" },
+    { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon },
+    { id: "lawyers", label: t(lang, "findLawyer"), Icon: LawyerIcon },
+    { id: "files", label: t(lang, "myFiles"), Icon: FilesIcon },
+    { id: "letter", label: t(lang, "generateLetter"), Icon: LetterIcon },
+    { id: "court_prep", label: t(lang, "courtPrep"), Icon: CourtIcon, cat: "court_prep" },
+    { id: "immigration", label: t(lang, "immigration"), Icon: ImmigrationIcon, cat: "immigration" },
+    { id: "employment", label: t(lang, "employment"), Icon: EmploymentIcon, cat: "employment" },
+    { id: "property", label: t(lang, "property"), Icon: PropertyIcon, cat: "property" },
+    { id: "medical", label: t(lang, "medical"), Icon: MedicalIcon, cat: "medical_negligence" },
   ];
 
   const onTile = (tile) => {
@@ -1052,14 +1099,12 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
         </div>
       ) : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, rowGap: 18 }}>
         {tiles.map(tile => (
-          <button key={tile.id} className="tile" data-testid={`tile-${tile.id}`} onClick={() => onTile(tile)}>
-            <tile.Icon className="tile-icon" />
-            <div>
-              <div className="tile-title">{tile.label}</div>
-              {tile.sub && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{tile.sub}</div>}
-            </div>
+          <button key={tile.id} className="tile-clean" data-testid={`tile-${tile.id}`} onClick={() => onTile(tile)}>
+            <tile.Icon size={48} />
+            <div className="tile-clean-title">{tile.label}</div>
+            {tile.sub && <div className="tile-clean-sub">{tile.sub}</div>}
           </button>
         ))}
       </div>

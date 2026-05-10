@@ -426,3 +426,129 @@ def test_lawfirms_advertise_validation_error():
     r = requests.post(API + "/lawfirms/advertise",
                       json={"firm_name": "X"}, timeout=10)
     assert r.status_code == 422
+
+# =========================================================================
+# Iteration 3: PDF export (POST /api/pdf/inline, GET /api/pdf/file/{id})
+# =========================================================================
+
+def _pdf_valid(content: bytes) -> bool:
+    """A valid PDF starts with %PDF and is non-trivial size."""
+    return content[:4] == b"%PDF" and len(content) > 500
+
+# ---------- /api/pdf/inline ----------
+def test_pdf_inline_no_auth():
+    r = requests.post(API + "/pdf/inline",
+        json={"title": "Test", "body": "Hello"}, timeout=30)
+    assert r.status_code in (401, 403), r.text
+
+def test_pdf_inline_ok():
+    payload = {
+        "title": "Letter Before Action",
+        "subtitle": "Prepared by Lex, your AI advocate",
+        "body": "Dear Sir/Madam,\n\nThis letter relates to invoice #1234.\n\nYours faithfully,\nJohn Doe",
+        "meta": {"From": "John Doe", "To": "ACME Ltd", "Date": "2026-01-09"},
+        "filename": "letter_before_action.pdf",
+    }
+    r = requests.post(API + "/pdf/inline", headers=_h(), json=payload, timeout=60)
+    assert r.status_code == 200, r.text[:500]
+    ct = r.headers.get("content-type", "")
+    assert ct.startswith("application/pdf"), f"content-type={ct}"
+    assert _pdf_valid(r.content), f"Not a valid PDF (first bytes: {r.content[:8]!r}, size={len(r.content)})"
+    cd = r.headers.get("content-disposition", "")
+    assert "letter_before_action.pdf" in cd
+
+def test_pdf_inline_minimal_no_optional():
+    """Only required fields (title, body) — optional subtitle/meta/filename omitted."""
+    r = requests.post(API + "/pdf/inline", headers=_h(),
+                      json={"title": "Minimal", "body": "Just one paragraph."}, timeout=30)
+    assert r.status_code == 200, r.text
+    assert _pdf_valid(r.content)
+
+def test_pdf_inline_validation_missing_fields():
+    r = requests.post(API + "/pdf/inline", headers=_h(),
+                      json={"title": "No body"}, timeout=10)
+    assert r.status_code == 422
+
+# ---------- /api/pdf/file/{id} for letter ----------
+def test_pdf_file_letter_create_and_download():
+    """Create a letter via /legal-letter, then GET the PDF for it."""
+    r = requests.post(API + "/legal-letter", headers=_h(),
+        json={"letter_type":"PDF Test Letter","recipient":"PDFTest Ltd",
+              "your_name":"Jane Doe","details":"Test that PDF export works for saved letters.",
+              "language":"en-GB"}, timeout=120)
+    assert r.status_code == 200, r.text[:300]
+    # Find the new letter id by listing legal_files (latest first)
+    files = requests.get(API + "/legal-files", headers=_h()).json()
+    letter = next((f for f in files
+                   if f.get("type") == "letter"
+                   and f.get("filename","").startswith("PDF Test Letter")), None)
+    assert letter is not None, f"Letter not persisted. files={[f.get('filename') for f in files]}"
+    state["pdf_letter_id"] = letter["id"]
+
+    r2 = requests.get(API + f"/pdf/file/{letter['id']}", headers=_h(), timeout=30)
+    assert r2.status_code == 200, r2.text[:300]
+    assert r2.headers.get("content-type","").startswith("application/pdf")
+    cd = r2.headers.get("content-disposition","")
+    assert "attachment" in cd and ".pdf" in cd
+    assert _pdf_valid(r2.content)
+
+def test_pdf_file_no_auth():
+    fid = state.get("pdf_letter_id", "any-id")
+    r = requests.get(API + f"/pdf/file/{fid}", timeout=15)
+    assert r.status_code in (401, 403)
+
+def test_pdf_file_404_nonexistent():
+    r = requests.get(API + f"/pdf/file/non-existent-{uuid.uuid4().hex}",
+                     headers=_h(), timeout=15)
+    assert r.status_code == 404
+
+# ---------- /api/pdf/file/{id} for evidence ----------
+def test_pdf_file_evidence():
+    """Use the evidence_id created in iteration 2 tests."""
+    eid = state.get("evidence_id")
+    assert eid, "Evidence id missing — earlier evidence test must run first"
+    r = requests.get(API + f"/pdf/file/{eid}", headers=_h(), timeout=30)
+    assert r.status_code == 200, r.text[:300]
+    assert r.headers.get("content-type","").startswith("application/pdf")
+    assert _pdf_valid(r.content)
+
+# ---------- /api/pdf/file/{id} for recording ----------
+def test_pdf_file_recording():
+    """Seed a 'recording' type file directly into MongoDB and request its PDF.
+    We don't go through /record/analyze (real Whisper+Claude is slow); we only
+    test the PDF generation branch for type='recording'."""
+    from pymongo import MongoClient
+    mc = MongoClient(os.environ.get("MONGO_URL", "mongodb://localhost:27017"))
+    coll = mc[os.environ.get("DB_NAME","ai_advocate_db")].legal_files
+    rec_id = str(uuid.uuid4())
+    coll.insert_one({
+        "id": rec_id,
+        "user_id": state["user_id"],
+        "filename": "police_stop_2026-01-09.webm",
+        "type": "recording",
+        "transcript": "Officer: please step out of the vehicle. Driver: am I being detained?",
+        "analysis": "The interaction is consensual until detention is declared. "
+                    "The driver appropriately asked the key clarifying question.",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    state["recording_id"] = rec_id
+
+    r = requests.get(API + f"/pdf/file/{rec_id}", headers=_h(), timeout=30)
+    assert r.status_code == 200, r.text[:300]
+    assert r.headers.get("content-type","").startswith("application/pdf")
+    assert _pdf_valid(r.content)
+
+# ---------- Cross-user 404 (security) ----------
+def test_pdf_file_cross_user_404():
+    """User B cannot download User A's PDF."""
+    em = f"pdfb_{uuid.uuid4().hex[:8]}@advocate.app"
+    s = requests.post(API + "/auth/signup",
+                      json={"email": em, "password": PWD, "full_name": "B User"})
+    assert s.status_code == 200
+    tok_b = s.json()["access_token"]
+
+    target = state.get("pdf_letter_id")
+    assert target, "Need a saved letter id from earlier test"
+    r = requests.get(API + f"/pdf/file/{target}",
+                     headers={"Authorization": f"Bearer {tok_b}"}, timeout=15)
+    assert r.status_code == 404, f"Expected 404 cross-user, got {r.status_code}: {r.text[:200]}"

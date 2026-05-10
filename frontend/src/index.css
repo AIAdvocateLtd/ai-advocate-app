@@ -116,6 +116,41 @@ textarea.input { resize: vertical; min-height: 80px; font-family: 'Outfit', sans
 }
 .tile-title { font-size: 15px; font-weight: 500; color: var(--text); line-height: 1.25; }
 
+/* Clean tile (no box) — heraldic icons just sit on the page */
+.tile-clean {
+  background: transparent;
+  border: none;
+  padding: 14px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  text-align: center;
+  color: var(--gold);
+  transition: transform 200ms ease, color 200ms ease, filter 200ms ease;
+}
+.tile-clean:hover {
+  transform: translateY(-3px);
+  filter: drop-shadow(0 0 10px rgba(247,201,72,0.45));
+}
+.tile-clean svg { transition: transform 220ms ease; }
+.tile-clean:hover svg { transform: scale(1.07); }
+.tile-clean-title {
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 500;
+  line-height: 1.25;
+  margin-top: 2px;
+  letter-spacing: 0.01em;
+}
+.tile-clean-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 1px;
+  line-height: 1.2;
+}
+
 /* Logo shield */
 .shield {
   width: 92px; height: 100px;
