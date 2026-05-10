@@ -26,7 +26,7 @@
 - **Auth:** JWT (HS256, 30-day exp) email/password (bcrypt-12) + simplified Google sign-in (demo).
 - **i18n:** 11 languages (en-GB, es-ES, fr-FR, ar-IQ, pl-PL, de-DE, hi-IN, ur-PK, it-IT, pt-PT, zh-CN). RTL support for ar/ur.
 
-## What's Implemented (May 2026 — MVP v1.1)
+## What's Implemented (May 2026 — MVP v1.2)
 
 ### Onboarding & Auth ✅
 - Language picker (11 langs, on first launch)
@@ -35,18 +35,22 @@
 - Email/password login
 - Google sign-in (simplified demo — accepts email/name/google_id without verifying Google token)
 
-### Dashboard (11 tiles, 2-col grid + floating Lex avatar) ✅
-1. **Ask Lex** — general AI legal chat with voice in/out
-2. **Record Legal Interaction** — record audio of police/court → Whisper transcribe → Claude analyses for rights violations, leading questions, follow-up actions
-3. **Snap Evidence** *(NEW)* — camera or library upload of any photo (contract, parking ticket, accident scene, signage, document); evidence-type tags; Lex (Gemini Vision) analyses what it sees and gives legal next steps
-4. **Find a Lawyer** *(NEW)* — directory of law firms; "Nearby" tab uses user location, "All" tab shows full list; sponsored firms shown first; per-firm profile with call/website/inquiry form
-5. **My Legal Files** — history of all generated/uploaded items
-6. **Generate Legal Letter** — formal letters (demand letter, complaint, etc.)
-7. **Court Prep** — Lex in court-prep mode (rights, smart phrasing, what NOT to say)
-8. **Immigration & Expat Help** — visas, residency
-9. **Employment Law** — contracts, dismissal, discrimination
-10. **Property Law** — tenancy, deposits, repairs, sale/purchase
-11. **Medical Negligence** — standard of care, causation, claims
+### Dashboard — Heraldic Crest Icons (Custom SVGs, no boxes) ✨ NEW v1.2
+- Clean icon grid (3-column) with custom hand-drawn heraldic SVG icons matching the gold shield logo aesthetic
+- 11 features: Ask Lex (speech bubble), Record (classical mic), Snap Evidence (vintage camera), Find a Lawyer (courthouse), My Files (leather book), Generate Letter (scroll + quill), Court Prep (scales of justice), Immigration (globe + passport stamp), Employment (briefcase), Property (pillared house), Medical Negligence (caduceus)
+- Sticky bottom nav: 🏠 Home · 📁 Files · 🟡 LEX (raised gold center) · 🏛️ Lawyers · ⚙️ Settings
+
+### PDF Export ✨ NEW v1.2
+- Branded PDF with AI Advocate logo header, gold divider, formatted body, page footer
+- "Download PDF" button on: Legal Letter result, Snap Evidence result, Recording analysis result, Files modal item view
+- Two backend endpoints:
+  - `POST /api/pdf/inline` — generate from raw {title, body, subtitle, meta} (used pre-save)
+  - `GET /api/pdf/file/{id}` — generate from any saved legal_files entry (letter / evidence / recording / contract). Supports cross-user 404 security.
+
+### Lex Chat with smart suggestions ✅
+- Empty state shows 6 clickable example chips covering long-tail use cases (deposit, divorce, defamation, parking, unfair dismissal, wills)
+- Voice in (Whisper) + voice out (OpenAI TTS, voice="onyx") — Lex actually speaks back
+- Country & language aware; category-specific system prompts
 
 ### Settings & Personalisation ✅ *(NEW)*
 - Settings modal (gear icon, top bar)
