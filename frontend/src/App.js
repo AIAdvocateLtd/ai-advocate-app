@@ -273,9 +273,24 @@ function LexChat({ lang, country, category, title, onClose }) {
 
         <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
           {messages.length === 0 && (
-            <div style={{ textAlign: "center", color: "var(--text-muted)", marginTop: 40 }}>
+            <div style={{ textAlign: "center", color: "var(--text-muted)", marginTop: 24, padding: "0 6px" }}>
               <LexAvatar size={70} />
-              <p style={{ marginTop: 16 }}>{t(lang, "chatPlaceholder")}</p>
+              <p style={{ marginTop: 14, marginBottom: 6 }}>{t(lang, "chatPlaceholder")}</p>
+              {!category || category === "ask_lex" ? (
+                <>
+                  <div style={{ fontSize: 11, color: "var(--gold)", marginTop: 18, marginBottom: 8, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                    {t(lang, "suggestionsTitle")}
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
+                    {["sug1", "sug2", "sug3", "sug4", "sug5", "sug6"].map(k => (
+                      <button key={k} data-testid={`suggestion-${k}`} onClick={() => send(t(lang, k))}
+                              style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", color: "var(--gold-soft)", borderRadius: 16, padding: "7px 12px", fontSize: 12, cursor: "pointer", fontFamily: "Outfit, sans-serif" }}>
+                        {t(lang, k)}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : null}
             </div>
           )}
           {messages.map((m, i) => (
@@ -805,7 +820,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
           } catch (e) { alert("Failed to save"); }
           finally { setBusy(false); }
         },
-        (err) => { setBusy(false); alert("Permission denied. " + err.message); },
+        (err) => { setBusy(false); alert(t(lang, "locationBlocked")); },
         { enableHighAccuracy: true, timeout: 10000 }
       );
     } else {
@@ -916,6 +931,53 @@ function SubscribeModal({ lang, user, onClose, onActivated }) {
   );
 }
 
+// ---------- Bottom Navigation ----------
+function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub }) {
+  const items = [
+    { k: "home", Icon: HomeIcon, lbl: t(lang, "home") },
+    { k: "files", Icon: Folder, lbl: t(lang, "files") },
+    { k: "lex", center: true },
+    { k: "lawyers", Icon: Building2, lbl: t(lang, "lawyers") },
+    { k: "settings", Icon: SettingsIcon, lbl: t(lang, "settings") },
+  ];
+  const handle = (k) => {
+    if (k === "home") return; // already home
+    if (k === "lex" && !hasAccess) { requireSub(); return; }
+    onNav(k);
+  };
+  return (
+    <nav data-testid="bottom-nav" style={{
+      position: "fixed", bottom: 0, left: 0, right: 0,
+      display: "flex", justifyContent: "space-around", alignItems: "center",
+      background: "rgba(8,8,8,0.92)", backdropFilter: "blur(12px)",
+      borderTop: "1px solid var(--line)",
+      padding: "8px 8px 14px", zIndex: 50,
+    }}>
+      {items.map(it => it.center ? (
+        <div key="lex" data-testid="nav-lex" onClick={() => handle("lex")}
+             style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1, cursor: "pointer" }}>
+          <div style={{
+            width: 60, height: 60, borderRadius: "50%",
+            background: "linear-gradient(135deg, #f7c948, #d6a017)",
+            border: "3px solid #000", marginTop: -22, overflow: "hidden",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 4px 22px rgba(247,201,72,0.45)",
+          }}>
+            <img src="/assets/lex.jpg" alt="Lex" style={{ width: "100%", height: "100%", objectFit: "cover", mixBlendMode: "screen" }} />
+          </div>
+          <div style={{ fontSize: 10, color: "var(--gold)", fontWeight: 600, marginTop: 2, fontFamily: "Cinzel, serif", letterSpacing: "0.05em" }}>LEX</div>
+        </div>
+      ) : (
+        <button key={it.k} data-testid={`nav-${it.k}`} onClick={() => handle(it.k)}
+                style={{ background: "transparent", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flex: 1, cursor: "pointer", padding: 4 }}>
+          <it.Icon size={20} style={{ color: active === it.k ? "var(--gold)" : "var(--text-muted)" }} />
+          <span style={{ fontSize: 10, color: active === it.k ? "var(--gold)" : "var(--text-muted)" }}>{it.lbl}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 // ---------- Dashboard ----------
 function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refreshUser }) {
   const [modal, setModal] = useState(null); // {type, title, category}
@@ -925,7 +987,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
   const [showAdvertise, setShowAdvertise] = useState(false);
 
   const tiles = [
-    { id: "ask_lex", label: t(lang, "askLex"), Icon: MessageCircle, cat: "ask_lex" },
+    { id: "ask_lex", label: t(lang, "askLex"), sub: t(lang, "askLexSub"), Icon: MessageCircle, cat: "ask_lex" },
     { id: "record", label: t(lang, "recordLegal"), Icon: Mic, cat: "record" },
     { id: "snap", label: t(lang, "snapEvidence"), Icon: Camera },
     { id: "lawyers", label: t(lang, "findLawyer"), Icon: Building2 },
@@ -954,7 +1016,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
   const langInfo = LANGS.find(l => l.code === lang) || LANGS[0];
 
   return (
-    <div className="app-shell" style={{ padding: "20px 18px 110px", maxWidth: 760, margin: "0 auto" }} data-testid="dashboard">
+    <div className="app-shell" style={{ padding: "20px 18px 130px", maxWidth: 760, margin: "0 auto" }} data-testid="dashboard">
       <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Hi, <span style={{ color: "var(--gold)" }}>{user.full_name || user.email.split("@")[0]}</span></div>
         <div className="flex items-center gap-2">
@@ -994,17 +1056,21 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
         {tiles.map(tile => (
           <button key={tile.id} className="tile" data-testid={`tile-${tile.id}`} onClick={() => onTile(tile)}>
             <tile.Icon className="tile-icon" />
-            <div className="tile-title">{tile.label}</div>
+            <div>
+              <div className="tile-title">{tile.label}</div>
+              {tile.sub && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{tile.sub}</div>}
+            </div>
           </button>
         ))}
       </div>
 
-      <div style={{ position: "fixed", bottom: 18, left: 0, right: 0, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
-        <div onClick={() => user.has_access ? setModal({ type: "chat", title: "LEX", category: "ask_lex" }) : setShowSub(true)}
-             style={{ pointerEvents: "all" }}>
-          <LexAvatar size={70} />
-        </div>
-      </div>
+      <BottomNav lang={lang} active="home"
+        onNav={(k) => {
+          if (k === "lex") setModal({ type: "chat", title: "LEX", category: "ask_lex" });
+          else if (k === "files") setModal({ type: "files" });
+          else if (k === "lawyers") setModal({ type: "lawyers" });
+          else if (k === "settings") setShowSettings(true);
+        }} hasAccess={user.has_access} requireSub={() => setShowSub(true)} />
 
       {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} onClose={() => setModal(null)} />}
       {modal?.type === "files" && <FilesModal lang={lang} onClose={() => setModal(null)} />}
