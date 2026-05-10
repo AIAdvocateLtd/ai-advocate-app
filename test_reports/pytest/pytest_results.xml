@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="7" skipped="0" tests="24" time="6.018" timestamp="2026-05-10T13:44:01.374384+00:00" hostname="agent-env-99b5bebe-9f08-4692-ba1b-011288199bff"><testcase classname="tests.backend_test" name="test_root" time="0.270" /><testcase classname="tests.backend_test" name="test_languages" time="0.144" /><testcase classname="tests.backend_test" name="test_signup" time="0.371" /><testcase classname="tests.backend_test" name="test_signup_dup" time="0.106" /><testcase classname="tests.backend_test" name="test_login_ok" time="0.409" /><testcase classname="tests.backend_test" name="test_login_bad" time="0.359" /><testcase classname="tests.backend_test" name="test_google" time="0.106" /><testcase classname="tests.backend_test" name="test_me" time="0.165" /><testcase classname="tests.backend_test" name="test_no_auth_401" time="0.137" /><testcase classname="tests.backend_test" name="test_bad_token" time="0.132" /><testcase classname="tests.backend_test" name="test_prefs" time="0.112" /><testcase classname="tests.backend_test" name="test_lex_chat" time="0.594"><failure message="AssertionError: {&quot;detail&quot;:&quot;AI error: Failed to generate chat completion: litellm.BadRequestError: OpenAIException - Budget has been exceeded! Current cost: 0.001704, Max budget: 0.001&quot;}&#10;assert 500 == 200&#10; +  where 500 = &lt;Response [500]&gt;.status_code">tests/backend_test.py:98: in test_lex_chat
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"AI error: Failed to generate chat completion: litellm.BadRequestError: OpenAIException - Budget has been exceeded! Current cost: 0.001704, Max budget: 0.001"}
+E   assert 500 == 200
+E    +  where 500 = &lt;Response [500]&gt;.status_code</failure></testcase><testcase classname="tests.backend_test" name="test_lex_chat_category" time="0.254"><failure message="assert 500 == 200&#10; +  where 500 = &lt;Response [500]&gt;.status_code">tests/backend_test.py:108: in test_lex_chat_category
+    assert r.status_code == 200
+E   assert 500 == 200
+E    +  where 500 = &lt;Response [500]&gt;.status_code</failure></testcase><testcase classname="tests.backend_test" name="test_lex_sessions" time="0.111"><failure message="assert (True and 0 &gt;= 1)&#10; +  where True = isinstance([], list)&#10; +  and   0 = len([])">tests/backend_test.py:115: in test_lex_sessions
+    assert isinstance(sessions, list) and len(sessions) &gt;= 1
+E   assert (True and 0 &gt;= 1)
+E    +  where True = isinstance([], list)
+E    +  and   0 = len([])</failure></testcase><testcase classname="tests.backend_test" name="test_lex_session_detail" time="0.000"><failure message="KeyError: 'session_id'">tests/backend_test.py:118: in test_lex_session_detail
+    r = requests.get(API + f"/lex/sessions/{state['session_id']}", headers=_h())
+                                            ^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'session_id'</failure></testcase><testcase classname="tests.backend_test" name="test_legal_letter" time="0.204"><failure message="assert 500 == 200&#10; +  where 500 = &lt;Response [500]&gt;.status_code">tests/backend_test.py:129: in test_legal_letter
+    assert r.status_code == 200
+E   assert 500 == 200
+E    +  where 500 = &lt;Response [500]&gt;.status_code</failure></testcase><testcase classname="tests.backend_test" name="test_tts" time="0.164"><failure message="AssertionError: {&quot;detail&quot;:&quot;TTS failed: Failed to generate speech: Error code: 400 - {'error': {'message': 'Budget has been exceeded! Current cost: 0.001704, Max budget: 0.001', 'type': 'budget_exceeded', 'param': None, 'code': '400'}}&quot;}&#10;assert 500 == 200&#10; +  where 500 = &lt;Response [500]&gt;.status_code">tests/backend_test.py:136: in test_tts
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"TTS failed: Failed to generate speech: Error code: 400 - {'error': {'message': 'Budget has been exceeded! Current cost: 0.001704, Max budget: 0.001', 'type': 'budget_exceeded', 'param': None, 'code': '400'}}"}
+E   assert 500 == 200
+E    +  where 500 = &lt;Response [500]&gt;.status_code</failure></testcase><testcase classname="tests.backend_test" name="test_transcribe" time="0.928" /><testcase classname="tests.backend_test" name="test_legal_files_list" time="0.108" /><testcase classname="tests.backend_test" name="test_contract_analyze" time="0.102"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 200&#10; +  where 500 = &lt;Response [500]&gt;.status_code">tests/backend_test.py:170: in test_contract_analyze
+    assert r.status_code == 200, r.text[:500]
+E   AssertionError: Internal Server Error
+E   assert 500 == 200
+E    +  where 500 = &lt;Response [500]&gt;.status_code</failure></testcase><testcase classname="tests.backend_test" name="test_sub_status" time="0.116" /><testcase classname="tests.backend_test" name="test_checkout" time="0.293" /><testcase classname="tests.backend_test" name="test_activate_test" time="0.138" /><testcase classname="tests.backend_test" name="test_trial_gating" time="0.553" /></testsuite></testsuites>

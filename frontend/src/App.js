@@ -1,0 +1,1060 @@
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import "@/App.css";
+import axios from "axios";
+import {
+  MessageCircle, Mic, Folder, FileText, Gavel, Globe, Briefcase, Home as HomeIcon,
+  Stethoscope, Scale, X, Send, Upload, Languages, LogOut, Check, ArrowLeft, Square, Play,
+  Camera, MapPin, Phone, ExternalLink, Settings as SettingsIcon, Star, Building2, Image as ImageIcon
+} from "lucide-react";
+import { STRINGS, t, RTL_LANGS } from "@/i18n";
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
+
+const COUNTRIES = [
+  { code: "GB", name: "United Kingdom" }, { code: "US", name: "United States" },
+  { code: "ES", name: "Spain" }, { code: "FR", name: "France" }, { code: "IQ", name: "Iraq" },
+  { code: "PL", name: "Poland" }, { code: "DE", name: "Germany" }, { code: "IN", name: "India" },
+  { code: "PK", name: "Pakistan" }, { code: "IT", name: "Italy" }, { code: "PT", name: "Portugal" },
+  { code: "CN", name: "China" }, { code: "AE", name: "UAE" }, { code: "AU", name: "Australia" },
+  { code: "CA", name: "Canada" },
+];
+
+const LANGS = [
+  { code: "en-GB", name: "English", flag: "🇬🇧" }, { code: "es-ES", name: "Español", flag: "🇪🇸" },
+  { code: "fr-FR", name: "Français", flag: "🇫🇷" }, { code: "ar-IQ", name: "العربية", flag: "🇮🇶" },
+  { code: "pl-PL", name: "Polski", flag: "🇵🇱" }, { code: "de-DE", name: "Deutsch", flag: "🇩🇪" },
+  { code: "hi-IN", name: "हिन्दी", flag: "🇮🇳" }, { code: "ur-PK", name: "اردو", flag: "🇵🇰" },
+  { code: "it-IT", name: "Italiano", flag: "🇮🇹" }, { code: "pt-PT", name: "Português", flag: "🇵🇹" },
+  { code: "zh-CN", name: "中文 (简体)", flag: "🇨🇳" },
+];
+
+// ---------- API helpers ----------
+const api = axios.create({ baseURL: API });
+const setAuthHeader = (token) => {
+  if (token) api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+  else delete api.defaults.headers.common["Authorization"];
+};
+
+// ---------- Logo / Lex visuals ----------
+const Logo = ({ size = "lg" }) => (
+  <div className="flex flex-col items-center" data-testid="app-logo">
+    <Scale className={size === "lg" ? "w-16 h-16" : "w-10 h-10"} style={{ color: "var(--gold)" }} />
+    <h1 className="brand-font gold-grad" style={{ fontSize: size === "lg" ? 38 : 22, marginTop: 6, marginBottom: 0 }}>AI</h1>
+    <h1 className="brand-font gold-grad" style={{ fontSize: size === "lg" ? 38 : 22, lineHeight: 1, marginTop: -6 }}>ADVOCATE</h1>
+  </div>
+);
+
+const LexAvatar = ({ size = 70, recording = false, onClick }) => (
+  <div className={`lex-circle ${recording ? "recording" : ""}`} onClick={onClick}
+       style={{ width: size, height: size }} data-testid="lex-avatar">
+    <span style={{ fontSize: size * 0.22 }}>LEX</span>
+  </div>
+);
+
+// ---------- Onboarding ----------
+function LanguagePicker({ initial, onConfirm, lang }) {
+  const [sel, setSel] = useState(initial || "en-GB");
+  return (
+    <div className="modal-bg" data-testid="lang-modal">
+      <div className="modal-card" style={{ padding: 20 }}>
+        <h2 className="brand-font gold" style={{ fontSize: 22, marginTop: 6 }}>{t(lang, "selectLanguage")}</h2>
+        <div style={{ overflowY: "auto", maxHeight: "60vh", marginTop: 10 }}>
+          {LANGS.map(l => (
+            <button key={l.code} onClick={() => setSel(l.code)}
+              data-testid={`lang-${l.code}`}
+              className="flex items-center gap-3 w-full p-3 rounded-lg"
+              style={{
+                background: sel === l.code ? "rgba(247,201,72,0.1)" : "transparent",
+                border: sel === l.code ? "1px solid var(--gold)" : "1px solid transparent",
+                marginBottom: 6, color: "var(--text)", textAlign: "left", cursor: "pointer"
+              }}>
+              <span style={{ fontSize: 22 }}>{l.flag}</span>
+              <span style={{ flex: 1 }}>{l.name}</span>
+              <span style={{ color: "var(--text-muted)", fontSize: 13 }}>({l.code})</span>
+            </button>
+          ))}
+        </div>
+        <button className="btn-gold w-full" data-testid="lang-ok-btn" onClick={() => onConfirm(sel)} style={{ marginTop: 12 }}>
+          {t(lang, "ok")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TermsScreen({ lang, onAccept, onDecline, onChangeLang }) {
+  const [agree, setAgree] = useState(false);
+  return (
+    <div className="modal-bg" data-testid="terms-modal">
+      <div className="modal-card" style={{ padding: 22 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 12 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 22 }}>{t(lang, "termsTitle")}</h2>
+          <button className="btn-gold" data-testid="terms-lang-btn" onClick={onChangeLang}
+                  style={{ padding: "6px 14px", fontSize: 13 }}>
+            <Languages size={14} style={{ display: "inline", marginRight: 6 }} />{t(lang, "lang")}
+          </button>
+        </div>
+        <p style={{ color: "var(--text-dim)", fontSize: 14 }}>
+          Please review and accept to continue. This app provides general information and tools.
+          It is not a law firm and does not replace advice from a qualified lawyer in your jurisdiction.
+        </p>
+        <div style={{ overflowY: "auto", maxHeight: "44vh", padding: 14, background: "#0a0a0a", borderRadius: 12, border: "1px solid var(--line)", marginTop: 10, fontSize: 13, color: "var(--text-dim)", lineHeight: 1.7 }}>
+          <p><strong>1) Service Nature:</strong> AI-generated legal information and document tooling for personal use only. We are not a law firm and do not provide legal representation.</p>
+          <p><strong>2) No Attorney–Client Relationship:</strong> Use of the app does not create an attorney-client relationship.</p>
+          <p><strong>3) Accuracy & Limits:</strong> We strive for accuracy but do not guarantee completeness or that content fits your purpose. Use at your own risk.</p>
+          <p><strong>4) Your Content:</strong> You retain rights to your uploads. You grant us a limited license to process them to provide the service.</p>
+          <p><strong>5) Privacy:</strong> We process data as described in our Privacy Policy. Conversations may be stored to improve the service.</p>
+          <p><strong>6) Subscription:</strong> 14-day free trial. After that a paid subscription is required to continue using premium features.</p>
+        </div>
+        <label className="flex items-center gap-2" style={{ marginTop: 14, cursor: "pointer" }}>
+          <input type="checkbox" data-testid="agree-checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)}
+                 style={{ width: 18, height: 18, accentColor: "var(--gold)" }} />
+          <span style={{ fontSize: 14 }}>{t(lang, "iAgree")}</span>
+        </label>
+        <div className="flex gap-2" style={{ marginTop: 14 }}>
+          <button className="btn-gold" data-testid="accept-terms-btn" disabled={!agree} style={{ flex: 2 }} onClick={onAccept}>{t(lang, "accept")}</button>
+          <button className="btn-ghost" data-testid="decline-terms-btn" onClick={onDecline} style={{ flex: 1 }}>{t(lang, "decline")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Auth ----------
+function AuthScreen({ lang, country, onAuth }) {
+  const [mode, setMode] = useState("signin");
+  const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
+  const [name, setName] = useState(""); const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = async (e) => {
+    e.preventDefault(); setBusy(true); setErr("");
+    try {
+      const path = mode === "signup" ? "/auth/signup" : "/auth/login";
+      const body = mode === "signup" ? { email, password, full_name: name, language: lang, country } : { email, password };
+      const { data } = await api.post(path, body);
+      onAuth(data);
+    } catch (e) { setErr(e?.response?.data?.detail || "Auth failed"); }
+    finally { setBusy(false); }
+  };
+
+  const googleDemo = async () => {
+    setBusy(true); setErr("");
+    try {
+      const fakeId = "g_" + Math.random().toString(36).slice(2);
+      const fakeEmail = `demo.${fakeId.slice(0,6)}@gmail.com`;
+      const { data } = await api.post("/auth/google", { email: fakeEmail, name: "Google User", google_id: fakeId });
+      onAuth(data);
+    } catch (e) { setErr(e?.response?.data?.detail || "Google sign-in failed"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }} data-testid="auth-screen">
+      <Logo />
+      <p style={{ color: "var(--gold-soft)", marginTop: 8 }}>{t(lang, "tagline")}</p>
+      <form onSubmit={submit} style={{ width: "100%", maxWidth: 380, marginTop: 30 }}>
+        {mode === "signup" && (
+          <input className="input" data-testid="name-input" placeholder={t(lang, "fullName")} value={name} onChange={(e) => setName(e.target.value)} style={{ marginBottom: 10 }} />
+        )}
+        <input className="input" type="email" data-testid="email-input" placeholder={t(lang, "email")} value={email} onChange={(e) => setEmail(e.target.value)} required style={{ marginBottom: 10 }} />
+        <input className="input" type="password" data-testid="password-input" placeholder={t(lang, "password")} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} style={{ marginBottom: 10 }} />
+        {err && <div style={{ color: "var(--danger)", fontSize: 13, marginBottom: 8 }}>{err}</div>}
+        <button className="btn-gold w-full" data-testid="auth-submit-btn" type="submit" disabled={busy}>
+          {busy ? <span className="spinner" /> : (mode === "signup" ? t(lang, "signUp") : t(lang, "signIn"))}
+        </button>
+      </form>
+      <div style={{ width: "100%", maxWidth: 380, marginTop: 16, textAlign: "center", color: "var(--text-muted)" }}>
+        — {t(lang, "or")} —
+      </div>
+      <button className="btn-ghost" data-testid="google-btn" onClick={googleDemo} disabled={busy} style={{ width: "100%", maxWidth: 380, marginTop: 12 }}>
+        {t(lang, "continueWithGoogle")}
+      </button>
+      <button data-testid="toggle-mode-btn" onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+              style={{ marginTop: 20, color: "var(--gold-soft)", background: "transparent", border: "none", cursor: "pointer" }}>
+        {mode === "signin" ? t(lang, "noAccount") + " " + t(lang, "signUp") : t(lang, "haveAccount") + " " + t(lang, "signIn")}
+      </button>
+    </div>
+  );
+}
+
+// ---------- Voice Recording Hook ----------
+const useRecorder = () => {
+  const mr = useRef(null); const chunks = useRef([]);
+  const [recording, setRecording] = useState(false);
+
+  const start = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      chunks.current = [];
+      recorder.ondataavailable = (e) => chunks.current.push(e.data);
+      recorder.start();
+      mr.current = { recorder, stream };
+      setRecording(true);
+    } catch (e) { alert("Microphone access denied"); }
+  };
+  const stop = () => new Promise((resolve) => {
+    if (!mr.current) return resolve(null);
+    const { recorder, stream } = mr.current;
+    recorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(chunks.current, { type: "audio/webm" });
+      mr.current = null; setRecording(false); resolve(blob);
+    };
+    recorder.stop();
+  });
+  return { recording, start, stop };
+};
+
+// ---------- Lex Chat ----------
+function LexChat({ lang, country, category, title, onClose }) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sessionId, setSessionId] = useState(null);
+  const { recording, start, stop } = useRecorder();
+  const audioRef = useRef(null);
+  const scrollRef = useRef(null);
+
+  useEffect(() => { scrollRef.current?.scrollTo({ top: 1e9, behavior: "smooth" }); }, [messages, busy]);
+
+  const send = async (text) => {
+    if (!text.trim()) return;
+    setMessages(m => [...m, { role: "user", content: text }]); setInput(""); setBusy(true);
+    try {
+      const { data } = await api.post("/lex/chat", { message: text, session_id: sessionId, language: lang, country, category });
+      setSessionId(data.session_id);
+      setMessages(m => [...m, { role: "lex", content: data.response }]);
+      // TTS playback
+      try {
+        const r = await api.post("/voice/tts", { text: data.response.slice(0, 1500), voice: "onyx" }, { responseType: "blob" });
+        const url = URL.createObjectURL(r.data);
+        if (audioRef.current) { audioRef.current.src = url; audioRef.current.play().catch(() => {}); }
+      } catch {}
+    } catch (e) {
+      setMessages(m => [...m, { role: "lex", content: e?.response?.data?.detail || "Error: try again" }]);
+    } finally { setBusy(false); }
+  };
+
+  const onMic = async () => {
+    if (recording) {
+      const blob = await stop();
+      if (!blob) return;
+      setBusy(true);
+      const fd = new FormData(); fd.append("audio", blob, "rec.webm"); fd.append("language", lang.split("-")[0]);
+      try {
+        const { data } = await api.post("/voice/transcribe", fd);
+        if (data.text) await send(data.text);
+        else setBusy(false);
+      } catch (e) { setBusy(false); alert(e?.response?.data?.detail || "Transcribe failed"); }
+    } else { start(); }
+  };
+
+  return (
+    <div className="modal-bg" data-testid="lex-chat-modal">
+      <div className="modal-card" style={{ height: "90vh" }}>
+        <div className="flex items-center justify-between" style={{ padding: 16, borderBottom: "1px solid var(--line)" }}>
+          <div className="flex items-center gap-3">
+            <LexAvatar size={42} />
+            <div><div className="brand-font gold" style={{ fontSize: 16 }}>{title || "LEX"}</div>
+                 <div style={{ fontSize: 11, color: "var(--text-muted)" }}>AI Advocate</div></div>
+          </div>
+          <button onClick={onClose} data-testid="lex-close-btn" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}>
+            <X size={24} />
+          </button>
+        </div>
+
+        <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+          {messages.length === 0 && (
+            <div style={{ textAlign: "center", color: "var(--text-muted)", marginTop: 40 }}>
+              <LexAvatar size={70} />
+              <p style={{ marginTop: 16 }}>{t(lang, "chatPlaceholder")}</p>
+            </div>
+          )}
+          {messages.map((m, i) => (
+            <div key={i} className={m.role === "user" ? "bubble-user" : "bubble-lex"}
+                 data-testid={`msg-${m.role}-${i}`}
+                 style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", padding: "10px 14px", borderRadius: 14, maxWidth: "82%", whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 }}>
+              {m.content}
+            </div>
+          ))}
+          {busy && <div className="bubble-lex" style={{ alignSelf: "flex-start", padding: "10px 14px", borderRadius: 14 }}><span className="spinner" /> Lex thinking…</div>}
+        </div>
+
+        <div className="flex items-center gap-2" style={{ padding: 12, borderTop: "1px solid var(--line)" }}>
+          <button onClick={onMic} data-testid="mic-btn"
+                  style={{ background: recording ? "var(--danger)" : "var(--bg-card)", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: "50%", width: 48, height: 48, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {recording ? <Square size={20} /> : <Mic size={22} />}
+          </button>
+          <input className="input" data-testid="chat-input" placeholder={t(lang, "chatPlaceholder")} value={input} onChange={(e) => setInput(e.target.value)}
+                 onKeyDown={(e) => e.key === "Enter" && send(input)} style={{ flex: 1 }} />
+          <button className="btn-gold" data-testid="send-btn" onClick={() => send(input)} disabled={!input.trim() || busy} style={{ padding: "12px 16px" }}>
+            <Send size={18} />
+          </button>
+        </div>
+        <audio ref={audioRef} style={{ display: "none" }} />
+      </div>
+    </div>
+  );
+}
+
+// ---------- Contract Upload ----------
+function ContractUploader({ lang, country, onClose }) {
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const upload = async () => {
+    if (!file) return; setBusy(true);
+    const fd = new FormData(); fd.append("file", file); fd.append("language", lang); fd.append("country", country);
+    try {
+      const { data } = await api.post("/contracts/analyze", fd);
+      setResult(data);
+    } catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="modal-bg" data-testid="contract-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "92vh" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>Contract Review</h2>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={24} /></button>
+        </div>
+        {!result ? (
+          <>
+            <label htmlFor="cfile" style={{ display: "block", border: "2px dashed var(--gold-deep)", borderRadius: 14, padding: 30, textAlign: "center", cursor: "pointer", color: "var(--text-dim)" }} data-testid="contract-dropzone">
+              <Upload size={32} style={{ color: "var(--gold)", marginBottom: 8 }} />
+              <div>{file ? file.name : "Click to upload PDF, DOCX, or image"}</div>
+            </label>
+            <input id="cfile" data-testid="contract-file-input" type="file" accept=".pdf,.docx,.txt,image/*" onChange={(e) => setFile(e.target.files[0])} style={{ display: "none" }} />
+            <button className="btn-gold w-full" data-testid="contract-analyze-btn" disabled={!file || busy} onClick={upload} style={{ marginTop: 16 }}>
+              {busy ? <span className="spinner" /> : t(lang, "upload")}
+            </button>
+            {busy && <div style={{ textAlign: "center", color: "var(--gold-soft)", marginTop: 14 }}>{t(lang, "analysisRunning")}</div>}
+          </>
+        ) : (
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 8 }}>{result.filename}</div>
+            <div style={{ whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.6, color: "var(--text-dim)" }}>{result.analysis}</div>
+            <button className="btn-ghost w-full" onClick={() => { setResult(null); setFile(null); }} style={{ marginTop: 16 }}>
+              Analyze another
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Legal Letter ----------
+function LegalLetterModal({ lang, country, onClose }) {
+  const [form, setForm] = useState({ letter_type: "", recipient: "", your_name: "", details: "" });
+  const [letter, setLetter] = useState(""); const [busy, setBusy] = useState(false);
+
+  const generate = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post("/legal-letter", { ...form, language: lang });
+      setLetter(data.letter);
+    } catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="modal-bg" data-testid="letter-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "92vh" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "legalLetterTitle")}</h2>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={24} /></button>
+        </div>
+        {!letter ? (
+          <div style={{ overflowY: "auto" }}>
+            <input className="input" data-testid="letter-type" placeholder={t(lang, "letterType")} value={form.letter_type} onChange={(e) => setForm({ ...form, letter_type: e.target.value })} style={{ marginBottom: 10 }} />
+            <input className="input" data-testid="letter-yourname" placeholder={t(lang, "yourName")} value={form.your_name} onChange={(e) => setForm({ ...form, your_name: e.target.value })} style={{ marginBottom: 10 }} />
+            <input className="input" data-testid="letter-recipient" placeholder={t(lang, "recipient")} value={form.recipient} onChange={(e) => setForm({ ...form, recipient: e.target.value })} style={{ marginBottom: 10 }} />
+            <textarea className="input" data-testid="letter-details" placeholder={t(lang, "details")} rows={6} value={form.details} onChange={(e) => setForm({ ...form, details: e.target.value })} />
+            <button className="btn-gold w-full" data-testid="letter-generate-btn" onClick={generate} disabled={busy || !form.letter_type || !form.details} style={{ marginTop: 12 }}>
+              {busy ? <span className="spinner" /> : t(lang, "generate")}
+            </button>
+          </div>
+        ) : (
+          <div style={{ overflowY: "auto" }}>
+            <pre style={{ background: "#0a0a0a", padding: 16, borderRadius: 12, whiteSpace: "pre-wrap", color: "var(--text-dim)", fontSize: 13.5, fontFamily: "Outfit, sans-serif" }}>{letter}</pre>
+            <button className="btn-ghost w-full" onClick={() => setLetter("")} style={{ marginTop: 12 }}>New letter</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Record Legal Interaction ----------
+function RecordModal({ lang, country, onClose }) {
+  const { recording, start, stop } = useRecorder();
+  const [busy, setBusy] = useState(false); const [result, setResult] = useState(null);
+
+  const onMic = async () => {
+    if (recording) {
+      const blob = await stop(); if (!blob) return; setBusy(true);
+      const fd = new FormData(); fd.append("audio", blob, "rec.webm"); fd.append("language", lang); fd.append("country", country);
+      try { const { data } = await api.post("/record/analyze", fd); setResult(data); }
+      catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+      finally { setBusy(false); }
+    } else { start(); }
+  };
+
+  return (
+    <div className="modal-bg" data-testid="record-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "92vh" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "recordLegal")}</h2>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={24} /></button>
+        </div>
+        {!result ? (
+          <div style={{ textAlign: "center", padding: "30px 10px" }}>
+            <p style={{ color: "var(--text-dim)", marginBottom: 20 }}>
+              Record your interaction with police, court, or any legal authority. Lex will transcribe and analyse it.
+            </p>
+            <button onClick={onMic} disabled={busy} data-testid="record-mic-btn"
+                    className={recording ? "lex-circle recording" : ""}
+                    style={{ width: 100, height: 100, borderRadius: "50%", background: recording ? "var(--danger)" : "var(--bg-card)",
+                             border: "2px solid var(--gold)", color: "var(--gold)", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+              {busy ? <span className="spinner" /> : (recording ? <Square size={36} /> : <Mic size={36} />)}
+            </button>
+            <p style={{ marginTop: 14, color: "var(--gold-soft)" }}>
+              {busy ? t(lang, "analyzing") : (recording ? t(lang, "recording") : t(lang, "tapToRecord"))}
+            </p>
+          </div>
+        ) : (
+          <div style={{ overflowY: "auto" }}>
+            <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6 }}>Transcript</div>
+            <div style={{ background: "#0a0a0a", padding: 12, borderRadius: 10, color: "var(--text-dim)", fontSize: 13.5, marginBottom: 14 }}>{result.transcript}</div>
+            <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6 }}>Lex's Analysis</div>
+            <div style={{ background: "#0a0a0a", padding: 12, borderRadius: 10, color: "var(--text-dim)", fontSize: 13.5, whiteSpace: "pre-wrap" }}>{result.analysis}</div>
+            <button className="btn-ghost w-full" onClick={() => setResult(null)} style={{ marginTop: 14 }}>Record another</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- My Files ----------
+function FilesModal({ lang, onClose }) {
+  const [files, setFiles] = useState([]); const [open, setOpen] = useState(null);
+  useEffect(() => { api.get("/legal-files").then(r => setFiles(r.data)).catch(() => {}); }, []);
+  return (
+    <div className="modal-bg" data-testid="files-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "92vh" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "myFiles")}</h2>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={24} /></button>
+        </div>
+        {!open ? (
+          <div style={{ overflowY: "auto" }}>
+            {files.length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>No files yet.</p>}
+            {files.map(f => (
+              <button key={f.id} onClick={() => setOpen(f)} className="w-full" data-testid={`file-${f.id}`}
+                      style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 14, marginBottom: 8, color: "var(--text)", textAlign: "left", cursor: "pointer" }}>
+                <div style={{ color: "var(--gold)", fontWeight: 600 }}>{f.filename || f.type}</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{new Date(f.created_at).toLocaleString()}</div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div style={{ overflowY: "auto" }}>
+            <button className="btn-ghost" onClick={() => setOpen(null)} style={{ marginBottom: 12, padding: "8px 14px" }}><ArrowLeft size={16} /> Back</button>
+            <h3 style={{ color: "var(--gold)" }}>{open.filename}</h3>
+            {open.transcript && <><div style={{ color: "var(--gold)", marginTop: 10 }}>Transcript</div><div style={{ background: "#0a0a0a", padding: 10, borderRadius: 8, color: "var(--text-dim)", fontSize: 13 }}>{open.transcript}</div></>}
+            {(open.analysis || open.content) && <><div style={{ color: "var(--gold)", marginTop: 10 }}>Content</div><div style={{ background: "#0a0a0a", padding: 10, borderRadius: 8, whiteSpace: "pre-wrap", color: "var(--text-dim)", fontSize: 13 }}>{open.analysis || open.content}</div></>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Snap Evidence (camera + upload) ----------
+function SnapEvidenceModal({ lang, country, onClose }) {
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [evidenceType, setEvidenceType] = useState("auto");
+  const [description, setDescription] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const cameraRef = useRef(null);
+  const libraryRef = useRef(null);
+
+  const onFile = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFile(f);
+    setPreview(URL.createObjectURL(f));
+  };
+
+  const submit = async () => {
+    if (!file) return;
+    setBusy(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("evidence_type", evidenceType);
+    fd.append("description", description);
+    fd.append("language", lang);
+    fd.append("country", country);
+    try {
+      const { data } = await api.post("/evidence/analyze", fd);
+      setResult(data);
+    } catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+    finally { setBusy(false); }
+  };
+
+  const types = [
+    { v: "auto", k: "evidenceTypeAuto" },
+    { v: "contract", k: "evidenceTypeContract" },
+    { v: "parking_ticket", k: "evidenceTypeTicket" },
+    { v: "scene", k: "evidenceTypeScene" },
+    { v: "document", k: "evidenceTypeDocument" },
+    { v: "signage", k: "evidenceTypeSignage" },
+  ];
+
+  return (
+    <div className="modal-bg" data-testid="evidence-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "snapEvidence")}</h2>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
+        </div>
+        {!result ? (
+          <div style={{ overflowY: "auto" }}>
+            {!preview ? (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <button data-testid="evidence-camera-btn" onClick={() => cameraRef.current?.click()}
+                  style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 24, color: "var(--gold)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                  <Camera size={36} /><span style={{ fontSize: 13, color: "var(--text)" }}>{t(lang, "takePhoto")}</span>
+                </button>
+                <button data-testid="evidence-library-btn" onClick={() => libraryRef.current?.click()}
+                  style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 24, color: "var(--gold)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                  <ImageIcon size={36} /><span style={{ fontSize: 13, color: "var(--text)" }}>{t(lang, "chooseFromLibrary")}</span>
+                </button>
+                <input ref={cameraRef} data-testid="evidence-camera-input" type="file" accept="image/*" capture="environment" onChange={onFile} style={{ display: "none" }} />
+                <input ref={libraryRef} data-testid="evidence-library-input" type="file" accept="image/*,.pdf,.docx" onChange={onFile} style={{ display: "none" }} />
+              </div>
+            ) : (
+              <>
+                <div style={{ position: "relative", borderRadius: 14, overflow: "hidden", border: "1px solid var(--line)", marginBottom: 12 }}>
+                  {file?.type?.startsWith("image/") ? (
+                    <img src={preview} alt="" style={{ width: "100%", maxHeight: 320, objectFit: "contain", background: "#0a0a0a" }} />
+                  ) : (
+                    <div style={{ padding: 30, textAlign: "center", color: "var(--text-dim)" }}>{file?.name}</div>
+                  )}
+                  <button onClick={() => { setFile(null); setPreview(null); }}
+                    style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.7)", border: "1px solid var(--line)", color: "var(--text)", borderRadius: "50%", width: 32, height: 32, cursor: "pointer" }}>
+                    <X size={16} />
+                  </button>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                  {types.map(typ => (
+                    <button key={typ.v} data-testid={`evtype-${typ.v}`} onClick={() => setEvidenceType(typ.v)}
+                      style={{
+                        padding: "6px 12px", borderRadius: 16, fontSize: 12, cursor: "pointer",
+                        background: evidenceType === typ.v ? "var(--gold)" : "transparent",
+                        color: evidenceType === typ.v ? "#1a1300" : "var(--gold)",
+                        border: "1px solid var(--gold-deep)",
+                      }}>{t(lang, typ.k)}</button>
+                  ))}
+                </div>
+                <textarea className="input" data-testid="evidence-note" rows={3} placeholder={t(lang, "addNote")}
+                  value={description} onChange={(e) => setDescription(e.target.value)} />
+                <button className="btn-gold w-full" data-testid="evidence-analyze-btn" disabled={busy} onClick={submit} style={{ marginTop: 12 }}>
+                  {busy ? <span className="spinner" /> : t(lang, "analyzePhoto")}
+                </button>
+              </>
+            )}
+          </div>
+        ) : (
+          <div style={{ overflowY: "auto" }}>
+            <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 8 }}>{result.filename}</div>
+            <div style={{ whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.6, color: "var(--text-dim)" }}>{result.analysis}</div>
+            <button className="btn-ghost w-full" onClick={() => { setResult(null); setFile(null); setPreview(null); setDescription(""); }} style={{ marginTop: 16 }}>
+              Snap another
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Find a Lawyer ----------
+function LawyersModal({ lang, country, user, onClose, openAdvertise }) {
+  const [firms, setFirms] = useState([]);
+  const [tab, setTab] = useState("nearby"); // nearby | all
+  const [busy, setBusy] = useState(true);
+  const [selected, setSelected] = useState(null);
+  const [inquiry, setInquiry] = useState({ name: user.full_name || "", email: user.email, phone: "", message: "" });
+  const [sent, setSent] = useState(false);
+
+  const load = useCallback(async () => {
+    setBusy(true);
+    try {
+      const params = {};
+      if (tab === "nearby" && user.location_enabled && user.latitude && user.longitude) {
+        params.latitude = user.latitude; params.longitude = user.longitude;
+      } else if (tab === "nearby" && country) {
+        params.country = country;
+      }
+      const { data } = await api.get("/lawfirms", { params });
+      setFirms(data);
+    } catch (e) { /* ignore */ }
+    finally { setBusy(false); }
+  }, [tab, user.latitude, user.longitude, user.location_enabled, country]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const sendInquiry = async () => {
+    try {
+      await api.post("/lawfirms/inquiry", { firm_id: selected.id, ...inquiry });
+      setSent(true);
+    } catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+  };
+
+  return (
+    <div className="modal-bg" data-testid="lawyers-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "findLawyer")}</h2>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
+        </div>
+
+        {!selected ? (
+          <>
+            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12 }}>{t(lang, "seekAdvice")}</p>
+            <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+              <button data-testid="tab-nearby" onClick={() => setTab("nearby")}
+                style={{ flex: 1, padding: "8px 12px", borderRadius: 10, cursor: "pointer",
+                  background: tab === "nearby" ? "var(--gold)" : "transparent",
+                  color: tab === "nearby" ? "#1a1300" : "var(--gold)", border: "1px solid var(--gold-deep)" }}>
+                {t(lang, "nearbyLawyers")}
+              </button>
+              <button data-testid="tab-all" onClick={() => setTab("all")}
+                style={{ flex: 1, padding: "8px 12px", borderRadius: 10, cursor: "pointer",
+                  background: tab === "all" ? "var(--gold)" : "transparent",
+                  color: tab === "all" ? "#1a1300" : "var(--gold)", border: "1px solid var(--gold-deep)" }}>
+                {t(lang, "allFirms")}
+              </button>
+            </div>
+
+            {tab === "nearby" && !user.location_enabled && (
+              <div className="trial-banner" style={{ marginBottom: 12, fontSize: 13 }}>
+                {t(lang, "enableLocation")}
+              </div>
+            )}
+
+            <div style={{ overflowY: "auto", flex: 1 }}>
+              {busy && <div style={{ textAlign: "center", padding: 24 }}><span className="spinner" /></div>}
+              {!busy && firms.length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>No firms found.</p>}
+              {firms.map(f => (
+                <button key={f.id} data-testid={`firm-${f.id}`} onClick={() => { setSelected(f); setSent(false); }} className="w-full"
+                  style={{ background: "var(--bg-card)", border: f.sponsored ? "1px solid var(--gold)" : "1px solid var(--line)", borderRadius: 12, padding: 14, marginBottom: 10, color: "var(--text)", textAlign: "left", cursor: "pointer", position: "relative" }}>
+                  {f.sponsored && (
+                    <span style={{ position: "absolute", top: -8, right: 12, background: "var(--gold)", color: "#1a1300", fontSize: 10, padding: "2px 8px", borderRadius: 6, fontWeight: 600 }}>
+                      {t(lang, "sponsored")}
+                    </span>
+                  )}
+                  <div style={{ color: "var(--gold)", fontWeight: 600, fontSize: 15 }}>{f.name}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                    <MapPin size={12} style={{ display: "inline", marginRight: 4 }} />
+                    {f.city}, {f.country}{f.distance_km != null ? ` · ${t(lang, "distanceAway", { n: f.distance_km })}` : ""}
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 6 }}>
+                    {(f.specialties || []).slice(0, 3).join(" · ")}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 6 }}>
+                    <Star size={12} style={{ color: "var(--gold)" }} fill="currentColor" />
+                    <span style={{ fontSize: 12, color: "var(--gold-soft)" }}>{f.rating?.toFixed(1) || "—"}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <button className="btn-ghost w-full" data-testid="advertise-btn" onClick={openAdvertise} style={{ marginTop: 10 }}>
+              <Building2 size={16} style={{ display: "inline", marginRight: 6 }} />
+              {t(lang, "listLawFirm")}
+            </button>
+          </>
+        ) : sent ? (
+          <div style={{ textAlign: "center", padding: 30 }}>
+            <Check size={48} style={{ color: "var(--gold)" }} />
+            <h3 style={{ color: "var(--gold)", marginTop: 12 }}>Message sent</h3>
+            <p style={{ color: "var(--text-dim)", fontSize: 14 }}>{selected.name} will get back to you soon.</p>
+            <button className="btn-ghost w-full" onClick={() => { setSelected(null); setSent(false); }} style={{ marginTop: 16 }}>Back to list</button>
+          </div>
+        ) : (
+          <div style={{ overflowY: "auto" }}>
+            <button className="btn-ghost" data-testid="back-firms" onClick={() => setSelected(null)} style={{ marginBottom: 12, padding: "6px 12px" }}>
+              <ArrowLeft size={14} style={{ display: "inline" }} /> Back
+            </button>
+            <h3 style={{ color: "var(--gold)" }}>{selected.name}</h3>
+            <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 8 }}>{selected.address}</div>
+            <p style={{ color: "var(--text-dim)", fontSize: 14 }}>{selected.description}</p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+              {(selected.specialties || []).map(s => (
+                <span key={s} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 12, background: "rgba(247,201,72,0.1)", color: "var(--gold)", border: "1px solid var(--gold-deep)" }}>{s}</span>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <a href={`tel:${selected.phone}`} className="btn-ghost" style={{ flex: 1, textAlign: "center", textDecoration: "none", padding: "10px 12px" }}>
+                <Phone size={14} style={{ display: "inline", marginRight: 4 }} />{t(lang, "call")}
+              </a>
+              <a href={selected.website} target="_blank" rel="noreferrer" className="btn-ghost" style={{ flex: 1, textAlign: "center", textDecoration: "none", padding: "10px 12px" }}>
+                <ExternalLink size={14} style={{ display: "inline", marginRight: 4 }} />{t(lang, "visit")}
+              </a>
+            </div>
+            <h4 style={{ color: "var(--gold)", marginTop: 18 }}>{t(lang, "inquireTitle")}</h4>
+            <input className="input" data-testid="inq-name" value={inquiry.name} onChange={(e) => setInquiry({ ...inquiry, name: e.target.value })} placeholder="Name" style={{ marginBottom: 8 }} />
+            <input className="input" data-testid="inq-email" value={inquiry.email} onChange={(e) => setInquiry({ ...inquiry, email: e.target.value })} placeholder="Email" style={{ marginBottom: 8 }} />
+            <input className="input" data-testid="inq-phone" value={inquiry.phone} onChange={(e) => setInquiry({ ...inquiry, phone: e.target.value })} placeholder="Phone (optional)" style={{ marginBottom: 8 }} />
+            <textarea className="input" data-testid="inq-message" rows={3} value={inquiry.message} onChange={(e) => setInquiry({ ...inquiry, message: e.target.value })} placeholder="Your message" />
+            <button className="btn-gold w-full" data-testid="send-inquiry-btn" onClick={sendInquiry} disabled={!inquiry.name || !inquiry.email || !inquiry.message} style={{ marginTop: 10 }}>
+              {t(lang, "sendInquiry")}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Advertise (Law firm signup) ----------
+function AdvertiseModal({ lang, onClose }) {
+  const [form, setForm] = useState({ firm_name: "", contact_name: "", email: "", phone: "", country: "GB", city: "", specialties: "", website: "", notes: "" });
+  const [busy, setBusy] = useState(false); const [done, setDone] = useState(false);
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await api.post("/lawfirms/advertise", { ...form, specialties: form.specialties.split(",").map(s => s.trim()).filter(Boolean) });
+      setDone(true);
+    } catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="modal-bg" data-testid="advertise-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "advertiseTitle")}</h2>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
+        </div>
+        {done ? (
+          <div style={{ textAlign: "center", padding: 30 }}>
+            <Check size={48} style={{ color: "var(--gold)" }} />
+            <h3 style={{ color: "var(--gold)", marginTop: 12 }}>{t(lang, "appReceived")}</h3>
+          </div>
+        ) : (
+          <div style={{ overflowY: "auto" }}>
+            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12 }}>{t(lang, "advertiseSubtitle")}</p>
+            <input className="input" data-testid="adv-firm" placeholder={t(lang, "firmName")} value={form.firm_name} onChange={(e) => setForm({ ...form, firm_name: e.target.value })} style={{ marginBottom: 8 }} />
+            <input className="input" data-testid="adv-contact" placeholder={t(lang, "contactName")} value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} style={{ marginBottom: 8 }} />
+            <input className="input" data-testid="adv-email" type="email" placeholder={t(lang, "email")} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} style={{ marginBottom: 8 }} />
+            <input className="input" data-testid="adv-phone" placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} style={{ marginBottom: 8 }} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+              <select className="input" data-testid="adv-country" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })}>
+                {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+              </select>
+              <input className="input" data-testid="adv-city" placeholder="City" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
+            </div>
+            <input className="input" data-testid="adv-spec" placeholder="Specialties (comma-separated, e.g. employment, property)" value={form.specialties} onChange={(e) => setForm({ ...form, specialties: e.target.value })} style={{ marginBottom: 8 }} />
+            <input className="input" data-testid="adv-website" placeholder="Website" value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} style={{ marginBottom: 8 }} />
+            <textarea className="input" data-testid="adv-notes" rows={3} placeholder="Tell us about your firm" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            <button className="btn-gold w-full" data-testid="adv-submit-btn" disabled={busy || !form.firm_name || !form.email || !form.contact_name} onClick={submit} style={{ marginTop: 12 }}>
+              {busy ? <span className="spinner" /> : t(lang, "apply")}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Settings ----------
+function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCountry }) {
+  const [busy, setBusy] = useState(false);
+  const [locOn, setLocOn] = useState(!!user.location_enabled);
+
+  const toggleLocation = async () => {
+    if (!locOn) {
+      // Turn ON — request geolocation
+      if (!navigator.geolocation) { alert("Geolocation not supported"); return; }
+      setBusy(true);
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          try {
+            const { data } = await api.patch("/auth/preferences", {
+              location_enabled: true,
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+            });
+            onUpdate(data); setLocOn(true);
+          } catch (e) { alert("Failed to save"); }
+          finally { setBusy(false); }
+        },
+        (err) => { setBusy(false); alert("Permission denied. " + err.message); },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    } else {
+      setBusy(true);
+      try {
+        const { data } = await api.patch("/auth/preferences", { location_enabled: false });
+        onUpdate(data); setLocOn(false);
+      } catch (e) { alert("Failed"); }
+      finally { setBusy(false); }
+    }
+  };
+
+  const setCountryAndSave = async (c) => {
+    setCountry(c);
+    try { const { data } = await api.patch("/auth/preferences", { country: c }); onUpdate(data); }
+    catch {}
+  };
+
+  return (
+    <div className="modal-bg" data-testid="settings-modal">
+      <div className="modal-card" style={{ padding: 22 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 18 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 22 }}>{t(lang, "settings")}</h2>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
+        </div>
+        {/* Location */}
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <MapPin size={18} style={{ color: "var(--gold)" }} />
+                <span style={{ fontWeight: 500 }}>{t(lang, "locationServices")}</span>
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                {locOn ? t(lang, "locationOn") : t(lang, "locationOff")}
+              </div>
+            </div>
+            <button data-testid="loc-toggle" onClick={toggleLocation} disabled={busy}
+              style={{ width: 50, height: 28, borderRadius: 14, border: "none", cursor: "pointer",
+                background: locOn ? "var(--gold)" : "#333", position: "relative", transition: "background 200ms" }}>
+              <span style={{ position: "absolute", top: 3, left: locOn ? 25 : 3, width: 22, height: 22, borderRadius: "50%", background: "#fff", transition: "left 200ms" }} />
+            </button>
+          </div>
+          {!locOn && (
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
+              {t(lang, "enableLocation")}
+            </div>
+          )}
+        </div>
+
+        {/* Country */}
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6 }}>{t(lang, "country")}</div>
+          <select className="input" data-testid="settings-country" value={country} onChange={(e) => setCountryAndSave(e.target.value)}>
+            {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+          </select>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>
+            Lex applies the laws of your selected country
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ---------- Subscribe Modal ----------
+function SubscribeModal({ lang, user, onClose, onActivated }) {
+  const [busy, setBusy] = useState(false);
+  const checkout = async (plan) => {
+    setBusy(true);
+    try { const { data } = await api.post("/subscription/checkout", { plan }); window.location.href = data.checkout_url; }
+    catch (e) { alert(e?.response?.data?.detail || "Failed"); setBusy(false); }
+  };
+  const demoActivate = async () => {
+    setBusy(true);
+    try { const { data } = await api.post("/subscription/activate-test"); onActivated(data); }
+    catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="modal-bg" data-testid="subscribe-modal">
+      <div className="modal-card" style={{ padding: 22 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 22 }}>{t(lang, "plansTitle")}</h2>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={22} /></button>
+        </div>
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{t(lang, "monthly")}</div>
+          <div style={{ fontSize: 28, color: "var(--gold)", fontWeight: 600 }}>£14.99 <span style={{ fontSize: 14, color: "var(--text-muted)" }}>/mo</span></div>
+          <button className="btn-gold w-full" data-testid="checkout-monthly-btn" onClick={() => checkout("monthly")} disabled={busy} style={{ marginTop: 10 }}>
+            {busy ? <span className="spinner" /> : t(lang, "subscribe")}
+          </button>
+        </div>
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--gold)", borderRadius: 16, padding: 16, position: "relative" }}>
+          <div style={{ position: "absolute", top: -10, right: 14, background: "var(--gold)", color: "#1a1300", padding: "2px 10px", fontSize: 12, borderRadius: 8, fontWeight: 600 }}>{t(lang, "bestValue")}</div>
+          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{t(lang, "yearly")}</div>
+          <div style={{ fontSize: 28, color: "var(--gold)", fontWeight: 600 }}>£119.99 <span style={{ fontSize: 14, color: "var(--text-muted)" }}>/yr</span></div>
+          <button className="btn-gold w-full" data-testid="checkout-yearly-btn" onClick={() => checkout("yearly")} disabled={busy} style={{ marginTop: 10 }}>
+            {busy ? <span className="spinner" /> : t(lang, "subscribe")}
+          </button>
+        </div>
+        <button className="btn-ghost w-full" data-testid="demo-activate-btn" onClick={demoActivate} disabled={busy} style={{ marginTop: 12, fontSize: 13 }}>
+          Activate (demo / no payment)
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Dashboard ----------
+function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refreshUser }) {
+  const [modal, setModal] = useState(null); // {type, title, category}
+  const [showLang, setShowLang] = useState(false);
+  const [showSub, setShowSub] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showAdvertise, setShowAdvertise] = useState(false);
+
+  const tiles = [
+    { id: "ask_lex", label: t(lang, "askLex"), Icon: MessageCircle, cat: "ask_lex" },
+    { id: "record", label: t(lang, "recordLegal"), Icon: Mic, cat: "record" },
+    { id: "snap", label: t(lang, "snapEvidence"), Icon: Camera },
+    { id: "lawyers", label: t(lang, "findLawyer"), Icon: Building2 },
+    { id: "files", label: t(lang, "myFiles"), Icon: Folder },
+    { id: "letter", label: t(lang, "generateLetter"), Icon: FileText },
+    { id: "court_prep", label: t(lang, "courtPrep"), Icon: Gavel, cat: "court_prep" },
+    { id: "immigration", label: t(lang, "immigration"), Icon: Globe, cat: "immigration" },
+    { id: "employment", label: t(lang, "employment"), Icon: Briefcase, cat: "employment" },
+    { id: "property", label: t(lang, "property"), Icon: HomeIcon, cat: "property" },
+    { id: "medical", label: t(lang, "medical"), Icon: Stethoscope, cat: "medical_negligence" },
+  ];
+
+  const onTile = (tile) => {
+    // Free for all tiles: lawyers + files (don't gate behind subscription)
+    const free = ["lawyers", "files"];
+    if (!user.has_access && !free.includes(tile.id)) { setShowSub(true); return; }
+    if (tile.id === "files") setModal({ type: "files" });
+    else if (tile.id === "letter") setModal({ type: "letter" });
+    else if (tile.id === "record") setModal({ type: "record" });
+    else if (tile.id === "snap") setModal({ type: "snap" });
+    else if (tile.id === "lawyers") setModal({ type: "lawyers" });
+    else if (tile.id === "ask_lex") setModal({ type: "chat", title: t(lang, "askLex"), category: tile.cat });
+    else setModal({ type: "chat", title: tile.label, category: tile.cat });
+  };
+
+  const langInfo = LANGS.find(l => l.code === lang) || LANGS[0];
+
+  return (
+    <div className="app-shell" style={{ padding: "20px 18px 110px", maxWidth: 760, margin: "0 auto" }} data-testid="dashboard">
+      <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Hi, <span style={{ color: "var(--gold)" }}>{user.full_name || user.email.split("@")[0]}</span></div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowSettings(true)} data-testid="settings-btn" title={t(lang, "settings")}
+                  style={{ background: "transparent", border: "1px solid var(--line)", color: "var(--gold)", borderRadius: "50%", width: 34, height: 34, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <SettingsIcon size={16} />
+          </button>
+          <button onClick={() => setShowLang(true)} data-testid="lang-toggle-btn"
+                  style={{ background: "transparent", border: "1px solid var(--line)", color: "var(--gold)", borderRadius: 20, padding: "5px 12px", fontSize: 13, cursor: "pointer" }}>
+            {langInfo.flag} {langInfo.code.split("-")[0].toUpperCase()}
+          </button>
+          <button onClick={onLogout} data-testid="logout-btn" title={t(lang, "logout")}
+                  style={{ background: "transparent", border: "1px solid var(--line)", color: "var(--text-dim)", borderRadius: "50%", width: 34, height: 34, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <LogOut size={16} />
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 6, marginBottom: 18 }}>
+        <Logo />
+        <p style={{ color: "var(--gold-soft)", marginTop: 6, fontSize: 14 }}>{t(lang, "tagline")}</p>
+      </div>
+
+      {!user.has_access ? (
+        <div className="trial-banner" data-testid="trial-banner-ended" style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>{t(lang, "trialEnded")}</span>
+          <button className="btn-gold" data-testid="open-subscribe-btn" onClick={() => setShowSub(true)} style={{ padding: "8px 14px", fontSize: 13 }}>
+            {t(lang, "subscribe")}
+          </button>
+        </div>
+      ) : user.subscription_status === "trial" ? (
+        <div className="trial-banner" data-testid="trial-banner" style={{ marginBottom: 14 }}>
+          {t(lang, "trialDays", { n: user.trial_days_remaining })}
+        </div>
+      ) : null}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {tiles.map(tile => (
+          <button key={tile.id} className="tile" data-testid={`tile-${tile.id}`} onClick={() => onTile(tile)}>
+            <tile.Icon className="tile-icon" />
+            <div className="tile-title">{tile.label}</div>
+          </button>
+        ))}
+      </div>
+
+      <div style={{ position: "fixed", bottom: 18, left: 0, right: 0, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
+        <div onClick={() => user.has_access ? setModal({ type: "chat", title: "LEX", category: "ask_lex" }) : setShowSub(true)}
+             style={{ pointerEvents: "all" }}>
+          <LexAvatar size={70} />
+        </div>
+      </div>
+
+      {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} onClose={() => setModal(null)} />}
+      {modal?.type === "files" && <FilesModal lang={lang} onClose={() => setModal(null)} />}
+      {modal?.type === "letter" && <LegalLetterModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "record" && <RecordModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "snap" && <SnapEvidenceModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "lawyers" && <LawyersModal lang={lang} country={country} user={user} onClose={() => setModal(null)} openAdvertise={() => { setModal(null); setShowAdvertise(true); }} />}
+      {showLang && <LanguagePicker initial={lang} lang={lang} onConfirm={(l) => { setLang(l); setShowLang(false); api.patch("/auth/preferences", { language: l }).catch(() => {}); }} />}
+      {showSub && <SubscribeModal lang={lang} user={user} onClose={() => setShowSub(false)} onActivated={(u) => { refreshUser(u); setShowSub(false); }} />}
+      {showSettings && <SettingsModal lang={lang} country={country} user={user} onClose={() => setShowSettings(false)} onUpdate={(u) => refreshUser(u)} setLang={setLang} setCountry={setCountry} />}
+      {showAdvertise && <AdvertiseModal lang={lang} onClose={() => setShowAdvertise(false)} />}
+    </div>
+  );
+}
+
+// ---------- Root App ----------
+function App() {
+  const [lang, setLang] = useState(localStorage.getItem("aa_lang") || "en-GB");
+  const [country, setCountry] = useState(localStorage.getItem("aa_country") || "GB");
+  const [step, setStep] = useState("loading"); // loading | lang | terms | auth | app
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem("aa_token"));
+
+  useEffect(() => { localStorage.setItem("aa_lang", lang); document.documentElement.dir = RTL_LANGS.includes(lang) ? "rtl" : "ltr"; }, [lang]);
+  useEffect(() => { localStorage.setItem("aa_country", country); }, [country]);
+
+  // Bootstrap
+  useEffect(() => {
+    if (token) {
+      setAuthHeader(token);
+      api.get("/auth/me").then(r => { setUser(r.data); setLang(r.data.language || lang); setCountry(r.data.country || country); setStep("app"); })
+        .catch(() => { localStorage.removeItem("aa_token"); setToken(null); setStep(localStorage.getItem("aa_terms") ? "auth" : "lang"); });
+    } else {
+      setStep(localStorage.getItem("aa_terms") ? "auth" : "lang");
+    }
+  // eslint-disable-next-line
+  }, []);
+
+  const onAuth = (data) => {
+    localStorage.setItem("aa_token", data.access_token); setToken(data.access_token); setAuthHeader(data.access_token);
+    setUser(data.user); setStep("app");
+  };
+  const onLogout = () => { localStorage.removeItem("aa_token"); setToken(null); setUser(null); setAuthHeader(null); setStep("auth"); };
+
+  if (step === "loading") return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}><span className="spinner" /></div>;
+
+  return (
+    <div className="App app-shell">
+      {step === "lang" && <LanguagePicker lang={lang} initial={lang} onConfirm={(l) => { setLang(l); setStep("terms"); }} />}
+      {step === "terms" && <TermsScreen lang={lang} onAccept={() => { localStorage.setItem("aa_terms", "1"); setStep("auth"); }} onDecline={() => setStep("lang")} onChangeLang={() => setStep("lang")} />}
+      {step === "auth" && <AuthScreen lang={lang} country={country} onAuth={onAuth} />}
+      {step === "app" && user && <Dashboard user={user} lang={lang} country={country} setLang={setLang} setCountry={setCountry} onLogout={onLogout} refreshUser={(u) => setUser(u)} />}
+    </div>
+  );
+}
+
+export default App;
