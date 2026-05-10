@@ -21,9 +21,10 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.lib.colors import HexColor
 from reportlab.lib.enums import TA_LEFT, TA_CENTER
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Image as RLImage
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+import qrcode
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -35,7 +36,30 @@ db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ['JWT_SECRET']
 EMERGENT_LLM_KEY = os.environ['EMERGENT_LLM_KEY']
 STRIPE_API_KEY = os.environ['STRIPE_API_KEY']
+STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
+APPLE_SERVICES_ID = os.environ.get('APPLE_SERVICES_ID', '')
+APPLE_TEAM_ID = os.environ.get('APPLE_TEAM_ID', '')
+APPLE_KEY_ID = os.environ.get('APPLE_KEY_ID', '')
+APPLE_PRIVATE_KEY = os.environ.get('APPLE_PRIVATE_KEY', '').replace('\\n', '\n')
+APP_PUBLIC_URL = os.environ.get('APP_PUBLIC_URL', 'https://aiadvocate.app')
 stripe.api_key = STRIPE_API_KEY
+
+# ==================== Font registration (multilingual PDF) ====================
+FONTS_DIR = ROOT_DIR / "fonts"
+DEFAULT_FONT = "Helvetica"
+DEFAULT_FONT_BOLD = "Helvetica-Bold"
+try:
+    pdfmetrics.registerFont(TTFont("Noto", str(FONTS_DIR / "NotoSans-Regular.ttf")))
+    pdfmetrics.registerFont(TTFont("Noto-Bold", str(FONTS_DIR / "NotoSans-Bold.ttf")))
+    pdfmetrics.registerFont(TTFont("NotoArabic", str(FONTS_DIR / "NotoSansArabic-Regular.ttf")))
+    pdfmetrics.registerFont(TTFont("NotoSC", str(FONTS_DIR / "NotoSansSC-Regular.ttf")))
+    pdfmetrics.registerFont(TTFont("NotoDevanagari", str(FONTS_DIR / "NotoSansDevanagari-Regular.ttf")))
+    DEFAULT_FONT = "Noto"
+    DEFAULT_FONT_BOLD = "Noto-Bold"
+    logging.info("Unicode fonts registered for PDF")
+except Exception as e:
+    logging.warning(f"Could not register Noto fonts, falling back to Helvetica: {e}")
 
 app = FastAPI(title="AI Advocate")
 api_router = APIRouter(prefix="/api")
@@ -57,9 +81,16 @@ class UserLogin(BaseModel):
     password: str
 
 class GoogleLogin(BaseModel):
-    email: EmailStr
-    name: str = ""
-    google_id: str
+    # Real flow: send Google ID token (credential)
+    credential: Optional[str] = None
+    # Demo fallback (kept for backwards compatibility)
+    email: Optional[EmailStr] = None
+    name: Optional[str] = ""
+    google_id: Optional[str] = None
+
+class AppleLogin(BaseModel):
+    identity_token: str
+    user: Optional[dict] = None  # First-time only: {"name": {"firstName": "...", "lastName": "..."}}
 
 class TokenResp(BaseModel):
     access_token: str
@@ -224,30 +255,122 @@ async def login(data: UserLogin):
 
 @api_router.post("/auth/google", response_model=TokenResp)
 async def google_login(data: GoogleLogin):
-    """Simplified Google sign-in. In production, verify Google ID token server-side."""
-    user = await db.users.find_one({"email": data.email})
+    """Google sign-in. Real path: verify ID token. Demo fallback if GOOGLE_CLIENT_ID not configured."""
     now = datetime.now(timezone.utc)
+    google_sub = None; email = None; name = ""
+
+    if data.credential and GOOGLE_CLIENT_ID:
+        # Real verification path
+        try:
+            from google.oauth2 import id_token as gid
+            from google.auth.transport import requests as g_req
+            info = gid.verify_oauth2_token(data.credential, g_req.Request(), GOOGLE_CLIENT_ID)
+            google_sub = info.get("sub")
+            email = info.get("email")
+            name = info.get("name", "")
+            if not info.get("email_verified"):
+                raise HTTPException(401, "Email not verified by Google")
+        except Exception as e:
+            logger.exception("Google token verification failed")
+            raise HTTPException(401, f"Invalid Google token: {str(e)}")
+    else:
+        # Demo fallback (used while GOOGLE_CLIENT_ID is not set)
+        if not data.email or not data.google_id:
+            raise HTTPException(400, "Provide either 'credential' or {email, google_id}")
+        google_sub = data.google_id
+        email = data.email
+        name = data.name or ""
+
+    user = await db.users.find_one({"$or": [{"google_id": google_sub}, {"email": email}]})
     if not user:
         user_id = str(uuid.uuid4())
         user = {
-            "id": user_id,
-            "email": data.email,
-            "password_hash": "",
-            "full_name": data.name,
-            "language": "en-GB",
-            "country": "GB",
-            "auth_provider": "google",
-            "google_id": data.google_id,
+            "id": user_id, "email": email, "password_hash": "",
+            "full_name": name, "language": "en-GB", "country": "GB",
+            "auth_provider": "google", "google_id": google_sub,
             "created_at": now.isoformat(),
             "trial_start_date": now.isoformat(),
             "trial_end_date": (now + timedelta(days=14)).isoformat(),
             "subscription_status": "trial",
-            "stripe_customer_id": None,
-            "stripe_subscription_id": None,
+            "stripe_customer_id": None, "stripe_subscription_id": None,
             "terms_accepted": True,
         }
         await db.users.insert_one(user)
+    else:
+        # Link google_id if missing
+        if not user.get("google_id"):
+            await db.users.update_one({"id": user["id"]}, {"$set": {"google_id": google_sub}})
     return TokenResp(access_token=make_token(user["id"], user["email"]), user=user_to_public(user))
+
+@api_router.post("/auth/apple", response_model=TokenResp)
+async def apple_login(data: AppleLogin):
+    """Sign in with Apple — verify identity_token JWT against Apple's JWKS."""
+    if not APPLE_SERVICES_ID:
+        raise HTTPException(503, "Apple Sign-In not configured (APPLE_SERVICES_ID missing). "
+                                  "Add Apple credentials to backend .env to enable.")
+    try:
+        import jwt as _jwt
+        from jwt.algorithms import RSAAlgorithm
+        import httpx, json as _json
+        unverified = _jwt.get_unverified_header(data.identity_token)
+        kid = unverified.get("kid")
+        # Fetch Apple JWKS
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.get("https://appleid.apple.com/auth/keys")
+            r.raise_for_status()
+            keys = r.json().get("keys", [])
+        match = next((k for k in keys if k.get("kid") == kid), None)
+        if not match:
+            raise HTTPException(401, "Apple key not found")
+        public_key = RSAAlgorithm.from_jwk(_json.dumps(match))
+        payload = _jwt.decode(
+            data.identity_token, public_key, algorithms=["RS256"],
+            audience=APPLE_SERVICES_ID, issuer="https://appleid.apple.com",
+        )
+    except Exception as e:
+        logger.exception("Apple token verification failed")
+        raise HTTPException(401, f"Invalid Apple token: {str(e)}")
+
+    apple_sub = payload.get("sub")
+    email = payload.get("email")
+    name = ""
+    if data.user:
+        n = data.user.get("name") or {}
+        name = (f"{n.get('firstName','')} {n.get('lastName','')}").strip()
+
+    now = datetime.now(timezone.utc)
+    user = await db.users.find_one({"apple_id": apple_sub})
+    if not user and email:
+        user = await db.users.find_one({"email": email})
+    if not user:
+        user_id = str(uuid.uuid4())
+        user = {
+            "id": user_id, "email": email or f"apple_{apple_sub[:10]}@private.apple",
+            "password_hash": "", "full_name": name,
+            "language": "en-GB", "country": "GB",
+            "auth_provider": "apple", "apple_id": apple_sub,
+            "created_at": now.isoformat(),
+            "trial_start_date": now.isoformat(),
+            "trial_end_date": (now + timedelta(days=14)).isoformat(),
+            "subscription_status": "trial",
+            "stripe_customer_id": None, "stripe_subscription_id": None,
+            "terms_accepted": True,
+        }
+        await db.users.insert_one(user)
+    else:
+        if not user.get("apple_id"):
+            await db.users.update_one({"id": user["id"]}, {"$set": {"apple_id": apple_sub}})
+    return TokenResp(access_token=make_token(user["id"], user["email"]), user=user_to_public(user))
+
+@api_router.get("/auth/providers")
+async def auth_providers():
+    """Tells the frontend which social providers are configured."""
+    return {
+        "google_enabled": bool(GOOGLE_CLIENT_ID),
+        "google_client_id": GOOGLE_CLIENT_ID,
+        "apple_enabled": bool(APPLE_SERVICES_ID),
+        "apple_services_id": APPLE_SERVICES_ID,
+    }
 
 @api_router.get("/auth/me")
 async def me(user: dict = Depends(get_user)):
@@ -564,6 +687,59 @@ async def activate_test(user: dict = Depends(get_user)):
     fresh = await db.users.find_one({"id": user["id"]})
     return user_to_public(fresh)
 
+@api_router.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    """Stripe webhook → update user subscription_status when payments happen.
+    Configure: Stripe Dashboard → Developers → Webhooks → Add endpoint
+    URL: {your_domain}/api/webhook/stripe
+    Events: checkout.session.completed, customer.subscription.updated, customer.subscription.deleted
+    Then set STRIPE_WEBHOOK_SECRET in /app/backend/.env"""
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    try:
+        if STRIPE_WEBHOOK_SECRET:
+            event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
+        else:
+            # No secret configured (test mode): parse without verification (NOT for production)
+            import json as _json
+            event = _json.loads(payload)
+            logger.warning("STRIPE_WEBHOOK_SECRET not set — webhook signature NOT verified (insecure)")
+    except Exception as e:
+        logger.exception("Webhook signature verify failed")
+        raise HTTPException(400, f"Webhook verification failed: {str(e)}")
+
+    etype = event.get("type") if isinstance(event, dict) else event["type"]
+    obj = (event.get("data") if isinstance(event, dict) else event["data"]).get("object", {})
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    if etype == "checkout.session.completed":
+        user_id = obj.get("client_reference_id") or (obj.get("metadata") or {}).get("user_id")
+        customer_id = obj.get("customer")
+        sub_id = obj.get("subscription")
+        if user_id:
+            await db.users.update_one({"id": user_id}, {"$set": {
+                "subscription_status": "active",
+                "stripe_customer_id": customer_id,
+                "stripe_subscription_id": sub_id,
+                "subscription_started_at": now_iso,
+            }})
+            logger.info(f"Subscription activated for user {user_id}")
+    elif etype == "customer.subscription.deleted":
+        customer_id = obj.get("customer")
+        if customer_id:
+            await db.users.update_one({"stripe_customer_id": customer_id},
+                                      {"$set": {"subscription_status": "canceled",
+                                                "subscription_ended_at": now_iso}})
+            logger.info(f"Subscription canceled for customer {customer_id}")
+    elif etype in ("customer.subscription.updated", "invoice.payment_failed"):
+        customer_id = obj.get("customer")
+        status_val = obj.get("status") if etype == "customer.subscription.updated" else "past_due"
+        if customer_id and status_val:
+            await db.users.update_one({"stripe_customer_id": customer_id},
+                                      {"$set": {"subscription_status": status_val,
+                                                "subscription_updated_at": now_iso}})
+    return {"received": True}
+
 @api_router.get("/subscription/status")
 async def sub_status(user: dict = Depends(get_user)):
     return user_to_public(user)
@@ -772,14 +948,38 @@ async def apply_to_advertise(data: LawFirmApplication):
             "message": "Thank you. We'll review your application and contact you within 2 business days."}
 
 # ==================== PDF Generation ====================
+def _font_for_lang(language: Optional[str]) -> tuple[str, str]:
+    """Pick the right Noto variant for the language."""
+    if not language:
+        return (DEFAULT_FONT, DEFAULT_FONT_BOLD)
+    code = language.split("-")[0].lower()
+    if code in ("ar", "ur"):
+        return ("NotoArabic", "NotoArabic")  # Arabic/Urdu
+    if code == "zh":
+        return ("NotoSC", "NotoSC")
+    if code == "hi":
+        return ("NotoDevanagari", "NotoDevanagari")
+    return (DEFAULT_FONT, DEFAULT_FONT_BOLD)
+
+def _qr_for_signup() -> Optional[io.BytesIO]:
+    try:
+        qr = qrcode.QRCode(box_size=4, border=1)
+        qr.add_data(f"{APP_PUBLIC_URL}?ref=pdf")
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="#1a1300", back_color="white")
+        buf = io.BytesIO(); img.save(buf, format="PNG"); buf.seek(0)
+        return buf
+    except Exception:
+        return None
+
 def build_pdf(title: str, body: str, subtitle: Optional[str] = None,
-              meta: Optional[dict] = None) -> bytes:
-    """Generate a branded AI Advocate PDF from text content."""
+              meta: Optional[dict] = None, language: str = "en-GB") -> bytes:
+    """Generate a branded AI Advocate PDF (multilingual + QR + footer)."""
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf, pagesize=A4,
         leftMargin=22*mm, rightMargin=22*mm,
-        topMargin=20*mm, bottomMargin=18*mm,
+        topMargin=20*mm, bottomMargin=22*mm,
         title=title, author="AI Advocate",
     )
     GOLD = HexColor("#d6a017")
@@ -787,49 +987,37 @@ def build_pdf(title: str, body: str, subtitle: Optional[str] = None,
     DARK = HexColor("#1a1300")
     DIM = HexColor("#555555")
 
-    styles = getSampleStyleSheet()
-    h_brand = ParagraphStyle("brand", parent=styles["Title"], fontName="Helvetica-Bold",
-                             fontSize=24, leading=28, alignment=TA_CENTER,
-                             textColor=GOLD_DEEP, spaceAfter=2)
-    h_tag = ParagraphStyle("tag", parent=styles["Normal"], fontName="Helvetica-Oblique",
-                           fontSize=10, alignment=TA_CENTER, textColor=DIM, spaceAfter=14)
-    h_title = ParagraphStyle("title", parent=styles["Heading1"], fontName="Helvetica-Bold",
-                             fontSize=18, leading=22, textColor=DARK, spaceAfter=4)
-    h_sub = ParagraphStyle("sub", parent=styles["Normal"], fontName="Helvetica-Oblique",
-                           fontSize=11, textColor=DIM, spaceAfter=12)
-    h_meta = ParagraphStyle("meta", parent=styles["Normal"], fontName="Helvetica",
-                            fontSize=9, textColor=DIM, spaceAfter=2)
-    h_body = ParagraphStyle("body", parent=styles["Normal"], fontName="Helvetica",
-                            fontSize=11, leading=16, textColor=HexColor("#222222"),
-                            alignment=TA_LEFT, spaceAfter=8)
-    h_footer = ParagraphStyle("footer", parent=styles["Normal"], fontName="Helvetica-Oblique",
-                              fontSize=8, textColor=DIM, alignment=TA_CENTER, spaceBefore=20)
+    font, font_b = _font_for_lang(language)
+    is_rtl = (language or "").split("-")[0].lower() in ("ar", "ur")
+    align = TA_LEFT  # ReportLab paragraph dir handled via wordWrap
+
+    h_title = ParagraphStyle("title", fontName=font_b, fontSize=18, leading=22,
+                             textColor=DARK, spaceAfter=4, alignment=align,
+                             wordWrap="RTL" if is_rtl else None)
+    h_sub = ParagraphStyle("sub", fontName=font, fontSize=11, textColor=DIM,
+                           spaceAfter=12, alignment=align)
+    h_meta = ParagraphStyle("meta", fontName=font, fontSize=9, textColor=DIM, spaceAfter=2)
+    h_body = ParagraphStyle("body", fontName=font, fontSize=11, leading=16,
+                            textColor=HexColor("#222222"), alignment=align,
+                            spaceAfter=8, wordWrap="RTL" if is_rtl else None)
 
     elems = []
-    # Logo image header (use the same logo asset)
-    try:
-        from reportlab.platypus import Image as RLImage
-        logo_path = "/app/frontend/public/assets/logo.jpg"
-        if os.path.exists(logo_path):
-            img = RLImage(logo_path, width=44*mm, height=44*mm)
-            img.hAlign = "CENTER"
-            elems.append(img)
-            elems.append(Spacer(1, 4*mm))
-    except Exception:
-        elems.append(Paragraph("AI ADVOCATE", h_brand))
-        elems.append(Paragraph("AI lawyer in your pocket", h_tag))
+    logo_path = "/app/frontend/public/assets/logo.jpg"
+    if os.path.exists(logo_path):
+        img = RLImage(logo_path, width=44*mm, height=44*mm)
+        img.hAlign = "CENTER"
+        elems.append(img); elems.append(Spacer(1, 4*mm))
 
     elems.append(HRFlowable(width="100%", thickness=0.6, color=GOLD, spaceBefore=2, spaceAfter=12))
     elems.append(Paragraph(title, h_title))
     if subtitle:
         elems.append(Paragraph(subtitle, h_sub))
-
     if meta:
         for k, v in meta.items():
-            if v: elems.append(Paragraph(f"<b>{k}:</b> {v}", h_meta))
+            if v:
+                elems.append(Paragraph(f"<b>{k}:</b> {v}", h_meta))
         elems.append(Spacer(1, 8))
 
-    # Body — split paragraphs on double newlines, single newlines = <br/>
     safe = (body or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     for para in safe.split("\n\n"):
         para = para.replace("\n", "<br/>")
@@ -837,17 +1025,27 @@ def build_pdf(title: str, body: str, subtitle: Optional[str] = None,
             elems.append(Paragraph(para, h_body))
 
     elems.append(HRFlowable(width="100%", thickness=0.4, color=GOLD_DEEP, spaceBefore=14, spaceAfter=6))
-    elems.append(Paragraph(
-        "Generated by AI Advocate — AI-generated information, not legal advice. "
-        "Always consult a qualified lawyer in your jurisdiction.",
-        h_footer
-    ))
 
     def _on_page(canvas, doc_):
         canvas.saveState()
-        canvas.setFont("Helvetica", 8)
+        # Footer left: brand/CTA. Right: QR. Center: page number.
+        canvas.setFont(font, 8)
         canvas.setFillColor(DIM)
-        canvas.drawCentredString(A4[0]/2, 10*mm, f"AI Advocate · Page {doc_.page}")
+        canvas.drawCentredString(A4[0]/2, 12*mm, f"AI Advocate · Page {doc_.page}")
+        # Branded CTA on left
+        canvas.setFont(font_b, 7.5); canvas.setFillColor(GOLD_DEEP)
+        canvas.drawString(22*mm, 12*mm, "Generated by AI ADVOCATE")
+        canvas.setFont(font, 7); canvas.setFillColor(DIM)
+        canvas.drawString(22*mm, 8*mm, "AI lawyer in your pocket — get yours in 60s")
+        # QR on right
+        qbuf = _qr_for_signup()
+        if qbuf:
+            try:
+                from reportlab.lib.utils import ImageReader
+                canvas.drawImage(ImageReader(qbuf), A4[0]-22*mm-14*mm, 6*mm,
+                                 width=14*mm, height=14*mm, mask='auto')
+            except Exception:
+                pass
         canvas.restoreState()
 
     doc.build(elems, onFirstPage=_on_page, onLaterPages=_on_page)
@@ -885,7 +1083,8 @@ async def pdf_for_file(file_id: str, user: dict = Depends(get_user)):
         body = f.get("analysis") or f.get("content") or ""
         meta = {"Document": fname, "Created": created}
 
-    pdf_bytes = build_pdf(title=title, body=body, subtitle="Prepared by Lex, your AI advocate", meta=meta)
+    pdf_bytes = build_pdf(title=title, body=body, subtitle="Prepared by Lex, your AI advocate",
+                          meta=meta, language=f.get("language", "en-GB"))
     safe_fname = "".join(c for c in fname if c.isalnum() or c in (" ", "-", "_")).strip()[:60] or "ai_advocate"
     return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{safe_fname}.pdf"'})
@@ -896,11 +1095,13 @@ class PDFInline(BaseModel):
     subtitle: Optional[str] = None
     meta: Optional[dict] = None
     filename: Optional[str] = "ai_advocate.pdf"
+    language: Optional[str] = "en-GB"
 
 @api_router.post("/pdf/inline")
 async def pdf_inline(data: PDFInline, user: dict = Depends(get_user)):
     """Generate a PDF on the fly from any text content (e.g. fresh letter before save)."""
-    pdf_bytes = build_pdf(title=data.title, body=data.body, subtitle=data.subtitle, meta=data.meta)
+    pdf_bytes = build_pdf(title=data.title, body=data.body, subtitle=data.subtitle,
+                          meta=data.meta, language=data.language or "en-GB")
     return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{data.filename}"'})
 

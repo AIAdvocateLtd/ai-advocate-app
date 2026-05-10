@@ -552,3 +552,184 @@ def test_pdf_file_cross_user_404():
     r = requests.get(API + f"/pdf/file/{target}",
                      headers={"Authorization": f"Bearer {tok_b}"}, timeout=15)
     assert r.status_code == 404, f"Expected 404 cross-user, got {r.status_code}: {r.text[:200]}"
+
+
+# =====================================================================
+# ============ Iteration 4: Auth providers / Apple / Google ============
+# ============ / Stripe webhook / Multilingual PDF tests   =============
+# =====================================================================
+
+# ---------- /api/auth/providers ----------
+def test_auth_providers_shape_and_disabled_state():
+    """Both providers should be disabled in test env (env vars empty)."""
+    r = requests.get(API + "/auth/providers", timeout=10)
+    assert r.status_code == 200, r.text
+    j = r.json()
+    for k in ("google_enabled", "google_client_id", "apple_enabled", "apple_services_id"):
+        assert k in j, f"missing key {k} in {j}"
+    assert j["google_enabled"] is False
+    assert j["apple_enabled"] is False
+    assert j["google_client_id"] == ""
+    assert j["apple_services_id"] == ""
+
+# ---------- /api/auth/google (credential branch when GOOGLE_CLIENT_ID empty) ----------
+def test_google_credential_only_without_client_id_returns_400():
+    """When GOOGLE_CLIENT_ID is unset, sending only `credential` should hit the
+    demo fallback which then complains that email/google_id are missing."""
+    r = requests.post(API + "/auth/google", json={"credential": "fake_token_xyz"}, timeout=10)
+    assert r.status_code == 400, r.text
+    detail = (r.json().get("detail") or "").lower()
+    assert "credential" in detail or "google_id" in detail or "email" in detail
+
+def test_google_demo_legacy_payload_still_works():
+    """Legacy demo path: {email, google_id, name} returns a valid JWT."""
+    em = f"g4_{uuid.uuid4().hex[:8]}@advocate.app"
+    r = requests.post(API + "/auth/google",
+                      json={"email": em, "google_id": "gid_iter4", "name": "Iter4 G"},
+                      timeout=15)
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert "access_token" in j and isinstance(j["access_token"], str) and len(j["access_token"]) > 20
+    assert j["user"]["email"] == em
+    assert j["user"].get("has_access") is True
+
+def test_google_no_payload_returns_400():
+    """Empty body → no credential, no email/google_id → 400."""
+    r = requests.post(API + "/auth/google", json={}, timeout=10)
+    assert r.status_code == 400
+
+# ---------- /api/auth/apple ----------
+def test_apple_returns_503_when_not_configured():
+    r = requests.post(API + "/auth/apple",
+                      json={"identity_token": "doesnt.matter.here"},
+                      timeout=10)
+    assert r.status_code == 503, r.text
+    detail = (r.json().get("detail") or "").lower()
+    assert "apple" in detail and "configured" in detail
+
+def test_apple_validation_missing_token():
+    """identity_token is required by AppleLogin model → 422."""
+    r = requests.post(API + "/auth/apple", json={}, timeout=10)
+    assert r.status_code == 422
+
+# ---------- /api/webhook/stripe ----------
+def test_stripe_webhook_accepts_unsigned_when_secret_empty():
+    """STRIPE_WEBHOOK_SECRET is empty → server parses payload without verifying."""
+    r = requests.post(API + "/webhook/stripe",
+                      json={"type": "ping", "data": {"object": {}}}, timeout=10)
+    assert r.status_code == 200, r.text
+    assert r.json().get("received") is True
+
+def test_stripe_webhook_checkout_completed_activates_user():
+    """Send checkout.session.completed with our test user_id → subscription_status='active'
+    and stripe_customer_id is persisted."""
+    uid = state.get("user_id")
+    assert uid, "Need user_id from earlier signup test"
+    cust = f"cus_test_{uuid.uuid4().hex[:10]}"
+    sub = f"sub_test_{uuid.uuid4().hex[:10]}"
+    payload = {
+        "type": "checkout.session.completed",
+        "data": {"object": {
+            "client_reference_id": uid,
+            "customer": cust,
+            "subscription": sub,
+        }},
+    }
+    r = requests.post(API + "/webhook/stripe", json=payload, timeout=10)
+    assert r.status_code == 200, r.text
+    assert r.json().get("received") is True
+    state["stripe_customer_id"] = cust
+
+    # Verify via DB (and via /auth/me as a public sanity check)
+    from pymongo import MongoClient
+    mc = MongoClient(os.environ.get("MONGO_URL", "mongodb://localhost:27017"))
+    u = mc[os.environ.get("DB_NAME","ai_advocate_db")].users.find_one({"id": uid})
+    assert u is not None
+    assert u.get("subscription_status") == "active", u.get("subscription_status")
+    assert u.get("stripe_customer_id") == cust
+    assert u.get("stripe_subscription_id") == sub
+
+def test_stripe_webhook_subscription_deleted_cancels_user():
+    """customer.subscription.deleted → user found by stripe_customer_id is set to canceled."""
+    cust = state.get("stripe_customer_id")
+    assert cust, "Need stripe_customer_id from previous webhook test"
+    payload = {
+        "type": "customer.subscription.deleted",
+        "data": {"object": {"customer": cust}},
+    }
+    r = requests.post(API + "/webhook/stripe", json=payload, timeout=10)
+    assert r.status_code == 200
+    assert r.json().get("received") is True
+
+    from pymongo import MongoClient
+    mc = MongoClient(os.environ.get("MONGO_URL", "mongodb://localhost:27017"))
+    u = mc[os.environ.get("DB_NAME","ai_advocate_db")].users.find_one(
+        {"stripe_customer_id": cust})
+    assert u is not None, "User with that stripe_customer_id not found"
+    assert u.get("subscription_status") == "canceled", u.get("subscription_status")
+
+# ---------- /api/pdf/inline — multilingual + branded footer + QR ----------
+def _pdf_inline(lang: str, title: str, body: str, fname: str) -> requests.Response:
+    return requests.post(
+        API + "/pdf/inline", headers=_h(),
+        json={"title": title, "body": body, "subtitle": "AI Advocate test",
+              "language": lang, "filename": fname,
+              "meta": {"Language": lang, "Generated": datetime.now(timezone.utc).strftime("%Y-%m-%d")}},
+        timeout=60,
+    )
+
+def test_pdf_inline_lang_en_GB():
+    r = _pdf_inline("en-GB", "English Test", "Hello, this is a test letter in English.\n\nSecond paragraph.", "en.pdf")
+    assert r.status_code == 200, r.text[:300]
+    assert r.headers.get("content-type", "").startswith("application/pdf")
+    assert _pdf_valid(r.content)
+    # >30KB ⇒ logo + QR + fonts embedded
+    assert len(r.content) > 30_000, f"PDF size {len(r.content)} unexpectedly small"
+
+def test_pdf_inline_lang_ar_IQ_arabic_body():
+    body = ("هذه رسالة قانونية تجريبية باللغة العربية.\n\n"
+            "الفقرة الثانية: نطلب الرد خلال أربعة عشر يوماً.")
+    r = _pdf_inline("ar-IQ", "اختبار قانوني", body, "ar.pdf")
+    assert r.status_code == 200, r.text[:300]
+    assert r.headers.get("content-type", "").startswith("application/pdf")
+    assert _pdf_valid(r.content)
+    assert len(r.content) > 30_000, f"Arabic PDF too small: {len(r.content)}"
+
+def test_pdf_inline_lang_ur_PK_urdu_body():
+    body = "یہ اردو میں ایک قانونی خط کی جانچ ہے۔\n\nدوسرا پیراگراف یہاں ہے۔"
+    r = _pdf_inline("ur-PK", "اردو ٹیسٹ", body, "ur.pdf")
+    assert r.status_code == 200, r.text[:300]
+    assert _pdf_valid(r.content)
+    assert len(r.content) > 30_000
+
+def test_pdf_inline_lang_zh_CN_chinese_body():
+    body = "这是一封中文测试法律函件。\n\n第二段：请在十四天内回复。"
+    r = _pdf_inline("zh-CN", "中文测试", body, "zh.pdf")
+    assert r.status_code == 200, r.text[:300]
+    assert r.headers.get("content-type", "").startswith("application/pdf")
+    assert _pdf_valid(r.content)
+    assert len(r.content) > 30_000, f"Chinese PDF too small: {len(r.content)}"
+
+def test_pdf_inline_lang_hi_IN_hindi_body():
+    body = "यह एक हिन्दी कानूनी पत्र का परीक्षण है।\n\nदूसरा अनुच्छेद यहाँ है।"
+    r = _pdf_inline("hi-IN", "हिन्दी परीक्षण", body, "hi.pdf")
+    assert r.status_code == 200, r.text[:300]
+    assert _pdf_valid(r.content)
+    assert len(r.content) > 30_000, f"Hindi PDF too small: {len(r.content)}"
+
+def test_pdf_inline_branded_footer_present_in_bytes():
+    """The branded footer text 'Generated by AI ADVOCATE' should be drawn on
+    every page; raw font glyphs are encoded so we don't expect to find the literal
+    string in compressed streams. Instead we assert the resulting PDF is large
+    enough to contain a QR PNG image stream (which only happens when the QR
+    code embed succeeded)."""
+    r = _pdf_inline("en-GB", "Footer Check",
+                    "Body content for footer/QR check.\n\nSecond paragraph here.",
+                    "footer.pdf")
+    assert r.status_code == 200
+    assert _pdf_valid(r.content)
+    # PNG/QR + Noto fonts ⇒ size threshold
+    assert len(r.content) > 30_000, f"Footer/QR PDF size suspiciously small: {len(r.content)}"
+    # And the PDF should reference at least one image (XObject) — QR is embedded as image
+    blob = r.content
+    assert b"/Image" in blob or b"/XObject" in blob, "No image XObject — QR may not be embedded"

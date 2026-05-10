@@ -156,6 +156,39 @@ function AuthScreen({ lang, country, onAuth }) {
   const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
   const [name, setName] = useState(""); const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [providers, setProviders] = useState({ google_enabled: false, apple_enabled: false });
+
+  useEffect(() => { api.get("/auth/providers").then(r => setProviders(r.data)).catch(() => {}); }, []);
+
+  // Inject Google Identity Services script when enabled
+  useEffect(() => {
+    if (!providers.google_enabled || !providers.google_client_id) return;
+    if (document.getElementById("google-id-script")) return;
+    const s = document.createElement("script");
+    s.id = "google-id-script"; s.src = "https://accounts.google.com/gsi/client"; s.async = true;
+    document.body.appendChild(s);
+  }, [providers]);
+
+  // Inject Apple Sign-In script when enabled
+  useEffect(() => {
+    if (!providers.apple_enabled || !providers.apple_services_id) return;
+    if (document.getElementById("apple-id-script")) return;
+    const s = document.createElement("script");
+    s.id = "apple-id-script";
+    s.src = "https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js";
+    s.async = true;
+    s.onload = () => {
+      try {
+        window.AppleID.auth.init({
+          clientId: providers.apple_services_id,
+          scope: "name email",
+          redirectURI: window.location.origin,
+          usePopup: true,
+        });
+      } catch {}
+    };
+    document.body.appendChild(s);
+  }, [providers]);
 
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr("");
@@ -168,14 +201,41 @@ function AuthScreen({ lang, country, onAuth }) {
     finally { setBusy(false); }
   };
 
+  const googleReal = () => {
+    if (!window.google?.accounts?.id) { alert("Google not loaded"); return; }
+    window.google.accounts.id.initialize({
+      client_id: providers.google_client_id,
+      callback: async (resp) => {
+        try {
+          const { data } = await api.post("/auth/google", { credential: resp.credential });
+          onAuth(data);
+        } catch (e) { setErr(e?.response?.data?.detail || "Google sign-in failed"); }
+      },
+    });
+    window.google.accounts.id.prompt();
+  };
+
   const googleDemo = async () => {
     setBusy(true); setErr("");
     try {
       const fakeId = "g_" + Math.random().toString(36).slice(2);
-      const fakeEmail = `demo.${fakeId.slice(0,6)}@gmail.com`;
-      const { data } = await api.post("/auth/google", { email: fakeEmail, name: "Google User", google_id: fakeId });
+      const { data } = await api.post("/auth/google", { email: `demo.${fakeId.slice(0,6)}@gmail.com`, name: "Google User", google_id: fakeId });
       onAuth(data);
     } catch (e) { setErr(e?.response?.data?.detail || "Google sign-in failed"); }
+    finally { setBusy(false); }
+  };
+
+  const appleSignIn = async () => {
+    if (!window.AppleID?.auth) { alert("Apple not loaded"); return; }
+    setBusy(true); setErr("");
+    try {
+      const r = await window.AppleID.auth.signIn();
+      const { data } = await api.post("/auth/apple", {
+        identity_token: r.authorization?.id_token,
+        user: r.user,
+      });
+      onAuth(data);
+    } catch (e) { setErr(e?.response?.data?.detail || e?.message || "Apple sign-in failed"); }
     finally { setBusy(false); }
   };
 
@@ -196,9 +256,19 @@ function AuthScreen({ lang, country, onAuth }) {
       <div style={{ width: "100%", maxWidth: 380, marginTop: 16, textAlign: "center", color: "var(--text-muted)" }}>
         — {t(lang, "or")} —
       </div>
-      <button className="btn-ghost" data-testid="google-btn" onClick={googleDemo} disabled={busy} style={{ width: "100%", maxWidth: 380, marginTop: 12 }}>
+      <button className="btn-ghost" data-testid="google-btn"
+              onClick={providers.google_enabled ? googleReal : googleDemo}
+              disabled={busy} style={{ width: "100%", maxWidth: 380, marginTop: 12 }}>
         {t(lang, "continueWithGoogle")}
       </button>
+      {providers.apple_enabled && (
+        <button onClick={appleSignIn} disabled={busy} data-testid="apple-btn"
+                style={{ width: "100%", maxWidth: 380, marginTop: 8, padding: "12px 18px",
+                  background: "#000", color: "#fff", border: "1px solid #fff", borderRadius: 14, cursor: "pointer",
+                  fontSize: 15, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+           Sign in with Apple
+        </button>
+      )}
       <button data-testid="toggle-mode-btn" onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
               style={{ marginTop: 20, color: "var(--gold-soft)", background: "transparent", border: "none", cursor: "pointer" }}>
         {mode === "signin" ? t(lang, "noAccount") + " " + t(lang, "signUp") : t(lang, "haveAccount") + " " + t(lang, "signIn")}

@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 4 backend testing — added 15 new pytest cases covering /api/auth/providers, real+demo Google branches, Apple 503, Stripe webhook (unsigned/checkout-completed/subscription-deleted), and multilingual PDF (en-GB / ar-IQ / ur-PK / zh-CN / hi-IN). Full suite 67/67 PASSED in 80.94s — no regressions across the 52 prior tests.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~1147 lines (was 946 in iter3) and continues to grow — auth, lex, voice, evidence, contracts, lawfirms, stripe, webhooks, multilingual PDF, languages all in one file. Strongly recommend splitting routers (routers/auth.py, routers/webhooks.py, services/pdf.py) before the next feature lands.",
+    "/api/webhook/stripe parses raw payload with json.loads when STRIPE_WEBHOOK_SECRET is empty (insecure-by-design fallback for dev). The endpoint is publicly reachable in this preview env, meaning anyone can flip ANY user's subscription_status by POSTing {type:'checkout.session.completed', data:{object:{client_reference_id:'<uid>'}}}. Once the secret is set in prod this is fine, but the README/runbook MUST call out that going live without STRIPE_WEBHOOK_SECRET is a critical security hole.",
+    "/api/webhook/stripe trusts client_reference_id and customer values directly without validation. If a malformed/missing client_reference_id is sent, the update_one({'id': None}) silently no-ops with no 4xx feedback — consider responding 400 when neither identifier resolves to a user, or at least logging at WARNING level when the lookup matches zero docs.",
+    "/api/auth/providers returns google_client_id and apple_services_id verbatim. These are public values (intentionally exposed to the frontend), so this is fine — but make sure no other secrets ever land in this endpoint by accident.",
+    "/api/auth/google demo fallback path will create a brand-new user from any (email, google_id) pair the caller chooses, with trial credit. With GOOGLE_CLIENT_ID empty in prod, this becomes an unauthenticated account-creation oracle. Document that GOOGLE_CLIENT_ID MUST be set before production launch (or guard the demo branch behind a DEV_MODE flag).",
+    "/api/pdf/inline still echoes user-supplied filename verbatim into the Content-Disposition header without sanitising — same issue flagged in iter3, still unfixed. Reuse the safe_fname routine from /pdf/file/{id}.",
+    "build_pdf calls _qr_for_signup() inside the per-page _on_page callback, regenerating the QR PNG on every page render. Move QR generation outside the closure (build once per document) to avoid quadratic work on multi-page PDFs.",
+    "Apple JWKS fetch (https://appleid.apple.com/auth/keys) has no caching — every Apple sign-in attempt does a fresh HTTPS round-trip. Cache JWKS for ~1h to reduce latency and Apple-side rate-limit risk."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {
+    "backend": "100% (67/67)",
+    "frontend": "not tested (backend-only iteration per request)"
+  },
+  "test_credentials": "Auto-generated per run via /api/auth/signup (test_<rand>@advocate.app / Test12345!). Pre-seeded test@advocate.app / Test12345! also valid per /app/memory/test_credentials.md.",
+  "seed_data_creation": "test_pdf_file_recording seeds one synthetic legal_files doc (type='recording'). test_stripe_webhook_checkout_completed_activates_user persists a stripe_customer_id ('cus_test_<rand>') on the run-time test user and then test_stripe_webhook_subscription_deleted_cancels_user reuses that id to verify the cancel branch.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 4 new feature areas are stable: (1) /api/auth/providers returns the env-driven shape; (2) /api/auth/google demo branch (legacy email+google_id) still works AND the credential-only branch correctly drops to demo-fallback validation when GOOGLE_CLIENT_ID is empty; (3) /api/auth/apple returns 503 cleanly; (4) /api/webhook/stripe accepts unsigned payloads when STRIPE_WEBHOOK_SECRET is empty and correctly mutates user.subscription_status both for checkout.session.completed (active) and customer.subscription.deleted (canceled, looked up by stripe_customer_id). Multilingual PDFs all return application/pdf with size > 30KB confirming Noto fonts + QR PNG embedded. If the next iteration sets GOOGLE_CLIENT_ID or APPLE_SERVICES_ID, expect test_apple_returns_503_when_not_configured and test_google_credential_only_without_client_id_returns_400 to start failing — they pin the unconfigured-state behaviour.",
+  "rca of the issue": "N/A — no failures."
+}
