@@ -37,18 +37,24 @@ const setAuthHeader = (token) => {
 };
 
 // ---------- Logo / Lex visuals ----------
-const Logo = ({ size = "lg" }) => (
-  <div className="flex flex-col items-center" data-testid="app-logo">
-    <Scale className={size === "lg" ? "w-16 h-16" : "w-10 h-10"} style={{ color: "var(--gold)" }} />
-    <h1 className="brand-font gold-grad" style={{ fontSize: size === "lg" ? 38 : 22, marginTop: 6, marginBottom: 0 }}>AI</h1>
-    <h1 className="brand-font gold-grad" style={{ fontSize: size === "lg" ? 38 : 22, lineHeight: 1, marginTop: -6 }}>ADVOCATE</h1>
-  </div>
-);
+const Logo = ({ size = "lg" }) => {
+  const w = size === "lg" ? 220 : size === "md" ? 140 : 80;
+  return (
+    <div className="flex flex-col items-center" data-testid="app-logo">
+      <img src="/assets/logo.jpg" alt="AI Advocate"
+           style={{ width: w, height: "auto", display: "block",
+                    mixBlendMode: "screen" }} />
+    </div>
+  );
+};
 
 const LexAvatar = ({ size = 70, recording = false, onClick }) => (
   <div className={`lex-circle ${recording ? "recording" : ""}`} onClick={onClick}
-       style={{ width: size, height: size }} data-testid="lex-avatar">
-    <span style={{ fontSize: size * 0.22 }}>LEX</span>
+       style={{ width: size, height: size, padding: 0, overflow: "hidden",
+                background: "#000" }} data-testid="lex-avatar">
+    <img src="/assets/lex.jpg" alt="Lex"
+         style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%",
+                  mixBlendMode: "screen" }} />
   </div>
 );
 
@@ -153,7 +159,6 @@ function AuthScreen({ lang, country, onAuth }) {
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }} data-testid="auth-screen">
       <Logo />
-      <p style={{ color: "var(--gold-soft)", marginTop: 8 }}>{t(lang, "tagline")}</p>
       <form onSubmit={submit} style={{ width: "100%", maxWidth: 380, marginTop: 30 }}>
         {mode === "signup" && (
           <input className="input" data-testid="name-input" placeholder={t(lang, "fullName")} value={name} onChange={(e) => setName(e.target.value)} style={{ marginBottom: 10 }} />
@@ -970,7 +975,6 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
 
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 6, marginBottom: 18 }}>
         <Logo />
-        <p style={{ color: "var(--gold-soft)", marginTop: 6, fontSize: 14 }}>{t(lang, "tagline")}</p>
       </div>
 
       {!user.has_access ? (
