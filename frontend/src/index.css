@@ -8,7 +8,7 @@
   --gold: #f7c948;
   --gold-deep: #d6a017;
   --gold-soft: #fde68a;
-  --bg: #050505;
+  --bg: #000000;
   --bg-elev: #0d0d0d;
   --bg-card: #131313;
   --line: #2a2218;
@@ -173,7 +173,7 @@ textarea.input { resize: vertical; min-height: 80px; font-family: 'Outfit', sans
   width: 70px; height: 70px;
   border-radius: 50%;
   border: 2px solid var(--gold);
-  background: radial-gradient(circle at 30% 30%, #2a2010, #050505);
+  background: #000;
   display: flex; align-items: center; justify-content: center;
   font-family: 'Cinzel', serif;
   color: var(--gold);
