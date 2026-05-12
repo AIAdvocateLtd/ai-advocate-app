@@ -182,7 +182,7 @@ function AuthScreen({ lang, country, onAuth }) {
         window.AppleID.auth.init({
           clientId: providers.apple_services_id,
           scope: "name email",
-          redirectURI: window.location.origin,
+          redirectURI: window.location.origin + "/",
           usePopup: true,
         });
       } catch {}
