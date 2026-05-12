@@ -1227,12 +1227,12 @@ function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub }) {
              style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1, cursor: "pointer" }}>
           <div style={{
             width: 60, height: 60, borderRadius: "50%",
-            background: "linear-gradient(135deg, #f7c948, #d6a017)",
-            border: "3px solid #000", marginTop: -22, overflow: "hidden",
+            background: "#000",
+            border: "3px solid var(--gold)", marginTop: -22, overflow: "hidden",
             display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 4px 22px rgba(247,201,72,0.45)",
+            boxShadow: "0 4px 22px rgba(247,201,72,0.55)",
           }}>
-            <img src="/assets/lex.jpg" alt="Lex" style={{ width: "100%", height: "100%", objectFit: "cover", mixBlendMode: "lighten" }} />
+            <img src="/assets/lex.jpg" alt="Lex" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%", mixBlendMode: "lighten" }} />
           </div>
           <div style={{ fontSize: 10, color: "var(--gold)", fontWeight: 600, marginTop: 2, fontFamily: "Cinzel, serif", letterSpacing: "0.05em" }}>LEX</div>
         </div>
