@@ -327,7 +327,7 @@ async def apple_login(data: AppleLogin):
             raise HTTPException(401, "Apple key not found")
         public_key = RSAAlgorithm.from_jwk(_json.dumps(match))
         payload = _jwt.decode(
-            data.identity_token, public_key, algorithms=["RS256"],
+            tok, public_key, algorithms=["RS256"],
             audience=APPLE_SERVICES_ID, issuer="https://appleid.apple.com",
         )
     except Exception as e:
