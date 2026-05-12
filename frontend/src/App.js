@@ -541,8 +541,17 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false }) {
 
         <div className="flex items-center gap-2" style={{ padding: 12, borderTop: "1px solid var(--line)" }}>
           <button onClick={onMic} data-testid="mic-btn"
-                  style={{ background: recording ? "var(--danger)" : "var(--bg-card)", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: "50%", width: 48, height: 48, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {recording ? <Square size={20} /> : <Mic size={22} />}
+                  style={{ background: "#000", border: `2px solid ${recording ? "var(--danger)" : "var(--gold)"}`,
+                           borderRadius: "50%", width: 48, height: 48, cursor: "pointer", padding: 0, overflow: "hidden",
+                           display: "flex", alignItems: "center", justifyContent: "center", position: "relative",
+                           boxShadow: recording ? "0 0 0 4px rgba(220,38,38,0.25)" : "0 0 14px rgba(247,201,72,0.35)" }}
+                  className={recording ? "recording" : ""}>
+            {recording ? (
+              <Square size={18} style={{ color: "var(--danger)" }} />
+            ) : (
+              <img src="/assets/lex.jpg" alt="Lex"
+                   style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%", mixBlendMode: "lighten" }} />
+            )}
           </button>
           <input className="input" data-testid="chat-input" placeholder={t(lang, "chatPlaceholder")} value={input} onChange={(e) => setInput(e.target.value)}
                  onKeyDown={(e) => e.key === "Enter" && send(input)} style={{ flex: 1 }} />
@@ -1289,16 +1298,6 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Hi, <span style={{ color: "var(--gold)" }}>{user.full_name || user.email.split("@")[0]}</span></div>
         <div className="flex items-center gap-2">
-          <button onClick={() => { const v = !wakeOn; setWakeOn(v); localStorage.setItem("aa_wake", v ? "1" : "0"); }}
-                  data-testid="wake-toggle-btn"
-                  title={wakeOn ? "Hey Lex listening — tap to mute" : "Hey Lex muted — tap to enable"}
-                  style={{ background: "transparent", border: `1px solid ${wakeOn ? "var(--gold)" : "var(--line)"}`,
-                           color: wakeOn ? "var(--gold)" : "var(--text-muted)", borderRadius: "50%",
-                           width: 34, height: 34, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                           position: "relative" }}>
-            <Mic size={14} />
-            {wakeOn && <span style={{ position: "absolute", top: 4, right: 4, width: 6, height: 6, borderRadius: "50%", background: "var(--gold)", boxShadow: "0 0 6px var(--gold)" }} />}
-          </button>
           <button onClick={() => setShowSettings(true)} data-testid="settings-btn" title={t(lang, "settings")}
                   style={{ background: "transparent", border: "1px solid var(--line)", color: "var(--gold)", borderRadius: "50%", width: 34, height: 34, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <SettingsIcon size={16} />
