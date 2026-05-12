@@ -1129,6 +1129,25 @@ async def languages():
 async def root():
     return {"app": "AI Advocate", "status": "ok"}
 
+# ==================== Apple Domain Association ====================
+# Apple verifies domain ownership for Sign in with Apple via this file
+APPLE_DOMAIN_ASSOC_TOKEN = os.environ.get("APPLE_DOMAIN_ASSOC_TOKEN", "")
+
+@app.get("/.well-known/apple-developer-domain-association.txt")
+async def apple_domain_association():
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(APPLE_DOMAIN_ASSOC_TOKEN or "")
+
+@app.get("/.well-known/apple-app-site-association")
+async def apple_app_site_association():
+    """Universal Links file (for Capacitor iOS app later)"""
+    from fastapi.responses import JSONResponse
+    bundle_id = f"{APPLE_TEAM_ID}.uk.co.aiadvocate.official" if APPLE_TEAM_ID else ""
+    return JSONResponse({
+        "applinks": {"apps": [], "details": [{"appID": bundle_id, "paths": ["*"]}]} if bundle_id else {},
+        "webcredentials": {"apps": [bundle_id]} if bundle_id else {},
+    })
+
 app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware, allow_credentials=True,
