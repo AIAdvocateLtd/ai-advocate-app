@@ -308,11 +308,14 @@ async def apple_login(data: AppleLogin):
     if not APPLE_SERVICES_ID:
         raise HTTPException(503, "Apple Sign-In not configured (APPLE_SERVICES_ID missing). "
                                   "Add Apple credentials to backend .env to enable.")
+    # Debug: log the incoming token shape (safe — only first/last chars)
+    tok = (data.identity_token or "").strip()
+    logger.info(f"Apple token received: len={len(tok)} starts_with={tok[:20]!r} ends_with={tok[-20:]!r} dots={tok.count('.')}")
     try:
         import jwt as _jwt
         from jwt.algorithms import RSAAlgorithm
         import httpx, json as _json
-        unverified = _jwt.get_unverified_header(data.identity_token)
+        unverified = _jwt.get_unverified_header(tok)
         kid = unverified.get("kid")
         # Fetch Apple JWKS
         async with httpx.AsyncClient(timeout=8) as client:
