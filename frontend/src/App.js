@@ -226,16 +226,30 @@ function AuthScreen({ lang, country, onAuth }) {
   };
 
   const appleSignIn = async () => {
-    if (!window.AppleID?.auth) { alert("Apple not loaded"); return; }
+    if (!window.AppleID?.auth) { alert("Apple not loaded — refresh the page"); return; }
     setBusy(true); setErr("");
     try {
       const r = await window.AppleID.auth.signIn();
+      const idToken = r?.authorization?.id_token;
+      if (!idToken) {
+        setErr("Apple did not return an ID token. Check Services ID config.");
+        return;
+      }
       const { data } = await api.post("/auth/apple", {
-        identity_token: r.authorization?.id_token,
+        identity_token: idToken,
         user: r.user,
       });
       onAuth(data);
-    } catch (e) { setErr(e?.response?.data?.detail || e?.message || "Apple sign-in failed"); }
+    } catch (e) {
+      // Apple errors look like {error: "popup_closed_by_user", ...}
+      const appleErr = e?.error || e?.message || "";
+      let msg = e?.response?.data?.detail || appleErr || "Apple sign-in failed";
+      if (appleErr === "popup_closed_by_user") msg = "Sign-in cancelled.";
+      if (appleErr === "invalid_client") msg = "Apple says: invalid_client. Domain/Services ID not configured correctly.";
+      if (appleErr === "popup_blocked_by_browser") msg = "Pop-up blocked — allow popups for this site.";
+      console.error("Apple sign-in error:", e);
+      setErr(msg);
+    }
     finally { setBusy(false); }
   };
 
