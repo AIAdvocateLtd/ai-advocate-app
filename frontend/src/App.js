@@ -116,19 +116,19 @@ function TermsScreen({ lang, onAccept, onDecline, onChangeLang }) {
   const [agree, setAgree] = useState(false);
   return (
     <div className="modal-bg" data-testid="terms-modal">
-      <div className="modal-card" style={{ padding: 22 }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 12 }}>
+      <div className="modal-card" style={{ padding: 22, height: "92vh", display: "flex", flexDirection: "column" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 12, flexShrink: 0 }}>
           <h2 className="brand-font gold" style={{ fontSize: 22 }}>{t(lang, "termsTitle")}</h2>
           <button className="btn-gold" data-testid="terms-lang-btn" onClick={onChangeLang}
                   style={{ padding: "6px 14px", fontSize: 13 }}>
             <Languages size={14} style={{ display: "inline", marginRight: 6 }} />{t(lang, "lang")}
           </button>
         </div>
-        <p style={{ color: "var(--text-dim)", fontSize: 13 }}>
+        <p style={{ color: "var(--text-dim)", fontSize: 13, flexShrink: 0 }}>
           Effective date: {new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}.
           You must read and accept these Terms and the Privacy Policy below to use AI Advocate.
         </p>
-        <div data-testid="terms-body" style={{ overflowY: "auto", maxHeight: "48vh", padding: 14, background: "#0a0a0a", borderRadius: 12, border: "1px solid var(--line)", marginTop: 10, fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.65 }}>
+        <div data-testid="terms-body" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 14, background: "#0a0a0a", borderRadius: 12, border: "1px solid var(--line)", marginTop: 10, fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.65 }}>
           <p style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6 }}>TERMS OF SERVICE</p>
 
           <p><strong>1. About AI Advocate.</strong> AI Advocate ("the App", "we", "us", "our") is a software product operated by the AI Advocate team. We provide an AI-powered legal-information assistant called "Lex", document tooling, photo/contract analysis, formal-letter generation, and a directory of independent law firms. We are <strong>NOT a law firm</strong>, we are <strong>NOT solicitors, barristers, attorneys, or any other regulated legal professionals</strong>, and we do <strong>NOT</strong> provide legal services, legal advice, or legal representation.</p>
@@ -199,12 +199,12 @@ function TermsScreen({ lang, onAccept, onDecline, onChangeLang }) {
 
           <p style={{ marginTop: 14, color: "var(--gold-soft)" }}><em>By tapping "Accept &amp; Continue" below, you confirm you have read, understood, and agreed to these Terms and Privacy Policy in full, and you accept that AI Advocate is an information tool, not a substitute for a qualified lawyer.</em></p>
         </div>
-        <label className="flex items-center gap-2" style={{ marginTop: 14, cursor: "pointer" }}>
+        <label className="flex items-center gap-2" style={{ marginTop: 14, cursor: "pointer", flexShrink: 0 }}>
           <input type="checkbox" data-testid="agree-checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)}
                  style={{ width: 18, height: 18, accentColor: "var(--gold)" }} />
           <span style={{ fontSize: 14 }}>{t(lang, "iAgree")}</span>
         </label>
-        <div className="flex gap-2" style={{ marginTop: 14 }}>
+        <div className="flex gap-2" style={{ marginTop: 14, flexShrink: 0 }}>
           <button className="btn-gold" data-testid="accept-terms-btn" disabled={!agree} style={{ flex: 2 }} onClick={onAccept}>{t(lang, "accept")}</button>
           <button className="btn-ghost" data-testid="decline-terms-btn" onClick={onDecline} style={{ flex: 1 }}>{t(lang, "decline")}</button>
         </div>
@@ -891,7 +891,7 @@ function LetterLibraryModal({ lang, country, onClose }) {
                 <div key={cat} style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 11, color: "var(--gold)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{cat}</div>
                   {items.map(tpl => (
-                    <button key={tpl.id} data-testid={`tpl-${tpl.id}`} onClick={() => setSel(tpl)}
+                    <button key={tpl.id} data-testid={`letter-tpl-${tpl.id}`} onClick={() => setSel(tpl)}
                       style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 12px", marginBottom: 6,
                                background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10,
                                color: "var(--text)", cursor: "pointer", fontSize: 13.5 }}>
@@ -1597,7 +1597,7 @@ function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub }) {
       {items.map(it => it.center ? (
         <div key="lex" data-testid="nav-lex" onClick={() => handle("lex")}
              style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1, cursor: "pointer" }}>
-          <div style={{
+          <div data-testid="nav-lex-avatar" style={{
             width: 60, height: 60, borderRadius: "50%",
             background: "#000",
             border: "3px solid var(--gold)", marginTop: -22, overflow: "hidden",
