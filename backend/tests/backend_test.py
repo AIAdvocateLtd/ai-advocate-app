@@ -66,7 +66,16 @@ def test_google():
     assert r.status_code == 200
     assert r.json()["user"]["has_access"] is True
 
+def _ensure_token():
+    if "token" not in state:
+        em = f"test_{uuid.uuid4().hex[:8]}@advocate.app"
+        r = requests.post(API + "/auth/signup", json={"email": em, "password": PWD, "full_name": "Test"})
+        assert r.status_code == 200, r.text
+        state["token"] = r.json()["access_token"]
+        state["user_id"] = r.json()["user"]["id"]
+
 def _h():
+    _ensure_token()
     return {"Authorization": f"Bearer {state['token']}"}
 
 def test_me():
@@ -733,3 +742,202 @@ def test_pdf_inline_branded_footer_present_in_bytes():
     # And the PDF should reference at least one image (XObject) — QR is embedded as image
     blob = r.content
     assert b"/Image" in blob or b"/XObject" in blob, "No image XObject — QR may not be embedded"
+
+
+# ==================== NEW FEATURE TESTS (iter5) ====================
+# Practice Mode + Live Legal Assist + Emergency + Letter Library
+
+def test_letters_templates_public_31():
+    """Public endpoint — should NOT require auth and return >= 31 templates."""
+    r = requests.get(API + "/letters/templates")
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert isinstance(j, list) and len(j) >= 31, f"Got {len(j)} templates"
+    sample = j[0]
+    for k in ("id", "category", "title", "prompt"):
+        assert k in sample, f"Missing key: {k}"
+    ids = {t["id"] for t in j}
+    for need in ("deposit_return", "witness_statement", "demand_money_owed", "custom"):
+        assert need in ids, f"Missing template id: {need}"
+
+def test_practice_no_auth_401():
+    r = requests.post(API + "/lex/practice",
+                      json={"role": "police_uk", "message": "hi"})
+    assert r.status_code in (401, 403)
+
+def test_live_assist_no_auth_401():
+    r = requests.post(API + "/lex/live-assist",
+                      json={"scenario": "police_interview", "other_party_said": "hi"})
+    assert r.status_code in (401, 403)
+
+def test_emergency_no_auth_401():
+    r = requests.post(API + "/emergency/rights", json={"country": "GB"})
+    assert r.status_code in (401, 403)
+
+def test_letters_generate_no_auth_401():
+    r = requests.post(API + "/letters/generate",
+                      json={"template_id": "deposit_return",
+                            "your_name": "x", "recipient": "y", "facts": "z"})
+    assert r.status_code in (401, 403)
+
+def test_practice_police_uk_session_continuity():
+    """role=police_uk — Lex stays in character as UK detective AND maintains session."""
+    r1 = requests.post(API + "/lex/practice", headers=_h(), json={
+        "role": "police_uk",
+        "message": "I'm ready to start.",
+        "facts": "I'm being interviewed about an alleged theft on 5 Jan.",
+        "language": "en-GB", "country": "GB",
+    })
+    assert r1.status_code == 200, r1.text
+    j1 = r1.json()
+    assert "session_id" in j1 and "response" in j1
+    assert isinstance(j1["response"], str) and len(j1["response"]) > 10
+    sid = j1["session_id"]
+    # Second call with same session — must echo continuity (no fresh "caution" again)
+    r2 = requests.post(API + "/lex/practice", headers=_h(), json={
+        "session_id": sid,
+        "role": "police_uk",
+        "message": "I was at home that evening.",
+        "language": "en-GB", "country": "GB",
+    })
+    assert r2.status_code == 200, r2.text
+    j2 = r2.json()
+    assert j2["session_id"] == sid
+    assert isinstance(j2["response"], str) and len(j2["response"]) > 5
+
+def test_practice_prosecutor():
+    r = requests.post(API + "/lex/practice", headers=_h(), json={
+        "role": "prosecutor",
+        "message": "I deny the allegations.",
+        "facts": "Civil claim for breach of contract.",
+    })
+    assert r.status_code == 200, r.text
+    assert len(r.json()["response"]) > 5
+
+def test_practice_tribunal():
+    r = requests.post(API + "/lex/practice", headers=_h(), json={
+        "role": "tribunal",
+        "message": "I'd like to present my evidence.",
+        "facts": "Unfair dismissal claim against former employer.",
+    })
+    assert r.status_code == 200, r.text
+    assert len(r.json()["response"]) > 5
+
+def test_practice_unknown_role_400():
+    r = requests.post(API + "/lex/practice", headers=_h(), json={
+        "role": "not_a_role", "message": "hi"
+    })
+    assert r.status_code == 400
+
+def test_practice_multilingual_es():
+    """language=es-ES — response should contain Spanish characters/words."""
+    r = requests.post(API + "/lex/practice", headers=_h(), json={
+        "role": "police_uk",
+        "message": "Hola, estoy listo para empezar.",
+        "facts": "Acusación de robo.",
+        "language": "es-ES", "country": "GB",
+    })
+    assert r.status_code == 200, r.text
+    resp = r.json()["response"]
+    # Cheap heuristic: any Spanish marker (accented char or common word)
+    markers = ("¿", "¡", "á", "é", "í", "ó", "ú", "ñ", " usted", " qué", " está", " dónde", " cuándo")
+    assert any(m in resp.lower() or m in resp for m in markers), f"Response not in Spanish: {resp[:200]}"
+
+def test_live_assist_police_interview_short():
+    r = requests.post(API + "/lex/live-assist", headers=_h(), json={
+        "scenario": "police_interview",
+        "other_party_said": "Were you at the scene on the night of January 5th?",
+        "my_facts": "I was at home alone.",
+        "language": "en-GB", "country": "GB",
+    })
+    assert r.status_code == 200, r.text
+    resp = r.json()["response"]
+    assert isinstance(resp, str) and len(resp) > 0
+    # Decisive + short — model is capped at 120 tokens; allow generous upper bound
+    assert len(resp) < 500, f"Live-assist response too long: {len(resp)} chars"
+
+def test_live_assist_tribunal():
+    r = requests.post(API + "/lex/live-assist", headers=_h(), json={
+        "scenario": "tribunal",
+        "other_party_said": "Can you produce the dismissal letter?",
+        "my_facts": "Unfair dismissal hearing.",
+    })
+    assert r.status_code == 200, r.text
+    assert len(r.json()["response"]) > 0
+
+def test_emergency_rights_gb_pace():
+    r = requests.post(API + "/emergency/rights", headers=_h(), json={
+        "country": "GB", "language": "en-GB",
+        "location": "Camden, London", "note": "Stopped on the street.",
+    })
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["country"] == "GB"
+    assert isinstance(j["rights_script"], str) and len(j["rights_script"]) > 200
+    blob = j["rights_script"].upper()
+    assert "PACE" in blob, "UK rights script should mention PACE"
+
+def test_emergency_rights_us_miranda():
+    r = requests.post(API + "/emergency/rights", headers=_h(), json={
+        "country": "US", "language": "en-GB",
+    })
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["country"] == "US"
+    blob = j["rights_script"].lower()
+    assert "miranda" in blob or "right to remain silent" in blob or "fifth amendment" in blob, \
+        f"US rights script should reference Miranda/5th Amendment: {blob[:300]}"
+
+def test_letters_generate_deposit_return():
+    r = requests.post(API + "/letters/generate", headers=_h(), json={
+        "template_id": "deposit_return",
+        "your_name": "Jane Tenant",
+        "recipient": "Acme Lettings Ltd",
+        "facts": "Tenancy ended 10 Dec 2025. Deposit £1,200 not returned. Property left clean.",
+        "language": "en-GB", "country": "GB",
+    })
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["title"]
+    assert "id" in j
+    letter = j["letter"].lower()
+    # Structural checks
+    assert "jane tenant" in letter, "Sender name missing"
+    assert "acme lettings" in letter, "Recipient missing"
+    # Should mention deposit protection / TDS-type concept
+    assert ("deposit" in letter and ("tenancy deposit" in letter or "tds" in letter or "scheme" in letter or "protect" in letter))
+
+def test_letters_generate_witness_statement():
+    r = requests.post(API + "/letters/generate", headers=_h(), json={
+        "template_id": "witness_statement",
+        "your_name": "John Smith",
+        "recipient": "The Court",
+        "facts": "On 5 Jan 2026 at 9pm I saw the claimant trip on broken pavement at 12 High St.",
+        "language": "en-GB", "country": "GB",
+    })
+    assert r.status_code == 200, r.text
+    letter = r.json()["letter"].lower()
+    # CPR Part 32 hallmarks
+    assert "statement of truth" in letter, "Witness statement missing 'statement of truth'"
+    assert "john smith" in letter
+    # Numbered paragraphs convention
+    assert ("1." in letter or "1)" in letter)
+
+def test_letters_generate_unknown_template_400():
+    r = requests.post(API + "/letters/generate", headers=_h(), json={
+        "template_id": "does_not_exist",
+        "your_name": "x", "recipient": "y", "facts": "z",
+    })
+    assert r.status_code == 400
+
+def test_lex_chat_autodetect_spanish_reply():
+    """Existing /api/lex/chat — user sends Spanish in en-GB UI → reply should be Spanish."""
+    r = requests.post(API + "/lex/chat", headers=_h(), json={
+        "category": "general",
+        "message": "Hola Lex, necesito ayuda con un contrato de alquiler. ¿Qué debo revisar?",
+        "language": "en-GB",
+    })
+    assert r.status_code == 200, r.text
+    resp = r.json()["response"]
+    markers = ("¿", "¡", "á", "é", "í", "ó", "ú", "ñ", " contrato", " usted", " debe", " puede")
+    assert any(m in resp for m in markers), f"Auto-detect failed — not Spanish: {resp[:200]}"

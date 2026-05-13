@@ -565,6 +565,378 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false }) {
   );
 }
 
+// ---------- Emergency Mode ("I've Been Arrested") ----------
+function EmergencyModal({ lang, country, onClose }) {
+  const [rights, setRights] = useState("");
+  const [busy, setBusy] = useState(true);
+  const [note, setNote] = useState("");
+  const [coords, setCoords] = useState(null);
+
+  const fetchRights = useCallback(async (n) => {
+    setBusy(true);
+    try {
+      const { data } = await api.post("/emergency/rights", { language: lang, country, note: n || undefined,
+        location: coords ? `${coords.latitude.toFixed(4)},${coords.longitude.toFixed(4)}` : undefined });
+      setRights(data.rights_script);
+    } catch (e) { setRights(e?.response?.data?.detail || "Could not load rights. Stay silent. Ask for a lawyer."); }
+    finally { setBusy(false); }
+  }, [lang, country, coords]);
+
+  useEffect(() => {
+    // try to grab coords quickly
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        () => {}, { timeout: 4000 }
+      );
+    }
+    fetchRights("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="modal-bg" data-testid="emergency-modal" style={{ background: "rgba(60,0,0,0.85)" }}>
+      <div className="modal-card" style={{ padding: 18, maxHeight: "95vh", border: "2px solid #dc2626" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
+          <h2 style={{ fontSize: 20, color: "#fca5a5", fontFamily: "Cinzel, serif", letterSpacing: "0.04em" }}>EMERGENCY — YOUR RIGHTS</h2>
+          <button onClick={onClose} data-testid="emergency-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}>
+            <X size={24} />
+          </button>
+        </div>
+        <div style={{ fontSize: 12, color: "#fca5a5", marginBottom: 8 }}>Country: <strong>{country}</strong>. Stay calm. Read this aloud if needed.</div>
+        <div data-testid="rights-script" style={{ overflowY: "auto", maxHeight: "55vh", padding: 14, background: "#0a0000",
+                     borderRadius: 12, border: "1px solid #7f1d1d", fontSize: 14, color: "var(--text)",
+                     lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
+          {busy ? <span className="spinner" /> : rights}
+        </div>
+        <textarea className="input" data-testid="emergency-note" rows={2} placeholder="Optional: one line about what happened (helps Lex tailor advice)"
+          value={note} onChange={(e) => setNote(e.target.value)} style={{ marginTop: 10 }} />
+        <div className="flex gap-2" style={{ marginTop: 10 }}>
+          <button className="btn-gold" data-testid="rights-refresh" disabled={busy} onClick={() => fetchRights(note)} style={{ flex: 1 }}>
+            Re-generate with note
+          </button>
+          <button className="btn-ghost" onClick={onClose} style={{ flex: 1 }}>Close</button>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 10, textAlign: "center" }}>
+          Information only — not legal advice. If you can, call a duty solicitor immediately.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Practice + Live Legal Assist Modal (combined) ----------
+const PRACTICE_ROLES = [
+  { v: "police_uk", label: "UK Police Interview" },
+  { v: "police_us", label: "US Police Interrogation" },
+  { v: "prosecutor", label: "Cross-Examination by Prosecutor" },
+  { v: "tribunal", label: "Employment Tribunal" },
+  { v: "immigration", label: "Immigration Interview" },
+  { v: "judge", label: "Mitigation Before a Judge" },
+  { v: "opposing_counsel", label: "Opposing Counsel (Civil)" },
+  { v: "boss_disciplinary", label: "HR Disciplinary Hearing" },
+];
+const LIVE_SCENARIOS = [
+  { v: "police_interview", label: "Police interview (with rep present)" },
+  { v: "tribunal", label: "Tribunal hearing (recording permitted)" },
+  { v: "lawyer_call", label: "Call with my own lawyer" },
+  { v: "mediation", label: "Mediation / Arbitration (consented)" },
+  { v: "disciplinary", label: "Internal disciplinary / HR" },
+  { v: "other", label: "Other permitted conversation" },
+];
+
+function CourtroomModal({ lang, country, onClose }) {
+  const [tab, setTab] = useState("practice"); // practice | live
+  // Practice state
+  const [role, setRole] = useState("police_uk");
+  const [facts, setFacts] = useState("");
+  const [pMsgs, setPMsgs] = useState([]);
+  const [pInput, setPInput] = useState("");
+  const [pBusy, setPBusy] = useState(false);
+  const [pSession, setPSession] = useState(null);
+  const { recording, start, stop } = useRecorder();
+  const pScroll = useRef(null);
+  useEffect(() => { pScroll.current?.scrollTo({ top: 1e9, behavior: "smooth" }); }, [pMsgs, pBusy]);
+
+  const sendPractice = async (text) => {
+    if (!text.trim()) return;
+    setPMsgs(m => [...m, { role: "user", content: text }]); setPInput(""); setPBusy(true);
+    try {
+      const { data } = await api.post("/lex/practice", { session_id: pSession, role, message: text, language: lang, country, facts });
+      setPSession(data.session_id);
+      setPMsgs(m => [...m, { role: "lex", content: data.response }]);
+    } catch (e) {
+      setPMsgs(m => [...m, { role: "lex", content: e?.response?.data?.detail || "Error" }]);
+    } finally { setPBusy(false); }
+  };
+
+  const onPracticeMic = async () => {
+    if (recording) {
+      const blob = await stop();
+      if (!blob) return;
+      setPBusy(true);
+      const fd = new FormData(); fd.append("audio", blob, "rec.webm"); fd.append("language", lang.split("-")[0]);
+      try {
+        const { data } = await api.post("/voice/transcribe", fd);
+        if (data.text) await sendPractice(data.text);
+        else setPBusy(false);
+      } catch { setPBusy(false); }
+    } else { start(); }
+  };
+
+  // Live Assist state
+  const [consent, setConsent] = useState(false);
+  const [scenario, setScenario] = useState("police_interview");
+  const [liveActive, setLiveActive] = useState(false);
+  const [lFacts, setLFacts] = useState("");
+  const [advice, setAdvice] = useState([]); // {at, said, advice}
+  const lRecRef = useRef(null);
+  const lChunkBufRef = useRef("");
+  const lSentRef = useRef(0);
+  const lSessionRef = useRef(null);
+
+  const startLive = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { alert("This browser does not support live speech recognition. Use Chrome/Edge/Safari."); return; }
+    const r = new SR();
+    r.continuous = true; r.interimResults = true; r.lang = lang || "en-GB";
+    r.onresult = async (ev) => {
+      let finalText = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        if (ev.results[i].isFinal) finalText += ev.results[i][0].transcript + " ";
+      }
+      if (finalText.trim()) {
+        lChunkBufRef.current += finalText;
+        // dispatch every ~25 chars or after a final phrase
+        const now = Date.now();
+        if (lChunkBufRef.current.length > 25 && now - lSentRef.current > 3500) {
+          const chunk = lChunkBufRef.current.trim();
+          lChunkBufRef.current = "";
+          lSentRef.current = now;
+          try {
+            const { data } = await api.post("/lex/live-assist", {
+              session_id: lSessionRef.current, scenario,
+              other_party_said: chunk, my_facts: lFacts, language: lang, country,
+            });
+            lSessionRef.current = data.session_id;
+            setAdvice(a => [{ at: new Date().toLocaleTimeString(), said: chunk, advice: data.response }, ...a].slice(0, 30));
+          } catch (e) { /* swallow */ }
+        }
+      }
+    };
+    r.onerror = () => {};
+    r.onend = () => { if (liveActive) { try { r.start(); } catch {} } };
+    try { r.start(); lRecRef.current = r; setLiveActive(true); } catch (e) { alert("Mic permission required."); }
+  };
+  const stopLive = () => {
+    setLiveActive(false);
+    try { lRecRef.current?.stop(); } catch {}
+    lRecRef.current = null;
+  };
+  useEffect(() => () => { try { lRecRef.current?.stop(); } catch {} }, []);
+
+  return (
+    <div className="modal-bg" data-testid="courtroom-modal">
+      <div className="modal-card" style={{ height: "92vh", padding: 0 }}>
+        <div className="flex items-center justify-between" style={{ padding: 14, borderBottom: "1px solid var(--line)" }}>
+          <h2 className="brand-font gold" style={{ fontSize: 18, letterSpacing: "0.04em" }}>COURTROOM TRAINER</h2>
+          <button onClick={onClose} data-testid="courtroom-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
+        </div>
+        <div style={{ display: "flex", padding: "10px 14px", gap: 6 }}>
+          <button data-testid="tab-practice" onClick={() => setTab("practice")}
+            style={{ flex: 1, padding: "8px 12px", borderRadius: 10, cursor: "pointer",
+              background: tab === "practice" ? "var(--gold)" : "transparent",
+              color: tab === "practice" ? "#1a1300" : "var(--gold)", border: "1px solid var(--gold-deep)", fontWeight: 600 }}>
+            Practice Mode
+          </button>
+          <button data-testid="tab-live" onClick={() => setTab("live")}
+            style={{ flex: 1, padding: "8px 12px", borderRadius: 10, cursor: "pointer",
+              background: tab === "live" ? "var(--gold)" : "transparent",
+              color: tab === "live" ? "#1a1300" : "var(--gold)", border: "1px solid var(--gold-deep)", fontWeight: 600 }}>
+            Live Legal Assist
+          </button>
+        </div>
+
+        {tab === "practice" ? (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "0 14px 14px", overflow: "hidden" }}>
+            {pMsgs.length === 0 && (
+              <>
+                <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 6 }}>Lex will role-play your toughest opponent so you can rehearse out loud. Pick a role and brief the facts. Safe to use anywhere — no recording sent to anyone.</div>
+                <select className="input" data-testid="practice-role" value={role} onChange={(e) => setRole(e.target.value)} style={{ marginBottom: 8 }}>
+                  {PRACTICE_ROLES.map(r => <option key={r.v} value={r.v}>{r.label}</option>)}
+                </select>
+                <textarea className="input" data-testid="practice-facts" rows={3} value={facts} onChange={(e) => setFacts(e.target.value)} placeholder="Brief Lex on your case (e.g. arrested for drink-driving, blew 60mg, claims he wasn't driving)" />
+              </>
+            )}
+            <div ref={pScroll} style={{ flex: 1, overflowY: "auto", marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+              {pMsgs.map((m, i) => (
+                <div key={i} className={m.role === "user" ? "bubble-user" : "bubble-lex"}
+                     style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", padding: "9px 12px", borderRadius: 14, maxWidth: "82%", whiteSpace: "pre-wrap", fontSize: 14 }}>
+                  {m.content}
+                </div>
+              ))}
+              {pBusy && <div className="bubble-lex" style={{ alignSelf: "flex-start", padding: "9px 12px", borderRadius: 14 }}><span className="spinner" /></div>}
+            </div>
+            <div className="flex items-center gap-2" style={{ marginTop: 10 }}>
+              <button onClick={onPracticeMic} data-testid="practice-mic"
+                style={{ background: "#000", border: `2px solid ${recording ? "var(--danger)" : "var(--gold)"}`, borderRadius: "50%", width: 44, height: 44, cursor: "pointer", padding: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {recording ? <Square size={18} style={{ color: "var(--danger)" }} /> : <Mic size={18} style={{ color: "var(--gold)" }} />}
+              </button>
+              <input className="input" data-testid="practice-input" placeholder={pMsgs.length === 0 ? "Type your opening reply or tap mic…" : "Reply…"} value={pInput} onChange={(e) => setPInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sendPractice(pInput)} style={{ flex: 1 }} />
+              <button className="btn-gold" data-testid="practice-send" onClick={() => sendPractice(pInput || (pMsgs.length === 0 ? "Begin." : ""))} disabled={pBusy} style={{ padding: "10px 14px" }}>
+                <Send size={16} />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "0 14px 14px", overflow: "hidden" }}>
+            {!consent ? (
+              <div style={{ padding: 8, overflowY: "auto" }}>
+                <div style={{ background: "#2a0a0a", border: "1px solid #7f1d1d", borderRadius: 12, padding: 14, marginBottom: 10 }}>
+                  <div style={{ color: "#fca5a5", fontWeight: 600, marginBottom: 6 }}>⚠ Permitted use only</div>
+                  <div style={{ fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.6 }}>
+                    Live Legal Assist listens to your conversation and tells you what to say in real time. <strong>Recording inside an active courtroom is a criminal offence</strong> in the UK and most jurisdictions and AI Advocate refuses to be used for that.
+                    <br /><br />
+                    Use this ONLY in:
+                    <ul style={{ marginLeft: 18, marginTop: 6 }}>
+                      <li>Police interview (with your legal rep present)</li>
+                      <li>Tribunal hearings where recording is permitted</li>
+                      <li>Calls with your own lawyer</li>
+                      <li>Mediation / arbitration with all-party consent</li>
+                      <li>Internal disciplinary / HR hearings</li>
+                    </ul>
+                  </div>
+                </div>
+                <label className="flex items-start gap-2" style={{ cursor: "pointer" }}>
+                  <input type="checkbox" data-testid="consent-checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)}
+                    style={{ width: 18, height: 18, accentColor: "var(--gold)", marginTop: 3 }} />
+                  <span style={{ fontSize: 12.5, color: "var(--text-dim)" }}>I confirm I have lawful permission to record this conversation, that I am NOT in an active courtroom, and I accept full responsibility for the legality of this use in my jurisdiction.</span>
+                </label>
+                <button className="btn-gold w-full" data-testid="consent-continue" disabled={!consent} onClick={() => setConsent(true)} style={{ marginTop: 14 }}>Continue</button>
+              </div>
+            ) : (
+              <>
+                {!liveActive && (
+                  <>
+                    <select className="input" data-testid="live-scenario" value={scenario} onChange={(e) => setScenario(e.target.value)} style={{ marginBottom: 8 }}>
+                      {LIVE_SCENARIOS.map(s => <option key={s.v} value={s.v}>{s.label}</option>)}
+                    </select>
+                    <textarea className="input" data-testid="live-facts" rows={2} value={lFacts} onChange={(e) => setLFacts(e.target.value)} placeholder="One-line case brief (helps Lex give sharper advice)" />
+                  </>
+                )}
+                <button className="btn-gold w-full" data-testid={liveActive ? "live-stop" : "live-start"} onClick={liveActive ? stopLive : startLive}
+                  style={{ marginTop: 10, background: liveActive ? "#dc2626" : undefined, color: liveActive ? "#fff" : undefined }}>
+                  {liveActive ? "STOP listening" : "START listening"}
+                </button>
+                {liveActive && <div style={{ textAlign: "center", color: "var(--gold)", fontSize: 12, marginTop: 6 }}>🎙 Listening — Lex will whisper advice as the other side speaks</div>}
+                <div style={{ flex: 1, overflowY: "auto", marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                  {advice.length === 0 && liveActive && <div style={{ color: "var(--text-muted)", textAlign: "center", padding: 20, fontSize: 13 }}>Waiting for the other side to speak…</div>}
+                  {advice.map((a, i) => (
+                    <div key={i} style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 10 }}>
+                      <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>{a.at} — They said:</div>
+                      <div style={{ fontSize: 12.5, color: "var(--text-dim)", fontStyle: "italic", marginBottom: 6 }}>"{a.said}"</div>
+                      <div style={{ fontSize: 14, color: "var(--gold)", fontWeight: 600 }}>{a.advice}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Letter Library Modal ----------
+function LetterLibraryModal({ lang, country, onClose }) {
+  const [tpls, setTpls] = useState([]);
+  const [sel, setSel] = useState(null);
+  const [form, setForm] = useState({ your_name: "", recipient: "", facts: "" });
+  const [busy, setBusy] = useState(false);
+  const [letter, setLetter] = useState("");
+  const [letterId, setLetterId] = useState(null);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => { api.get("/letters/templates").then(r => setTpls(r.data)).catch(() => {}); }, []);
+
+  const filtered = tpls.filter(t => !search ||
+    t.title.toLowerCase().includes(search.toLowerCase()) ||
+    t.category.toLowerCase().includes(search.toLowerCase()));
+  const grouped = filtered.reduce((acc, t) => { (acc[t.category] = acc[t.category] || []).push(t); return acc; }, {});
+
+  const generate = async () => {
+    setBusy(true); setLetter("");
+    try {
+      const { data } = await api.post("/letters/generate", { template_id: sel.id, language: lang, country, ...form });
+      setLetter(data.letter); setLetterId(data.id);
+    } catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="modal-bg" data-testid="letter-lib-modal">
+      <div className="modal-card" style={{ padding: 18, maxHeight: "94vh" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 12 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 18 }}>{sel ? sel.title : "Letter Library"}</h2>
+          <button onClick={onClose} data-testid="letter-lib-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
+        </div>
+
+        {!sel && (
+          <>
+            <input className="input" data-testid="letter-search" placeholder="Search templates…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 12 }} />
+            <div style={{ overflowY: "auto", maxHeight: "70vh" }}>
+              {Object.entries(grouped).map(([cat, items]) => (
+                <div key={cat} style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, color: "var(--gold)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{cat}</div>
+                  {items.map(tpl => (
+                    <button key={tpl.id} data-testid={`tpl-${tpl.id}`} onClick={() => setSel(tpl)}
+                      style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 12px", marginBottom: 6,
+                               background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10,
+                               color: "var(--text)", cursor: "pointer", fontSize: 13.5 }}>
+                      {tpl.title}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {sel && !letter && (
+          <div style={{ overflowY: "auto", maxHeight: "78vh" }}>
+            <button className="btn-ghost" onClick={() => setSel(null)} style={{ marginBottom: 10, padding: "6px 12px" }}>
+              <ArrowLeft size={14} style={{ display: "inline", marginRight: 4 }} />Back
+            </button>
+            <input className="input" data-testid="letter-name" placeholder="Your full name" value={form.your_name} onChange={(e) => setForm({ ...form, your_name: e.target.value })} style={{ marginBottom: 8 }} />
+            <input className="input" data-testid="letter-recipient" placeholder="Recipient name & address" value={form.recipient} onChange={(e) => setForm({ ...form, recipient: e.target.value })} style={{ marginBottom: 8 }} />
+            <textarea className="input" data-testid="letter-facts" rows={5} placeholder="Tell Lex what happened (dates, amounts, key facts)" value={form.facts} onChange={(e) => setForm({ ...form, facts: e.target.value })} />
+            <button className="btn-gold w-full" data-testid="letter-gen-btn" onClick={generate} disabled={busy || !form.your_name || !form.recipient || !form.facts} style={{ marginTop: 12 }}>
+              {busy ? <span className="spinner" /> : "Generate Letter"}
+            </button>
+          </div>
+        )}
+
+        {letter && (
+          <div style={{ overflowY: "auto", maxHeight: "78vh" }}>
+            <div data-testid="letter-output" style={{ whiteSpace: "pre-wrap", fontSize: 13.5, color: "var(--text-dim)", lineHeight: 1.6,
+                          background: "#0a0a0a", border: "1px solid var(--line)", borderRadius: 10, padding: 14 }}>{letter}</div>
+            <div className="flex gap-2" style={{ marginTop: 12 }}>
+              <button className="btn-gold" data-testid="letter-pdf"
+                onClick={() => pdfInline({ title: sel.title, subtitle: form.recipient, body: letter, filename: `${sel.id}.pdf` })}
+                style={{ flex: 1 }}>
+                <Download size={14} style={{ display: "inline", marginRight: 6 }} />Download PDF
+              </button>
+              <button className="btn-ghost" onClick={() => { setLetter(""); setLetterId(null); }} style={{ flex: 1 }}>Edit / Re-do</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---------- Contract Upload ----------
 function ContractUploader({ lang, country, onClose }) {
   const [file, setFile] = useState(null);
@@ -1254,6 +1626,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
   const [showSub, setShowSub] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdvertise, setShowAdvertise] = useState(false);
+  const [showEmergency, setShowEmergency] = useState(false);
   const [wakeOn, setWakeOn] = useState(() => localStorage.getItem("aa_wake") !== "0");
 
   // "Hey Lex" wake word — opens Ask Lex when user says it
@@ -1266,12 +1639,12 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
 
   const tiles = [
     { id: "ask_lex", label: t(lang, "askLex"), sub: t(lang, "askLexSub"), Icon: AskLexIcon, cat: "ask_lex" },
+    { id: "courtroom", label: "Courtroom Trainer", Icon: CourtIcon },
     { id: "record", label: t(lang, "recordLegal"), Icon: RecordIcon, cat: "record" },
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon },
     { id: "lawyers", label: t(lang, "findLawyer"), Icon: LawyerIcon },
     { id: "files", label: t(lang, "myFiles"), Icon: FilesIcon },
-    { id: "letter", label: t(lang, "generateLetter"), Icon: LetterIcon },
-    { id: "court_prep", label: t(lang, "courtPrep"), Icon: CourtIcon, cat: "court_prep" },
+    { id: "letter", label: "Letter Library", Icon: LetterIcon },
     { id: "immigration", label: t(lang, "immigration"), Icon: ImmigrationIcon, cat: "immigration" },
     { id: "employment", label: t(lang, "employment"), Icon: EmploymentIcon, cat: "employment" },
     { id: "property", label: t(lang, "property"), Icon: PropertyIcon, cat: "property" },
@@ -1283,10 +1656,11 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     const free = ["lawyers", "files"];
     if (!user.has_access && !free.includes(tile.id)) { setShowSub(true); return; }
     if (tile.id === "files") setModal({ type: "files" });
-    else if (tile.id === "letter") setModal({ type: "letter" });
+    else if (tile.id === "letter") setModal({ type: "letter_lib" });
     else if (tile.id === "record") setModal({ type: "record" });
     else if (tile.id === "snap") setModal({ type: "snap" });
     else if (tile.id === "lawyers") setModal({ type: "lawyers" });
+    else if (tile.id === "courtroom") setModal({ type: "courtroom" });
     else if (tile.id === "ask_lex") setModal({ type: "chat", title: t(lang, "askLex"), category: tile.cat });
     else setModal({ type: "chat", title: tile.label, category: tile.cat });
   };
@@ -1313,9 +1687,20 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
         </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 6, marginBottom: 18 }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 6, marginBottom: 14 }}>
         <Logo />
       </div>
+
+      <button data-testid="emergency-btn" onClick={() => setShowEmergency(true)}
+        style={{ width: "100%", padding: "12px 16px", marginBottom: 14, borderRadius: 14,
+                 background: "linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%)",
+                 border: "1px solid #fca5a5", color: "#fff", fontWeight: 700,
+                 letterSpacing: "0.04em", fontSize: 14, cursor: "pointer",
+                 boxShadow: "0 0 18px rgba(220,38,38,0.55)", display: "flex",
+                 alignItems: "center", justifyContent: "center", gap: 8,
+                 fontFamily: "Cinzel, serif", textTransform: "uppercase" }}>
+        <span style={{ fontSize: 18 }}>⚠</span> I've Been Arrested — My Rights NOW
+      </button>
 
       {!user.has_access ? (
         <div className="trial-banner" data-testid="trial-banner-ended" style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1349,11 +1734,14 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
         }} hasAccess={user.has_access} requireSub={() => setShowSub(true)} />
 
       {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} onClose={() => setModal(null)} />}
+      {modal?.type === "courtroom" && <CourtroomModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "letter_lib" && <LetterLibraryModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "files" && <FilesModal lang={lang} onClose={() => setModal(null)} />}
       {modal?.type === "letter" && <LegalLetterModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "record" && <RecordModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "snap" && <SnapEvidenceModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "lawyers" && <LawyersModal lang={lang} country={country} user={user} onClose={() => setModal(null)} openAdvertise={() => { setModal(null); setShowAdvertise(true); }} />}
+      {showEmergency && <EmergencyModal lang={lang} country={country} onClose={() => setShowEmergency(false)} />}
       {showLang && <LanguagePicker initial={lang} lang={lang} onConfirm={(l) => { setLang(l); setShowLang(false); api.patch("/auth/preferences", { language: l }).catch(() => {}); }} />}
       {showSub && <SubscribeModal lang={lang} user={user} onClose={() => setShowSub(false)} onActivated={(u) => { refreshUser(u); setShowSub(false); }} />}
       {showSettings && <SettingsModal lang={lang} country={country} user={user} onClose={() => setShowSettings(false)} onUpdate={(u) => refreshUser(u)} setLang={setLang} setCountry={setCountry} />}

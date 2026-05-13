@@ -485,6 +485,275 @@ async def get_session(session_id: str, user: dict = Depends(get_user)):
     ).sort("created_at", 1).to_list(500)
     return msgs
 
+# ==================== Practice Mode + Live Legal Assist ====================
+PRACTICE_ROLES = {
+    "police_uk": "You are a SEASONED UK police detective conducting a formal PACE interview. You are firm, pressing, and use leading questions. You introduce caution: 'You do not have to say anything, but it may harm your defence...' Open with that. Drill the user. After each user reply, push for more detail OR challenge their answer like a real detective would. NEVER break character. Make them feel the pressure.",
+    "police_us": "You are a US police detective conducting a custodial interrogation in the post-Miranda phase (suspect has waived rights — or you are testing whether they will). You are professional but use accusatory interview techniques (Reid technique-style). Push for inconsistencies. NEVER break character.",
+    "prosecutor": "You are a hostile cross-examining prosecutor / Crown counsel at trial. Your job is to destroy the user's credibility. Ask short, leading, closed-form questions. Press inconsistencies. Use sarcasm sparingly. NEVER break character.",
+    "tribunal": "You are the chairperson of an Employment Tribunal panel. Formal, fair but probing. Ask the user to clarify timelines and produce evidence references. NEVER break character.",
+    "immigration": "You are a tough but professional Home Office / immigration interviewing officer assessing the user's right to remain / asylum claim / settlement application. Ask probing questions about dates, documents, and inconsistencies. NEVER break character.",
+    "judge": "You are a Crown Court / district judge listening to the user's plea in mitigation. Ask short clarifying questions, raise judicial concerns, and remain neutral but firm. NEVER break character.",
+    "opposing_counsel": "You are the opposing party's barrister at a civil hearing. Combative cross-examiner. Lead questions only. NEVER break character.",
+    "boss_disciplinary": "You are the user's HR director conducting a formal disciplinary hearing for alleged gross misconduct. Cold, procedural, document-driven. NEVER break character.",
+}
+
+class PracticeRequest(BaseModel):
+    session_id: Optional[str] = None
+    role: str  # one of PRACTICE_ROLES keys
+    message: str  # user's spoken/typed reply
+    language: str = "en-GB"
+    country: str = "GB"
+    facts: Optional[str] = None  # user-supplied case facts to brief the role player
+
+@api_router.post("/lex/practice")
+async def lex_practice(data: PracticeRequest, user: dict = Depends(get_user)):
+    """Lex role-plays as prosecutor/officer/etc. to drill the user. Safe everywhere."""
+    pub = user_to_public(user)
+    if not pub.get("has_access"):
+        raise HTTPException(402, "Subscription required.")
+    role_prompt = PRACTICE_ROLES.get(data.role)
+    if not role_prompt:
+        raise HTTPException(400, "Unknown practice role")
+
+    lang_name = LANG_NAMES.get(data.language, "English")
+    system = f"""You are in PRACTICE MODE. {role_prompt}
+
+User's case facts (briefing): {data.facts or 'Not provided — improvise plausible questions for a typical case in this scenario.'}
+
+Reply in {lang_name} unless the user speaks another language, in which case match theirs.
+
+Rules:
+- One question at a time. Short. Realistic.
+- If the user breaks character ("Lex, what should I say?"), pause the role-play, briefly advise them in 1-2 sentences, then ask: "Ready to continue?"
+- Never reveal you are AI unless explicitly asked twice.
+"""
+    session_id = data.session_id or str(uuid.uuid4())
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=system)\
+        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=600)
+    try:
+        response = await chat.send_message(UserMessage(text=data.message))
+    except Exception as e:
+        logger.exception("practice error")
+        raise HTTPException(500, f"AI error: {e}")
+
+    await db.conversations.insert_one({
+        "id": str(uuid.uuid4()), "user_id": user["id"], "session_id": session_id,
+        "category": f"practice_{data.role}", "user_message": data.message,
+        "assistant_response": response, "language": data.language,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"session_id": session_id, "response": response}
+
+
+class LiveAssistRequest(BaseModel):
+    session_id: Optional[str] = None
+    scenario: str  # 'police_interview' | 'tribunal' | 'lawyer_call' | 'mediation' | 'disciplinary' | 'other'
+    other_party_said: str  # transcript chunk of what the OTHER party just said
+    my_facts: Optional[str] = None  # user's case context
+    language: str = "en-GB"
+    country: str = "GB"
+
+@api_router.post("/lex/live-assist")
+async def lex_live_assist(data: LiveAssistRequest, user: dict = Depends(get_user)):
+    """REAL-TIME advice during a permitted legal interaction. Output is SHORT.
+    Must NOT be used in active court proceedings — frontend enforces consent screen."""
+    pub = user_to_public(user)
+    if not pub.get("has_access"):
+        raise HTTPException(402, "Subscription required.")
+
+    lang_name = LANG_NAMES.get(data.language, "English")
+    scenario_brief = {
+        "police_interview": "Police PACE-style interview. Right to silence applies. 'No comment' is a valid lawful answer.",
+        "tribunal": "Employment / immigration tribunal hearing where recording is permitted.",
+        "lawyer_call": "Private call with the user's own lawyer — encourage candour.",
+        "mediation": "Mediation session with all-party consent. Focus on tone and offers.",
+        "disciplinary": "Internal disciplinary / HR hearing — formal but not criminal.",
+        "other": "User-permitted recorded legal conversation.",
+    }.get(data.scenario, "Permitted legal conversation.")
+
+    system = f"""You are Lex in LIVE LEGAL ASSIST mode. The user is in: {scenario_brief}
+Jurisdiction: {data.country}.
+User's brief: {data.my_facts or 'Not given.'}
+
+CRITICAL RULES:
+- The other party just said something. In ≤ 35 words, tell the user IN {lang_name} (or the language they're using) ONE of these:
+  • A 1-line response they should say, OR
+  • "Stay silent." / "Say 'no comment'." with one reason, OR
+  • "Ask for a break to consult your lawyer." with one reason.
+- Be DECISIVE. No hedging. No disclaimers. No long explanations. They are LIVE — every second matters.
+- Cite the law only if it's a single famous section (e.g. "PACE s.34").
+- If what was said is harmless small talk, reply: "Fine — answer briefly."
+"""
+    session_id = data.session_id or str(uuid.uuid4())
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=system)\
+        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=120)
+    try:
+        response = await chat.send_message(UserMessage(text=f'Other party just said: "{data.other_party_said}"'))
+    except Exception as e:
+        logger.exception("live-assist error")
+        raise HTTPException(500, f"AI error: {e}")
+
+    await db.conversations.insert_one({
+        "id": str(uuid.uuid4()), "user_id": user["id"], "session_id": session_id,
+        "category": f"live_{data.scenario}", "user_message": data.other_party_said,
+        "assistant_response": response, "language": data.language,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"session_id": session_id, "response": response}
+
+
+# ==================== Emergency: "I've Been Arrested" ====================
+class EmergencyRequest(BaseModel):
+    language: str = "en-GB"
+    country: str = "GB"
+    location: Optional[str] = None  # human-readable address
+    note: Optional[str] = None       # optional one-liner from user
+
+@api_router.post("/emergency/rights")
+async def emergency_rights(data: EmergencyRequest, user: dict = Depends(get_user)):
+    """Returns a jurisdiction- and language-specific RIGHTS SCRIPT the user can read aloud
+    to police/officials. Also logs the emergency event in the user's record."""
+    lang_name = LANG_NAMES.get(data.language, "English")
+    system = f"""You are Lex. The user has just pressed the EMERGENCY button: they have been
+arrested, stopped, or detained in {data.country}. Output ONLY the following sections, IN {lang_name}, plainly formatted with bold headings:
+
+1. **WHAT TO SAY RIGHT NOW** — 3 short sentences they can read VERBATIM out loud to the officer (right to silence, ask for lawyer, ask why detained). Country-specific phrasing.
+2. **WHAT NEVER TO SAY** — 4 bullet points of things to absolutely avoid.
+3. **YOUR LEGAL RIGHTS** — 5 bullet rights they have under {data.country} law (cite section/act).
+4. **NEXT STEPS** — Numbered list: ask for a lawyer, do not consent to searches without warrant, do not sign anything, request to call a family member, request medical attention if needed.
+5. **EMERGENCY NUMBERS** — Local emergency / duty solicitor / legal aid hotline numbers for {data.country}.
+
+Be DIRECT. No disclaimers in this output. The user is scared and needs clarity in under 10 seconds of reading.
+"""
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()), system_message=system)\
+        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=1200)
+    user_brief = f"I've been detained in {data.country}." + (f" Note: {data.note}" if data.note else "") + (f" Location: {data.location}" if data.location else "")
+    try:
+        rights = await chat.send_message(UserMessage(text=user_brief))
+    except Exception as e:
+        logger.exception("emergency error")
+        raise HTTPException(500, f"AI error: {e}")
+
+    await db.emergency_events.insert_one({
+        "id": str(uuid.uuid4()), "user_id": user["id"],
+        "country": data.country, "location": data.location, "note": data.note,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"rights_script": rights, "country": data.country, "language": data.language}
+
+
+# ==================== Letter Library (curated templates) ====================
+LETTER_TEMPLATES = [
+    {"id": "demand_money_owed", "category": "Money", "title": "Letter Before Action (Money Owed)",
+     "prompt": "Draft a formal UK 'Letter Before Action' demanding payment of money owed before issuing court proceedings."},
+    {"id": "deposit_return", "category": "Housing", "title": "Demand Tenancy Deposit Back",
+     "prompt": "Draft a firm letter demanding the return of a tenancy deposit, referencing the Tenancy Deposit Scheme rules and 3x penalty for non-protection."},
+    {"id": "section21_response", "category": "Housing", "title": "Response to a Section 21 Eviction Notice",
+     "prompt": "Draft a measured response to a Section 21 eviction notice, flagging any potential defects in the notice (deposit not protected, no EPC/Gas/How to Rent, retaliatory eviction)."},
+    {"id": "section8_response", "category": "Housing", "title": "Defence to a Section 8 Eviction",
+     "prompt": "Draft a Defence to a Section 8 possession claim — denying or contextualising each alleged ground."},
+    {"id": "noise_complaint", "category": "Housing", "title": "Formal Noise / Nuisance Complaint to Landlord",
+     "prompt": "Draft a strongly-worded formal complaint to a landlord about noise/anti-social behaviour by another tenant."},
+    {"id": "employment_grievance", "category": "Work", "title": "Formal Grievance to Employer",
+     "prompt": "Draft a formal written grievance letter to an employer setting out alleged breach (discrimination/harassment/unpaid wages/etc.)."},
+    {"id": "unfair_dismissal_appeal", "category": "Work", "title": "Appeal an Unfair Dismissal Decision",
+     "prompt": "Draft an internal appeal letter against an unfair dismissal, citing procedural failures and substantive defects."},
+    {"id": "discrimination_letter", "category": "Work", "title": "Discrimination Complaint",
+     "prompt": "Draft an Equality Act 2010 discrimination complaint to employer / service provider."},
+    {"id": "police_complaint", "category": "Police", "title": "Formal Complaint Against the Police",
+     "prompt": "Draft a complaint to the IOPC / Professional Standards Department alleging police misconduct."},
+    {"id": "police_caution_response", "category": "Police", "title": "Written Response After Police Caution",
+     "prompt": "Draft a measured written response from a suspect post-caution, asserting silence rights without antagonising."},
+    {"id": "subject_access_request", "category": "Privacy", "title": "GDPR Subject Access Request",
+     "prompt": "Draft a UK GDPR / Data Protection Act 2018 Subject Access Request requesting all personal data held about the user."},
+    {"id": "data_deletion", "category": "Privacy", "title": "GDPR Right-to-be-Forgotten Request",
+     "prompt": "Draft a UK GDPR Article 17 'Right to Erasure' request to a data controller."},
+    {"id": "defamation_takedown", "category": "Online", "title": "Defamation / Libel Take-Down Demand",
+     "prompt": "Draft a UK defamation cease-and-desist letter demanding removal of false statements and an apology."},
+    {"id": "cease_and_desist", "category": "Online", "title": "General Cease & Desist Letter",
+     "prompt": "Draft a general-purpose cease-and-desist letter (harassment / IP / breach of contract — adapt to facts)."},
+    {"id": "parking_appeal", "category": "Driving", "title": "Parking Penalty Charge Notice Appeal",
+     "prompt": "Draft an informal then formal representations appeal against a UK parking PCN."},
+    {"id": "speeding_appeal", "category": "Driving", "title": "Speeding NIP Response / Mitigation",
+     "prompt": "Draft a measured response to a Notice of Intended Prosecution for speeding, including mitigation if appropriate."},
+    {"id": "insurance_dispute", "category": "Consumer", "title": "Insurance Claim Refusal Dispute",
+     "prompt": "Draft a strong dispute letter challenging an insurer's claim refusal, citing policy wording and FOS escalation rights."},
+    {"id": "consumer_refund", "category": "Consumer", "title": "Consumer Refund Demand (CRA 2015)",
+     "prompt": "Draft a refund demand under the Consumer Rights Act 2015 (not satisfactory quality / not as described / not fit for purpose)."},
+    {"id": "chargeback_evidence", "category": "Consumer", "title": "Chargeback / Section 75 Letter",
+     "prompt": "Draft a Section 75 Consumer Credit Act / chargeback letter to a card provider."},
+    {"id": "neighbour_dispute", "category": "Personal", "title": "Neighbour Dispute Resolution Letter",
+     "prompt": "Draft a calm but firm letter to a neighbour resolving a boundary / noise / hedge dispute, before legal action."},
+    {"id": "small_claim_letter", "category": "Personal", "title": "Small Claims Court Pre-Action Letter",
+     "prompt": "Draft a small claims pre-action protocol letter compliant with the Civil Procedure Rules."},
+    {"id": "witness_statement", "category": "Court", "title": "Civil Witness Statement (CPR 32)",
+     "prompt": "Draft a court-ready civil witness statement compliant with CPR Part 32 (numbered paragraphs, statement of truth)."},
+    {"id": "character_reference", "category": "Court", "title": "Character Reference for Sentencing",
+     "prompt": "Draft a character reference letter to a court for sentencing — third-person, factual, formatted as the referee's own letter."},
+    {"id": "mitigation_letter", "category": "Court", "title": "Plea in Mitigation Letter",
+     "prompt": "Draft a plea-in-mitigation letter (or note for the bench) — remorse, context, consequences, future plans."},
+    {"id": "defence_statement", "category": "Court", "title": "Defence Statement (CrimPR)",
+     "prompt": "Draft a Criminal Procedure Rules defence statement — nature of defence, matters of fact disputed, points of law."},
+    {"id": "appeal_council", "category": "Government", "title": "Council Decision Appeal",
+     "prompt": "Draft an appeal of a local council decision (housing benefit / homelessness / school admissions / planning)."},
+    {"id": "immigration_letter", "category": "Immigration", "title": "Home Office Cover / Representations Letter",
+     "prompt": "Draft a cover/representations letter for a Home Office immigration application (settlement, ILR, FLR, asylum further submissions)."},
+    {"id": "asylum_statement", "category": "Immigration", "title": "Asylum Personal Statement",
+     "prompt": "Draft a structured asylum statement — chronology, persecution, fear of return, country evidence."},
+    {"id": "lpa_intent", "category": "Family", "title": "Letter of Intent / Power-of-Attorney Notice",
+     "prompt": "Draft a letter notifying relatives of an intention to register a Lasting Power of Attorney (UK OPG procedure)."},
+    {"id": "divorce_response", "category": "Family", "title": "Response to Divorce / Financial Proceedings",
+     "prompt": "Draft a measured initial response to divorce papers / financial-disclosure request (Form E precursor)."},
+    {"id": "custom", "category": "Other", "title": "Custom Letter (describe in your own words)",
+     "prompt": "Take the user's free-text description and produce a properly-structured legal letter for it."},
+]
+
+@api_router.get("/letters/templates")
+async def list_letter_templates():
+    return LETTER_TEMPLATES
+
+class LetterFromTemplate(BaseModel):
+    template_id: str
+    your_name: str
+    recipient: str
+    facts: str
+    language: str = "en-GB"
+    country: str = "GB"
+
+@api_router.post("/letters/generate")
+async def generate_from_template(data: LetterFromTemplate, user: dict = Depends(get_user)):
+    pub = user_to_public(user)
+    if not pub.get("has_access"):
+        raise HTTPException(402, "Subscription required.")
+    tpl = next((t for t in LETTER_TEMPLATES if t["id"] == data.template_id), None)
+    if not tpl:
+        raise HTTPException(400, "Unknown template")
+    lang_name = LANG_NAMES.get(data.language, "English")
+    system = f"""You are Lex, drafting a professional legal letter for {data.country} in {lang_name}.
+
+TASK: {tpl['prompt']}
+
+Output the FULL letter, properly formatted (sender block, date, recipient block, subject, opening, body, sign-off). Use the laws of {data.country}. Cite relevant statute/case where useful. Strong, professional, court-ready tone.
+"""
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()), system_message=system)\
+        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2000)
+    user_input = f"Sender: {data.your_name}\nRecipient: {data.recipient}\nFacts: {data.facts}"
+    try:
+        letter = await chat.send_message(UserMessage(text=user_input))
+    except Exception as e:
+        logger.exception("letter gen error")
+        raise HTTPException(500, f"AI error: {e}")
+
+    rec = {
+        "id": str(uuid.uuid4()), "user_id": user["id"],
+        "kind": "letter", "template_id": data.template_id, "title": tpl["title"],
+        "letter": letter, "language": data.language, "country": data.country,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.legal_files.insert_one(rec)
+    return {"id": rec["id"], "title": tpl["title"], "letter": letter}
+
+
 # ==================== Voice (STT + TTS) ====================
 @api_router.post("/voice/transcribe")
 async def transcribe(audio: UploadFile = File(...), language: str = Form("en"), user: dict = Depends(get_user)):
