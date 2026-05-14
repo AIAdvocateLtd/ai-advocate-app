@@ -122,7 +122,7 @@ function TermsScreen({ lang, onAccept, onDecline, onChangeLang }) {
           <button className="btn-gold" data-testid="terms-lang-btn" onClick={onChangeLang}
                   title="Change language"
                   style={{ padding: "6px 14px", fontSize: 22, lineHeight: 1, display: "flex", alignItems: "center", gap: 6 }}>
-            <span>{(LANGUAGES.find(l => l.code === lang) || LANGUAGES[0]).flag}</span>
+            <span>{(LANGS.find(l => l.code === lang) || LANGS[0]).flag}</span>
             <Languages size={14} />
           </button>
         </div>
