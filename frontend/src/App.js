@@ -1482,11 +1482,40 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
 
   return (
     <div className="modal-bg" data-testid="settings-modal">
-      <div className="modal-card" style={{ padding: 22 }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 18 }}>
+      <div className="modal-card" style={{ padding: 22, maxHeight: "92vh", display: "flex", flexDirection: "column" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 18, flexShrink: 0 }}>
           <h2 className="brand-font gold" style={{ fontSize: 22 }}>{t(lang, "settings")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
         </div>
+        <div style={{ flex: 1, overflowY: "auto" }}>
+        {/* Subscription */}
+        <div data-testid="settings-subscription" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <Star size={18} style={{ color: "var(--gold)" }} fill="currentColor" />
+            <span style={{ fontWeight: 600 }}>Subscription</span>
+          </div>
+          <div style={{ fontSize: 13, color: "var(--text-dim)" }}>
+            Current plan: <strong style={{ color: "var(--gold)" }}>{(user.tier || "free").toUpperCase()}</strong>
+            {user.subscription_status === "active" && <span style={{ marginLeft: 8, fontSize: 11, color: "#16a34a" }}>● ACTIVE</span>}
+            {user.subscription_status === "past_due" && <span style={{ marginLeft: 8, fontSize: 11, color: "#dc2626" }}>● PAST DUE</span>}
+            {user.tier === "trial_pro" && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--gold)" }}>{user.trial_days_remaining}d trial left</span>}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button className="btn-gold" data-testid="settings-upgrade-btn"
+              onClick={() => { onClose(); window.dispatchEvent(new CustomEvent("aa:open-subscribe", { detail: { preset: "pro" } })); }}
+              style={{ flex: 1, padding: "8px 12px", fontSize: 13 }}>
+              {user.tier === "free" ? "Upgrade" : "Change plan"}
+            </button>
+            {user.stripe_customer_id && (
+              <button className="btn-ghost" data-testid="settings-portal-btn"
+                onClick={async () => { try { const { data } = await api.post("/subscription/portal"); window.location.href = data.portal_url; } catch (e) { alert(e?.response?.data?.detail || "Failed"); } }}
+                style={{ flex: 1, padding: "8px 12px", fontSize: 13 }}>
+                Manage billing
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Location */}
         <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1522,6 +1551,39 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             Lex applies the laws of your selected country
           </div>
         </div>
+
+        {/* Contact & Support */}
+        <div data-testid="settings-contact" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <MessageCircle size={18} style={{ color: "var(--gold)" }} />
+            <span style={{ fontWeight: 600 }}>Contact & Support</span>
+          </div>
+          {[
+            { label: "Customer support", email: "support@aiadvocate.co.uk" },
+            { label: "Business & partnerships", email: "admin@aiadvocate.co.uk" },
+            { label: "Press enquiries", email: "press@aiadvocate.co.uk" },
+            { label: "General info", email: "info@aiadvocate.co.uk" },
+          ].map(c => (
+            <a key={c.email} href={`mailto:${c.email}`} data-testid={`contact-${c.email.split("@")[0]}`}
+              style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--line)",
+                       textDecoration: "none", color: "var(--text)" }}>
+              <span style={{ fontSize: 13 }}>{c.label}</span>
+              <span style={{ fontSize: 12, color: "var(--gold)" }}>{c.email}</span>
+            </a>
+          ))}
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
+            We aim to reply within 24 hours on weekdays.
+          </div>
+        </div>
+
+        {/* Rate us on Trustpilot */}
+        <a href="https://www.trustpilot.com/review/aiadvocate.co.uk" target="_blank" rel="noreferrer" data-testid="settings-trustpilot"
+          style={{ display: "block", textAlign: "center", padding: "10px 12px", background: "var(--bg-card)",
+                   border: "1px solid var(--gold-deep)", borderRadius: 12, color: "var(--gold)",
+                   textDecoration: "none", fontSize: 13, marginBottom: 12 }}>
+          ⭐ Rate us on Trustpilot
+        </a>
+        </div>
       </div>
     </div>
   );
@@ -1529,44 +1591,116 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
 
 
 // ---------- Subscribe Modal ----------
-function SubscribeModal({ lang, user, onClose, onActivated }) {
+function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
   const [busy, setBusy] = useState(false);
+  const [tiers, setTiers] = useState([]);
+  const [picked, setPicked] = useState(presetPlan || "plus");
+
+  useEffect(() => { api.get("/subscription/tiers").then(r => setTiers(r.data.tiers)).catch(() => {}); }, []);
+
   const checkout = async (plan) => {
     setBusy(true);
-    try { const { data } = await api.post("/subscription/checkout", { plan }); window.location.href = data.checkout_url; }
+    try {
+      const { data } = await api.post("/subscription/checkout", { plan });
+      window.location.href = data.checkout_url;
+    } catch (e) { alert(e?.response?.data?.detail || "Failed"); setBusy(false); }
+  };
+  const openPortal = async () => {
+    setBusy(true);
+    try { const { data } = await api.post("/subscription/portal"); window.location.href = data.portal_url; }
     catch (e) { alert(e?.response?.data?.detail || "Failed"); setBusy(false); }
   };
   const demoActivate = async () => {
     setBusy(true);
-    try { const { data } = await api.post("/subscription/activate-test"); onActivated(data); }
+    try { const { data } = await api.post(`/subscription/activate-test?plan=${picked}`); onActivated(data); }
     catch (e) { alert(e?.response?.data?.detail || "Failed"); }
     finally { setBusy(false); }
   };
+
+  const onTier = user.tier || "free";
+  const isCurrent = (id) => onTier === id || (onTier === "yearly" && id === "yearly")
+                              || (onTier === "trial_pro" && id === "pro");
+
   return (
     <div className="modal-bg" data-testid="subscribe-modal">
-      <div className="modal-card" style={{ padding: 22 }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="brand-font gold" style={{ fontSize: 22 }}>{t(lang, "plansTitle")}</h2>
-          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={22} /></button>
+      <div className="modal-card" style={{ padding: 18, height: "94vh", display: "flex", flexDirection: "column" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 10, flexShrink: 0 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>Choose your plan</h2>
+          <button onClick={onClose} data-testid="subscribe-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
         </div>
-        <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{t(lang, "monthly")}</div>
-          <div style={{ fontSize: 28, color: "var(--gold)", fontWeight: 600 }}>£14.99 <span style={{ fontSize: 14, color: "var(--text-muted)" }}>/mo</span></div>
-          <button className="btn-gold w-full" data-testid="checkout-monthly-btn" onClick={() => checkout("monthly")} disabled={busy} style={{ marginTop: 10 }}>
-            {busy ? <span className="spinner" /> : t(lang, "subscribe")}
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12, flexShrink: 0 }}>
+          You're on <strong style={{ color: "var(--gold)" }}>{onTier === "trial_pro" ? "Free Trial (Pro features)" : onTier.toUpperCase()}</strong>.
+          {onTier !== "free" && onTier !== "trial_pro" && (
+            <button onClick={openPortal} data-testid="manage-sub-btn" style={{ marginLeft: 8, background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 14, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>Manage subscription</button>
+          )}
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+          {tiers.map(t => {
+            const selected = picked === t.id;
+            const current = isCurrent(t.id);
+            return (
+              <div key={t.id} data-testid={`tier-card-${t.id}`}
+                onClick={() => setPicked(t.id)}
+                style={{
+                  background: "var(--bg-card)",
+                  border: `2px solid ${selected ? "var(--gold)" : t.best_value ? "var(--gold-deep)" : "var(--line)"}`,
+                  borderRadius: 16, padding: 14, position: "relative", cursor: "pointer",
+                  boxShadow: selected ? "0 0 18px rgba(247,201,72,0.35)" : "none",
+                }}>
+                {t.best_value && (
+                  <div style={{ position: "absolute", top: -10, right: 14, background: "var(--gold)", color: "#1a1300", padding: "2px 10px", fontSize: 11, borderRadius: 8, fontWeight: 700 }}>
+                    BEST VALUE · {t.savings_pct}% off
+                  </div>
+                )}
+                {current && (
+                  <div style={{ position: "absolute", top: -10, left: 14, background: "#16a34a", color: "#fff", padding: "2px 10px", fontSize: 11, borderRadius: 8, fontWeight: 700 }}>
+                    YOUR PLAN
+                  </div>
+                )}
+                <div className="flex items-center justify-between">
+                  <div style={{ fontSize: 17, color: "var(--gold)", fontWeight: 700, fontFamily: "Cinzel, serif" }}>{t.name}</div>
+                  <div style={{ textAlign: "right" }}>
+                    {t.price_gbp === 0 ? (
+                      <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>Free</span>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: 22, color: "var(--gold)", fontWeight: 600 }}>£{t.price_gbp}</span>
+                        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>/{t.period === "year" ? "yr" : t.period === "month" ? "mo" : ""}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: "none" }}>
+                  {t.highlights.map((h, i) => (
+                    <li key={i} style={{ fontSize: 12.5, color: "var(--text-dim)", padding: "3px 0", display: "flex", gap: 8 }}>
+                      <Check size={13} style={{ color: "var(--gold)", flexShrink: 0, marginTop: 2 }} />
+                      <span>{h}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ flexShrink: 0, marginTop: 12 }}>
+          {picked === "free" ? (
+            <button className="btn-ghost w-full" data-testid="stay-free-btn" onClick={onClose}>
+              Stay on Free
+            </button>
+          ) : (
+            <button className="btn-gold w-full" data-testid={`checkout-${picked}-btn`} onClick={() => checkout(picked)} disabled={busy}>
+              {busy ? <span className="spinner" /> : `Subscribe — £${tiers.find(x => x.id === picked)?.price_gbp || ""}/${tiers.find(x => x.id === picked)?.period === "year" ? "yr" : "mo"}`}
+            </button>
+          )}
+          <button className="btn-ghost w-full" data-testid="demo-activate-btn" onClick={demoActivate} disabled={busy || picked === "free"} style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
+            Activate {picked.toUpperCase()} (demo / no payment)
           </button>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, textAlign: "center" }}>
+            Cancel any time. Powered by Stripe. Subscribing on the web saves you the Apple/Google fee.
+          </div>
         </div>
-        <div style={{ background: "var(--bg-card)", border: "1px solid var(--gold)", borderRadius: 16, padding: 16, position: "relative" }}>
-          <div style={{ position: "absolute", top: -10, right: 14, background: "var(--gold)", color: "#1a1300", padding: "2px 10px", fontSize: 12, borderRadius: 8, fontWeight: 600 }}>{t(lang, "bestValue")}</div>
-          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{t(lang, "yearly")}</div>
-          <div style={{ fontSize: 28, color: "var(--gold)", fontWeight: 600 }}>£119.99 <span style={{ fontSize: 14, color: "var(--text-muted)" }}>/yr</span></div>
-          <button className="btn-gold w-full" data-testid="checkout-yearly-btn" onClick={() => checkout("yearly")} disabled={busy} style={{ marginTop: 10 }}>
-            {busy ? <span className="spinner" /> : t(lang, "subscribe")}
-          </button>
-        </div>
-        <button className="btn-ghost w-full" data-testid="demo-activate-btn" onClick={demoActivate} disabled={busy} style={{ marginTop: 12, fontSize: 13 }}>
-          Activate (demo / no payment)
-        </button>
       </div>
     </div>
   );
@@ -1624,37 +1758,52 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
   const [modal, setModal] = useState(null); // {type, title, category}
   const [showLang, setShowLang] = useState(false);
   const [showSub, setShowSub] = useState(false);
+  const [subPreset, setSubPreset] = useState("plus");
   const [showSettings, setShowSettings] = useState(false);
   const [showAdvertise, setShowAdvertise] = useState(false);
   const [showEmergency, setShowEmergency] = useState(false);
   const [wakeOn, setWakeOn] = useState(() => localStorage.getItem("aa_wake") !== "0");
 
-  // "Hey Lex" wake word — opens Ask Lex when user says it
-  const handleWake = useCallback(() => {
-    if (modal) return; // don't interrupt an open modal
-    if (!user.has_access) { setShowSub(true); return; }
-    setModal({ type: "chat", title: t(lang, "askLex"), category: "ask_lex", autoMic: true });
-  }, [modal, user.has_access, lang]);
-  useHeyLex({ enabled: wakeOn && !modal && user.has_access, lang, onWake: handleWake });
+  const tier = user.tier || "free";
+  const TIER_RANK = { free: 0, plus: 1, pro: 2, yearly: 2, trial_pro: 2 };
+  const hasTier = useCallback((req) => TIER_RANK[tier] >= TIER_RANK[req], [tier]);
 
+  // Allow other components (Settings) to open the Subscribe modal with a preset plan
+  useEffect(() => {
+    const handler = (e) => { setSubPreset(e?.detail?.preset || "pro"); setShowSub(true); };
+    window.addEventListener("aa:open-subscribe", handler);
+    return () => window.removeEventListener("aa:open-subscribe", handler);
+  }, []);
+
+  // "Hey Lex" wake word — opens Ask Lex when user says it (Plus+ only)
+  const handleWake = useCallback(() => {
+    if (modal) return;
+    if (!hasTier("plus")) { setSubPreset("plus"); setShowSub(true); return; }
+    setModal({ type: "chat", title: t(lang, "askLex"), category: "ask_lex", autoMic: true });
+  }, [modal, hasTier, lang]);
+  useHeyLex({ enabled: wakeOn && !modal && hasTier("plus"), lang, onWake: handleWake });
+
+  // Tier required per tile. "free" = available to all; emergency is separate.
   const tiles = [
-    { id: "ask_lex", label: t(lang, "askLex"), sub: t(lang, "askLexSub"), Icon: AskLexIcon, cat: "ask_lex" },
-    { id: "courtroom", label: "Courtroom Trainer", Icon: CourtIcon },
-    { id: "record", label: t(lang, "recordLegal"), Icon: RecordIcon, cat: "record" },
-    { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon },
-    { id: "lawyers", label: t(lang, "findLawyer"), Icon: LawyerIcon },
-    { id: "files", label: t(lang, "myFiles"), Icon: FilesIcon },
-    { id: "letter", label: "Letter Library", Icon: LetterIcon },
-    { id: "immigration", label: t(lang, "immigration"), Icon: ImmigrationIcon, cat: "immigration" },
-    { id: "employment", label: t(lang, "employment"), Icon: EmploymentIcon, cat: "employment" },
-    { id: "property", label: t(lang, "property"), Icon: PropertyIcon, cat: "property" },
-    { id: "medical", label: t(lang, "medical"), Icon: MedicalIcon, cat: "medical_negligence" },
+    { id: "ask_lex", label: t(lang, "askLex"), sub: t(lang, "askLexSub"), Icon: AskLexIcon, cat: "ask_lex", req: "free" },
+    { id: "courtroom", label: "Courtroom Trainer", Icon: CourtIcon, req: "plus" },
+    { id: "record", label: t(lang, "recordLegal"), Icon: RecordIcon, cat: "record", req: "plus" },
+    { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
+    { id: "lawyers", label: t(lang, "findLawyer"), Icon: LawyerIcon, req: "free" },
+    { id: "files", label: t(lang, "myFiles"), Icon: FilesIcon, req: "free" },
+    { id: "letter", label: "Letter Library", Icon: LetterIcon, req: "free" },
+    { id: "immigration", label: t(lang, "immigration"), Icon: ImmigrationIcon, cat: "immigration", req: "plus" },
+    { id: "employment", label: t(lang, "employment"), Icon: EmploymentIcon, cat: "employment", req: "plus" },
+    { id: "property", label: t(lang, "property"), Icon: PropertyIcon, cat: "property", req: "plus" },
+    { id: "medical", label: t(lang, "medical"), Icon: MedicalIcon, cat: "medical_negligence", req: "plus" },
   ];
 
   const onTile = (tile) => {
-    // Free for all tiles: lawyers + files (don't gate behind subscription)
-    const free = ["lawyers", "files"];
-    if (!user.has_access && !free.includes(tile.id)) { setShowSub(true); return; }
+    if (!hasTier(tile.req)) {
+      setSubPreset(tile.req === "pro" ? "pro" : "plus");
+      setShowSub(true);
+      return;
+    }
     if (tile.id === "files") setModal({ type: "files" });
     else if (tile.id === "letter") setModal({ type: "letter_lib" });
     else if (tile.id === "record") setModal({ type: "record" });
@@ -1702,27 +1851,56 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
         <span style={{ fontSize: 18 }}>⚠</span> I've Been Arrested — My Rights NOW
       </button>
 
-      {!user.has_access ? (
-        <div className="trial-banner" data-testid="trial-banner-ended" style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>{t(lang, "trialEnded")}</span>
-          <button className="btn-gold" data-testid="open-subscribe-btn" onClick={() => setShowSub(true)} style={{ padding: "8px 14px", fontSize: 13 }}>
-            {t(lang, "subscribe")}
+      {tier === "free" && (
+        <div className="trial-banner" data-testid="trial-banner-free" style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span><strong>Free plan</strong> · Unlock Lex with Plus or Pro</span>
+          <button className="btn-gold" data-testid="open-subscribe-btn" onClick={() => { setSubPreset("plus"); setShowSub(true); }} style={{ padding: "8px 14px", fontSize: 13 }}>
+            Upgrade
           </button>
         </div>
-      ) : user.subscription_status === "trial" ? (
+      )}
+      {tier === "trial_pro" && (
         <div className="trial-banner" data-testid="trial-banner" style={{ marginBottom: 14 }}>
-          {t(lang, "trialDays", { n: user.trial_days_remaining })}
+          {t(lang, "trialDays", { n: user.trial_days_remaining })} (Pro features unlocked)
         </div>
-      ) : null}
+      )}
+      {tier === "plus" && (
+        <div className="trial-banner" data-testid="tier-banner-plus" style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span><strong>Plus</strong> active · Upgrade to Pro for Live Legal Assist</span>
+          <button className="btn-gold" data-testid="open-pro-upgrade-btn" onClick={() => { setSubPreset("pro"); setShowSub(true); }} style={{ padding: "8px 14px", fontSize: 13 }}>
+            Go Pro
+          </button>
+        </div>
+      )}
+      {(tier === "pro" || tier === "yearly") && user.subscription_status === "active" && (
+        <div className="trial-banner" data-testid="tier-banner-pro" style={{ marginBottom: 14, opacity: 0.85 }}>
+          <strong>{tier === "yearly" ? "Yearly Pro" : "Pro"}</strong> active — full power unlocked ⚡
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, rowGap: 18 }}>
-        {tiles.map(tile => (
-          <button key={tile.id} className="tile-clean" data-testid={`tile-${tile.id}`} onClick={() => onTile(tile)}>
-            <tile.Icon size={48} />
-            <div className="tile-clean-title">{tile.label}</div>
-            {tile.sub && <div className="tile-clean-sub">{tile.sub}</div>}
-          </button>
-        ))}
+        {tiles.map(tile => {
+          const locked = !hasTier(tile.req);
+          return (
+            <button key={tile.id} className="tile-clean" data-testid={`tile-${tile.id}`} onClick={() => onTile(tile)}
+                    style={{ position: "relative", opacity: locked ? 0.55 : 1 }}>
+              <tile.Icon size={48} />
+              <div className="tile-clean-title">{tile.label}</div>
+              {tile.sub && <div className="tile-clean-sub">{tile.sub}</div>}
+              {locked && (
+                <div data-testid={`lock-${tile.id}`} style={{
+                  position: "absolute", top: 4, right: 4,
+                  background: tile.req === "pro" ? "linear-gradient(135deg,#7f1d1d,#dc2626)" : "var(--gold)",
+                  color: tile.req === "pro" ? "#fff" : "#1a1300",
+                  fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 6,
+                  letterSpacing: "0.06em", textTransform: "uppercase",
+                }}>
+                  🔒 {tile.req}
+                </div>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       <BottomNav lang={lang} active="home"
@@ -1731,7 +1909,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
           else if (k === "files") setModal({ type: "files" });
           else if (k === "lawyers") setModal({ type: "lawyers" });
           else if (k === "settings") setShowSettings(true);
-        }} hasAccess={user.has_access} requireSub={() => setShowSub(true)} />
+        }} hasAccess={true} requireSub={() => setShowSub(true)} />
 
       {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} onClose={() => setModal(null)} />}
       {modal?.type === "courtroom" && <CourtroomModal lang={lang} country={country} onClose={() => setModal(null)} />}
@@ -1743,7 +1921,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "lawyers" && <LawyersModal lang={lang} country={country} user={user} onClose={() => setModal(null)} openAdvertise={() => { setModal(null); setShowAdvertise(true); }} />}
       {showEmergency && <EmergencyModal lang={lang} country={country} onClose={() => setShowEmergency(false)} />}
       {showLang && <LanguagePicker initial={lang} lang={lang} onConfirm={(l) => { setLang(l); setShowLang(false); api.patch("/auth/preferences", { language: l }).catch(() => {}); }} />}
-      {showSub && <SubscribeModal lang={lang} user={user} onClose={() => setShowSub(false)} onActivated={(u) => { refreshUser(u); setShowSub(false); }} />}
+      {showSub && <SubscribeModal lang={lang} user={user} presetPlan={subPreset} onClose={() => setShowSub(false)} onActivated={(u) => { refreshUser(u); setShowSub(false); }} />}
       {showSettings && <SettingsModal lang={lang} country={country} user={user} onClose={() => setShowSettings(false)} onUpdate={(u) => refreshUser(u)} setLang={setLang} setCountry={setCountry} />}
       {showAdvertise && <AdvertiseModal lang={lang} onClose={() => setShowAdvertise(false)} />}
     </div>

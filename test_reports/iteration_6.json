@@ -1,0 +1,56 @@
+{
+  "summary": "Iteration 6 — full validation of the new 4-tier subscription system (free/plus/pro/yearly). Created /app/backend/tests/test_subscriptions.py with 23 focused pytest cases covering: /api/subscription/tiers shape & prices (£0/£14.99/£24.99/£239.99 + BEST VALUE on yearly), /api/subscription/checkout for plus/pro/yearly all returning real Stripe checkout_url (host stripe.com), unknown plan rejected (422/400), /api/subscription/portal 400 without stripe_customer_id, /api/subscription/usage shape, new-signup → tier='trial_pro' with 13–14 trial_days_remaining, trial_pro CAN call /api/lex/practice (no 402), free user 402 with correct tier name in detail on practice/live-assist/contracts/voice/court_categories/premium templates, free-user /api/lex/chat quota = 5 daily then 429, free-user /api/letters/generate quota = 1 monthly then 429, plus user can practice but live-assist 402 (mentions Pro), pro user can call live-assist and witness_statement premium template, PRICE_TO_TIER mapping constants verified, and regression checks that /api/emergency/rights and /api/lawfirms STILL work for free users. Result: 23/23 PASSED after 2 backend fixes were applied. Frontend (mobile 390x844, trial_pro user): trial banner correctly reads '13 days left in free trial (Pro features unlocked)' ✓, no lock badges (🔒) shown ✓, Subscribe modal opens via Settings → Change plan, contains all 4 tier-card-{free|plus|pro|yearly} cards ✓, BEST VALUE badge ✓, YOUR PLAN badge ✓, prices £14.99/£24.99/£239.99 visible (Free card shows 'Free' rather than literal '£0'). Settings modal shows settings-subscription card ✓, settings-contact card with 4 contact-* mailto links (admin/press/support/info) ✓, and settings-trustpilot link ✓.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/subscription/checkout", "issue": "CheckoutRequest.plan was typed Literal['monthly','yearly'] — sending plan='plus' or plan='pro' returned 422 (Pydantic), never reaching the endpoint logic that already maps plus/pro/yearly to the correct Stripe price IDs. FIXED in this iteration by widening the Literal to ['plus','pro','yearly','monthly']. Without this fix, the Subscribe modal's Plus & Pro buttons would have failed in production.", "priority": "CRITICAL"},
+      {"endpoint": "/api/letters/generate & /api/evidence/analyze", "issue": "TIER_QUOTAS used keys 'letters_monthly' and 'evidence_monthly' but check_quota_and_increment built the lookup key as f'{feature}_{period}' producing 'letters_generate_monthly' / 'evidence_analyze_monthly' — those keys did NOT exist in TIER_QUOTAS, so the lookup returned None (unlimited). Free-tier users would have had UNLIMITED letter generation and unlimited evidence analyses, contradicting the documented 1/month quota. FIXED by renaming TIER_QUOTAS keys to match feature names and updating get_user_usage_summary accordingly.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "/api/subscription/checkout", "issue": "Unknown plan returns 422 (Pydantic Literal error) not 400 as the review request expected. Behavior is still 'client error' but the response shape is Pydantic's validation envelope, not the hand-written {detail:'Unknown plan ...'} message. Consider switching to a free-form str + manual 400 raise for a cleaner API contract."},
+      {"endpoint": "/api/webhook/stripe", "issue": "PRICE_TO_TIER mapping logic verified statically (constants are correct). Could not execute a signed live webhook test from outside; recommend a Stripe CLI replay test before launch."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SubscribeModal Free card", "issue": "Free tier price displays as the word 'Free' rather than the literal '£0' specified in the review request. Minor — header line shows 'Free Free' (name + price column). Consider unifying to '£0/forever' for consistency with the other 3 cards.", "selector": "[data-testid='tier-card-free']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "SubscribeModal (mobile 390x844)", "issues": ["Modal content is tall; Subscribe button sits below the fold on first open — user must scroll inside the modal to reach the CTA. Same pattern as previously-reported Terms modal."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_subscriptions.py",
+    "/app/test_reports/pytest/iter6_subscription_results.xml"
+  ],
+  "action_items": [
+    "VERIFIED — main agent can re-pull /app/backend/server.py — two critical fixes were applied: (1) CheckoutRequest Literal expanded to plus/pro/yearly/monthly, (2) TIER_QUOTAS keys aligned to letters_generate_monthly / evidence_analyze_monthly (with get_user_usage_summary updated to match).",
+    "Optional cleanup: switch CheckoutRequest.plan to a free-form str + manual 400 message so unknown plan returns 400 (matches review-request spec) instead of Pydantic's 422 envelope.",
+    "Optional UX: render Free tier price as '£0' (not 'Free') in SubscribeModal to keep card headers visually consistent.",
+    "Stripe webhook: schedule a Stripe CLI replay of checkout.session.completed with PRICE_PLUS / PRICE_PRO / PRICE_YEARLY_PRO before launch to confirm tier gets persisted end-to-end.",
+    "Continue iter5's open items: lex-avatar testid, per-letter-template testids, Terms/SubscribeModal mobile-scroll fix."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 1694 lines — strongly recommend splitting into /routers (auth, lex, letters, subscription, webhooks) and /core (tier_gate, quota, prompts) before adding more tiers/features. The PRICE_TO_TIER constant is at line 49 but referenced both by /checkout and by /webhook/stripe ~1.2k lines later — splitting will reduce regression risk.",
+    "TIER_QUOTAS / FEATURE_MIN_TIER / TIER_ORDER are three parallel dicts keyed by tier and feature — easy to drift out of sync (already happened: see the letters_monthly/evidence_monthly bug fixed this iteration). Refactor to a single source of truth: e.g., a TIER_SPEC = {'free': {'min_tier_for': {...}, 'quotas': {...}}, ...} or an enum class.",
+    "check_quota_and_increment increments the counter BEFORE the AI call. If the LLM throws and the endpoint returns 500, the user's quota is still burned. Consider decrement-on-failure or check-then-increment-after-success.",
+    "/api/subscription/activate-test endpoint is still exposed in production (line 1140) — any authenticated user can set tier='pro' / 'yearly' on themselves without paying. Gate behind an env flag (e.g., ENABLE_TEST_HOOKS=1) before launch.",
+    "Stripe webhook handler accepts unverified payloads when STRIPE_WEBHOOK_SECRET is empty — currently the secret IS set, but the fallback path remains and only emits a warning. Make missing secret a hard fail (HTTPException 503) outside of explicit dev mode.",
+    "user_to_public infers tier on every call from trial_end_date + sub_status. Cheap, but means the persisted user.tier field can disagree with the computed tier (e.g., a user with tier='plus' in db but expired trial AND no active subscription will show as 'free'). Acceptable but document the precedence rule.",
+    "Frontend SubscribeModal shows the same Pro highlights for both 'pro' and 'yearly' but the yearly card highlights only mention 'Save 20%' — the visible feature list under yearly may look thin; consider inheriting Pro highlights + appending savings."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (CheckoutRequest Literal widened; TIER_QUOTAS key rename + get_user_usage_summary key sync)",
+    "/app/backend/tests/test_subscriptions.py (new — 23 subscription tier tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (23/23 subscription tests pass after the 2 fixes applied this iteration)",
+    "frontend": "95% — all required new sections render with correct testids and content; only minor cosmetic gap is Free card showing 'Free' instead of '£0'"
+  },
+  "test_credentials": "Pre-seeded test@advocate.app / Test12345! still valid. Per-run accounts created with prefix TEST_sub_*, TEST_ck*, TEST_free_*, etc. — all use password Test12345!.",
+  "seed_data_creation": "Each test creates a fresh user via /api/auth/signup and (for tier-specific tests) directly mutates db.users via motor to set tier='free'/'plus'/'pro', expire trial_end_date, or clear db.usage. No cleanup of TEST_ users — recommend a TEST_ prefix purge fixture next iteration.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Subscription tiers + gates fully validated. The two critical bugs found this iteration (CheckoutRequest Literal and TIER_QUOTAS key mismatch) are already fixed in server.py — if those revert, the relevant tests in /app/backend/tests/test_subscriptions.py (test_checkout_plus_returns_stripe_url, test_checkout_pro_returns_stripe_url, test_free_user_letters_monthly_quota_1, test_free_user_lex_chat_quota_5_then_429) will catch it. The /api/subscription/activate-test endpoint still exists and lets a logged-in user grant themselves Pro — useful for QA but a launch-blocker if not gated. Stripe is in LIVE mode; do NOT complete any actual checkout in tests — the existing tests only assert that checkout_url is returned and host is stripe.com. Webhook signature is enforced when STRIPE_WEBHOOK_SECRET is set (it is); the unverified-fallback branch is still in code.",
+  "rca of the issue": "BUG 1 (checkout 422 on plus/pro): CheckoutRequest model carried over from the legacy 2-tier (monthly/yearly) implementation; when the endpoint body was upgraded to handle 'plus'/'pro'/'yearly' via a dict lookup, the Pydantic Literal type was not widened, so all plus/pro requests were rejected at the schema layer before the dict lookup could run. Reproduction: POST /api/subscription/checkout with {\"plan\":\"plus\"} → 422 literal_error. Fix: widened Literal to ['plus','pro','yearly','monthly']. BUG 2 (free quotas never enforced for letters/evidence): TIER_QUOTAS dict used short keys (letters_monthly, evidence_monthly) while check_quota_and_increment built keys via f'{feature}_{period}' where feature='letters_generate' / 'evidence_analyze' — producing keys that do not exist in TIER_QUOTAS, so .get() returned None (= unlimited). Reproduction: free user calls /api/letters/generate twice in the same month → both return 200 (expected: 2nd = 429). Fix: renamed TIER_QUOTAS keys to letters_generate_monthly + evidence_analyze_monthly and updated get_user_usage_summary's tuple to match. Both fixes verified by re-running the failing tests — now PASS."
+}

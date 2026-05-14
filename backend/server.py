@@ -43,6 +43,14 @@ APPLE_TEAM_ID = os.environ.get('APPLE_TEAM_ID', '')
 APPLE_KEY_ID = os.environ.get('APPLE_KEY_ID', '')
 APPLE_PRIVATE_KEY = os.environ.get('APPLE_PRIVATE_KEY', '').replace('\\n', '\n')
 APP_PUBLIC_URL = os.environ.get('APP_PUBLIC_URL', 'https://aiadvocate.app')
+STRIPE_PRICE_PLUS = os.environ.get('STRIPE_PRICE_PLUS', '')
+STRIPE_PRICE_PRO = os.environ.get('STRIPE_PRICE_PRO', '')
+STRIPE_PRICE_YEARLY_PRO = os.environ.get('STRIPE_PRICE_YEARLY_PRO', '')
+PRICE_TO_TIER = {
+    STRIPE_PRICE_PLUS: "plus",
+    STRIPE_PRICE_PRO: "pro",
+    STRIPE_PRICE_YEARLY_PRO: "yearly",
+}
 stripe.api_key = STRIPE_API_KEY
 
 # ==================== Font registration (multilingual PDF) ====================
@@ -115,7 +123,7 @@ class LegalLetterRequest(BaseModel):
     language: str = "en-GB"
 
 class CheckoutRequest(BaseModel):
-    plan: Literal["monthly", "yearly"] = "monthly"
+    plan: Literal["plus", "pro", "yearly", "monthly"] = "plus"
 
 class LawFirmInquiry(BaseModel):
     firm_id: str
@@ -178,16 +186,137 @@ def user_to_public(u: dict) -> dict:
     now = datetime.now(timezone.utc)
     if trial_end_dt and trial_end_dt.tzinfo is None:
         trial_end_dt = trial_end_dt.replace(tzinfo=timezone.utc)
-    if u.get("subscription_status") == "active":
+
+    # Tier: explicit subscription tier overrides everything when active
+    tier = u.get("tier") or "free"
+    sub_status = u.get("subscription_status")
+
+    if sub_status == "active" and tier in ("plus", "pro", "yearly"):
         out["has_access"] = True
         out["trial_days_remaining"] = 0
     elif trial_end_dt and now < trial_end_dt:
+        # During trial everyone is treated as "pro" so they can taste full features
+        tier = "trial_pro"
         out["has_access"] = True
         out["trial_days_remaining"] = max(0, (trial_end_dt - now).days)
     else:
-        out["has_access"] = False
+        # Trial over and no active subscription → drop to "free" tier (still has emergency + lawyer dir)
+        tier = "free"
+        out["has_access"] = True  # has app access but on Free tier limits
         out["trial_days_remaining"] = 0
+
+    out["tier"] = tier
     return out
+
+
+# ==================== Tier-Based Access Control ====================
+# Daily / monthly quotas per feature per tier.
+# "None" = unlimited.
+TIER_QUOTAS = {
+    "free": {
+        "lex_chat_daily": 5,
+        "letters_generate_monthly": 1,
+        "evidence_analyze_monthly": 1,
+        "files_total": 3,
+        "history_days": 7,
+    },
+    "plus": {
+        "lex_chat_daily": 100,   # fair-use soft cap
+        "letters_generate_monthly": None,
+        "evidence_analyze_monthly": 15,
+        "files_total": 50,
+        "history_days": 90,
+    },
+    "pro": {
+        "lex_chat_daily": None,
+        "letters_monthly": None,
+        "evidence_monthly": None,
+        "files_total": None,
+        "history_days": None,
+    },
+    "yearly": {  # same as pro
+        "lex_chat_daily": None,
+        "letters_monthly": None,
+        "evidence_monthly": None,
+        "files_total": None,
+        "history_days": None,
+    },
+    "trial_pro": {  # 14-day trial = full Pro
+        "lex_chat_daily": None,
+        "letters_monthly": None,
+        "evidence_monthly": None,
+        "files_total": None,
+        "history_days": None,
+    },
+}
+
+# Which tier (or higher) is REQUIRED to access a feature.
+# Order: free < plus < pro = yearly (trial_pro = pro)
+TIER_ORDER = {"free": 0, "plus": 1, "pro": 2, "yearly": 2, "trial_pro": 2}
+FEATURE_MIN_TIER = {
+    "lex_chat": "free",          # gated by daily quota instead
+    "letters_generate": "free",  # gated by monthly quota
+    "evidence_analyze": "free",  # gated by monthly quota
+    "contracts_analyze": "plus",
+    "practice": "plus",
+    "live_assist": "pro",
+    "voice": "plus",
+    "court_categories": "plus",  # court_prep, employment, property, immigration, medical
+    "hey_lex": "plus",
+    "advanced_doc_review": "pro",
+    "premium_templates": "pro",
+}
+
+def tier_has_access(user_tier: str, feature: str) -> bool:
+    min_required = FEATURE_MIN_TIER.get(feature, "free")
+    return TIER_ORDER.get(user_tier, 0) >= TIER_ORDER.get(min_required, 0)
+
+async def check_quota_and_increment(user_id: str, tier: str, feature: str, period: str = "daily") -> tuple[bool, int, Optional[int]]:
+    """Increment usage counter; return (allowed, current_count, limit).
+    period: 'daily' or 'monthly'."""
+    now = datetime.now(timezone.utc)
+    if period == "daily":
+        bucket = now.strftime("%Y-%m-%d")
+        limit_key = f"{feature}_daily"
+    else:
+        bucket = now.strftime("%Y-%m")
+        limit_key = f"{feature}_monthly"
+    limit = TIER_QUOTAS.get(tier, {}).get(limit_key)
+
+    # Get current count
+    doc = await db.usage.find_one({"user_id": user_id, "bucket": bucket, "feature": feature}, {"_id": 0})
+    current = doc["count"] if doc else 0
+
+    if limit is not None and current >= limit:
+        return False, current, limit
+
+    # Increment
+    await db.usage.update_one(
+        {"user_id": user_id, "bucket": bucket, "feature": feature},
+        {"$inc": {"count": 1}, "$set": {"updated_at": now.isoformat()}},
+        upsert=True,
+    )
+    return True, current + 1, limit
+
+async def get_user_usage_summary(user_id: str, tier: str) -> dict:
+    """Returns current usage vs limit for the dashboard banner."""
+    now = datetime.now(timezone.utc)
+    day_bucket = now.strftime("%Y-%m-%d")
+    month_bucket = now.strftime("%Y-%m")
+    items = {}
+    for feature, period, key in [
+        ("lex_chat", "daily", "lex_chat_daily"),
+        ("letters_generate", "monthly", "letters_generate_monthly"),
+        ("evidence_analyze", "monthly", "evidence_analyze_monthly"),
+    ]:
+        bucket = day_bucket if period == "daily" else month_bucket
+        doc = await db.usage.find_one({"user_id": user_id, "bucket": bucket, "feature": feature}, {"_id": 0})
+        items[feature] = {
+            "used": doc["count"] if doc else 0,
+            "limit": TIER_QUOTAS.get(tier, {}).get(key),
+            "period": period,
+        }
+    return items
 
 # ==================== Lex System Prompts ====================
 LANG_NAMES = {
@@ -421,8 +550,17 @@ async def update_prefs(data: dict, user: dict = Depends(get_user)):
 @api_router.post("/lex/chat")
 async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     pub = user_to_public(user)
-    if not pub.get("has_access"):
-        raise HTTPException(402, "Subscription required. Your free trial has ended.")
+    tier = pub["tier"]
+
+    # Court / employment / property / immigration / medical = paid only
+    if data.category in ("court_prep", "employment", "property", "immigration", "medical_negligence"):
+        if not tier_has_access(tier, "court_categories"):
+            raise HTTPException(402, "This category requires Plus or Pro. Upgrade to unlock.")
+
+    # Daily quota for chat
+    ok, used, limit = await check_quota_and_increment(user["id"], tier, "lex_chat", "daily")
+    if not ok:
+        raise HTTPException(429, f"Daily limit reached ({used}/{limit} Lex messages on Free). Upgrade to Plus for unlimited.")
 
     session_id = data.session_id or str(uuid.uuid4())
     chat = LlmChat(
@@ -507,10 +645,10 @@ class PracticeRequest(BaseModel):
 
 @api_router.post("/lex/practice")
 async def lex_practice(data: PracticeRequest, user: dict = Depends(get_user)):
-    """Lex role-plays as prosecutor/officer/etc. to drill the user. Safe everywhere."""
+    """Lex role-plays as prosecutor/officer/etc. to drill the user. Plus & above."""
     pub = user_to_public(user)
-    if not pub.get("has_access"):
-        raise HTTPException(402, "Subscription required.")
+    if not tier_has_access(pub["tier"], "practice"):
+        raise HTTPException(402, "Practice Mode requires Plus. Upgrade to unlock.")
     role_prompt = PRACTICE_ROLES.get(data.role)
     if not role_prompt:
         raise HTTPException(400, "Unknown practice role")
@@ -555,11 +693,11 @@ class LiveAssistRequest(BaseModel):
 
 @api_router.post("/lex/live-assist")
 async def lex_live_assist(data: LiveAssistRequest, user: dict = Depends(get_user)):
-    """REAL-TIME advice during a permitted legal interaction. Output is SHORT.
+    """REAL-TIME advice during a permitted legal interaction. Pro only.
     Must NOT be used in active court proceedings — frontend enforces consent screen."""
     pub = user_to_public(user)
-    if not pub.get("has_access"):
-        raise HTTPException(402, "Subscription required.")
+    if not tier_has_access(pub["tier"], "live_assist"):
+        raise HTTPException(402, "Live Legal Assist requires Pro. Upgrade to unlock.")
 
     lang_name = LANG_NAMES.get(data.language, "English")
     scenario_brief = {
@@ -686,19 +824,19 @@ LETTER_TEMPLATES = [
      "prompt": "Draft a calm but firm letter to a neighbour resolving a boundary / noise / hedge dispute, before legal action."},
     {"id": "small_claim_letter", "category": "Personal", "title": "Small Claims Court Pre-Action Letter",
      "prompt": "Draft a small claims pre-action protocol letter compliant with the Civil Procedure Rules."},
-    {"id": "witness_statement", "category": "Court", "title": "Civil Witness Statement (CPR 32)",
+    {"id": "witness_statement", "category": "Court", "title": "Civil Witness Statement (CPR 32)", "premium": True,
      "prompt": "Draft a court-ready civil witness statement compliant with CPR Part 32 (numbered paragraphs, statement of truth)."},
     {"id": "character_reference", "category": "Court", "title": "Character Reference for Sentencing",
      "prompt": "Draft a character reference letter to a court for sentencing — third-person, factual, formatted as the referee's own letter."},
-    {"id": "mitigation_letter", "category": "Court", "title": "Plea in Mitigation Letter",
+    {"id": "mitigation_letter", "category": "Court", "title": "Plea in Mitigation Letter", "premium": True,
      "prompt": "Draft a plea-in-mitigation letter (or note for the bench) — remorse, context, consequences, future plans."},
-    {"id": "defence_statement", "category": "Court", "title": "Defence Statement (CrimPR)",
+    {"id": "defence_statement", "category": "Court", "title": "Defence Statement (CrimPR)", "premium": True,
      "prompt": "Draft a Criminal Procedure Rules defence statement — nature of defence, matters of fact disputed, points of law."},
     {"id": "appeal_council", "category": "Government", "title": "Council Decision Appeal",
      "prompt": "Draft an appeal of a local council decision (housing benefit / homelessness / school admissions / planning)."},
-    {"id": "immigration_letter", "category": "Immigration", "title": "Home Office Cover / Representations Letter",
+    {"id": "immigration_letter", "category": "Immigration", "title": "Home Office Cover / Representations Letter", "premium": True,
      "prompt": "Draft a cover/representations letter for a Home Office immigration application (settlement, ILR, FLR, asylum further submissions)."},
-    {"id": "asylum_statement", "category": "Immigration", "title": "Asylum Personal Statement",
+    {"id": "asylum_statement", "category": "Immigration", "title": "Asylum Personal Statement", "premium": True,
      "prompt": "Draft a structured asylum statement — chronology, persecution, fear of return, country evidence."},
     {"id": "lpa_intent", "category": "Family", "title": "Letter of Intent / Power-of-Attorney Notice",
      "prompt": "Draft a letter notifying relatives of an intention to register a Lasting Power of Attorney (UK OPG procedure)."},
@@ -723,11 +861,17 @@ class LetterFromTemplate(BaseModel):
 @api_router.post("/letters/generate")
 async def generate_from_template(data: LetterFromTemplate, user: dict = Depends(get_user)):
     pub = user_to_public(user)
-    if not pub.get("has_access"):
-        raise HTTPException(402, "Subscription required.")
+    tier = pub["tier"]
     tpl = next((t for t in LETTER_TEMPLATES if t["id"] == data.template_id), None)
     if not tpl:
         raise HTTPException(400, "Unknown template")
+    # Premium templates are Pro-only
+    if tpl.get("premium") and not tier_has_access(tier, "premium_templates"):
+        raise HTTPException(402, "This premium template requires Pro. Upgrade to unlock.")
+    # Monthly quota for letter generation
+    ok, used, limit = await check_quota_and_increment(user["id"], tier, "letters_generate", "monthly")
+    if not ok:
+        raise HTTPException(429, f"Monthly limit reached ({used}/{limit} letters on Free). Upgrade to Plus for unlimited.")
     lang_name = LANG_NAMES.get(data.language, "English")
     system = f"""You are Lex, drafting a professional legal letter for {data.country} in {lang_name}.
 
@@ -758,8 +902,8 @@ Output the FULL letter, properly formatted (sender block, date, recipient block,
 @api_router.post("/voice/transcribe")
 async def transcribe(audio: UploadFile = File(...), language: str = Form("en"), user: dict = Depends(get_user)):
     pub = user_to_public(user)
-    if not pub.get("has_access"):
-        raise HTTPException(402, "Subscription required.")
+    if not tier_has_access(pub["tier"], "voice"):
+        raise HTTPException(402, "Voice input requires Plus or Pro. Upgrade to unlock.")
     
     contents = await audio.read()
     # Save to temp file with a recognizable extension
@@ -788,8 +932,8 @@ async def transcribe(audio: UploadFile = File(...), language: str = Form("en"), 
 @api_router.post("/voice/tts")
 async def tts(data: TTSRequest, user: dict = Depends(get_user)):
     pub = user_to_public(user)
-    if not pub.get("has_access"):
-        raise HTTPException(402, "Subscription required.")
+    if not tier_has_access(pub["tier"], "voice"):
+        raise HTTPException(402, "Voice output requires Plus or Pro. Upgrade to unlock.")
     tts_client = OpenAITextToSpeech(api_key=EMERGENT_LLM_KEY)
     try:
         b64 = await tts_client.generate_speech_base64(
@@ -810,8 +954,8 @@ async def analyze_contract(
     user: dict = Depends(get_user)
 ):
     pub = user_to_public(user)
-    if not pub.get("has_access"):
-        raise HTTPException(402, "Subscription required.")
+    if not tier_has_access(pub["tier"], "contracts_analyze"):
+        raise HTTPException(402, "Contract Review requires Plus or Pro. Upgrade to unlock.")
 
     contents = await file.read()
     if len(contents) > 10 * 1024 * 1024:
@@ -949,38 +1093,57 @@ async def analyze_recording(
 # ==================== Subscriptions (Stripe) ====================
 @api_router.post("/subscription/checkout")
 async def create_checkout(data: CheckoutRequest, request: Request, user: dict = Depends(get_user)):
-    price = 1499 if data.plan == "monthly" else 11999  # GBP cents
+    """Create a Stripe Checkout session for the chosen tier.
+    data.plan in {'plus','pro','yearly'} → maps to STRIPE_PRICE_*."""
+    plan = (data.plan or "").lower()
+    price_id = {
+        "plus": STRIPE_PRICE_PLUS,
+        "pro": STRIPE_PRICE_PRO,
+        "yearly": STRIPE_PRICE_YEARLY_PRO,
+        # legacy:
+        "monthly": STRIPE_PRICE_PLUS,
+    }.get(plan)
+    if not price_id:
+        raise HTTPException(400, f"Unknown plan '{plan}'. Use 'plus', 'pro', or 'yearly'.")
     try:
-        origin = request.headers.get("origin") or os.environ.get("FRONTEND_URL", "https://example.com")
+        origin = request.headers.get("origin") or APP_PUBLIC_URL
         session = stripe.checkout.Session.create(
             mode="subscription",
             payment_method_types=["card"],
-            line_items=[{
-                "price_data": {
-                    "currency": "gbp",
-                    "product_data": {"name": f"AI Advocate {data.plan.title()}"},
-                    "unit_amount": price,
-                    "recurring": {"interval": "month" if data.plan == "monthly" else "year"},
-                },
-                "quantity": 1,
-            }],
+            line_items=[{"price": price_id, "quantity": 1}],
             customer_email=user["email"],
             client_reference_id=user["id"],
             success_url=f"{origin}/?subscription=success",
             cancel_url=f"{origin}/?subscription=cancel",
-            metadata={"user_id": user["id"]},
+            metadata={"user_id": user["id"], "plan": plan},
+            allow_promotion_codes=True,
         )
         return {"checkout_url": session.url, "session_id": session.id}
     except Exception as e:
         logger.exception("Stripe checkout error")
         raise HTTPException(500, f"Checkout error: {str(e)}")
 
+@api_router.post("/subscription/portal")
+async def billing_portal(request: Request, user: dict = Depends(get_user)):
+    """Open the Stripe Customer Portal for an existing subscriber to manage / cancel."""
+    cust_id = user.get("stripe_customer_id")
+    if not cust_id:
+        raise HTTPException(400, "No active subscription to manage.")
+    origin = request.headers.get("origin") or APP_PUBLIC_URL
+    try:
+        sess = stripe.billing_portal.Session.create(customer=cust_id, return_url=f"{origin}/")
+        return {"portal_url": sess.url}
+    except Exception as e:
+        logger.exception("Stripe portal error")
+        raise HTTPException(500, f"Portal error: {str(e)}")
+
 @api_router.post("/subscription/activate-test")
-async def activate_test(user: dict = Depends(get_user)):
+async def activate_test(plan: str = "plus", user: dict = Depends(get_user)):
     """For test/demo: activate subscription without real Stripe."""
+    tier = plan if plan in ("plus", "pro", "yearly") else "plus"
     await db.users.update_one(
         {"id": user["id"]},
-        {"$set": {"subscription_status": "active",
+        {"$set": {"subscription_status": "active", "tier": tier,
                   "subscription_started_at": datetime.now(timezone.utc).isoformat()}}
     )
     fresh = await db.users.find_one({"id": user["id"]})
@@ -1015,33 +1178,97 @@ async def stripe_webhook(request: Request):
         user_id = obj.get("client_reference_id") or (obj.get("metadata") or {}).get("user_id")
         customer_id = obj.get("customer")
         sub_id = obj.get("subscription")
+        # Determine tier from the line items if possible (else from metadata.plan)
+        tier = "plus"
+        try:
+            if sub_id:
+                sub = stripe.Subscription.retrieve(sub_id)
+                for item in (sub.get("items") or {}).get("data", []):
+                    pid = (item.get("price") or {}).get("id")
+                    if pid in PRICE_TO_TIER:
+                        tier = PRICE_TO_TIER[pid]
+                        break
+            else:
+                plan = (obj.get("metadata") or {}).get("plan")
+                if plan in ("plus", "pro", "yearly"):
+                    tier = plan
+        except Exception:
+            logger.exception("Could not resolve tier from subscription; defaulting to plus")
         if user_id:
             await db.users.update_one({"id": user_id}, {"$set": {
                 "subscription_status": "active",
+                "tier": tier,
                 "stripe_customer_id": customer_id,
                 "stripe_subscription_id": sub_id,
                 "subscription_started_at": now_iso,
             }})
-            logger.info(f"Subscription activated for user {user_id}")
+            logger.info(f"Subscription activated for user {user_id} on tier={tier}")
     elif etype == "customer.subscription.deleted":
         customer_id = obj.get("customer")
         if customer_id:
             await db.users.update_one({"stripe_customer_id": customer_id},
                                       {"$set": {"subscription_status": "canceled",
+                                                "tier": "free",
                                                 "subscription_ended_at": now_iso}})
             logger.info(f"Subscription canceled for customer {customer_id}")
-    elif etype in ("customer.subscription.updated", "invoice.payment_failed"):
+    elif etype == "customer.subscription.updated":
         customer_id = obj.get("customer")
-        status_val = obj.get("status") if etype == "customer.subscription.updated" else "past_due"
-        if customer_id and status_val:
+        status_val = obj.get("status")
+        # Re-derive tier from latest price
+        new_tier = None
+        for item in (obj.get("items") or {}).get("data", []):
+            pid = (item.get("price") or {}).get("id")
+            if pid in PRICE_TO_TIER:
+                new_tier = PRICE_TO_TIER[pid]
+                break
+        update = {"subscription_updated_at": now_iso}
+        if status_val:
+            update["subscription_status"] = status_val
+            if status_val in ("canceled", "incomplete_expired", "unpaid"):
+                update["tier"] = "free"
+            elif new_tier and status_val == "active":
+                update["tier"] = new_tier
+        if customer_id:
+            await db.users.update_one({"stripe_customer_id": customer_id}, {"$set": update})
+    elif etype == "invoice.payment_failed":
+        customer_id = obj.get("customer")
+        if customer_id:
             await db.users.update_one({"stripe_customer_id": customer_id},
-                                      {"$set": {"subscription_status": status_val,
+                                      {"$set": {"subscription_status": "past_due",
                                                 "subscription_updated_at": now_iso}})
     return {"received": True}
 
 @api_router.get("/subscription/status")
 async def sub_status(user: dict = Depends(get_user)):
     return user_to_public(user)
+
+@api_router.get("/subscription/tiers")
+async def get_tiers():
+    """Public — pricing/feature info for the Subscribe modal."""
+    return {
+        "tiers": [
+            {"id": "free", "name": "Free", "price_gbp": 0, "period": "forever",
+             "highlights": ["5 Lex chats / day", "1 photo evidence / month", "1 letter / month",
+                            "View 31 templates", "3 files", "Emergency rights (always free)"]},
+            {"id": "plus", "name": "Plus", "price_gbp": 14.99, "period": "month",
+             "highlights": ["Unlimited Lex chats", "15 photo evidences / month",
+                            "Unlimited letters", "Contract Review", "Court Prep modes",
+                            "Voice in/out", "Practice Mode", "50 files", "Hey Lex wake word"]},
+            {"id": "pro", "name": "Pro", "price_gbp": 24.99, "period": "month",
+             "highlights": ["Everything in Plus", "Live Legal Assist", "Priority AI processing",
+                            "Premium court templates", "Advanced document review", "Unlimited files",
+                            "Priority email support"]},
+            {"id": "yearly", "name": "Yearly Pro", "price_gbp": 239.99, "period": "year",
+             "best_value": True, "savings_pct": 20,
+             "highlights": ["Everything in Pro", "Save 20% vs monthly", "12 months full access"]},
+        ],
+        "currency": "GBP",
+    }
+
+@api_router.get("/subscription/usage")
+async def usage_summary(user: dict = Depends(get_user)):
+    pub = user_to_public(user)
+    return {"tier": pub["tier"], "usage": await get_user_usage_summary(user["id"], pub["tier"])}
 
 # ==================== Evidence (Photo) Analysis ====================
 @api_router.post("/evidence/analyze")
@@ -1056,8 +1283,10 @@ async def analyze_evidence(
     """Analyse a photo of evidence (contract, parking ticket, accident scene, signage, etc.)
     and provide legal advice based on what Lex sees."""
     pub = user_to_public(user)
-    if not pub.get("has_access"):
-        raise HTTPException(402, "Subscription required.")
+    tier = pub["tier"]
+    ok, used, limit = await check_quota_and_increment(user["id"], tier, "evidence_analyze", "monthly")
+    if not ok:
+        raise HTTPException(429, f"Monthly limit reached ({used}/{limit} photo analyses on your tier). Upgrade for more.")
 
     contents = await file.read()
     if len(contents) > 10 * 1024 * 1024:
