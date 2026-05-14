@@ -121,9 +121,8 @@ function TermsScreen({ lang, onAccept, onDecline, onChangeLang }) {
           <h2 className="brand-font gold" style={{ fontSize: 22 }}>{t(lang, "termsTitle")}</h2>
           <button className="btn-gold" data-testid="terms-lang-btn" onClick={onChangeLang}
                   title="Change language"
-                  style={{ padding: "6px 14px", fontSize: 22, lineHeight: 1, display: "flex", alignItems: "center", gap: 6 }}>
-            <span>{(LANGS.find(l => l.code === lang) || LANGS[0]).flag}</span>
-            <Languages size={14} />
+                  style={{ padding: "8px 14px", fontSize: 24, lineHeight: 1 }}>
+            {(LANGS.find(l => l.code === lang) || LANGS[0]).flag}
           </button>
         </div>
         <p style={{ color: "var(--text-dim)", fontSize: 13, flexShrink: 0 }}>
