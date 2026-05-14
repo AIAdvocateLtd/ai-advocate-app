@@ -123,7 +123,7 @@ class LegalLetterRequest(BaseModel):
     language: str = "en-GB"
 
 class CheckoutRequest(BaseModel):
-    plan: Literal["plus", "pro", "yearly", "monthly"] = "plus"
+    plan: str = "plus"  # free-form so unknown plans return 400 via our handler, not 422 from pydantic
 
 class LawFirmInquiry(BaseModel):
     firm_id: str

@@ -1,67 +1,98 @@
-# AI Advocate — Product Requirements
+# AI Advocate — Product Requirements (v2)
 
 ## Product
-A multilingual "lawyer in your pocket" mobile-web app. Core: Lex AI chat (Claude 4.5), photo evidence (Gemini), voice in/out, multilingual PDF legal letters, law-firm directory, Stripe subscription. 14-day free trial.
+A multilingual "lawyer in your pocket" web + iOS + Android app. Core: Lex AI chat (Claude 4.5), photo evidence (Gemini), voice in/out, multilingual PDF letters, law-firm directory, **4-tier Stripe subscription**.
 
 ## Brand & UX
-- Dark theme, pure-black (#000) background, gold accents (#f7c948), Cinzel serif for headings.
-- Heraldic SVG icons (no generic lucide). Lex avatar character used sparingly.
-- RTL support for Arabic & Urdu.
+- Pure-black (#000) background, gold accents (#f7c948), Cinzel serif for headings, Heraldic SVG icons, Lex avatar character (mix-blend-mode lighten).
+- RTL support for Arabic & Urdu. 11 languages total.
 
 ## Auth
 - Email/password (custom JWT)
-- Apple Sign-In (web) — ✅ WORKING (Services ID: `app.aiadvocate.signin`)
-- Google Sign-In — code ready, awaiting `GOOGLE_CLIENT_ID`
+- Apple Sign-In — ✅ WORKING (Services ID: `app.aiadvocate.signin`, domain `ai-law-guide-1.preview.emergentagent.com`, return URL with trailing `/`)
+- Google Sign-In — code ready, env var set, awaiting verify by user
 
 ## AI Stack (Emergent LLM Key)
-- **Chat (Lex):** Claude Sonnet 4.5 (`claude-sonnet-4-5-20250929`)
-- **Vision (Photo + Contract):** Gemini 2.5 Flash
-- **Voice:** OpenAI Whisper STT + OpenAI TTS (`onyx` voice)
-- **Wake word:** browser-native Web Speech API for "Hey Lex"
+- **Chat (Lex):** Claude Sonnet 4.5 with court-prep-grade system prompt + auto-detect-language
+- **Vision:** Gemini 2.5 Flash
+- **Voice:** OpenAI Whisper STT + OpenAI TTS
+- **Wake word:** Web Speech API ("Hey Lex")
 
-## Languages (11)
-English, Spanish, French, Arabic, Polish, German, Hindi, Urdu, Italian, Portuguese, Chinese.
-Lex auto-detects user's typed language and replies in it (overrides UI language).
+## Subscription Tiers (LIVE Stripe)
+| Tier | Price | Stripe Price ID |
+|---|---|---|
+| Free | £0 | n/a |
+| Plus | £14.99 / mo | `price_1TX0CcFh8lRHrXPI3feMOlOx` |
+| Pro | £24.99 / mo | `price_1TX0EKFh8lRHrXPIPLZzGSoT` |
+| Yearly Pro | £239.99 / yr | `price_1TX0IgFh8lRHrXPInG4THCC1` |
 
-## Payments
-Stripe (£14.99/mo, £119.99/yr). 14-day trial. Apple/Google IAP planned for native apps.
+New signups get 14-day **trial_pro** (full Pro features). After trial → drop to Free unless subscribed.
+
+## Tier Access Matrix
+- **Free:** 5 chats/day, 1 photo/mo, 1 letter/mo, 3 files, view templates only, no court categories, no Practice, no Live Assist, no voice. Emergency Rights + Lawyer Directory always free.
+- **Plus £14.99:** Unlimited chats (100/day fair use), 15 photos/mo, unlimited letters, Court Prep modes, Voice in/out, Practice Mode, 50 files, Contract Review, Hey Lex wake-word.
+- **Pro £24.99:** Plus everything + Live Legal Assist, Premium templates (witness statement, mitigation, defence statement, immigration, asylum), priority queue, unlimited everything.
+- **Yearly £239.99:** Pro at 20% discount.
 
 ## Legal
-Bulletproof Terms & Privacy (England & Wales governing law + ICC arbitration + GDPR + CCPA). Forced "I Agree" before signup.
+England & Wales + ICC arbitration + GDPR + CCPA. 22-section Terms + 10-section Privacy. Forced "I Agree" at signup.
+
+## Domain
+- Production: `aiadvocate.co.uk` (owned by user)
+- Preview: `ai-law-guide-1.preview.emergentagent.com`
+
+## Contact Emails (live in Settings)
+- support@aiadvocate.co.uk (customer help)
+- admin@aiadvocate.co.uk (business)
+- press@aiadvocate.co.uk (media)
+- info@aiadvocate.co.uk (general)
+- Trustpilot: https://www.trustpilot.com/review/aiadvocate.co.uk
 
 ---
 
-## Completed (chronological)
+## Changelog
 
-### 12 May 2026 — Session 2
-- ✅ **Web Apple Sign-In fixed** — combination of: registering new preview domain `ai-law-guide-1.preview.emergentagent.com` in Apple Services ID, adding trailing `/` to redirectURI, and clearing stuck Apple sign-in record on user's device.
-- ✅ **Lex brain v2** — system prompt upgraded to: auto-detect user's language and reply in it; step-by-step legal reasoning like a top barrister; explicit ban on hallucinated citations; jurisdiction-aware; ranked action plans.
-- ✅ **"Hey Lex" wake word** — continuous Web Speech Recognition on Dashboard; matches multilingual variants (hey/hi/ok/hola/bonjour/你好/etc. + lex/лекс); auto-opens Ask Lex modal and starts mic. Toggle pill in dashboard header (gold dot when active).
-- ✅ **Pure-black UI** — `--bg` and `.lex-circle` now `#000`; logo & avatars use `mix-blend-mode: lighten` so the JPG backgrounds blend invisibly into the screen.
-- ✅ **De-cluttered chat** — removed both duplicate Lex avatars (header & empty-state) per user request; chat shows only category title + AI Advocate subtitle. Mic stays prominent.
-- ✅ **Bulletproof T&C + Privacy** — 22-section Terms + 10-section Privacy summary; governed by England & Wales; mandatory ICC arbitration; class-action waiver; £50 liability cap; AI hallucination disclaimer; no attorney-client relationship; CCPA + GDPR clauses; auto-renewal disclosure.
-- ✅ **i18n gap fill** — added ~30 missing keys across all 10 non-English languages (home/lawyers/files labels, suggestions, evidence types, location prompts).
+### Iter 6 — 4-tier subscription system
+- Backend: `TIER_QUOTAS`, `tier_has_access()`, `check_quota_and_increment()`, `get_user_usage_summary()`
+- Stripe webhook: `PRICE_TO_TIER` mapping → user.tier auto-set on checkout/update/cancel
+- New endpoints: `/api/subscription/tiers`, `/api/subscription/portal`, `/api/subscription/usage`
+- Endpoint gates: Plus-only for Practice/Voice/Contracts/Court categories; Pro-only for Live Assist + premium templates
+- Quota gates: Free user 5 chats/day, 1 letter/mo, 1 photo/mo
+- Frontend: 4-card SubscribeModal with BEST VALUE + YOUR PLAN badges; tile lock badges (🔒 PLUS/PRO); tier-aware banners
+- Settings: Subscription card + Contact emails + Trustpilot link
+- Bug fixes (caught by testing agent): CheckoutRequest Literal widened, TIER_QUOTAS keys aligned to feature names, unknown plan → clean 400, Free card shows £0/forever
+
+### Iter 5 — Courtroom Trainer + Letter Library + Emergency
+- Emergency Rights screen ("I've Been Arrested" red button) — works for ALL tiers including free
+- Courtroom Trainer modal with 2 tabs: Practice Mode (Lex role-plays 8 hostile roles) + Live Legal Assist (continuous mic, ≤35-word advice per chunk, consent screen)
+- Letter Library: 31 templates, 5 marked premium (Pro-only)
+
+### Iter 4 — Apple Sign-In fix + Lex brain v2 + bulletproof T&C
+- Apple Sign-In fully working (domain config + trailing slash + cleared stuck record)
+- Lex brain auto-detects user language; smarter system prompt; ban on hallucinated citations
+- "Hey Lex" wake-word (Plus+ only)
+- Pure-black UI; mix-blend-mode for logo & avatars
+- 22-section bulletproof Terms & Privacy
 
 ### Earlier
-- Lex chat with multi-mode prompts (court prep, contract, employment, property, immigration, medical negligence, record review, legal letter).
-- Photo Evidence (Gemini Vision).
-- Multilingual PDF letter generation (ReportLab + NotoSans fonts).
-- Law-firm directory with geolocation + sponsored slots + inquiry form.
-- Stripe checkout + webhook.
-- Custom Heraldic SVG icon set.
+- Core MVP: Lex chat, photo evidence, multilingual PDF, law-firm directory, Stripe.
 
 ---
 
-## Backlog
+## Roadmap
 
 ### P1 (next)
-- Real Google OAuth — awaiting `GOOGLE_CLIENT_ID` from user
-- Capacitor iOS wrap for App Store submission (push notifications, native mic permissions in Info.plist, native IAP)
-- "Hey Lex" toggle in Settings modal (currently only pill in header)
+- Capacitor iOS wrap (with Apple Reader-app compliance — hide Subscribe inside app, link to web)
+- Capacitor Android wrap
+- DNS cutover: aiadvocate.co.uk → preview backend
+- Live Stripe webhook: replay test via Stripe CLI before launch
+- Cloud backup (iCloud + Google Drive) — Plus+ tier
+- Hey Lex toggle in Settings (currently always-on for Plus+)
 
-### P2 (later)
-- Admin dashboard to verify law firms + flip sponsored flags
-- Live legal news/updates feed per country (RSS)
-- Multi-image evidence analysis
-- One-click PDF email send straight from app
-- Push notifications for trial reminders + lawyer replies
+### P2
+- Case Files (group chats + uploads + letters by case timeline)
+- Multi-image evidence (Pro only — already gated in matrix)
+- One-click email PDF send
+- Admin dashboard for law firm verification + sponsored toggle
+- Trustpilot widget on website footer
+- "Read aloud" emergency rights (TTS for arrest scenario)

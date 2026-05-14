@@ -1662,7 +1662,10 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
                   <div style={{ fontSize: 17, color: "var(--gold)", fontWeight: 700, fontFamily: "Cinzel, serif" }}>{t.name}</div>
                   <div style={{ textAlign: "right" }}>
                     {t.price_gbp === 0 ? (
-                      <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>Free</span>
+                      <>
+                        <span style={{ fontSize: 22, color: "var(--gold)", fontWeight: 600 }}>£0</span>
+                        <span style={{ fontSize: 12, color: "var(--text-muted)" }}> /forever</span>
+                      </>
                     ) : (
                       <>
                         <span style={{ fontSize: 22, color: "var(--gold)", fontWeight: 600 }}>£{t.price_gbp}</span>
