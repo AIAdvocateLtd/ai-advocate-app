@@ -120,8 +120,10 @@ function TermsScreen({ lang, onAccept, onDecline, onChangeLang }) {
         <div className="flex items-center justify-between" style={{ marginBottom: 12, flexShrink: 0 }}>
           <h2 className="brand-font gold" style={{ fontSize: 22 }}>{t(lang, "termsTitle")}</h2>
           <button className="btn-gold" data-testid="terms-lang-btn" onClick={onChangeLang}
-                  style={{ padding: "6px 14px", fontSize: 13 }}>
-            <Languages size={14} style={{ display: "inline", marginRight: 6 }} />{t(lang, "lang")}
+                  title="Change language"
+                  style={{ padding: "6px 14px", fontSize: 22, lineHeight: 1, display: "flex", alignItems: "center", gap: 6 }}>
+            <span>{(LANGUAGES.find(l => l.code === lang) || LANGUAGES[0]).flag}</span>
+            <Languages size={14} />
           </button>
         </div>
         <p style={{ color: "var(--text-dim)", fontSize: 13, flexShrink: 0 }}>
