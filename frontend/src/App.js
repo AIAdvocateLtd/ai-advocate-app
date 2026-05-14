@@ -364,6 +364,8 @@ const useRecorder = () => {
 const useHeyLex = ({ enabled, lang, onWake }) => {
   const recRef = useRef(null);
   const stoppedRef = useRef(false);
+  // Buffer to also catch any text spoken right after the wake word in the same utterance
+  const trailingRef = useRef("");
 
   useEffect(() => {
     if (!enabled) {
@@ -384,22 +386,24 @@ const useHeyLex = ({ enabled, lang, onWake }) => {
     rec.onresult = (event) => {
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = (event.results[i][0].transcript || "").toLowerCase().trim();
-        // Match common variants across languages (rough but effective)
-        if (/(^|\s)(hey|hi|okay|ok|hola|salam|你好|bonjour|hallo|ciao|olá|namaste)[ ,.]*(lex|leks|lekss|лекс)\b/.test(transcript)) {
+        // Wake-word variants across languages
+        const wakeMatch = transcript.match(/(?:^|\s)(?:hey|hi|okay|ok|hola|salam|你好|bonjour|hallo|ciao|olá|namaste)[ ,.]*(?:lex|leks|lekss|лекс)\b(.*)$/);
+        if (wakeMatch) {
+          // Capture anything spoken AFTER "hey lex" in the same utterance (e.g. "hey lex, my landlord is keeping my deposit")
+          const trailing = (wakeMatch[1] || "").trim();
+          trailingRef.current = trailing;
           try { rec.stop(); } catch {}
-          onWake();
+          onWake(trailing);
           return;
         }
       }
     };
     rec.onend = () => {
-      // auto-restart unless user disabled it
       if (!stoppedRef.current) {
         try { rec.start(); } catch {}
       }
     };
     rec.onerror = (e) => {
-      // Permission denied, network etc. — silently back off; user can retry by toggling.
       if (e?.error === "not-allowed" || e?.error === "service-not-allowed") {
         stoppedRef.current = true;
       }
@@ -413,6 +417,184 @@ const useHeyLex = ({ enabled, lang, onWake }) => {
     };
   }, [enabled, lang, onWake]);
 };
+
+// ---------- Siri-style Voice Mode (hands-free continuous loop) ----------
+// Flow: open → listen → silence-detect (2.5s) → send to Lex → play TTS → loop.
+// Tap X to exit. Tap mic to interrupt and re-speak.
+function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
+  const [phase, setPhase] = useState("listening"); // listening | thinking | speaking
+  const [transcript, setTranscript] = useState(initialText || "");
+  const [reply, setReply] = useState("");
+  const [sessionId, setSessionId] = useState(null);
+  const recRef = useRef(null);
+  const silenceTimerRef = useRef(null);
+  const audioRef = useRef(null);
+  const partialRef = useRef(initialText || "");
+  const cancelledRef = useRef(false);
+
+  // Helper: stop current recognition
+  const stopRec = useCallback(() => {
+    try { recRef.current?.stop(); } catch {}
+    recRef.current = null;
+    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+  }, []);
+
+  // Send the captured text to Lex chat → play voice
+  const sendAndSpeak = useCallback(async (text) => {
+    const clean = (text || "").trim();
+    if (!clean || cancelledRef.current) { setPhase("listening"); return; }
+    setPhase("thinking");
+    try {
+      const { data } = await api.post("/lex/chat", { session_id: sessionId, message: clean, language: lang, country, category: category || "ask_lex" });
+      if (cancelledRef.current) return;
+      setSessionId(data.session_id);
+      setReply(data.response);
+      // Generate TTS
+      setPhase("speaking");
+      const ttsResp = await api.post("/voice/tts", { text: data.response, language: (lang || "en").split("-")[0] }, { responseType: "blob" });
+      if (cancelledRef.current) return;
+      const url = URL.createObjectURL(ttsResp.data);
+      const audio = audioRef.current;
+      if (audio) {
+        audio.src = url;
+        audio.onended = () => { if (!cancelledRef.current) { startListening(); } };
+        audio.play().catch(() => { if (!cancelledRef.current) startListening(); });
+      } else { startListening(); }
+    } catch (e) {
+      setReply(e?.response?.data?.detail || "Sorry, I couldn't process that.");
+      setPhase("listening");
+      setTimeout(() => { if (!cancelledRef.current) startListening(); }, 600);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, lang, country, category]);
+
+  // Start a single STT round; auto-detects silence and triggers send
+  const startListening = useCallback(() => {
+    if (cancelledRef.current) return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+    setPhase("listening");
+    partialRef.current = "";
+    setTranscript("");
+    const rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = lang || "en-GB";
+
+    const armSilence = () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = setTimeout(() => {
+        stopRec();
+        sendAndSpeak(partialRef.current);
+      }, 2500); // 2.5s of silence = user finished speaking
+    };
+
+    rec.onresult = (event) => {
+      let interim = "";
+      let finalT = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) finalT += t; else interim += t;
+      }
+      if (finalT) partialRef.current = (partialRef.current + " " + finalT).trim();
+      const display = (partialRef.current + " " + interim).trim();
+      setTranscript(display);
+      armSilence();
+    };
+    rec.onerror = (e) => {
+      if (e?.error === "not-allowed" || e?.error === "service-not-allowed") {
+        setReply("Please allow microphone access in your browser settings to use Voice Mode.");
+        setPhase("listening");
+        return;
+      }
+    };
+    rec.onend = () => {
+      // if we didn't silence-trigger and we still have words, send anyway
+      if (partialRef.current.trim() && !cancelledRef.current && phase === "listening") {
+        sendAndSpeak(partialRef.current);
+      }
+    };
+    try { rec.start(); recRef.current = rec; armSilence(); } catch {}
+  }, [lang, phase, sendAndSpeak, stopRec]);
+
+  // First mount: if initialText supplied (from wake word trailing), send it directly; else start listening
+  useEffect(() => {
+    cancelledRef.current = false;
+    if (initialText && initialText.trim().length > 2) {
+      sendAndSpeak(initialText);
+    } else {
+      startListening();
+    }
+    return () => {
+      cancelledRef.current = true;
+      stopRec();
+      try { audioRef.current?.pause(); } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const phaseLabel = phase === "listening" ? "Listening…" : phase === "thinking" ? "Thinking…" : "Lex is speaking…";
+
+  return (
+    <div className="modal-bg" data-testid="voice-mode-overlay" style={{ background: "rgba(0,0,0,0.96)" }}>
+      <div style={{ maxWidth: 480, margin: "0 auto", padding: 24, height: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative" }}>
+        <button onClick={onClose} data-testid="voice-mode-close" style={{ position: "absolute", top: 22, right: 22, background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}>
+          <X size={28} />
+        </button>
+
+        {/* Pulsing Lex avatar */}
+        <div className={`voice-orb ${phase}`} data-testid="voice-orb" style={{
+          width: 180, height: 180, borderRadius: "50%",
+          background: "#000",
+          border: "3px solid var(--gold)",
+          overflow: "hidden",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: phase === "speaking"
+            ? "0 0 60px rgba(247,201,72,0.85)"
+            : phase === "thinking"
+            ? "0 0 30px rgba(247,201,72,0.45)"
+            : "0 0 40px rgba(247,201,72,0.65)",
+          marginBottom: 26,
+        }}>
+          <img src="/assets/lex.jpg" alt="Lex" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%", mixBlendMode: "lighten" }} />
+        </div>
+
+        <div data-testid="voice-mode-phase" style={{ fontSize: 14, color: "var(--gold)", letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "Cinzel, serif", marginBottom: 16 }}>
+          {phaseLabel}
+        </div>
+
+        {/* Live transcript */}
+        {phase === "listening" && transcript && (
+          <div data-testid="voice-mode-transcript" style={{ color: "var(--text)", fontSize: 17, textAlign: "center", padding: "0 14px", lineHeight: 1.5, minHeight: 60 }}>
+            {transcript}
+          </div>
+        )}
+
+        {/* Reply text */}
+        {(phase === "speaking" || phase === "thinking") && reply && (
+          <div data-testid="voice-mode-reply" style={{ color: "var(--text-dim)", fontSize: 14, textAlign: "center", padding: "0 14px", maxHeight: "30vh", overflowY: "auto", lineHeight: 1.55 }}>
+            {reply}
+          </div>
+        )}
+
+        <div style={{ marginTop: "auto", display: "flex", gap: 12 }}>
+          <button onClick={() => { stopRec(); try { audioRef.current?.pause(); } catch {}; startListening(); }}
+            data-testid="voice-mode-mic" title="Re-speak"
+            style={{ background: "#000", border: "2px solid var(--gold)", borderRadius: "50%",
+                     width: 60, height: 60, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Mic size={26} style={{ color: "var(--gold)" }} />
+          </button>
+        </div>
+
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 14, textAlign: "center", padding: "0 20px" }}>
+          Hands-free voice mode. Speak naturally — Lex will respond when you pause. Tap mic to re-speak. X to exit.
+        </div>
+
+        <audio ref={audioRef} style={{ display: "none" }} />
+      </div>
+    </div>
+  );
+}
 
 // ---------- Lex Chat ----------
 function LexChat({ lang, country, category, title, onClose, autoMic = false }) {
@@ -1752,13 +1934,14 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     return () => window.removeEventListener("aa:open-subscribe", handler);
   }, []);
 
-  // "Hey Lex" wake word — opens Ask Lex when user says it (Plus+ only)
-  const handleWake = useCallback(() => {
-    if (modal) return;
+  const [voiceMode, setVoiceMode] = useState(null); // {initialText} | null
+  // "Hey Lex" wake word — opens Siri-style Voice Mode (Plus+ only)
+  const handleWake = useCallback((trailing) => {
+    if (modal || voiceMode) return;
     if (!hasTier("plus")) { setSubPreset("plus"); setShowSub(true); return; }
-    setModal({ type: "chat", title: t(lang, "askLex"), category: "ask_lex", autoMic: true });
-  }, [modal, hasTier, lang]);
-  useHeyLex({ enabled: wakeOn && !modal && hasTier("plus"), lang, onWake: handleWake });
+    setVoiceMode({ initialText: trailing || "" });
+  }, [modal, voiceMode, hasTier]);
+  useHeyLex({ enabled: wakeOn && !modal && !voiceMode && hasTier("plus"), lang, onWake: handleWake });
 
   // Tier required per tile. "free" = available to all; emergency is separate.
   const tiles = [
@@ -1882,7 +2065,11 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
 
       <BottomNav lang={lang} active="home"
         onNav={(k) => {
-          if (k === "lex") setModal({ type: "chat", title: "LEX", category: "ask_lex" });
+          if (k === "lex") {
+            // Tapping Lex centre button → open Siri-style Voice Mode (Plus+ only)
+            if (!hasTier("plus")) { setSubPreset("plus"); setShowSub(true); return; }
+            setVoiceMode({ initialText: "" });
+          }
           else if (k === "files") setModal({ type: "files" });
           else if (k === "lawyers") setModal({ type: "lawyers" });
           else if (k === "settings") setShowSettings(true);
@@ -1897,6 +2084,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "snap" && <SnapEvidenceModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "lawyers" && <LawyersModal lang={lang} country={country} user={user} onClose={() => setModal(null)} openAdvertise={() => { setModal(null); setShowAdvertise(true); }} />}
       {showEmergency && <EmergencyModal lang={lang} country={country} onClose={() => setShowEmergency(false)} />}
+      {voiceMode && <VoiceModeOverlay lang={lang} country={country} category="ask_lex" initialText={voiceMode.initialText} onClose={() => setVoiceMode(null)} />}
       {showLang && <LanguagePicker initial={lang} lang={lang} onConfirm={(l) => { setLang(l); setShowLang(false); api.patch("/auth/preferences", { language: l }).catch(() => {}); }} />}
       {showSub && <SubscribeModal lang={lang} user={user} presetPlan={subPreset} onClose={() => setShowSub(false)} onActivated={(u) => { refreshUser(u); setShowSub(false); }} />}
       {showSettings && <SettingsModal lang={lang} country={country} user={user} onClose={() => setShowSettings(false)} onUpdate={(u) => refreshUser(u)} setLang={setLang} setCountry={setCountry} />}
