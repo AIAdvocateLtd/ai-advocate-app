@@ -421,12 +421,36 @@ const useHeyLex = ({ enabled, lang, onWake }) => {
 // ---------- Siri-style Voice Mode (hands-free, cross-platform reliable) ----------
 // Uses MediaRecorder + WebAudio silence detection + Whisper STT + OpenAI TTS.
 // Works on iOS Safari, Android, Chrome, Edge, Firefox.
+//
+// iOS audio-unlock trick: on first ever user gesture in the app, we prime an AudioContext
+// + a silent <audio> element so subsequent programmatic playback isn't blocked.
+let _audioUnlocked = false;
+const unlockAudio = () => {
+  if (_audioUnlocked) return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (Ctx) {
+      const ctx = new Ctx();
+      const buffer = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer; src.connect(ctx.destination); src.start(0);
+      ctx.resume?.();
+    }
+    const a = document.createElement("audio");
+    a.muted = true; a.playsInline = true; a.preload = "auto";
+    a.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQwAADB8AhSmxhIBHHCk6ABMjMTRgQRMAAAAAA////////////////////////////////////////////////////8AAAA8";
+    a.play().catch(() => {});
+    _audioUnlocked = true;
+  } catch {}
+};
+
 function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
-  const [phase, setPhase] = useState("ready"); // ready | listening | thinking | speaking
+  const [phase, setPhase] = useState("ready"); // ready | listening | thinking | speaking | tap-to-play
   const [transcript, setTranscript] = useState("");
   const [reply, setReply] = useState("");
   const [error, setError] = useState("");
   const [sessionId, setSessionId] = useState(null);
+  const [pendingAudioUrl, setPendingAudioUrl] = useState(null);
 
   const streamRef = useRef(null);
   const recorderRef = useRef(null);
@@ -440,11 +464,10 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
   const cancelledRef = useRef(false);
   const startTimeRef = useRef(0);
 
-  const SILENCE_MS = 2200;       // 2.2s of silence triggers send
-  const SPEECH_THRESH = 0.012;   // RMS threshold to count as "speaking"
-  const MAX_RECORD_MS = 30000;   // hard stop at 30s
+  const SILENCE_MS = 2200;
+  const SPEECH_THRESH = 0.012;
+  const MAX_RECORD_MS = 30000;
 
-  // --- Cleanup helpers ---
   const stopAll = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = null;
@@ -457,9 +480,25 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
     try { audioElRef.current?.pause(); } catch {}
   }, []);
 
-  // --- Send recorded audio to backend for STT → chat → TTS ---
+  // Attempt to play TTS; if iOS autoplay blocks, surface a "Tap to hear" button
+  const tryPlayAudio = useCallback(async (url) => {
+    const a = audioElRef.current;
+    if (!a) { startListening(); return; }
+    a.src = url;
+    a.onended = () => { if (!cancelledRef.current) startListening(); };
+    try {
+      await a.play();
+      setPendingAudioUrl(null);
+    } catch (err) {
+      // iOS blocked it — show the tap button
+      setPendingAudioUrl(url);
+      setPhase("tap-to-play");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const sendAudio = useCallback(async (blob) => {
-    if (!blob || blob.size < 1500) { // too short — probably no speech, restart
+    if (!blob || blob.size < 1500) {
       if (!cancelledRef.current) startListening();
       return;
     }
@@ -473,40 +512,30 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
       if (cancelledRef.current) return;
       if (!userText) { startListening(); return; }
       setTranscript(userText);
-
       const chat = await api.post("/lex/chat", {
         session_id: sessionId, message: userText, language: lang, country, category: category || "ask_lex",
       });
       if (cancelledRef.current) return;
       setSessionId(chat.data.session_id);
       setReply(chat.data.response);
-
       setPhase("speaking");
       const tts = await api.post("/voice/tts",
         { text: chat.data.response, language: (lang || "en").split("-")[0] },
         { responseType: "blob" });
       if (cancelledRef.current) return;
-      const url = URL.createObjectURL(tts.data);
-      const a = audioElRef.current;
-      if (a) {
-        a.src = url;
-        a.onended = () => { if (!cancelledRef.current) startListening(); };
-        try { await a.play(); } catch { if (!cancelledRef.current) startListening(); }
-      } else { startListening(); }
+      tryPlayAudio(URL.createObjectURL(tts.data));
     } catch (e) {
       const msg = e?.response?.data?.detail || e?.message || "Network error";
       setError(msg);
       setPhase("ready");
-      // Auto-retry after 1.5s unless cancelled
       setTimeout(() => { if (!cancelledRef.current) { setError(""); startListening(); } }, 1500);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, lang, country, category]);
+  }, [sessionId, lang, country, category, tryPlayAudio]);
 
-  // --- Start a recording session with silence detection ---
   const startListening = useCallback(async () => {
     if (cancelledRef.current) return;
-    setTranscript(""); setReply(""); setError("");
+    setTranscript(""); setReply(""); setError(""); setPendingAudioUrl(null);
     setPhase("listening");
     speakingDetectedRef.current = false;
     silenceStartRef.current = 0;
@@ -523,7 +552,6 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
     streamRef.current = stream;
     startTimeRef.current = Date.now();
 
-    // Pick a supported mime type
     const mime = (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported) ?
       (MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" :
        MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" :
@@ -536,7 +564,6 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
     recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunksRef.current.push(e.data); };
     recorder.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
-      // Tear down stream + audio ctx but keep us in "thinking" phase
       try { streamRef.current?.getTracks().forEach(t => t.stop()); } catch {}
       try { audioCtxRef.current?.close(); } catch {}
       audioCtxRef.current = null; analyserRef.current = null;
@@ -545,7 +572,6 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
     };
     try { recorder.start(); } catch (e) { setError("Could not start recorder"); setPhase("ready"); return; }
 
-    // WebAudio analyser for silence detection
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       const ctx = new Ctx();
@@ -560,7 +586,6 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
       const tick = () => {
         if (!analyserRef.current || cancelledRef.current) return;
         analyser.getByteTimeDomainData(buf);
-        // Compute RMS volume
         let sum = 0;
         for (let i = 0; i < buf.length; i++) {
           const v = (buf[i] - 128) / 128;
@@ -569,7 +594,6 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
         const rms = Math.sqrt(sum / buf.length);
         const now = Date.now();
         const elapsed = now - startTimeRef.current;
-
         if (rms > SPEECH_THRESH) {
           speakingDetectedRef.current = true;
           silenceStartRef.current = 0;
@@ -580,21 +604,15 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
             return;
           }
         }
-        // Hard cap
-        if (elapsed > MAX_RECORD_MS) {
-          try { recorder.stop(); } catch {}
-          return;
-        }
+        if (elapsed > MAX_RECORD_MS) { try { recorder.stop(); } catch {}; return; }
         rafRef.current = requestAnimationFrame(tick);
       };
       rafRef.current = requestAnimationFrame(tick);
     } catch (e) {
-      // If WebAudio fails (rare), just auto-stop after 8s
       setTimeout(() => { try { recorder.stop(); } catch {} }, 8000);
     }
   }, [sendAudio]);
 
-  // --- If wake word captured trailing text ("Hey Lex, my landlord..."), use that directly ---
   const sendInitialText = useCallback(async (text) => {
     setPhase("thinking");
     setTranscript(text);
@@ -606,24 +624,18 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
       setPhase("speaking");
       const tts = await api.post("/voice/tts", { text: chat.data.response, language: (lang || "en").split("-")[0] }, { responseType: "blob" });
       if (cancelledRef.current) return;
-      const url = URL.createObjectURL(tts.data);
-      const a = audioElRef.current;
-      if (a) {
-        a.src = url;
-        a.onended = () => { if (!cancelledRef.current) startListening(); };
-        try { await a.play(); } catch { if (!cancelledRef.current) startListening(); }
-      } else { startListening(); }
+      tryPlayAudio(URL.createObjectURL(tts.data));
     } catch (e) {
       setError(e?.response?.data?.detail || "Could not reach Lex.");
       setPhase("ready");
-      setTimeout(() => { if (!cancelledRef.current) startListening(); }, 1500);
+      setTimeout(() => { if (!cancelledRef.current) { setError(""); startListening(); } }, 1500);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, lang, country, category, startListening]);
+  }, [sessionId, lang, country, category, tryPlayAudio, startListening]);
 
-  // Mount: kick off listening or process the trailing wake-word text
   useEffect(() => {
     cancelledRef.current = false;
+    unlockAudio();
     const initial = (initialText || "").trim();
     if (initial.length > 2) sendInitialText(initial);
     else startListening();
@@ -634,6 +646,7 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
   const phaseLabel = phase === "listening" ? "Listening…"
                     : phase === "thinking" ? "Thinking…"
                     : phase === "speaking" ? "Lex is speaking…"
+                    : phase === "tap-to-play" ? "Tap to hear Lex"
                     : "Tap mic to speak";
 
   return (
@@ -643,7 +656,6 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
           <X size={28} />
         </button>
 
-        {/* Pulsing Lex avatar */}
         <div className={`voice-orb ${phase}`} data-testid="voice-orb" style={{
           width: 180, height: 180, borderRadius: "50%",
           background: "#000",
@@ -669,21 +681,36 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
             "{transcript}"
           </div>
         )}
-
         {reply && (
           <div data-testid="voice-mode-reply" style={{ color: "var(--text)", fontSize: 14, textAlign: "center", padding: "0 14px", maxHeight: "26vh", overflowY: "auto", lineHeight: 1.55 }}>
             {reply}
           </div>
         )}
-
         {error && (
           <div data-testid="voice-mode-error" style={{ color: "#fca5a5", fontSize: 13, textAlign: "center", padding: "10px 14px", marginTop: 8, background: "rgba(127,29,29,0.3)", border: "1px solid #7f1d1d", borderRadius: 10 }}>
             {error}
           </div>
         )}
 
+        {/* "Tap to hear Lex" fallback for iOS autoplay block */}
+        {phase === "tap-to-play" && pendingAudioUrl && (
+          <button data-testid="voice-mode-tap-to-play"
+            onClick={async () => {
+              const a = audioElRef.current;
+              if (!a) return;
+              try { await a.play(); setPhase("speaking"); setPendingAudioUrl(null); }
+              catch (err) { setError("Could not play audio. " + (err?.message || "")); }
+            }}
+            style={{ marginTop: 16, padding: "14px 24px", background: "var(--gold)", color: "#1a1300",
+                     border: "none", borderRadius: 30, fontWeight: 700, fontSize: 15,
+                     boxShadow: "0 0 24px rgba(247,201,72,0.7)", cursor: "pointer",
+                     fontFamily: "Cinzel, serif", letterSpacing: "0.06em" }}>
+            ▶ TAP TO HEAR LEX
+          </button>
+        )}
+
         <div style={{ marginTop: "auto", display: "flex", gap: 12 }}>
-          <button onClick={() => { stopAll(); try { audioElRef.current?.pause(); } catch {}; startListening(); }}
+          <button onClick={() => { unlockAudio(); stopAll(); try { audioElRef.current?.pause(); } catch {}; startListening(); }}
             data-testid="voice-mode-mic" title="Talk to Lex"
             style={{ background: "#000", border: "2px solid var(--gold)", borderRadius: "50%",
                      width: 76, height: 76, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
@@ -2266,6 +2293,22 @@ function App() {
       setStep(localStorage.getItem("aa_terms") ? "auth" : "lang");
     }
   // eslint-disable-next-line
+  }, []);
+
+  // Unlock audio playback on the very first user gesture (any tap anywhere). This is iOS Safari's
+  // requirement to allow programmatic audio.play() later (when the wake word triggers TTS).
+  useEffect(() => {
+    const unlock = () => {
+      unlockAudio();
+      window.removeEventListener("touchstart", unlock);
+      window.removeEventListener("click", unlock);
+    };
+    window.addEventListener("touchstart", unlock, { once: true });
+    window.addEventListener("click", unlock, { once: true });
+    return () => {
+      window.removeEventListener("touchstart", unlock);
+      window.removeEventListener("click", unlock);
+    };
   }, []);
 
   const onAuth = (data) => {
