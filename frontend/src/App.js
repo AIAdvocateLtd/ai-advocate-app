@@ -2046,7 +2046,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       </div>
 
       <button data-testid="emergency-btn" onClick={() => setShowEmergency(true)}
-        style={{ width: "100%", padding: "12px 16px", marginBottom: 10, borderRadius: 14,
+        style={{ width: "100%", padding: "12px 16px", marginBottom: 14, borderRadius: 14,
                  background: "linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%)",
                  border: "1px solid #fca5a5", color: "#fff", fontWeight: 700,
                  letterSpacing: "0.04em", fontSize: 14, cursor: "pointer",
@@ -2054,19 +2054,6 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
                  alignItems: "center", justifyContent: "center", gap: 8,
                  fontFamily: "Cinzel, serif", textTransform: "uppercase" }}>
         <span style={{ fontSize: 18 }}>⚠</span> I've Been Arrested — My Rights NOW
-      </button>
-
-      <button data-testid="voice-mode-launch-btn"
-        onClick={() => {
-          if (!hasTier("plus")) { setSubPreset("plus"); setShowSub(true); return; }
-          setVoiceMode({ initialText: "" });
-        }}
-        style={{ width: "100%", padding: "10px 16px", marginBottom: 14, borderRadius: 14,
-                 background: "#000", border: "1px solid var(--gold-deep)",
-                 color: "var(--gold)", fontWeight: 600, fontSize: 13.5, cursor: "pointer",
-                 display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                 fontFamily: "Cinzel, serif", letterSpacing: "0.06em" }}>
-        <Mic size={16} /> TAP TO TALK TO LEX
       </button>
 
       {tier === "free" && (
