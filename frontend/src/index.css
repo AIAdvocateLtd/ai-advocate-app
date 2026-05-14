@@ -245,3 +245,10 @@ a { color: var(--gold); text-decoration: none; }
   border-radius: 12px;
   font-size: 13px;
 }
+
+
+/* Voice mode pulse */
+@keyframes voicePulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(247,201,72,0.55); }
+  50% { transform: scale(1.06); box-shadow: 0 0 70px rgba(247,201,72,0.9); }
+}

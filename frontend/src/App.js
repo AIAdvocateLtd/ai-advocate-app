@@ -418,122 +418,223 @@ const useHeyLex = ({ enabled, lang, onWake }) => {
   }, [enabled, lang, onWake]);
 };
 
-// ---------- Siri-style Voice Mode (hands-free continuous loop) ----------
-// Flow: open → listen → silence-detect (2.5s) → send to Lex → play TTS → loop.
-// Tap X to exit. Tap mic to interrupt and re-speak.
+// ---------- Siri-style Voice Mode (hands-free, cross-platform reliable) ----------
+// Uses MediaRecorder + WebAudio silence detection + Whisper STT + OpenAI TTS.
+// Works on iOS Safari, Android, Chrome, Edge, Firefox.
 function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
-  const [phase, setPhase] = useState("listening"); // listening | thinking | speaking
-  const [transcript, setTranscript] = useState(initialText || "");
+  const [phase, setPhase] = useState("ready"); // ready | listening | thinking | speaking
+  const [transcript, setTranscript] = useState("");
   const [reply, setReply] = useState("");
+  const [error, setError] = useState("");
   const [sessionId, setSessionId] = useState(null);
-  const recRef = useRef(null);
-  const silenceTimerRef = useRef(null);
-  const audioRef = useRef(null);
-  const partialRef = useRef(initialText || "");
-  const cancelledRef = useRef(false);
 
-  // Helper: stop current recognition
-  const stopRec = useCallback(() => {
-    try { recRef.current?.stop(); } catch {}
-    recRef.current = null;
-    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+  const streamRef = useRef(null);
+  const recorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const audioCtxRef = useRef(null);
+  const analyserRef = useRef(null);
+  const rafRef = useRef(null);
+  const silenceStartRef = useRef(0);
+  const speakingDetectedRef = useRef(false);
+  const audioElRef = useRef(null);
+  const cancelledRef = useRef(false);
+  const startTimeRef = useRef(0);
+
+  const SILENCE_MS = 2200;       // 2.2s of silence triggers send
+  const SPEECH_THRESH = 0.012;   // RMS threshold to count as "speaking"
+  const MAX_RECORD_MS = 30000;   // hard stop at 30s
+
+  // --- Cleanup helpers ---
+  const stopAll = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    try { recorderRef.current?.stop(); } catch {}
+    recorderRef.current = null;
+    try { audioCtxRef.current?.close(); } catch {}
+    audioCtxRef.current = null; analyserRef.current = null;
+    try { streamRef.current?.getTracks().forEach(t => t.stop()); } catch {}
+    streamRef.current = null;
+    try { audioElRef.current?.pause(); } catch {}
   }, []);
 
-  // Send the captured text to Lex chat → play voice
-  const sendAndSpeak = useCallback(async (text) => {
-    const clean = (text || "").trim();
-    if (!clean || cancelledRef.current) { setPhase("listening"); return; }
+  // --- Send recorded audio to backend for STT → chat → TTS ---
+  const sendAudio = useCallback(async (blob) => {
+    if (!blob || blob.size < 1500) { // too short — probably no speech, restart
+      if (!cancelledRef.current) startListening();
+      return;
+    }
     setPhase("thinking");
     try {
-      const { data } = await api.post("/lex/chat", { session_id: sessionId, message: clean, language: lang, country, category: category || "ask_lex" });
+      const fd = new FormData();
+      fd.append("audio", blob, "voice.webm");
+      fd.append("language", (lang || "en").split("-")[0]);
+      const stt = await api.post("/voice/transcribe", fd);
+      const userText = (stt.data?.text || "").trim();
       if (cancelledRef.current) return;
-      setSessionId(data.session_id);
-      setReply(data.response);
-      // Generate TTS
+      if (!userText) { startListening(); return; }
+      setTranscript(userText);
+
+      const chat = await api.post("/lex/chat", {
+        session_id: sessionId, message: userText, language: lang, country, category: category || "ask_lex",
+      });
+      if (cancelledRef.current) return;
+      setSessionId(chat.data.session_id);
+      setReply(chat.data.response);
+
       setPhase("speaking");
-      const ttsResp = await api.post("/voice/tts", { text: data.response, language: (lang || "en").split("-")[0] }, { responseType: "blob" });
+      const tts = await api.post("/voice/tts",
+        { text: chat.data.response, language: (lang || "en").split("-")[0] },
+        { responseType: "blob" });
       if (cancelledRef.current) return;
-      const url = URL.createObjectURL(ttsResp.data);
-      const audio = audioRef.current;
-      if (audio) {
-        audio.src = url;
-        audio.onended = () => { if (!cancelledRef.current) { startListening(); } };
-        audio.play().catch(() => { if (!cancelledRef.current) startListening(); });
+      const url = URL.createObjectURL(tts.data);
+      const a = audioElRef.current;
+      if (a) {
+        a.src = url;
+        a.onended = () => { if (!cancelledRef.current) startListening(); };
+        try { await a.play(); } catch { if (!cancelledRef.current) startListening(); }
       } else { startListening(); }
     } catch (e) {
-      setReply(e?.response?.data?.detail || "Sorry, I couldn't process that.");
-      setPhase("listening");
-      setTimeout(() => { if (!cancelledRef.current) startListening(); }, 600);
+      const msg = e?.response?.data?.detail || e?.message || "Network error";
+      setError(msg);
+      setPhase("ready");
+      // Auto-retry after 1.5s unless cancelled
+      setTimeout(() => { if (!cancelledRef.current) { setError(""); startListening(); } }, 1500);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, lang, country, category]);
 
-  // Start a single STT round; auto-detects silence and triggers send
-  const startListening = useCallback(() => {
+  // --- Start a recording session with silence detection ---
+  const startListening = useCallback(async () => {
     if (cancelledRef.current) return;
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;
+    setTranscript(""); setReply(""); setError("");
     setPhase("listening");
-    partialRef.current = "";
-    setTranscript("");
-    const rec = new SR();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = lang || "en-GB";
+    speakingDetectedRef.current = false;
+    silenceStartRef.current = 0;
+    chunksRef.current = [];
 
-    const armSilence = () => {
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = setTimeout(() => {
-        stopRec();
-        sendAndSpeak(partialRef.current);
-      }, 2500); // 2.5s of silence = user finished speaking
-    };
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    } catch (e) {
+      setError("Microphone permission denied. Please enable it in your browser settings.");
+      setPhase("ready");
+      return;
+    }
+    streamRef.current = stream;
+    startTimeRef.current = Date.now();
 
-    rec.onresult = (event) => {
-      let interim = "";
-      let finalT = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const t = event.results[i][0].transcript;
-        if (event.results[i].isFinal) finalT += t; else interim += t;
-      }
-      if (finalT) partialRef.current = (partialRef.current + " " + finalT).trim();
-      const display = (partialRef.current + " " + interim).trim();
-      setTranscript(display);
-      armSilence();
-    };
-    rec.onerror = (e) => {
-      if (e?.error === "not-allowed" || e?.error === "service-not-allowed") {
-        setReply("Please allow microphone access in your browser settings to use Voice Mode.");
-        setPhase("listening");
-        return;
-      }
-    };
-    rec.onend = () => {
-      // if we didn't silence-trigger and we still have words, send anyway
-      if (partialRef.current.trim() && !cancelledRef.current && phase === "listening") {
-        sendAndSpeak(partialRef.current);
-      }
-    };
-    try { rec.start(); recRef.current = rec; armSilence(); } catch {}
-  }, [lang, phase, sendAndSpeak, stopRec]);
+    // Pick a supported mime type
+    const mime = (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported) ?
+      (MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" :
+       MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" :
+       MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "") : "";
+    let recorder;
+    try { recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream); }
+    catch (e) { setError("Recording not supported in this browser."); setPhase("ready"); return; }
+    recorderRef.current = recorder;
 
-  // First mount: if initialText supplied (from wake word trailing), send it directly; else start listening
+    recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunksRef.current.push(e.data); };
+    recorder.onstop = () => {
+      const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
+      // Tear down stream + audio ctx but keep us in "thinking" phase
+      try { streamRef.current?.getTracks().forEach(t => t.stop()); } catch {}
+      try { audioCtxRef.current?.close(); } catch {}
+      audioCtxRef.current = null; analyserRef.current = null;
+      streamRef.current = null;
+      sendAudio(blob);
+    };
+    try { recorder.start(); } catch (e) { setError("Could not start recorder"); setPhase("ready"); return; }
+
+    // WebAudio analyser for silence detection
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      audioCtxRef.current = ctx;
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyserRef.current = analyser;
+      src.connect(analyser);
+      const buf = new Uint8Array(analyser.fftSize);
+
+      const tick = () => {
+        if (!analyserRef.current || cancelledRef.current) return;
+        analyser.getByteTimeDomainData(buf);
+        // Compute RMS volume
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const v = (buf[i] - 128) / 128;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / buf.length);
+        const now = Date.now();
+        const elapsed = now - startTimeRef.current;
+
+        if (rms > SPEECH_THRESH) {
+          speakingDetectedRef.current = true;
+          silenceStartRef.current = 0;
+        } else if (speakingDetectedRef.current) {
+          if (silenceStartRef.current === 0) silenceStartRef.current = now;
+          else if (now - silenceStartRef.current > SILENCE_MS) {
+            try { recorder.stop(); } catch {}
+            return;
+          }
+        }
+        // Hard cap
+        if (elapsed > MAX_RECORD_MS) {
+          try { recorder.stop(); } catch {}
+          return;
+        }
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    } catch (e) {
+      // If WebAudio fails (rare), just auto-stop after 8s
+      setTimeout(() => { try { recorder.stop(); } catch {} }, 8000);
+    }
+  }, [sendAudio]);
+
+  // --- If wake word captured trailing text ("Hey Lex, my landlord..."), use that directly ---
+  const sendInitialText = useCallback(async (text) => {
+    setPhase("thinking");
+    setTranscript(text);
+    try {
+      const chat = await api.post("/lex/chat", { session_id: sessionId, message: text, language: lang, country, category: category || "ask_lex" });
+      if (cancelledRef.current) return;
+      setSessionId(chat.data.session_id);
+      setReply(chat.data.response);
+      setPhase("speaking");
+      const tts = await api.post("/voice/tts", { text: chat.data.response, language: (lang || "en").split("-")[0] }, { responseType: "blob" });
+      if (cancelledRef.current) return;
+      const url = URL.createObjectURL(tts.data);
+      const a = audioElRef.current;
+      if (a) {
+        a.src = url;
+        a.onended = () => { if (!cancelledRef.current) startListening(); };
+        try { await a.play(); } catch { if (!cancelledRef.current) startListening(); }
+      } else { startListening(); }
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Could not reach Lex.");
+      setPhase("ready");
+      setTimeout(() => { if (!cancelledRef.current) startListening(); }, 1500);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, lang, country, category, startListening]);
+
+  // Mount: kick off listening or process the trailing wake-word text
   useEffect(() => {
     cancelledRef.current = false;
-    if (initialText && initialText.trim().length > 2) {
-      sendAndSpeak(initialText);
-    } else {
-      startListening();
-    }
-    return () => {
-      cancelledRef.current = true;
-      stopRec();
-      try { audioRef.current?.pause(); } catch {}
-    };
+    const initial = (initialText || "").trim();
+    if (initial.length > 2) sendInitialText(initial);
+    else startListening();
+    return () => { cancelledRef.current = true; stopAll(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const phaseLabel = phase === "listening" ? "Listening…" : phase === "thinking" ? "Thinking…" : "Lex is speaking…";
+  const phaseLabel = phase === "listening" ? "Listening…"
+                    : phase === "thinking" ? "Thinking…"
+                    : phase === "speaking" ? "Lex is speaking…"
+                    : "Tap mic to speak";
 
   return (
     <div className="modal-bg" data-testid="voice-mode-overlay" style={{ background: "rgba(0,0,0,0.96)" }}>
@@ -549,12 +650,12 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
           border: "3px solid var(--gold)",
           overflow: "hidden",
           display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: phase === "speaking"
-            ? "0 0 60px rgba(247,201,72,0.85)"
-            : phase === "thinking"
-            ? "0 0 30px rgba(247,201,72,0.45)"
-            : "0 0 40px rgba(247,201,72,0.65)",
+          boxShadow: phase === "speaking" ? "0 0 60px rgba(247,201,72,0.85)"
+                    : phase === "thinking" ? "0 0 30px rgba(247,201,72,0.45)"
+                    : phase === "listening" ? "0 0 50px rgba(247,201,72,0.75)"
+                    : "0 0 18px rgba(247,201,72,0.35)",
           marginBottom: 26,
+          animation: phase === "listening" ? "voicePulse 1.6s ease-in-out infinite" : "none",
         }}>
           <img src="/assets/lex.jpg" alt="Lex" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%", mixBlendMode: "lighten" }} />
         </div>
@@ -563,34 +664,40 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
           {phaseLabel}
         </div>
 
-        {/* Live transcript */}
-        {phase === "listening" && transcript && (
-          <div data-testid="voice-mode-transcript" style={{ color: "var(--text)", fontSize: 17, textAlign: "center", padding: "0 14px", lineHeight: 1.5, minHeight: 60 }}>
-            {transcript}
+        {transcript && (
+          <div data-testid="voice-mode-transcript" style={{ color: "var(--text-dim)", fontSize: 13, textAlign: "center", padding: "0 14px", marginBottom: 10, fontStyle: "italic" }}>
+            "{transcript}"
           </div>
         )}
 
-        {/* Reply text */}
-        {(phase === "speaking" || phase === "thinking") && reply && (
-          <div data-testid="voice-mode-reply" style={{ color: "var(--text-dim)", fontSize: 14, textAlign: "center", padding: "0 14px", maxHeight: "30vh", overflowY: "auto", lineHeight: 1.55 }}>
+        {reply && (
+          <div data-testid="voice-mode-reply" style={{ color: "var(--text)", fontSize: 14, textAlign: "center", padding: "0 14px", maxHeight: "26vh", overflowY: "auto", lineHeight: 1.55 }}>
             {reply}
           </div>
         )}
 
+        {error && (
+          <div data-testid="voice-mode-error" style={{ color: "#fca5a5", fontSize: 13, textAlign: "center", padding: "10px 14px", marginTop: 8, background: "rgba(127,29,29,0.3)", border: "1px solid #7f1d1d", borderRadius: 10 }}>
+            {error}
+          </div>
+        )}
+
         <div style={{ marginTop: "auto", display: "flex", gap: 12 }}>
-          <button onClick={() => { stopRec(); try { audioRef.current?.pause(); } catch {}; startListening(); }}
-            data-testid="voice-mode-mic" title="Re-speak"
+          <button onClick={() => { stopAll(); try { audioElRef.current?.pause(); } catch {}; startListening(); }}
+            data-testid="voice-mode-mic" title="Talk to Lex"
             style={{ background: "#000", border: "2px solid var(--gold)", borderRadius: "50%",
-                     width: 60, height: 60, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Mic size={26} style={{ color: "var(--gold)" }} />
+                     width: 76, height: 76, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                     boxShadow: phase === "listening" ? "0 0 20px rgba(247,201,72,0.6)" : "none" }}>
+            <Mic size={32} style={{ color: "var(--gold)" }} />
           </button>
         </div>
 
         <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 14, textAlign: "center", padding: "0 20px" }}>
-          Hands-free voice mode. Speak naturally — Lex will respond when you pause. Tap mic to re-speak. X to exit.
+          Speak naturally. Lex will respond when you pause for ~2 seconds.
+          <br/>Tap the gold mic to re-speak · Tap X to close.
         </div>
 
-        <audio ref={audioRef} style={{ display: "none" }} />
+        <audio ref={audioElRef} style={{ display: "none" }} playsInline />
       </div>
     </div>
   );
