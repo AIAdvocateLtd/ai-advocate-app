@@ -1708,9 +1708,49 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
           </div>
         </div>
 
+        {/* "Hey Lex" wake word toggle */}
+        <div data-testid="settings-heylex" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Mic size={18} style={{ color: "var(--gold)" }} />
+              <span style={{ fontWeight: 600 }}>"Hey Lex" wake word</span>
+            </div>
+            <label style={{ position: "relative", display: "inline-block", width: 48, height: 26, cursor: "pointer" }}>
+              <input type="checkbox" data-testid="heylex-toggle" defaultChecked={localStorage.getItem("aa_wake") !== "0"}
+                onChange={async (e) => {
+                  const v = e.target.checked;
+                  localStorage.setItem("aa_wake", v ? "1" : "0");
+                  if (v) {
+                    // Request mic permission so the wake-word recognizer can actually start
+                    try {
+                      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                      stream.getTracks().forEach(tr => tr.stop());
+                    } catch (err) {
+                      alert("Microphone permission was not granted. Hey Lex needs mic access. Please open browser settings and allow microphone.");
+                      localStorage.setItem("aa_wake", "0");
+                      e.target.checked = false;
+                      return;
+                    }
+                  }
+                  window.dispatchEvent(new CustomEvent("aa:wake-toggle", { detail: { enabled: v } }));
+                }}
+                style={{ opacity: 0, width: 0, height: 0 }} />
+              <span style={{ position: "absolute", inset: 0, background: localStorage.getItem("aa_wake") !== "0" ? "var(--gold)" : "var(--line)",
+                             borderRadius: 13, transition: "0.2s",
+                             }}>
+                <span style={{ position: "absolute", height: 20, width: 20, left: localStorage.getItem("aa_wake") !== "0" ? 25 : 3, top: 3,
+                               background: "#000", borderRadius: "50%", transition: "0.2s" }} />
+              </span>
+            </label>
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
+            Say <em>"Hey Lex"</em> anywhere on the home screen and Lex will start listening. Requires microphone permission.
+            <br/><strong style={{ color: "var(--gold-soft)" }}>Note:</strong> iOS Safari may block always-listening when the screen is off. For full hands-free use, the iOS App Store version will support this (coming soon).
+          </div>
+        </div>
+
         {/* Contact & Support */}
-        <div data-testid="settings-contact" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <div data-testid="settings-contact" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <MessageCircle size={18} style={{ color: "var(--gold)" }} />
             <span style={{ fontWeight: 600 }}>Contact & Support</span>
           </div>
@@ -1931,7 +1971,12 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
   useEffect(() => {
     const handler = (e) => { setSubPreset(e?.detail?.preset || "pro"); setShowSub(true); };
     window.addEventListener("aa:open-subscribe", handler);
-    return () => window.removeEventListener("aa:open-subscribe", handler);
+    const wakeHandler = (e) => setWakeOn(!!e?.detail?.enabled);
+    window.addEventListener("aa:wake-toggle", wakeHandler);
+    return () => {
+      window.removeEventListener("aa:open-subscribe", handler);
+      window.removeEventListener("aa:wake-toggle", wakeHandler);
+    };
   }, []);
 
   const [voiceMode, setVoiceMode] = useState(null); // {initialText} | null
@@ -2001,7 +2046,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       </div>
 
       <button data-testid="emergency-btn" onClick={() => setShowEmergency(true)}
-        style={{ width: "100%", padding: "12px 16px", marginBottom: 14, borderRadius: 14,
+        style={{ width: "100%", padding: "12px 16px", marginBottom: 10, borderRadius: 14,
                  background: "linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%)",
                  border: "1px solid #fca5a5", color: "#fff", fontWeight: 700,
                  letterSpacing: "0.04em", fontSize: 14, cursor: "pointer",
@@ -2009,6 +2054,19 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
                  alignItems: "center", justifyContent: "center", gap: 8,
                  fontFamily: "Cinzel, serif", textTransform: "uppercase" }}>
         <span style={{ fontSize: 18 }}>⚠</span> I've Been Arrested — My Rights NOW
+      </button>
+
+      <button data-testid="voice-mode-launch-btn"
+        onClick={() => {
+          if (!hasTier("plus")) { setSubPreset("plus"); setShowSub(true); return; }
+          setVoiceMode({ initialText: "" });
+        }}
+        style={{ width: "100%", padding: "10px 16px", marginBottom: 14, borderRadius: 14,
+                 background: "#000", border: "1px solid var(--gold-deep)",
+                 color: "var(--gold)", fontWeight: 600, fontSize: 13.5, cursor: "pointer",
+                 display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                 fontFamily: "Cinzel, serif", letterSpacing: "0.06em" }}>
+        <Mic size={16} /> TAP TO TALK TO LEX
       </button>
 
       {tier === "free" && (
