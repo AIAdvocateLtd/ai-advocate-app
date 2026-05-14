@@ -10,6 +10,7 @@ export const STRINGS = {
     termsTitle: "Terms & Conditions", lang: "Lang",
     accept: "Accept & Continue", decline: "Decline",
     iAgree: "I agree to the Terms & Conditions and Privacy Policy",
+    effectiveDate: "Effective date: {date}. You must read and accept these Terms and the Privacy Policy below to use AI Advocate.",
     askLex: "Ask Lex", recordLegal: "Record Legal Interaction",
     askLexSub: "Any question, any topic",
     home: "Home", lawyers: "Lawyers", files: "Files",
@@ -75,6 +76,7 @@ export const STRINGS = {
 const EXTRA = {
   "en-GB": {},
   "es-ES": {
+    effectiveDate: "Fecha de entrada en vigor: {date}. Debe leer y aceptar estos Términos y la Política de Privacidad para usar AI Advocate.",
     askLexSub: "Cualquier pregunta, cualquier tema",
     home: "Inicio", lawyers: "Abogados", files: "Archivos", settings: "Ajustes",
     snapEvidence: "Capturar Pruebas", findLawyer: "Buscar un Abogado",
@@ -95,6 +97,7 @@ const EXTRA = {
     locationServices: "Servicios de ubicación", locationOn: "Ubicación activada", locationOff: "Ubicación desactivada",
   },
   "fr-FR": {
+    effectiveDate: "Date d'entrée en vigueur : {date}. Vous devez lire et accepter ces Conditions et la Politique de Confidentialité pour utiliser AI Advocate.",
     askLexSub: "Toute question, tout sujet",
     home: "Accueil", lawyers: "Avocats", files: "Fichiers", settings: "Paramètres",
     snapEvidence: "Capturer une preuve", findLawyer: "Trouver un avocat",
@@ -114,6 +117,7 @@ const EXTRA = {
     locationServices: "Services de localisation", locationOn: "Localisation activée", locationOff: "Localisation désactivée",
   },
   "ar-IQ": {
+    effectiveDate: "تاريخ السريان: {date}. يجب عليك قراءة وقبول هذه الشروط وسياسة الخصوصية أدناه لاستخدام AI Advocate.",
     askLexSub: "أي سؤال، أي موضوع",
     home: "الرئيسية", lawyers: "المحامون", files: "الملفات", settings: "الإعدادات",
     snapEvidence: "التقاط دليل", findLawyer: "ابحث عن محامي",
@@ -133,6 +137,7 @@ const EXTRA = {
     locationServices: "خدمات الموقع", locationOn: "الموقع مفعّل", locationOff: "الموقع معطّل",
   },
   "pl-PL": {
+    effectiveDate: "Data wejścia w życie: {date}. Aby korzystać z AI Advocate musisz przeczytać i zaakceptować poniższy Regulamin oraz Politykę Prywatności.",
     askLexSub: "Każde pytanie, każdy temat",
     home: "Start", lawyers: "Prawnicy", files: "Pliki", settings: "Ustawienia",
     snapEvidence: "Zrób zdjęcie dowodu", findLawyer: "Znajdź prawnika",
@@ -152,6 +157,7 @@ const EXTRA = {
     locationServices: "Usługi lokalizacji", locationOn: "Lokalizacja włączona", locationOff: "Lokalizacja wyłączona",
   },
   "de-DE": {
+    effectiveDate: "Inkrafttretensdatum: {date}. Sie müssen die folgenden Nutzungsbedingungen und die Datenschutzerklärung lesen und akzeptieren, um AI Advocate zu nutzen.",
     askLexSub: "Jede Frage, jedes Thema",
     home: "Start", lawyers: "Anwälte", files: "Dateien", settings: "Einstellungen",
     snapEvidence: "Beweis fotografieren", findLawyer: "Anwalt finden",
@@ -171,6 +177,7 @@ const EXTRA = {
     locationServices: "Standortdienste", locationOn: "Standort an", locationOff: "Standort aus",
   },
   "hi-IN": {
+    effectiveDate: "प्रभावी तिथि: {date}. AI Advocate का उपयोग करने के लिए आपको नीचे दी गई शर्तें और गोपनीयता नीति पढ़कर स्वीकार करनी होगी।",
     askLexSub: "कोई भी प्रश्न, कोई भी विषय",
     home: "होम", lawyers: "वकील", files: "फ़ाइलें", settings: "सेटिंग्स",
     snapEvidence: "सबूत खींचें", findLawyer: "वकील ढूंढें",
@@ -190,6 +197,7 @@ const EXTRA = {
     locationServices: "स्थान सेवाएँ", locationOn: "स्थान चालू", locationOff: "स्थान बंद",
   },
   "ur-PK": {
+    effectiveDate: "تاریخِ نفاذ: {date}۔ AI Advocate استعمال کرنے کے لیے آپ کو نیچے دی گئی شرائط اور پرائیویسی پالیسی پڑھ کر قبول کرنا ضروری ہے۔",
     askLexSub: "کوئی بھی سوال، کوئی بھی موضوع",
     home: "ہوم", lawyers: "وکلاء", files: "فائلیں", settings: "ترتیبات",
     snapEvidence: "ثبوت کی تصویر", findLawyer: "وکیل تلاش کریں",
@@ -209,6 +217,7 @@ const EXTRA = {
     locationServices: "مقام کی خدمات", locationOn: "مقام آن", locationOff: "مقام آف",
   },
   "it-IT": {
+    effectiveDate: "Data di entrata in vigore: {date}. Devi leggere e accettare i seguenti Termini e l'Informativa sulla Privacy per usare AI Advocate.",
     askLexSub: "Qualsiasi domanda, qualsiasi argomento",
     home: "Home", lawyers: "Avvocati", files: "File", settings: "Impostazioni",
     snapEvidence: "Scatta una prova", findLawyer: "Trova un avvocato",
@@ -228,6 +237,7 @@ const EXTRA = {
     locationServices: "Servizi di posizione", locationOn: "Posizione attiva", locationOff: "Posizione disattiva",
   },
   "pt-PT": {
+    effectiveDate: "Data de entrada em vigor: {date}. Deve ler e aceitar estes Termos e a Política de Privacidade abaixo para usar o AI Advocate.",
     askLexSub: "Qualquer pergunta, qualquer tema",
     home: "Início", lawyers: "Advogados", files: "Ficheiros", settings: "Definições",
     snapEvidence: "Capturar prova", findLawyer: "Encontrar advogado",
@@ -247,6 +257,7 @@ const EXTRA = {
     locationServices: "Serviços de localização", locationOn: "Localização ligada", locationOff: "Localização desligada",
   },
   "zh-CN": {
+    effectiveDate: "生效日期：{date}。您必须阅读并接受以下条款和隐私政策才能使用 AI Advocate。",
     askLexSub: "任何问题，任何话题",
     home: "首页", lawyers: "律师", files: "文件", settings: "设置",
     snapEvidence: "拍摄证据", findLawyer: "查找律师",
