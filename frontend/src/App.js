@@ -1634,6 +1634,17 @@ function CaseFilesModal({ lang, onClose }) {
   const load = () => api.get("/cases").then(r => setCases(r.data.cases || [])).catch(() => {});
   useEffect(() => { load(); }, []);
 
+  // Escape closes detail-view first, then closes the whole modal
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      if (open) { setOpen(null); }
+      else { onClose(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
   const openCase = async (c) => {
     const r = await api.get(`/cases/${c.id}`);
     setOpen(r.data);

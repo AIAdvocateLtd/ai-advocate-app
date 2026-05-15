@@ -2691,19 +2691,29 @@ async def review_should_prompt(user: dict = Depends(get_user)):
     pub = user_to_public(user)
     if pub["tier"] in ("free",):
         return {"should_prompt": False, "reason": "free_tier"}
-    # Trial — prompt at day 12 of 14
+    import math as _math
+    # Trial — prompt during the final 2 days. Use ceil so users in last-24h (days=0) still get prompted.
     if pub["tier"] == "trial_pro":
         days_left = pub.get("trial_days_remaining", 14)
+        # If we have the raw trial_end_date, recompute with ceil so a 12h-left user counts as "1 day"
+        if user.get("trial_end_date"):
+            try:
+                te = datetime.fromisoformat(user["trial_end_date"].replace("Z", "+00:00")) if isinstance(user["trial_end_date"], str) else user["trial_end_date"]
+                hours_left = (te - datetime.now(timezone.utc)).total_seconds() / 3600
+                days_left = _math.ceil(hours_left / 24) if hours_left > 0 else 0
+            except Exception:
+                pass
         if 0 < days_left <= 2:
             return {"should_prompt": True, "reason": "trial_ending", "days_left": days_left}
         return {"should_prompt": False, "reason": "trial_running"}
-    # Paid — prompt at 7 days before next billing date
+    # Paid — prompt at 7 days before next billing date (ceil-based)
     nbd_iso = user.get("next_billing_date") or user.get("current_period_end")
     if not nbd_iso:
         return {"should_prompt": False, "reason": "no_billing_date"}
     try:
         nbd = datetime.fromisoformat(nbd_iso.replace("Z", "+00:00")) if isinstance(nbd_iso, str) else nbd_iso
-        days_to_renew = (nbd - datetime.now(timezone.utc)).days
+        hours_to_renew = (nbd - datetime.now(timezone.utc)).total_seconds() / 3600
+        days_to_renew = _math.ceil(hours_to_renew / 24) if hours_to_renew > 0 else 0
         if 0 < days_to_renew <= 7:
             return {"should_prompt": True, "reason": "renewal_soon", "days_left": days_to_renew}
     except Exception:

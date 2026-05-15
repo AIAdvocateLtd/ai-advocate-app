@@ -63,7 +63,94 @@ England & Wales + ICC arbitration + GDPR + CCPA. 22-section Terms + 10-section P
 
 ## Changelog
 
-### Iter 8 — Intelligence + Language + Evidence-grade UX
+### Iter 9 — Full roadmap blitz: Cases · Video · Reminders · Firm Portal · Admin · Capacitor · Backup · Smart Review (Feb 2026)
+
+**Backend testing: 21/21 PASS** · **Frontend Cases flow verified end-to-end**
+
+**🗂️ Case Files**
+- `POST/GET/PATCH/DELETE /api/cases` — full CRUD per user
+- `POST /api/cases/{id}/items` — attach chats, photos, videos, letters, notes
+- `POST /api/cases/{id}/auto-name` — **Lex auto-names cases** from first 5 items via Haiku 4.5 (with Sonnet fallback). Examples: "Deposit Recovery — Landlord", "Parking PCN Appeal"
+- `GET /api/cases/{id}/export-pdf` — court-ready PDF with timestamps + locations + SHA-256 evidence hashes
+- Frontend `CaseFilesModal` with create / rename / delete / detail view / Escape-to-close
+- Each item shows item-type badge + preview + UTC timestamp + GPS pin if available
+
+**🎥 Video Recording + Lex Analysis (Pro tier)**
+- `POST /api/video/analyze` accepts audio extracted from video → Whisper STT → Lex Sonnet 4.5 in `record` category
+- Lex flags rights violations, leading questions, drafts a complaint letter / defence statement
+- Tier-gated: 402 for free, monthly evidence quota enforced
+- Auto-attaches to a `case_id` if provided
+- SHA-256 evidence hash stored
+
+**⏰ Limitation-Period Reminders (the killer feature)**
+- `POST /api/reminders/detect` — Lex extracts deadlines from any chat message (e.g. "you have 14 days to challenge"). Returns JSON list of `{title, due_at, kind}`
+- Frontend integration in `LexChat`: after every user message, a fire-and-forget call surfaces a **⏰ Deadline detected** card with one-tap "Add to reminders"
+- Full Reminder CRUD + datetime-local picker in `RemindersModal`
+- Visual urgency: red border when ≤3 days out, with "Xd left" / "Xd overdue"
+
+**🏛️ Law Firm Portal**
+- `POST /api/firm/signup` + `/api/firm/login` (separate auth, JWT `kind=firm`)
+- `GET /api/firm/me` — returns firm profile + recent leads (inquiries)
+- `PATCH /api/firm/listing` — firms edit their own directory listing (gated until admin approves)
+- `POST /api/firm/subscribe` — Stripe checkout for **£49/mo Featured** or **£19/mo Verified** (price IDs come from new env vars `STRIPE_PRICE_FIRM_FEATURED` + `STRIPE_PRICE_FIRM_VERIFIED`)
+
+**👨‍💼 Admin Dashboard**
+- `ADMIN_EMAILS` env var (default `admin@aiadvocate.co.uk`) gates `require_admin` dependency
+- `GET /api/admin/stats` — users by tier, firms by status, daily chat / lead counts
+- `GET /api/admin/firms` — list w/ status filter
+- `POST /api/admin/firms/action` — `approve | reject | suspend | verify | unverify`; on approve auto-creates the public `lawfirms` row
+
+**📱 Capacitor Wrap (Reader-App compliant)**
+- `/app/frontend/capacitor.config.json` — appId `uk.co.aiadvocate.official`
+- `/app/frontend/CAPACITOR_SETUP.md` — full step-by-step for Xcode + Android Studio: `npx cap add ios/android`, Info.plist + AndroidManifest permissions, App Store Connect submission checklist
+- Frontend `IS_NATIVE` detection — hides all Subscribe / Upgrade buttons inside iOS native binary (passes Apple Guideline 3.1.3(a))
+- Subscribe banners replaced with web-link "Manage on aiadvocate.co.uk" in native mode
+
+**☁️ Cloud Backup**
+- `GET /api/backup/export` — Plus+ feature; returns a JSON file with all cases + conversations + evidence + letters + reminders + recordings (GDPR data-portability compliant)
+- Settings → Cloud Backup card → one-click download
+- User can then save the JSON to iCloud Drive / Google Drive via their phone's Share sheet (no third-party OAuth required, no credentials handling)
+
+**⭐ Smart Pre-Renewal Trustpilot Reminder (your spec, not pushy)**
+- `GET /api/review/should-prompt` — returns `should_prompt: true` ONLY when:
+  - Trial user with ≤2 days left (ceil-based — last 12h users get prompted), OR
+  - Paid user with renewal ≤7 days away
+- AND user hasn't already reviewed (`review_left: true`)
+- `POST /api/review/recorded` — sets the flag when user clicks through to Trustpilot
+- Frontend `ReviewPrompt` modal opens once per session if backend says so
+- **No more chat-count nagging** — only fires at the moment a user is deciding whether to renew
+
+**🐛 Bug fixes (caught by testing agent)**
+- `review_should_prompt` read `trial_days_remaining` from raw DB doc (where it's never stored) — fixed to read from `user_to_public()` result. Plus ceil-based comparison so last-24h users still get prompted
+- `CaseFilesModal` Escape now closes detail-view first, then whole modal
+- TIER_QUOTAS key naming alignment (`live_assist_session_daily` matches `feature + _daily` convention)
+- `STRIPE_SECRET_KEY` typo → `STRIPE_API_KEY`
+
+### Iter 8 — Tier-Based Lex Brain + Auto-Detect Language + Evidence-grade UX (Feb 2026)
+**Tier-Based Lex Brain**: Free → Haiku 4.5 · Plus → Sonnet 4.5 · Pro/Trial → Sonnet 4.5 + Deep Think. 14-day trial gets full Pro brain.
+**Sharper system prompt**: IRAC method, banned hedge-phrases, confidence rating (High/Medium/Low).
+**Auto-detect language**: 3-layer detector (Unicode script + word-boundary regex) — 11/11 tests pass.
+**Native Contact Picker** + Read-aloud Emergency Rights (TTS) + 11-language i18n full coverage + chat timestamps.
+**Bug fixes**: Send-btn z-index intercept fixed, French-vs-Spanish ` la ` overlap fixed.
+
+---
+
+## Roadmap
+
+### P1 (next session — high impact)
+- **Stripe Firm Pricing Setup** — user must create new Price objects in Stripe Dashboard for £49/mo Featured + £19/mo Verified, then add `STRIPE_PRICE_FIRM_FEATURED` + `STRIPE_PRICE_FIRM_VERIFIED` to `/app/backend/.env`. Backend will then unlock firm billing.
+- **Pro Pricing Stripe Setup** — user must create new £29.99 + £299.99 Price objects in Stripe Dashboard, swap the env vars `STRIPE_PRICE_PRO` + `STRIPE_PRICE_YEARLY_PRO`.
+- **Native iOS/Android build** — run `npx cap add ios/android` on a Mac with Xcode (see `CAPACITOR_SETUP.md`)
+- **Admin Dashboard Frontend UI** — currently backend-only; build `/admin` route for one-click firm approval
+- **Firm Portal Frontend UI** — currently backend-only; build `/firm-portal` route for firm self-service
+- **In-app Video Recording UI** — current backend works via audio upload; build the camera+mic React component to actually record + extract audio + POST to `/api/video/analyze`
+- **Refactor `/app/backend/server.py`** (~2737 lines) into routers: auth, lex, cases, reminders, firm, admin, subscription, voice, webhook
+
+### Future / Backlog
+- DNS cutover: aiadvocate.co.uk → backend (manual user task — DNS provider)
+- Limitation-period reminder push notifications (web push + iOS native)
+- iCloud-Drive direct write integration (currently manual JSON download)
+- Cleanup script for TEST_iter*@advocate.app users from previous test runs
 **Tier-Based Lex Brain (the "average lawyer → partner steps in" model)**
 - Free → Claude Haiku 4.5 (paralegal-grade, fast)
 - Plus → Claude Sonnet 4.5 (solicitor-grade)
