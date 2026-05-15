@@ -856,7 +856,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false }) {
 }
 
 // ---------- Emergency Mode ("I've Been Arrested") ----------
-function EmergencyModal({ lang, country, onClose }) {
+function EmergencyModal({ lang, country, user, onClose }) {
   const [rights, setRights] = useState("");
   const [busy, setBusy] = useState(true);
   const [note, setNote] = useState("");
@@ -873,7 +873,6 @@ function EmergencyModal({ lang, country, onClose }) {
   }, [lang, country, coords]);
 
   useEffect(() => {
-    // try to grab coords quickly
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
@@ -884,6 +883,45 @@ function EmergencyModal({ lang, country, onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Build SMS body with location + Google Maps link + a short alert
+  const buildSms = () => {
+    const lines = [
+      `EMERGENCY: ${user?.full_name || user?.email || "I"} need help.`,
+      "I've been stopped or arrested.",
+    ];
+    if (coords) {
+      lines.push(`Location: https://maps.google.com/?q=${coords.latitude},${coords.longitude}`);
+    }
+    if (note) lines.push(`Note: ${note}`);
+    lines.push("Sent from AI Advocate.");
+    return lines.join(" ");
+  };
+
+  const sendSms = () => {
+    const phone = (user?.emergency_contact_phone || "").trim();
+    if (!phone) {
+      alert("No emergency contact set. Open Settings → Emergency contact to add one.");
+      return;
+    }
+    const body = encodeURIComponent(buildSms());
+    // iOS uses & before body; Android uses ?. Use ?body= which works on both.
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const sep = isIOS ? "&" : "?";
+    window.location.href = `sms:${phone}${sep}body=${body}`;
+  };
+
+  const callContact = () => {
+    const phone = (user?.emergency_contact_phone || "").trim();
+    if (!phone) {
+      alert("No emergency contact set. Open Settings → Emergency contact to add one.");
+      return;
+    }
+    window.location.href = `tel:${phone}`;
+  };
+
+  const contactName = (user?.emergency_contact_name || "your contact").trim();
+  const hasContact = !!(user?.emergency_contact_phone || "").trim();
+
   return (
     <div className="modal-bg" data-testid="emergency-modal" style={{ background: "rgba(60,0,0,0.85)" }}>
       <div className="modal-card" style={{ padding: 18, maxHeight: "95vh", border: "2px solid #dc2626" }}>
@@ -893,13 +931,33 @@ function EmergencyModal({ lang, country, onClose }) {
             <X size={24} />
           </button>
         </div>
+
+        {/* Contact actions row */}
+        <div style={{ display: "grid", gridTemplateColumns: hasContact ? "1fr 1fr" : "1fr", gap: 8, marginBottom: 12 }}>
+          <button data-testid="emergency-sms-btn" onClick={sendSms}
+            style={{ padding: "11px 14px", background: hasContact ? "linear-gradient(135deg,#dc2626,#7f1d1d)" : "var(--bg-card)",
+                     border: `1px solid ${hasContact ? "#fca5a5" : "var(--line)"}`,
+                     color: hasContact ? "#fff" : "var(--text-muted)", borderRadius: 12, fontWeight: 700,
+                     fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            📱 {hasContact ? `Text ${contactName}` : "Add emergency contact"}
+          </button>
+          {hasContact && (
+            <button data-testid="emergency-call-btn" onClick={callContact}
+              style={{ padding: "11px 14px", background: "transparent", border: "1px solid var(--gold-deep)",
+                       color: "var(--gold)", borderRadius: 12, fontWeight: 700, fontSize: 13, cursor: "pointer",
+                       display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              📞 Call {contactName}
+            </button>
+          )}
+        </div>
+
         <div style={{ fontSize: 12, color: "#fca5a5", marginBottom: 8 }}>Country: <strong>{country}</strong>. Stay calm. Read this aloud if needed.</div>
-        <div data-testid="rights-script" style={{ overflowY: "auto", maxHeight: "55vh", padding: 14, background: "#0a0000",
+        <div data-testid="rights-script" style={{ overflowY: "auto", maxHeight: "45vh", padding: 14, background: "#0a0000",
                      borderRadius: 12, border: "1px solid #7f1d1d", fontSize: 14, color: "var(--text)",
                      lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
           {busy ? <span className="spinner" /> : rights}
         </div>
-        <textarea className="input" data-testid="emergency-note" rows={2} placeholder="Optional: one line about what happened (helps Lex tailor advice)"
+        <textarea className="input" data-testid="emergency-note" rows={2} placeholder="Optional: one line about what happened (also included in SMS)"
           value={note} onChange={(e) => setNote(e.target.value)} style={{ marginTop: 10 }} />
         <div className="flex gap-2" style={{ marginTop: 10 }}>
           <button className="btn-gold" data-testid="rights-refresh" disabled={busy} onClick={() => fetchRights(note)} style={{ flex: 1 }}>
@@ -1425,36 +1483,42 @@ function FilesModal({ lang, onClose }) {
 
 // ---------- Snap Evidence (camera + upload) ----------
 function SnapEvidenceModal({ lang, country, onClose }) {
-  const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
+  const [files, setFiles] = useState([]); // [{ file, preview }]
   const [evidenceType, setEvidenceType] = useState("auto");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState(null);
+  const [results, setResults] = useState([]); // [{ filename, analysis, id }]
   const cameraRef = useRef(null);
   const libraryRef = useRef(null);
 
-  const onFile = (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setFile(f);
-    setPreview(URL.createObjectURL(f));
+  const addFiles = (fileList) => {
+    const arr = Array.from(fileList || []).slice(0, 10 - files.length); // max 10
+    const next = arr.map(f => ({ file: f, preview: f.type?.startsWith("image/") ? URL.createObjectURL(f) : null, id: `${f.name}_${f.size}_${Date.now()}_${Math.random()}` }));
+    setFiles(prev => [...prev, ...next]);
   };
+  const onFile = (e) => { addFiles(e.target.files); e.target.value = ""; };
+  const removeFile = (id) => setFiles(prev => prev.filter(f => f.id !== id));
 
   const submit = async () => {
-    if (!file) return;
+    if (files.length === 0) return;
     setBusy(true);
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("evidence_type", evidenceType);
-    fd.append("description", description);
-    fd.append("language", lang);
-    fd.append("country", country);
-    try {
-      const { data } = await api.post("/evidence/analyze", fd);
-      setResult(data);
-    } catch (e) { alert(e?.response?.data?.detail || "Failed"); }
-    finally { setBusy(false); }
+    const out = [];
+    for (const f of files) {
+      try {
+        const fd = new FormData();
+        fd.append("file", f.file);
+        fd.append("evidence_type", evidenceType);
+        fd.append("description", description);
+        fd.append("language", lang);
+        fd.append("country", country);
+        const { data } = await api.post("/evidence/analyze", fd);
+        out.push(data);
+      } catch (e) {
+        out.push({ filename: f.file.name, analysis: `Error analysing this file: ${e?.response?.data?.detail || e.message}` });
+      }
+    }
+    setResults(out);
+    setBusy(false);
   };
 
   const types = [
@@ -1473,33 +1537,38 @@ function SnapEvidenceModal({ lang, country, onClose }) {
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "snapEvidence")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
         </div>
-        {!result ? (
-          <div style={{ overflowY: "auto" }}>
-            {!preview ? (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <button data-testid="evidence-camera-btn" onClick={() => cameraRef.current?.click()}
-                  style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 24, color: "var(--gold)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-                  <Camera size={36} /><span style={{ fontSize: 13, color: "var(--text)" }}>{t(lang, "takePhoto")}</span>
-                </button>
-                <button data-testid="evidence-library-btn" onClick={() => libraryRef.current?.click()}
-                  style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 24, color: "var(--gold)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-                  <ImageIcon size={36} /><span style={{ fontSize: 13, color: "var(--text)" }}>{t(lang, "chooseFromLibrary")}</span>
-                </button>
-                <input ref={cameraRef} data-testid="evidence-camera-input" type="file" accept="image/*" capture="environment" onChange={onFile} style={{ display: "none" }} />
-                <input ref={libraryRef} data-testid="evidence-library-input" type="file" accept="image/*,.pdf,.docx" onChange={onFile} style={{ display: "none" }} />
-              </div>
-            ) : (
+        {results.length === 0 ? (
+          <div style={{ overflowY: "auto", maxHeight: "80vh" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <button data-testid="evidence-camera-btn" onClick={() => cameraRef.current?.click()}
+                style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 18, color: "var(--gold)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                <Camera size={28} /><span style={{ fontSize: 12, color: "var(--text)" }}>{t(lang, "takePhoto")}</span>
+              </button>
+              <button data-testid="evidence-library-btn" onClick={() => libraryRef.current?.click()}
+                style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 18, color: "var(--gold)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                <ImageIcon size={28} /><span style={{ fontSize: 12, color: "var(--text)" }}>Add multiple from library</span>
+              </button>
+              <input ref={cameraRef} data-testid="evidence-camera-input" type="file" accept="image/*" capture="environment" onChange={onFile} style={{ display: "none" }} />
+              <input ref={libraryRef} data-testid="evidence-library-input" type="file" accept="image/*,.pdf,.docx" multiple onChange={onFile} style={{ display: "none" }} />
+            </div>
+
+            {files.length > 0 && (
               <>
-                <div style={{ position: "relative", borderRadius: 14, overflow: "hidden", border: "1px solid var(--line)", marginBottom: 12 }}>
-                  {file?.type?.startsWith("image/") ? (
-                    <img src={preview} alt="" style={{ width: "100%", maxHeight: 320, objectFit: "contain", background: "#0a0a0a" }} />
-                  ) : (
-                    <div style={{ padding: 30, textAlign: "center", color: "var(--text-dim)" }}>{file?.name}</div>
-                  )}
-                  <button onClick={() => { setFile(null); setPreview(null); }}
-                    style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.7)", border: "1px solid var(--line)", color: "var(--text)", borderRadius: "50%", width: 32, height: 32, cursor: "pointer" }}>
-                    <X size={16} />
-                  </button>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>{files.length} file{files.length > 1 ? "s" : ""} selected (max 10):</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
+                  {files.map(f => (
+                    <div key={f.id} style={{ position: "relative", borderRadius: 10, overflow: "hidden", border: "1px solid var(--line)", aspectRatio: "1 / 1", background: "#0a0a0a" }}>
+                      {f.preview ? (
+                        <img src={f.preview} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        <div style={{ padding: 10, fontSize: 10, color: "var(--text-dim)", display: "flex", alignItems: "center", justifyContent: "center", height: "100%", textAlign: "center", wordBreak: "break-all" }}>{f.file.name}</div>
+                      )}
+                      <button onClick={() => removeFile(f.id)} data-testid={`remove-file-${f.id.slice(0,12)}`}
+                        style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.8)", border: "1px solid var(--line)", color: "var(--text)", borderRadius: "50%", width: 24, height: 24, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
                   {types.map(typ => (
@@ -1515,23 +1584,27 @@ function SnapEvidenceModal({ lang, country, onClose }) {
                 <textarea className="input" data-testid="evidence-note" rows={3} placeholder={t(lang, "addNote")}
                   value={description} onChange={(e) => setDescription(e.target.value)} />
                 <button className="btn-gold w-full" data-testid="evidence-analyze-btn" disabled={busy} onClick={submit} style={{ marginTop: 12 }}>
-                  {busy ? <span className="spinner" /> : t(lang, "analyzePhoto")}
+                  {busy ? <span className="spinner" /> : `Analyse ${files.length} file${files.length > 1 ? "s" : ""}`}
                 </button>
               </>
             )}
           </div>
         ) : (
-          <div style={{ overflowY: "auto" }}>
-            <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 8 }}>{result.filename}</div>
-            <div style={{ whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.6, color: "var(--text-dim)" }}>{result.analysis}</div>
-            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-              <button className="btn-gold" data-testid="evidence-pdf-btn" onClick={() => pdfForFile(result.id, result.filename || "evidence")} style={{ flex: 1 }}>
-                <Download size={16} style={{ display: "inline", marginRight: 6 }} />Download PDF
-              </button>
-              <button className="btn-ghost" onClick={() => { setResult(null); setFile(null); setPreview(null); setDescription(""); }} style={{ flex: 1 }}>
-                Snap another
-              </button>
-            </div>
+          <div style={{ overflowY: "auto", maxHeight: "80vh" }}>
+            {results.map((r, i) => (
+              <div key={i} data-testid={`result-${i}`} style={{ marginBottom: 18, paddingBottom: 14, borderBottom: i < results.length - 1 ? "1px solid var(--line)" : "none" }}>
+                <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6, fontSize: 13 }}>{r.filename || `File ${i + 1}`}</div>
+                <div style={{ whiteSpace: "pre-wrap", fontSize: 13, lineHeight: 1.55, color: "var(--text-dim)" }}>{r.analysis}</div>
+                {r.id && (
+                  <button className="btn-ghost" data-testid={`result-pdf-${i}`} onClick={() => pdfForFile(r.id, r.filename || "evidence")} style={{ marginTop: 8, padding: "6px 12px", fontSize: 12 }}>
+                    <Download size={12} style={{ display: "inline", marginRight: 4 }} />PDF
+                  </button>
+                )}
+              </div>
+            ))}
+            <button className="btn-gold w-full" onClick={() => { setResults([]); setFiles([]); setDescription(""); }}>
+              Analyse more
+            </button>
           </div>
         )}
       </div>
@@ -1842,9 +1915,26 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
           </div>
         </div>
 
+        {/* Emergency Contact (used for "I've been arrested" SMS) */}
+        <div data-testid="settings-emergency-contact" style={{ background: "var(--bg-card)", border: "1px solid #7f1d1d", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ color: "#fca5a5", fontSize: 18 }}>⚠</span>
+            <span style={{ fontWeight: 600 }}>Emergency contact</span>
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10, lineHeight: 1.5 }}>
+            One tap from the Emergency screen will text this person your rights, your location and that you need help.
+          </div>
+          <input className="input" data-testid="emergency-name-input" placeholder="Name (e.g. Mum, my lawyer)"
+            defaultValue={user.emergency_contact_name || ""}
+            onBlur={async (e) => { await api.patch("/auth/preferences", { emergency_contact_name: e.target.value }).then(r => onUpdate(r.data)).catch(() => {}); }}
+            style={{ marginBottom: 8 }} />
+          <input className="input" data-testid="emergency-phone-input" placeholder="Phone number (with country code, e.g. +447123456789)"
+            type="tel" defaultValue={user.emergency_contact_phone || ""}
+            onBlur={async (e) => { await api.patch("/auth/preferences", { emergency_contact_phone: e.target.value.replace(/\s/g, "") }).then(r => onUpdate(r.data)).catch(() => {}); }} />
+        </div>
+
         {/* "Hey Lex" wake word toggle */}
-        <div data-testid="settings-heylex" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <div data-testid="settings-heylex" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Mic size={18} style={{ color: "var(--gold)" }} />
               <span style={{ fontWeight: 600 }}>"Hey Lex" wake word</span>
@@ -2262,7 +2352,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "record" && <RecordModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "snap" && <SnapEvidenceModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "lawyers" && <LawyersModal lang={lang} country={country} user={user} onClose={() => setModal(null)} openAdvertise={() => { setModal(null); setShowAdvertise(true); }} />}
-      {showEmergency && <EmergencyModal lang={lang} country={country} onClose={() => setShowEmergency(false)} />}
+      {showEmergency && <EmergencyModal lang={lang} country={country} user={user} onClose={() => setShowEmergency(false)} />}
       {voiceMode && <VoiceModeOverlay lang={lang} country={country} category="ask_lex" initialText={voiceMode.initialText} onClose={() => setVoiceMode(null)} />}
       {showLang && <LanguagePicker initial={lang} lang={lang} onConfirm={(l) => { setLang(l); setShowLang(false); api.patch("/auth/preferences", { language: l }).catch(() => {}); }} />}
       {showSub && <SubscribeModal lang={lang} user={user} presetPlan={subPreset} onClose={() => setShowSub(false)} onActivated={(u) => { refreshUser(u); setShowSub(false); }} />}

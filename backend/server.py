@@ -538,7 +538,8 @@ async def me(user: dict = Depends(get_user)):
 @api_router.patch("/auth/preferences")
 async def update_prefs(data: dict, user: dict = Depends(get_user)):
     update = {}
-    for k in ("language", "country", "full_name", "location_enabled", "latitude", "longitude", "city"):
+    for k in ("language", "country", "full_name", "location_enabled", "latitude", "longitude", "city",
+              "emergency_contact_name", "emergency_contact_phone"):
         if k in data:
             update[k] = data[k]
     if update:
