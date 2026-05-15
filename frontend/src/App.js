@@ -862,7 +862,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
           {busy && <div className="bubble-lex" style={{ alignSelf: "flex-start", padding: "10px 14px", borderRadius: 14 }}><span className="spinner" /> Lex thinking…</div>}
         </div>
 
-        <div className="flex items-center gap-2" style={{ padding: 12, borderTop: "1px solid var(--line)" }}>
+        <div className="flex items-center gap-2" style={{ padding: "12px 12px 56px", borderTop: "1px solid var(--line)" }}>
           <button onClick={onMic} data-testid="mic-btn"
                   style={{ background: "#000", border: `2px solid ${recording ? "var(--danger)" : "var(--gold)"}`,
                            borderRadius: "50%", width: 48, height: 48, cursor: "pointer", padding: 0, overflow: "hidden",

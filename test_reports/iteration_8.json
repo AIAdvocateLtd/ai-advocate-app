@@ -1,0 +1,48 @@
+{
+  "summary": "Iteration 8 — re-verified all fixes from iter7 plus extended coverage for German/Italian/Portuguese/Polish. Backend pytest 22/22 PASS (16 lex_routing + 6 lang_extra). Frontend mobile 390x800 verified: full login flow (language picker → T&C → auth-submit-btn), dashboard tile-ask_lex, chat send-btn now dispatches successfully and renders msg-user-0 + msg-lex-1 + ts-0 + ts-1 (timestamps localized: '5/15/2026, 10:34:46 AM'). Deep Think toggle visible in chat header. Emergency modal: emergency-read-aloud + emergency-sms-btn both present. Settings: settings-modal, autodetect-toggle, locstamp-toggle, emergency-name-input/phone-input all present (Pick from contacts correctly hidden — navigator.contacts unavailable in Chromium; manual inputs fallback shown as designed). Spanish language switch: Arrested-Now → 'ME HAN DETENIDO — MIS DERECHOS AHORA', Ask Lex tile → 'Pregunta a Lex', Settings → 'Ajustes', Contacto de emergencia, Auto-detectar idioma, Marcar ubicación en pruebas — all translated. Iter7 issues (detect_language French→Spanish bug + chat send not rendering bubbles + missing ts-* timestamps) are FULLY RESOLVED.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/lex/chat", "issue": "Free-tier path uses Haiku successfully but Sonnet-fallback branch (server.py ~line 650) still has no unit-test that simulates Anthropic failure. Recommend a monkeypatched test that forces Haiku LlmChat to raise and asserts Sonnet retry succeeds."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Logo tagline", "issues": ["'AI lawyer in your pocket' under the AI ADVOCATE logo remains English even after switching UI to Spanish — minor cosmetic. If this is part of the logo image asset it can be ignored; if it is text, add to i18n."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_lex_routing.py",
+    "/app/backend/tests/test_lang_extra.py",
+    "/app/test_reports/pytest/iter8_lex_results.xml",
+    "/app/test_reports/pytest/iter8_lang_extra.xml"
+  ],
+  "action_items": [
+    "(Optional) i18n: translate 'AI lawyer in your pocket' tagline below the logo for all 11 supported languages.",
+    "(Optional from iter7) Add per-day TTS quota for free tier (e.g. 20 calls/day) — currently free users can call /api/voice/tts unlimited under 1500 chars.",
+    "(Optional from iter7) Add monkeypatched backend test that forces Haiku LlmChat to fail and asserts Sonnet fallback path executes cleanly.",
+    "(Optional from iter6) Split /app/backend/server.py (now ~2137 lines) into routers (auth/lex/letters/subscription/voice/webhook)."
+  ],
+  "critical_code_review_comments": [
+    "detect_language() is now score-based with word-boundary regex per language — robust across the 11 supported locales (verified by 11 new pytest cases). Good fix.",
+    "chat-input row now has padding-bottom:56px so the Emergent preview badge no longer intercepts send-btn clicks on small viewports. Verified live with force-click and natural click both producing bubbles + timestamps.",
+    "Settings modal exposes ALL expected toggles (autodetect-toggle, locstamp-toggle, heylex-toggle, loc-toggle) with proper data-testid attributes — excellent testability.",
+    "/app/backend/server.py is still ~2137 lines — same recommendation as iter6/iter7 to split into routers.",
+    "Emergency modal Read-Aloud uses /api/voice/tts which now correctly accepts <=1500 char text for free-tier users; this is an OpenAI billing surface — recommend per-day quota for free tier (e.g., 20 TTS calls/day) similar to lex_chat_daily=5."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_lang_extra.py (NEW — 6 tests for German/Italian/Portuguese/Polish + Spanish-la/French-la overlap regression)"
+  ],
+  "success_rate": {
+    "backend": "100% (22/22 — 16 lex_routing + 6 lang_extra)",
+    "frontend": "100% — all reviewed flows (login, chat send + bubble + ts-* rendering, Deep Think toggle, Emergency modal, Settings toggles, Spanish translation) verified end-to-end."
+  },
+  "test_credentials": "Pre-seeded test@advocate.app / Test12345! (trial_pro). Per-run TEST_iter8_* users created via /api/auth/signup with password Test12345!.",
+  "seed_data_creation": "Each backend test creates a fresh user via /api/auth/signup and mutates db.users via motor: free → subscription_status=free, trial expired; plus/pro → subscription_status='active' + trial expired. No cleanup performed; TEST_-prefix purge fixture recommended for next iteration to prevent DB bloat.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "ITER7 BUGS FIXED & VERIFIED: (1) score-based detect_language() correctly classifies en/es/fr/de/it/pt/pl/ar/hi/zh/ur — no more ` la ` overlap. (2) chat send-btn now dispatches and renders msg-user-0, msg-lex-1, ts-0, ts-1 (timestamps localized to user locale). Open items carried over from iter6/iter7 (server.py size > 700 lines, free-tier TTS quota, Haiku→Sonnet fallback unit test, tagline i18n) are non-blocking. Login flow requires THREE modals to be dismissed first: (a) language picker (OK button), (b) T&C (checkbox + Accept & Continue), then (c) login form with data-testid='auth-submit-btn' (NOT 'login-btn'). Use force=True clicks on tiny mobile viewports.",
+  "rca of the issue": "Iter7 RCAs fully addressed in this iteration. BUG 1 (French→Spanish mis-detection): replaced ordered if/elif Latin-script heuristic with a score-based detector using word-boundary regex per language; ` la ` no longer dominates because each language now contributes a count and the max wins (Spanish needs ¿/¡/usted/hola/qué etc., French needs bonjour/voudrais/savoir/c'est/quels etc.). Verified by 11 distinct language pytest cases (es,fr,de,it,pt,pl,ar,hi,zh + spanish-la-overlap + french-la-overlap) — all PASS. BUG 2 (chat send produced no bubbles + no ts-*): root cause was the Emergent preview badge overlay z-index intercepting send-btn clicks at the bottom of the modal on 390px viewports. Fix combined padding-bottom:56px on the chat input row + modal-bg z-index bumped to 9999 / modal-card to 10000 in /app/frontend/src/index.css. Verified live: clicking send-btn (force=False also works after fix) now produces user bubble + AI reply + two ts-* timestamp elements, all with correct testids."
+}

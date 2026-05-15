@@ -402,37 +402,62 @@ def lex_model_for_tier(tier: str, deep_think: bool = False) -> tuple:
     # free → Haiku for cost/speed. Fall back to Sonnet if Haiku id is rejected.
     return ("anthropic", "claude-haiku-4-5-20251001", 1500)
 
-# Simple regex-based language detection for the 11 supported languages.
+# Simple score-based language detection for the 11 supported languages.
 # Used when auto_detect=True — overrides the chosen UI language for the reply.
 def detect_language(text: str, fallback: str = "en-GB") -> str:
     if not text or len(text.strip()) < 3:
         return fallback
-    # Check by Unicode script ranges first (most reliable)
+    # Count chars per Unicode script — majority wins (avoids stray-char false positives)
+    script_counts = {"arabic": 0, "devanagari": 0, "cjk": 0}
     for ch in text:
         cp = ord(ch)
-        if 0x0600 <= cp <= 0x06FF:  # Arabic block
-            # Urdu uses Arabic script too — heuristic: presence of چ گ ژ ٹ ڈ ڑ ں ے ھ → Urdu
+        if 0x0600 <= cp <= 0x06FF:
+            script_counts["arabic"] += 1
+        elif 0x0900 <= cp <= 0x097F:
+            script_counts["devanagari"] += 1
+        elif 0x4E00 <= cp <= 0x9FFF:
+            script_counts["cjk"] += 1
+    if any(v > 0 for v in script_counts.values()):
+        top = max(script_counts, key=script_counts.get)
+        if top == "arabic":
             if any(c in text for c in "چگژٹڈڑںےھ"):
                 return "ur-PK"
             return "ar-IQ"
-        if 0x0900 <= cp <= 0x097F:  # Devanagari (Hindi)
+        if top == "devanagari":
             return "hi-IN"
-        if 0x4E00 <= cp <= 0x9FFF:  # CJK Unified — Chinese
+        if top == "cjk":
             return "zh-CN"
-    # Latin-script languages via diacritic / common word heuristics
+    import re as _re
     low = text.lower()
-    if any(w in low for w in [" el ", " la ", " los ", " que ", " hola ", "¿", "¡", " usted ", " soy "]):
-        return "es-ES"
-    if any(w in low for w in [" le ", " la ", " les ", " est ", " bonjour ", " merci ", " vous ", " je ", "ç", "œ"]):
-        return "fr-FR"
-    if any(w in low for w in [" ist ", " der ", " die ", " das ", " und ", " nicht ", "ß", "ü", "ö", "ä"]):
-        return "de-DE"
-    if any(w in low for w in [" è ", " ho ", " sono ", " della ", " grazie ", " ciao ", " perché "]):
-        return "it-IT"
-    if any(w in low for w in [" é ", " não ", " você ", " obrigado ", " olá ", " está "]):
-        return "pt-PT"
-    if any(w in low for w in [" się ", " jest ", " że ", " dzień ", " dziękuję ", "ł", "ą", "ę", "ś", "ć", "ń", "ż", "ź"]):
-        return "pl-PL"
+    def count(patterns):
+        return sum(1 for p in patterns if _re.search(p, low))
+    scores = {
+        "es-ES": count([r"\bhola\b", r"\bqué\b", r"\bcómo\b", r"\bpor qué\b", r"\bporque\b",
+                        r"\busted\b", r"\bsoy\b", r"\bestá\b", r"\bestoy\b", r"\bque\b", r"\blos\b",
+                        r"\blas\b", r"\bgracias\b", r"\bseñor\b", r"\bderecho\b", r"\bcasero\b",
+                        r"\bfianza\b", r"\bdevuelve\b", r"\bnecesito\b", r"\bme\b", r"\bsi\b"]) + (5 if ("¿" in text or "¡" in text or "ñ" in low) else 0),
+        "fr-FR": count([r"\bbonjour\b", r"\bmerci\b", r"\bvous\b", r"\bje\b", r"\bsuis\b",
+                        r"\bavec\b", r"\bquoi\b", r"\bqu'", r"\bc'est\b", r"\bn'", r"\bpas\b",
+                        r"\best-ce\b", r"\bvoudrais\b", r"\bemployeur\b", r"\bdroits\b",
+                        r"\bque ", r"\bqui ", r"\bd'", r"\bs'"]) + (3 if any(c in low for c in "çœêâîôû") else 0),
+        "de-DE": count([r"\bist\b", r"\bder\b", r"\bdie\b", r"\bdas\b", r"\bund\b", r"\bnicht\b",
+                        r"\bich\b", r"\bmein\b", r"\bbitte\b", r"\bdanke\b", r"\bhallo\b",
+                        r"\bsind\b", r"\beine\b", r"\bguten\b", r"\btag\b", r"\bbrauche\b",
+                        r"\bsie\b", r"\bhaben\b", r"\brechts\w+\b", r"\bvertrag\b"]) + (3 if any(c in low for c in "ßüöä") else 0),
+        "it-IT": count([r"\bsono\b", r"\bdella\b", r"\bgrazie\b", r"\bciao\b", r"\bperché\b",
+                        r"\bquesto\b", r"\bquella\b", r"\bmolto\b", r"\bsalve\b", r"\bvorrei\b",
+                        r"\bavvocato\b", r"\bdiritto\b", r"\bdiritti\b", r"\bsapere\b", r"\bmiei\b"]) + (2 if any(c in low for c in "èéìòùà") and "ç" not in low else 0),
+        "pt-PT": count([r"\bolá\b", r"\bnão\b", r"\bvocê\b", r"\bobrigado\b",
+                        r"\bcom\b", r"\bpara\b", r"\bmas\b", r"\bquero\b", r"\bsenhor\b",
+                        r"\bdireito\b", r"\bpreciso\b", r"\bajuda\b", r"\bjurídica\b",
+                        r"\badvogado\b", r"\bde\b"]) + (4 if any(c in low for c in "ãõç") and "ñ" not in low else 0),
+        "pl-PL": count([r"\bsię\b", r"\bjest\b", r"\bże\b", r"\bdzień\b", r"\bdziękuję\b",
+                        r"\bnie\b", r"\bjak\b", r"\bczy\b", r"\bcześć\b", r"\bproszę\b",
+                        r"\bprawo\b", r"\bmój\b", r"\bmogę\b", r"\bdostać\b", r"\bpomoc\b"]) + (4 if any(c in low for c in "łąęśćńżź") else 0),
+    }
+    best_lang = max(scores, key=scores.get)
+    if scores[best_lang] >= 2:
+        return best_lang
     return fallback
 
 # ==================== Auth Routes ====================
