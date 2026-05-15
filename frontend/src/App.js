@@ -1854,57 +1854,30 @@ function SnapEvidenceModal({ lang, country, onClose }) {
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState([]); // [{ filename, analysis, id }]
   const [videoResult, setVideoResult] = useState(null); // {transcript, analysis, evidence_hash}
-  const [recording, setRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState(null);
   const [recordedUrl, setRecordedUrl] = useState(null);
-  const [elapsed, setElapsed] = useState(0);
   const cameraRef = useRef(null);
   const libraryRef = useRef(null);
-  const videoFileRef = useRef(null);
-  const mediaRecRef = useRef(null);
-  const streamRef = useRef(null);
-  const tickRef = useRef(null);
+  const videoFileRef = useRef(null);      // capture="environment" → opens device camera to record
+  const videoLibraryRef = useRef(null);   // no capture → opens gallery / file picker
 
-  // Start in-app video+audio recording (uses device camera).
-  // If MediaRecorder isn't available (older iOS Safari), fall back to <input capture="user" type="file" accept="video/*">.
-  const startRecord = async () => {
-    if (!navigator.mediaDevices?.getUserMedia || typeof window.MediaRecorder === "undefined") {
-      videoFileRef.current?.click();
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true });
-      streamRef.current = stream;
-      // Prefer mp4/webm depending on browser
-      const mimeCandidates = ["video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
-      const mime = mimeCandidates.find(m => window.MediaRecorder.isTypeSupported && window.MediaRecorder.isTypeSupported(m)) || "";
-      const rec = mime ? new window.MediaRecorder(stream, { mimeType: mime }) : new window.MediaRecorder(stream);
-      mediaRecRef.current = rec;
-      const chunks = [];
-      rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
-      rec.onstop = () => {
-        const blob = new Blob(chunks, { type: mime || "video/webm" });
-        setRecordedBlob(blob);
-        setRecordedUrl(URL.createObjectURL(blob));
-        stream.getTracks().forEach(tr => tr.stop());
-        streamRef.current = null;
-      };
-      rec.start();
-      setRecording(true);
-      setElapsed(0);
-      tickRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
-    } catch (e) {
-      alert(e.message || "Camera/microphone permission denied");
-    }
+  // Open the native OS camera app to record video. This is the most reliable approach across:
+  // - iOS Safari (any version since iOS 6)
+  // - Android Chrome (Camera or Gallery picker)
+  // - Desktop browsers (file chooser to upload an existing video)
+  // We deliberately AVOID MediaRecorder because (a) iOS Safari support is patchy until 16+,
+  // and (b) the Emergent preview iframe blocks getUserMedia permission prompts.
+  const openCameraToRecord = () => {
+    if (!videoFileRef.current) return;
+    videoFileRef.current.click();
+  };
+  // Pick an existing video file from the device's library (for evidence already recorded earlier)
+  const openVideoLibrary = () => {
+    if (!videoLibraryRef.current) return;
+    videoLibraryRef.current.click();
   };
 
-  const stopRecord = () => {
-    try { mediaRecRef.current?.stop(); } catch {}
-    if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
-    setRecording(false);
-  };
-
-  // Fallback: native iOS/Android file picker → user records via the OS camera app
+  // Native file-input handler — fires when the user finishes recording in iOS/Android camera, or picks a video file
   const onVideoFile = (e) => {
     const f = e.target.files?.[0];
     e.target.value = "";
@@ -1923,7 +1896,7 @@ function SnapEvidenceModal({ lang, country, onClose }) {
       let loc = null;
       if (localStorage.getItem("aa_locstamp") === "1" && navigator.geolocation) {
         try {
-          loc = await new Promise((resolve, reject) =>
+          loc = await new Promise((resolve) =>
             navigator.geolocation.getCurrentPosition(
               (p) => resolve(`${p.coords.latitude.toFixed(5)},${p.coords.longitude.toFixed(5)}`),
               () => resolve(null),
@@ -1931,7 +1904,7 @@ function SnapEvidenceModal({ lang, country, onClose }) {
         } catch {}
       }
       const fd = new FormData();
-      fd.append("audio", recordedBlob, recordedBlob.name || `video-${Date.now()}.webm`);
+      fd.append("audio", recordedBlob, recordedBlob.name || `video-${Date.now()}.mp4`);
       fd.append("language", lang);
       fd.append("country", country);
       if (loc) fd.append("location", loc);
@@ -1946,14 +1919,11 @@ function SnapEvidenceModal({ lang, country, onClose }) {
 
   const resetVideo = () => {
     if (recordedUrl) URL.revokeObjectURL(recordedUrl);
-    setRecordedBlob(null); setRecordedUrl(null); setVideoResult(null); setElapsed(0);
+    setRecordedBlob(null); setRecordedUrl(null); setVideoResult(null);
   };
 
   useEffect(() => {
     return () => {
-      try { mediaRecRef.current?.stop(); } catch {}
-      try { streamRef.current?.getTracks().forEach(tr => tr.stop()); } catch {}
-      if (tickRef.current) clearInterval(tickRef.current);
       if (recordedUrl) URL.revokeObjectURL(recordedUrl);
     };
   // eslint-disable-next-line
@@ -2016,13 +1986,18 @@ function SnapEvidenceModal({ lang, country, onClose }) {
                 style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 18, color: "var(--gold)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                 <ImageIcon size={28} /><span style={{ fontSize: 12, color: "var(--text)" }}>{t(lang, "addMultiplePhotos")}</span>
               </button>
-              <button data-testid="evidence-record-video-btn" onClick={startRecord}
-                style={{ gridColumn: "1 / span 2", background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 16, color: "var(--gold)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-                <Video size={26} /><span style={{ fontSize: 13, color: "var(--text)", fontWeight: 600 }}>{t(lang, "recordVideo")}</span>
+              <button data-testid="evidence-record-video-btn" onClick={openCameraToRecord}
+                style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 16, color: "var(--gold)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                <Video size={26} /><span style={{ fontSize: 12, color: "var(--text)" }}>{t(lang, "recordVideo")}</span>
+              </button>
+              <button data-testid="evidence-video-library-btn" onClick={openVideoLibrary}
+                style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 16, color: "var(--gold)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                <Folder size={26} /><span style={{ fontSize: 12, color: "var(--text)" }}>{t(lang, "pickVideo")}</span>
               </button>
               <input ref={cameraRef} data-testid="evidence-camera-input" type="file" accept="image/*" capture="environment" onChange={onFile} style={{ display: "none" }} />
               <input ref={libraryRef} data-testid="evidence-library-input" type="file" accept="image/*,.pdf,.docx" multiple onChange={onFile} style={{ display: "none" }} />
               <input ref={videoFileRef} data-testid="evidence-video-input" type="file" accept="video/*" capture="environment" onChange={onVideoFile} style={{ display: "none" }} />
+              <input ref={videoLibraryRef} data-testid="evidence-video-library-input" type="file" accept="video/*" onChange={onVideoFile} style={{ display: "none" }} />
             </div>
             <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 14, padding: "0 4px", lineHeight: 1.5 }}>
               {t(lang, "videoLegalNote")}
@@ -2064,22 +2039,6 @@ function SnapEvidenceModal({ lang, country, onClose }) {
                 </button>
               </>
             )}
-          </div>
-        ) : recording ? (
-          <div data-testid="video-record-overlay" style={{ padding: 20, textAlign: "center" }}>
-            <div style={{ width: 110, height: 110, borderRadius: "50%", background: "rgba(220,38,38,0.18)", border: "3px solid #dc2626",
-                          margin: "20px auto 24px", display: "flex", alignItems: "center", justifyContent: "center", animation: "pulse 1.5s infinite" }}>
-              <div style={{ width: 36, height: 36, borderRadius: 6, background: "#dc2626" }} />
-            </div>
-            <div style={{ fontSize: 32, color: "#fca5a5", fontFamily: "Courier New, monospace", marginBottom: 6 }} data-testid="record-timer">
-              {String(Math.floor(elapsed/60)).padStart(2,"0")}:{String(elapsed%60).padStart(2,"0")}
-            </div>
-            <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 24 }}>
-              {t(lang, "videoLegalNote")}
-            </div>
-            <button data-testid="stop-record-btn" onClick={stopRecord} className="btn-gold w-full" style={{ padding: 14 }}>
-              ⏹ {t(lang, "stopRecording")}
-            </button>
           </div>
         ) : recordedUrl && !videoResult ? (
           <div data-testid="video-preview" style={{ overflowY: "auto", maxHeight: "80vh" }}>
