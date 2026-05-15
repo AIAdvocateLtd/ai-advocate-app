@@ -52,6 +52,48 @@ England & Wales + ICC arbitration + GDPR + CCPA. 22-section Terms + 10-section P
 
 ## Changelog
 
+### Iter 8 — Intelligence + Language + Evidence-grade UX
+**Tier-Based Lex Brain (the "average lawyer → partner steps in" model)**
+- Free → Claude Haiku 4.5 (paralegal-grade, fast)
+- Plus → Claude Sonnet 4.5 (solicitor-grade)
+- Pro / trial_pro → Claude Sonnet 4.5 + **Deep Think** toggle (King's Counsel-grade reasoning, 4096 tokens)
+- 14-day trial gets full Pro brain as a taster — drives conversion
+- Automatic Sonnet fallback if Haiku/Opus model id is unavailable (never blocks the user)
+
+**Lex system prompt v3 — sharper reasoning**
+- **IRAC** method enforced (Issue → Rule → Application → Counter → Action → Flag)
+- **Banned hedge-phrases** (no more "I'm not a lawyer" mid-answer)
+- **Confidence rating** appended (High/Medium/Low) so users know when to double-check
+- Strict citation discipline — never invent statutes; say "I don't recall the exact section" if unsure
+- **STRICT language lock** — Lex replies in user's chosen language only, no English fallback unless user types English
+
+**Auto-detect language (3-layer)**
+- Score-based detector for all 11 languages (Unicode-script majority + word-boundary regex)
+- Auto-detect toggle in Settings (default ON)
+- Returns `reply_language` and `model` in chat response for transparency
+- 22/22 pytest including overlap-regression cases (es-vs-fr `la`, fr-vs-de, etc.)
+
+**Native Contact Picker for Emergency Contact**
+- Web `navigator.contacts.select()` API (Chrome Android, some iOS)
+- Graceful fallback to manual name + phone inputs if API unavailable
+
+**Read-Aloud Emergency Rights (TTS)**
+- Tap a button on the Emergency Modal — Lex reads the user's rights aloud
+- Critical for distress moments (arrested, can't read on phone)
+- TTS now allows short text (<1500 chars) for all tiers (safety carve-out); long-form voice stays Plus+
+
+**Evidence-grade timestamps**
+- Every chat message bubble shows a locale-formatted timestamp underneath (court-ready)
+- Each message dict stores `at: ISO-8601 UTC` server-side
+
+**Global i18n completeness — 11 languages × ~70 new keys**
+- Emergency modal, SMS buttons, Multi-photo, Voice Mode, Settings, Letter Library, Practice Mode, Live Assist all fully translated (Spanish, French, Arabic, Polish, German, Hindi, Urdu, Italian, Portuguese, Chinese)
+- 4 new Settings toggles (Hey Lex, Auto-detect language, Location stamp on evidence, Native Contact Picker)
+
+**Frontend chat modal — fixed send-btn click intercept**
+- Z-index of `.modal-bg` bumped to 9999, `.modal-card` to 10000
+- 56px bottom-padding on chat input row so preview-badge no longer overlays send-btn
+
 ### Iter 6 — 4-tier subscription system
 - Backend: `TIER_QUOTAS`, `tier_has_access()`, `check_quota_and_increment()`, `get_user_usage_summary()`
 - Stripe webhook: `PRICE_TO_TIER` mapping → user.tier auto-set on checkout/update/cancel
@@ -60,17 +102,16 @@ England & Wales + ICC arbitration + GDPR + CCPA. 22-section Terms + 10-section P
 - Quota gates: Free user 5 chats/day, 1 letter/mo, 1 photo/mo
 - Frontend: 4-card SubscribeModal with BEST VALUE + YOUR PLAN badges; tile lock badges (🔒 PLUS/PRO); tier-aware banners
 - Settings: Subscription card + Contact emails + Trustpilot link
-- Bug fixes (caught by testing agent): CheckoutRequest Literal widened, TIER_QUOTAS keys aligned to feature names, unknown plan → clean 400, Free card shows £0/forever
+- Bug fixes: CheckoutRequest Literal widened, TIER_QUOTAS keys aligned, unknown plan → 400, Free card shows £0/forever
 
 ### Iter 5 — Courtroom Trainer + Letter Library + Emergency
 - Emergency Rights screen ("I've Been Arrested" red button) — works for ALL tiers including free
-- Courtroom Trainer modal with 2 tabs: Practice Mode (Lex role-plays 8 hostile roles) + Live Legal Assist (continuous mic, ≤35-word advice per chunk, consent screen)
+- Courtroom Trainer modal with Practice Mode (Lex role-plays 8 hostile roles) + Live Legal Assist (≤35-word advice per chunk, consent screen)
 - Letter Library: 31 templates, 5 marked premium (Pro-only)
 
 ### Iter 4 — Apple Sign-In fix + Lex brain v2 + bulletproof T&C
-- Apple Sign-In fully working (domain config + trailing slash + cleared stuck record)
-- Lex brain auto-detects user language; smarter system prompt; ban on hallucinated citations
-- "Hey Lex" wake-word (Plus+ only)
+- Apple Sign-In fully working (domain config + trailing slash)
+- Lex brain auto-detects user language; "Hey Lex" wake-word (Plus+ only)
 - Pure-black UI; mix-blend-mode for logo & avatars
 - 22-section bulletproof Terms & Privacy
 
@@ -81,18 +122,22 @@ England & Wales + ICC arbitration + GDPR + CCPA. 22-section Terms + 10-section P
 
 ## Roadmap
 
-### P1 (next)
-- Capacitor iOS wrap (with Apple Reader-app compliance — hide Subscribe inside app, link to web)
-- Capacitor Android wrap
+### P1 (next session — high impact)
+- **Video recording with Lex analysis** — record police/public encounter in-app, Whisper transcript + Gemini frame sample → Lex flags rights violations / drafts complaint letter (Pro tier)
+- **Case Files** — group chats / photos / videos / letters per case; Lex auto-names case (renameable)
+- **Law Firm Portal** — separate auth, self-register w/ SRA verification, Stripe £49/mo Featured + £19/mo Verified, lead-tracking PPC
+- **Admin Dashboard** — approve/reject firm applications, manage Verified badge
+- **Capacitor iOS/Android wrap** — Reader-app compliance (hide Stripe inside native iOS to pass Apple Review)
+- **iCloud + Google Drive Backup** — Plus+ tier
+- **Trustpilot prompt** — after 3 helpful chats, prompt user for review
+- **Per-day TTS quota for free tier** (20 calls/day) — protect OpenAI billing
+- **Sonnet fallback monkeypatched unit test** — covers Haiku failure path
+- **Tagline translation** — currently baked into logo image; designer task to make it text-based
+
+### P2 (later)
+- Limitation-period reminders — Lex detects deadlines from chat ("you have 6 months to file") and offers to add calendar reminder
+- Multi-image evidence (already gated in Pro matrix)
+- One-click email PDF send
 - DNS cutover: aiadvocate.co.uk → preview backend
 - Live Stripe webhook: replay test via Stripe CLI before launch
-- Cloud backup (iCloud + Google Drive) — Plus+ tier
-- Hey Lex toggle in Settings (currently always-on for Plus+)
-
-### P2
-- Case Files (group chats + uploads + letters by case timeline)
-- Multi-image evidence (Pro only — already gated in matrix)
-- One-click email PDF send
-- Admin dashboard for law firm verification + sponsored toggle
-- Trustpilot widget on website footer
-- "Read aloud" emergency rights (TTS for arrest scenario)
+- Split `/app/backend/server.py` (~2137 lines) into routers (auth/lex/letters/subscription/voice/webhook)
