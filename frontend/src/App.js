@@ -5,7 +5,7 @@ import {
   MessageCircle, Mic, Folder, FileText, Gavel, Globe, Briefcase, Home as HomeIcon,
   Stethoscope, Scale, X, Send, Upload, Languages, LogOut, Check, ArrowLeft, Square, Play,
   Camera, MapPin, Phone, ExternalLink, Settings as SettingsIcon, Star, Building2, Image as ImageIcon,
-  Download, Trash2
+  Download, Trash2, Video
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
 
@@ -1846,15 +1846,118 @@ function ReviewPrompt({ lang, onClose, daysLeft }) {
 
 
 
-// ---------- Snap Evidence (camera + upload) ----------
+// ---------- Snap Evidence (camera + upload + video record) ----------
 function SnapEvidenceModal({ lang, country, onClose }) {
   const [files, setFiles] = useState([]); // [{ file, preview }]
   const [evidenceType, setEvidenceType] = useState("auto");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState([]); // [{ filename, analysis, id }]
+  const [videoResult, setVideoResult] = useState(null); // {transcript, analysis, evidence_hash}
+  const [recording, setRecording] = useState(false);
+  const [recordedBlob, setRecordedBlob] = useState(null);
+  const [recordedUrl, setRecordedUrl] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
   const cameraRef = useRef(null);
   const libraryRef = useRef(null);
+  const videoFileRef = useRef(null);
+  const mediaRecRef = useRef(null);
+  const streamRef = useRef(null);
+  const tickRef = useRef(null);
+
+  // Start in-app video+audio recording (uses device camera).
+  // If MediaRecorder isn't available (older iOS Safari), fall back to <input capture="user" type="file" accept="video/*">.
+  const startRecord = async () => {
+    if (!navigator.mediaDevices?.getUserMedia || typeof window.MediaRecorder === "undefined") {
+      videoFileRef.current?.click();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true });
+      streamRef.current = stream;
+      // Prefer mp4/webm depending on browser
+      const mimeCandidates = ["video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+      const mime = mimeCandidates.find(m => window.MediaRecorder.isTypeSupported && window.MediaRecorder.isTypeSupported(m)) || "";
+      const rec = mime ? new window.MediaRecorder(stream, { mimeType: mime }) : new window.MediaRecorder(stream);
+      mediaRecRef.current = rec;
+      const chunks = [];
+      rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+      rec.onstop = () => {
+        const blob = new Blob(chunks, { type: mime || "video/webm" });
+        setRecordedBlob(blob);
+        setRecordedUrl(URL.createObjectURL(blob));
+        stream.getTracks().forEach(tr => tr.stop());
+        streamRef.current = null;
+      };
+      rec.start();
+      setRecording(true);
+      setElapsed(0);
+      tickRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
+    } catch (e) {
+      alert(e.message || "Camera/microphone permission denied");
+    }
+  };
+
+  const stopRecord = () => {
+    try { mediaRecRef.current?.stop(); } catch {}
+    if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
+    setRecording(false);
+  };
+
+  // Fallback: native iOS/Android file picker → user records via the OS camera app
+  const onVideoFile = (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    setRecordedBlob(f);
+    setRecordedUrl(URL.createObjectURL(f));
+  };
+
+  // Send the recorded video's audio track to /api/video/analyze.
+  // Browsers can't strip audio cheaply, so we send the whole file — backend extracts via Whisper.
+  const analyzeVideo = async () => {
+    if (!recordedBlob) return;
+    setBusy(true);
+    try {
+      // Optional GPS stamp
+      let loc = null;
+      if (localStorage.getItem("aa_locstamp") === "1" && navigator.geolocation) {
+        try {
+          loc = await new Promise((resolve, reject) =>
+            navigator.geolocation.getCurrentPosition(
+              (p) => resolve(`${p.coords.latitude.toFixed(5)},${p.coords.longitude.toFixed(5)}`),
+              () => resolve(null),
+              { timeout: 4000 }));
+        } catch {}
+      }
+      const fd = new FormData();
+      fd.append("audio", recordedBlob, recordedBlob.name || `video-${Date.now()}.webm`);
+      fd.append("language", lang);
+      fd.append("country", country);
+      if (loc) fd.append("location", loc);
+      const { data } = await api.post("/video/analyze", fd);
+      setVideoResult(data);
+    } catch (e) {
+      alert(e?.response?.data?.detail || e.message || "Analysis failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resetVideo = () => {
+    if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+    setRecordedBlob(null); setRecordedUrl(null); setVideoResult(null); setElapsed(0);
+  };
+
+  useEffect(() => {
+    return () => {
+      try { mediaRecRef.current?.stop(); } catch {}
+      try { streamRef.current?.getTracks().forEach(tr => tr.stop()); } catch {}
+      if (tickRef.current) clearInterval(tickRef.current);
+      if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+    };
+  // eslint-disable-next-line
+  }, []);
 
   const addFiles = (fileList) => {
     const arr = Array.from(fileList || []).slice(0, 10 - files.length); // max 10
@@ -1902,9 +2005,9 @@ function SnapEvidenceModal({ lang, country, onClose }) {
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "snapEvidence")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
         </div>
-        {results.length === 0 ? (
+        {results.length === 0 && !videoResult && !recordedUrl ? (
           <div style={{ overflowY: "auto", maxHeight: "80vh" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
               <button data-testid="evidence-camera-btn" onClick={() => cameraRef.current?.click()}
                 style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 18, color: "var(--gold)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                 <Camera size={28} /><span style={{ fontSize: 12, color: "var(--text)" }}>{t(lang, "takePhoto")}</span>
@@ -1913,8 +2016,16 @@ function SnapEvidenceModal({ lang, country, onClose }) {
                 style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 18, color: "var(--gold)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                 <ImageIcon size={28} /><span style={{ fontSize: 12, color: "var(--text)" }}>{t(lang, "addMultiplePhotos")}</span>
               </button>
+              <button data-testid="evidence-record-video-btn" onClick={startRecord}
+                style={{ gridColumn: "1 / span 2", background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 16, color: "var(--gold)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                <Video size={26} /><span style={{ fontSize: 13, color: "var(--text)", fontWeight: 600 }}>{t(lang, "recordVideo")}</span>
+              </button>
               <input ref={cameraRef} data-testid="evidence-camera-input" type="file" accept="image/*" capture="environment" onChange={onFile} style={{ display: "none" }} />
               <input ref={libraryRef} data-testid="evidence-library-input" type="file" accept="image/*,.pdf,.docx" multiple onChange={onFile} style={{ display: "none" }} />
+              <input ref={videoFileRef} data-testid="evidence-video-input" type="file" accept="video/*" capture="environment" onChange={onVideoFile} style={{ display: "none" }} />
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 14, padding: "0 4px", lineHeight: 1.5 }}>
+              {t(lang, "videoLegalNote")}
             </div>
 
             {files.length > 0 && (
@@ -1953,6 +2064,54 @@ function SnapEvidenceModal({ lang, country, onClose }) {
                 </button>
               </>
             )}
+          </div>
+        ) : recording ? (
+          <div data-testid="video-record-overlay" style={{ padding: 20, textAlign: "center" }}>
+            <div style={{ width: 110, height: 110, borderRadius: "50%", background: "rgba(220,38,38,0.18)", border: "3px solid #dc2626",
+                          margin: "20px auto 24px", display: "flex", alignItems: "center", justifyContent: "center", animation: "pulse 1.5s infinite" }}>
+              <div style={{ width: 36, height: 36, borderRadius: 6, background: "#dc2626" }} />
+            </div>
+            <div style={{ fontSize: 32, color: "#fca5a5", fontFamily: "Courier New, monospace", marginBottom: 6 }} data-testid="record-timer">
+              {String(Math.floor(elapsed/60)).padStart(2,"0")}:{String(elapsed%60).padStart(2,"0")}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 24 }}>
+              {t(lang, "videoLegalNote")}
+            </div>
+            <button data-testid="stop-record-btn" onClick={stopRecord} className="btn-gold w-full" style={{ padding: 14 }}>
+              ⏹ {t(lang, "stopRecording")}
+            </button>
+          </div>
+        ) : recordedUrl && !videoResult ? (
+          <div data-testid="video-preview" style={{ overflowY: "auto", maxHeight: "80vh" }}>
+            <video src={recordedUrl} controls playsInline data-testid="video-preview-player"
+                   style={{ width: "100%", borderRadius: 12, marginBottom: 12, maxHeight: "40vh", background: "#000" }} />
+            <div className="flex gap-2" style={{ marginBottom: 10 }}>
+              <button className="btn-gold" disabled={busy} onClick={analyzeVideo} data-testid="analyze-video-btn" style={{ flex: 2, padding: 14 }}>
+                {busy ? <span className="spinner" /> : `🧠 ${t(lang, "analyseNFiles", { n: 1 })}`}
+              </button>
+              <button className="btn-ghost" onClick={resetVideo} data-testid="discard-video-btn" style={{ flex: 1, padding: 14 }}>
+                {t(lang, "cancel")}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5, padding: "0 4px" }}>
+              {t(lang, "videoLegalNote")}
+            </div>
+          </div>
+        ) : videoResult ? (
+          <div data-testid="video-result" style={{ overflowY: "auto", maxHeight: "80vh" }}>
+            <h3 className="gold" style={{ fontSize: 16, marginBottom: 10 }}>🎥 {t(lang, "videoEvidenceTitle")}</h3>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10 }}>
+              {t(lang, "evidenceHash")}: <code style={{ background: "#0a0a0a", padding: "2px 6px", borderRadius: 4 }}>{(videoResult.evidence_hash || "").slice(0, 24)}…</code>
+            </div>
+            <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6, fontSize: 13 }}>{t(lang, "transcript")}</div>
+            <div style={{ background: "#0a0a0a", padding: 10, borderRadius: 8, color: "var(--text-dim)", fontSize: 12, lineHeight: 1.5, marginBottom: 14, maxHeight: 200, overflowY: "auto", whiteSpace: "pre-wrap" }}>
+              {videoResult.transcript}
+            </div>
+            <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6, fontSize: 13 }}>{t(lang, "lexAnalysis")}</div>
+            <div style={{ background: "#0a0a0a", padding: 10, borderRadius: 8, color: "var(--text)", fontSize: 13, lineHeight: 1.55, marginBottom: 14, whiteSpace: "pre-wrap" }}>
+              {videoResult.analysis}
+            </div>
+            <button className="btn-gold w-full" data-testid="record-another-video-btn" onClick={resetVideo}>{t(lang, "recordAnother")}</button>
           </div>
         ) : (
           <div style={{ overflowY: "auto", maxHeight: "80vh" }}>
@@ -2171,6 +2330,10 @@ function AdvertiseModal({ lang, onClose }) {
 function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCountry }) {
   const [busy, setBusy] = useState(false);
   const [locOn, setLocOn] = useState(!!user.location_enabled);
+  // Proper React state for each Settings toggle — fixes stale-localStorage render bug
+  const [wakeOn, setWakeOn] = useState(localStorage.getItem("aa_wake") !== "0");
+  const [autoDetectOn, setAutoDetectOn] = useState(localStorage.getItem("aa_autodetect") !== "0");
+  const [locStampOn, setLocStampOn] = useState(localStorage.getItem("aa_locstamp") === "1");
 
   const toggleLocation = async () => {
     if (!locOn) {
@@ -2337,29 +2500,26 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
               <span style={{ fontWeight: 600 }}>{t(lang, "heyLexWake")}</span>
             </div>
             <label style={{ position: "relative", display: "inline-block", width: 48, height: 26, cursor: "pointer" }}>
-              <input type="checkbox" data-testid="heylex-toggle" defaultChecked={localStorage.getItem("aa_wake") !== "0"}
+              <input type="checkbox" data-testid="heylex-toggle" checked={wakeOn}
                 onChange={async (e) => {
                   const v = e.target.checked;
-                  localStorage.setItem("aa_wake", v ? "1" : "0");
                   if (v) {
-                    // Request mic permission so the wake-word recognizer can actually start
                     try {
                       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                       stream.getTracks().forEach(tr => tr.stop());
                     } catch (err) {
                       alert(t(lang, "micPermDenied"));
-                      localStorage.setItem("aa_wake", "0");
-                      e.target.checked = false;
                       return;
                     }
                   }
+                  setWakeOn(v);
+                  localStorage.setItem("aa_wake", v ? "1" : "0");
                   window.dispatchEvent(new CustomEvent("aa:wake-toggle", { detail: { enabled: v } }));
                 }}
                 style={{ opacity: 0, width: 0, height: 0 }} />
-              <span style={{ position: "absolute", inset: 0, background: localStorage.getItem("aa_wake") !== "0" ? "var(--gold)" : "var(--line)",
-                             borderRadius: 13, transition: "0.2s",
-                             }}>
-                <span style={{ position: "absolute", height: 20, width: 20, left: localStorage.getItem("aa_wake") !== "0" ? 25 : 3, top: 3,
+              <span style={{ position: "absolute", inset: 0, background: wakeOn ? "var(--gold)" : "var(--line)",
+                             borderRadius: 13, transition: "0.2s" }}>
+                <span style={{ position: "absolute", height: 20, width: 20, left: wakeOn ? 25 : 3, top: 3,
                                background: "#000", borderRadius: "50%", transition: "0.2s" }} />
               </span>
             </label>
@@ -2378,12 +2538,12 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
               <span style={{ fontWeight: 600 }}>{t(lang, "autoDetectLang")}</span>
             </div>
             <label style={{ position: "relative", display: "inline-block", width: 48, height: 26, cursor: "pointer" }}>
-              <input type="checkbox" data-testid="autodetect-toggle" defaultChecked={localStorage.getItem("aa_autodetect") !== "0"}
-                onChange={(e) => { localStorage.setItem("aa_autodetect", e.target.checked ? "1" : "0"); }}
+              <input type="checkbox" data-testid="autodetect-toggle" checked={autoDetectOn}
+                onChange={(e) => { setAutoDetectOn(e.target.checked); localStorage.setItem("aa_autodetect", e.target.checked ? "1" : "0"); }}
                 style={{ opacity: 0, width: 0, height: 0 }} />
-              <span style={{ position: "absolute", inset: 0, background: localStorage.getItem("aa_autodetect") !== "0" ? "var(--gold)" : "var(--line)",
+              <span style={{ position: "absolute", inset: 0, background: autoDetectOn ? "var(--gold)" : "var(--line)",
                              borderRadius: 13, transition: "0.2s" }}>
-                <span style={{ position: "absolute", height: 20, width: 20, left: localStorage.getItem("aa_autodetect") !== "0" ? 25 : 3, top: 3,
+                <span style={{ position: "absolute", height: 20, width: 20, left: autoDetectOn ? 25 : 3, top: 3,
                                background: "#000", borderRadius: "50%", transition: "0.2s" }} />
               </span>
             </label>
@@ -2401,12 +2561,12 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
               <span style={{ fontWeight: 600 }}>{t(lang, "locationStamp")}</span>
             </div>
             <label style={{ position: "relative", display: "inline-block", width: 48, height: 26, cursor: "pointer" }}>
-              <input type="checkbox" data-testid="locstamp-toggle" defaultChecked={localStorage.getItem("aa_locstamp") === "1"}
-                onChange={(e) => { localStorage.setItem("aa_locstamp", e.target.checked ? "1" : "0"); }}
+              <input type="checkbox" data-testid="locstamp-toggle" checked={locStampOn}
+                onChange={(e) => { setLocStampOn(e.target.checked); localStorage.setItem("aa_locstamp", e.target.checked ? "1" : "0"); }}
                 style={{ opacity: 0, width: 0, height: 0 }} />
-              <span style={{ position: "absolute", inset: 0, background: localStorage.getItem("aa_locstamp") === "1" ? "var(--gold)" : "var(--line)",
+              <span style={{ position: "absolute", inset: 0, background: locStampOn ? "var(--gold)" : "var(--line)",
                              borderRadius: 13, transition: "0.2s" }}>
-                <span style={{ position: "absolute", height: 20, width: 20, left: localStorage.getItem("aa_locstamp") === "1" ? 25 : 3, top: 3,
+                <span style={{ position: "absolute", height: 20, width: 20, left: locStampOn ? 25 : 3, top: 3,
                                background: "#000", borderRadius: "50%", transition: "0.2s" }} />
               </span>
             </label>
