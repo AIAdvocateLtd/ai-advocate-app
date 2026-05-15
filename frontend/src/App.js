@@ -737,6 +737,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
   const [busy, setBusy] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [deepThink, setDeepThink] = useState(false);
+  const [dtUsed, setDtUsed] = useState(null); // {used, limit}
   const { recording, start, stop } = useRecorder();
   const audioRef = useRef(null);
   const scrollRef = useRef(null);
@@ -745,6 +746,15 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
   const isPro = tier === "pro" || tier === "yearly" || tier === "trial_pro";
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: 1e9, behavior: "smooth" }); }, [messages, busy]);
+
+  // Load Deep Think usage so the user sees their counter (Pro-only)
+  useEffect(() => {
+    if (!isPro) return;
+    api.get("/subscription/usage").then(r => {
+      const u = r.data?.usage?.deep_think;
+      if (u) setDtUsed({ used: u.used, limit: u.limit });
+    }).catch(() => {});
+  }, [isPro]);
 
   // Auto-start mic when triggered by "Hey Lex" wake word
   useEffect(() => {
@@ -768,6 +778,13 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
       });
       setSessionId(data.session_id);
       setMessages(m => [...m, { role: "lex", content: data.response, at: new Date().toISOString(), model: data.model, replyLang: data.reply_language }]);
+      // Refresh Deep Think usage counter after each chat (Pro only)
+      if (isPro && deepThink) {
+        api.get("/subscription/usage").then(r => {
+          const u = r.data?.usage?.deep_think;
+          if (u) setDtUsed({ used: u.used, limit: u.limit });
+        }).catch(() => {});
+      }
       // TTS playback
       try {
         const r = await api.post("/voice/tts", { text: data.response.slice(0, 1500), voice: "onyx", language: data.reply_language }, { responseType: "blob" });
@@ -802,13 +819,13 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
             <div style={{ fontSize: 11, color: "var(--text-muted)" }}>AI Advocate</div>
           </div>
           <div className="flex items-center gap-2">
-            {/* Deep Think toggle — Pro only */}
+            {/* Deep Think toggle — Pro only with monthly counter */}
             <button data-testid="deep-think-toggle"
               onClick={() => {
                 if (!isPro) { alert(t(lang, "deepThinkProOnly")); return; }
                 setDeepThink(v => !v);
               }}
-              title={t(lang, "deepThink")}
+              title={t(lang, "deepThink") + (dtUsed && dtUsed.limit != null ? ` — ${dtUsed.used}/${dtUsed.limit}` : "")}
               style={{
                 background: deepThink && isPro ? "var(--gold)" : "transparent",
                 color: deepThink && isPro ? "#1a1300" : (isPro ? "var(--gold)" : "var(--text-muted)"),
@@ -816,7 +833,12 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                 borderRadius: 16, padding: "5px 10px", fontSize: 11, cursor: "pointer",
                 fontWeight: 600, letterSpacing: "0.04em",
               }}>
-              🧠 {deepThink && isPro ? t(lang, "deepThinkOn") : t(lang, "deepThink")}{!isPro ? " 🔒" : ""}
+              🧠 {deepThink && isPro ? t(lang, "deepThinkOn") : t(lang, "deepThink")}
+              {isPro && dtUsed && dtUsed.limit != null ? (
+                <span data-testid="dt-counter" style={{ marginLeft: 6, fontSize: 10, opacity: 0.8 }}>
+                  {dtUsed.used}/{dtUsed.limit}
+                </span>
+              ) : (!isPro ? " 🔒" : null)}
             </button>
             <button onClick={onClose} data-testid="lex-close-btn" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}>
               <X size={24} />

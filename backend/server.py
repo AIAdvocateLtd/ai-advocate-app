@@ -222,6 +222,7 @@ TIER_QUOTAS = {
         "evidence_analyze_monthly": 1,
         "files_total": 3,
         "history_days": 7,
+        "tts_daily": 20,         # Read-Aloud Emergency Rights + short TTS — protects OpenAI billing
     },
     "plus": {
         "lex_chat_daily": 100,   # fair-use soft cap
@@ -229,6 +230,7 @@ TIER_QUOTAS = {
         "evidence_analyze_monthly": 15,
         "files_total": 50,
         "history_days": 90,
+        "tts_daily": None,
     },
     "pro": {
         "lex_chat_daily": None,
@@ -236,20 +238,32 @@ TIER_QUOTAS = {
         "evidence_monthly": None,
         "files_total": None,
         "history_days": None,
+        "tts_daily": None,
+        "deep_think_monthly": 30,                # premium reasoning — protects margin
+        "live_assist_session_daily": 3,          # max 3 Live-Assist sessions per day
+        "live_assist_session_minutes": 60,
     },
-    "yearly": {  # same as pro
+    "yearly": {  # Yearly Pro — slightly higher Deep Think cap as a perk
         "lex_chat_daily": None,
         "letters_monthly": None,
         "evidence_monthly": None,
         "files_total": None,
         "history_days": None,
+        "tts_daily": None,
+        "deep_think_monthly": 50,
+        "live_assist_session_daily": 5,
+        "live_assist_session_minutes": 60,
     },
-    "trial_pro": {  # 14-day trial = full Pro
+    "trial_pro": {  # 14-day trial = full Pro with same caps
         "lex_chat_daily": None,
         "letters_monthly": None,
         "evidence_monthly": None,
         "files_total": None,
         "history_days": None,
+        "tts_daily": None,
+        "deep_think_monthly": 30,
+        "live_assist_session_daily": 3,
+        "live_assist_session_minutes": 60,
     },
 }
 
@@ -311,6 +325,9 @@ async def get_user_usage_summary(user_id: str, tier: str) -> dict:
         ("lex_chat", "daily", "lex_chat_daily"),
         ("letters_generate", "monthly", "letters_generate_monthly"),
         ("evidence_analyze", "monthly", "evidence_analyze_monthly"),
+        ("tts", "daily", "tts_daily"),
+        ("deep_think", "monthly", "deep_think_monthly"),
+        ("live_assist_session", "daily", "live_assist_session_daily"),
     ]:
         bucket = day_bucket if period == "daily" else month_bucket
         doc = await db.usage.find_one({"user_id": user_id, "bucket": bucket, "feature": feature}, {"_id": 0})
@@ -646,6 +663,12 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     if data.deep_think and tier not in ("pro", "yearly", "trial_pro"):
         raise HTTPException(402, "Deep Think requires Pro. Upgrade to unlock King's Counsel-grade reasoning.")
 
+    # Deep Think monthly quota (protects margin on Pro tier)
+    if data.deep_think:
+        ok_dt, used_dt, limit_dt = await check_quota_and_increment(user["id"], tier, "deep_think", "monthly")
+        if not ok_dt:
+            raise HTTPException(429, f"Deep Think monthly limit reached ({used_dt}/{limit_dt}). Disable Deep Think for unlimited Sonnet 4.5 chats this month, or upgrade to Yearly Pro for 50/mo.")
+
     # Daily quota for chat
     ok, used, limit = await check_quota_and_increment(user["id"], tier, "lex_chat", "daily")
     if not ok:
@@ -809,6 +832,12 @@ async def lex_live_assist(data: LiveAssistRequest, user: dict = Depends(get_user
     pub = user_to_public(user)
     if not tier_has_access(pub["tier"], "live_assist"):
         raise HTTPException(402, "Live Legal Assist requires Pro. Upgrade to unlock.")
+
+    # Daily session cap — only count when starting a NEW session (session_id is None)
+    if not data.session_id:
+        ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "live_assist_session", "daily")
+        if not ok:
+            raise HTTPException(429, f"Live Legal Assist daily session limit reached ({used}/{limit}). Upgrade to Yearly Pro for 5 sessions/day.")
 
     lang_name = LANG_NAMES.get(data.language, "English")
     scenario_brief = {
@@ -1402,6 +1431,10 @@ async def tts(data: TTSRequest, user: dict = Depends(get_user)):
     if len(data.text) > 1500:
         if not tier_has_access(pub["tier"], "voice"):
             raise HTTPException(402, "Voice output (long-form) requires Plus or Pro. Upgrade to unlock.")
+    # Per-day TTS quota (protects OpenAI billing — free tier capped at 20/day, paid unlimited)
+    ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "tts", "daily")
+    if not ok:
+        raise HTTPException(429, f"Daily Read-Aloud limit reached ({used}/{limit}). Upgrade to Plus for unlimited voice.")
     tts_client = OpenAITextToSpeech(api_key=EMERGENT_LLM_KEY)
     try:
         b64 = await tts_client.generate_speech_base64(
@@ -1717,18 +1750,23 @@ async def get_tiers():
         "tiers": [
             {"id": "free", "name": "Free", "price_gbp": 0, "period": "forever",
              "highlights": ["5 Lex chats / day", "1 photo evidence / month", "1 letter / month",
-                            "View 31 templates", "3 files", "Emergency rights (always free)"]},
+                            "View 31 templates", "3 files", "Emergency rights (always free)",
+                            "Read-Aloud rights (20 / day)"]},
             {"id": "plus", "name": "Plus", "price_gbp": 14.99, "period": "month",
              "highlights": ["Unlimited Lex chats", "15 photo evidences / month",
                             "Unlimited letters", "Contract Review", "Court Prep modes",
-                            "Voice in/out", "Practice Mode", "50 files", "Hey Lex wake word"]},
-            {"id": "pro", "name": "Pro", "price_gbp": 24.99, "period": "month",
-             "highlights": ["Everything in Plus", "Live Legal Assist", "Priority AI processing",
-                            "Premium court templates", "Advanced document review", "Unlimited files",
-                            "Priority email support"]},
-            {"id": "yearly", "name": "Yearly Pro", "price_gbp": 239.99, "period": "year",
-             "best_value": True, "savings_pct": 20,
-             "highlights": ["Everything in Pro", "Save 20% vs monthly", "12 months full access"]},
+                            "Voice in/out", "Practice Mode", "50 files", "Hey Lex wake word",
+                            "Claude Sonnet 4.5 brain"]},
+            {"id": "pro", "name": "Pro", "price_gbp": 29.99, "period": "month",
+             "highlights": ["Everything in Plus", "Live Legal Assist (3 sessions/day)",
+                            "🧠 Deep Think — 30 / month (King's Counsel-grade reasoning)",
+                            "Priority AI processing", "Premium court templates",
+                            "Advanced document review", "Unlimited files", "Priority email support"]},
+            {"id": "yearly", "name": "Yearly Pro", "price_gbp": 299.99, "period": "year",
+             "best_value": True, "savings_pct": 17,
+             "highlights": ["Everything in Pro", "🧠 Deep Think — 50 / month (bigger cap)",
+                            "Live Assist — 5 sessions/day", "Get ~2 months free vs monthly",
+                            "12 months full access"]},
         ],
         "currency": "GBP",
     }

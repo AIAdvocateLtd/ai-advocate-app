@@ -19,20 +19,31 @@ A multilingual "lawyer in your pocket" web + iOS + Android app. Core: Lex AI cha
 - **Wake word:** Web Speech API ("Hey Lex")
 
 ## Subscription Tiers (LIVE Stripe)
-| Tier | Price | Stripe Price ID |
+| Tier | Price | Stripe Price ID (env var) |
 |---|---|---|
 | Free | £0 | n/a |
-| Plus | £14.99 / mo | `price_1TX0CcFh8lRHrXPI3feMOlOx` |
-| Pro | £24.99 / mo | `price_1TX0EKFh8lRHrXPIPLZzGSoT` |
-| Yearly Pro | £239.99 / yr | `price_1TX0IgFh8lRHrXPInG4THCC1` |
+| Plus | £14.99 / mo | `STRIPE_PRICE_PLUS` (currently `price_1TX0CcFh8lRHrXPI3feMOlOx`) |
+| **Pro** | **£29.99 / mo** ⬆ (was £24.99) | `STRIPE_PRICE_PRO` — **NEEDS NEW STRIPE PRICE OBJECT** at £29.99 |
+| **Yearly Pro** | **£299.99 / yr** ⬆ (was £239.99) | `STRIPE_PRICE_YEARLY_PRO` — **NEEDS NEW STRIPE PRICE OBJECT** at £299.99 |
+
+### ⚠️ Critical: Stripe price IDs are immutable
+The Pro + Yearly Pro UI now shows the new prices, but Stripe will still charge the old amounts until you create new Price objects:
+1. Go to Stripe Dashboard → Products → Pro (and Yearly Pro)
+2. Click "Add another price" → enter new amount (£29.99 / £299.99)
+3. Copy the new `price_xxx` IDs
+4. Update `/app/backend/.env`:
+   - `STRIPE_PRICE_PRO="price_NEW..."` 
+   - `STRIPE_PRICE_YEARLY_PRO="price_NEW..."`
+5. Restart backend (`sudo supervisorctl restart backend`)
+6. Existing subscribers stay on their old £24.99 / £239.99 prices until they cancel & re-subscribe (this is fair grandfathering — they're locked in at the price they signed up for).
 
 New signups get 14-day **trial_pro** (full Pro features). After trial → drop to Free unless subscribed.
 
 ## Tier Access Matrix
-- **Free:** 5 chats/day, 1 photo/mo, 1 letter/mo, 3 files, view templates only, no court categories, no Practice, no Live Assist, no voice. Emergency Rights + Lawyer Directory always free.
-- **Plus £14.99:** Unlimited chats (100/day fair use), 15 photos/mo, unlimited letters, Court Prep modes, Voice in/out, Practice Mode, 50 files, Contract Review, Hey Lex wake-word.
-- **Pro £24.99:** Plus everything + Live Legal Assist, Premium templates (witness statement, mitigation, defence statement, immigration, asylum), priority queue, unlimited everything.
-- **Yearly £239.99:** Pro at 20% discount.
+- **Free:** 5 chats/day, 1 photo/mo, 1 letter/mo, 3 files, view templates only, no court categories, no Practice, no Live Assist, no voice. Emergency Rights + Lawyer Directory always free. **TTS Read-Aloud capped at 20/day.**
+- **Plus £14.99:** Unlimited chats (100/day fair use), 15 photos/mo, unlimited letters, Court Prep modes, Voice in/out, Practice Mode, 50 files, Contract Review, Hey Lex wake-word. Claude **Sonnet 4.5** brain.
+- **Pro £29.99:** Plus everything + Live Legal Assist (**3 sessions/day**), **Deep Think 30/mo** (Sonnet 4.5 + extended reasoning), Premium templates, priority queue, unlimited everything.
+- **Yearly Pro £299.99:** Pro at ~17% discount + **Deep Think 50/mo** + **Live Assist 5 sessions/day** (premium perks for annual commitment).
 
 ## Legal
 England & Wales + ICC arbitration + GDPR + CCPA. 22-section Terms + 10-section Privacy. Forced "I Agree" at signup.
