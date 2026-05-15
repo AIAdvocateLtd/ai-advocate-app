@@ -1,5 +1,5 @@
 """AI Advocate - Backend API"""
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Request, Header
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -144,6 +144,62 @@ class LawFirmApplication(BaseModel):
     city: str
     specialties: List[str] = []
     website: Optional[str] = ""
+    notes: Optional[str] = ""
+
+# ===== Phase 9: Case Files + Reminders + Firm Portal =====
+class CaseCreate(BaseModel):
+    name: Optional[str] = None  # if None, Lex auto-names from first message
+    summary: Optional[str] = None
+    category: Optional[str] = None  # employment, property, criminal, immigration, etc.
+
+class CaseUpdate(BaseModel):
+    name: Optional[str] = None
+    summary: Optional[str] = None
+    status: Optional[str] = None  # open / closed
+
+class CaseItemAttach(BaseModel):
+    item_type: str  # chat_session | photo | video | letter | recording | note
+    item_id: str    # mongo id of the underlying doc
+    title: Optional[str] = None
+    preview: Optional[str] = None
+    timestamp_utc: Optional[str] = None
+    location: Optional[str] = None  # "lat,lng" string
+
+class ReminderCreate(BaseModel):
+    case_id: Optional[str] = None
+    title: str
+    description: Optional[str] = ""
+    due_at: str  # ISO datetime
+    kind: str = "deadline"  # deadline | hearing | follow_up | renewal_review
+
+class FirmPortalSignup(BaseModel):
+    firm_name: str
+    contact_name: str
+    email: EmailStr
+    password: str
+    sra_number: Optional[str] = ""
+    country: str
+    city: str
+    phone: Optional[str] = ""
+    specialties: List[str] = []
+    website: Optional[str] = ""
+
+class FirmPortalLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class FirmListingUpdate(BaseModel):
+    name: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    website: Optional[str] = None
+    specialties: Optional[List[str]] = None
+    bio: Optional[str] = None
+    languages: Optional[List[str]] = None
+
+class AdminFirmAction(BaseModel):
+    firm_id: str
+    action: str  # approve | reject | suspend | verify | unverify
     notes: Optional[str] = ""
 
 # ==================== Helpers ====================
@@ -2178,6 +2234,487 @@ async def apple_app_site_association():
         "applinks": {"apps": [], "details": [{"appID": bundle_id, "paths": ["*"]}]} if bundle_id else {},
         "webcredentials": {"apps": [bundle_id]} if bundle_id else {},
     })
+
+# ==================== CASE FILES ====================
+@api_router.post("/cases")
+async def create_case(data: CaseCreate, user: dict = Depends(get_user)):
+    case_id = str(uuid.uuid4())
+    name = (data.name or "Untitled case").strip()[:120]
+    doc = {
+        "id": case_id, "user_id": user["id"], "name": name,
+        "summary": (data.summary or "")[:500], "category": data.category or "general",
+        "status": "open", "items_count": 0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.cases.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.get("/cases")
+async def list_cases(user: dict = Depends(get_user), status: Optional[str] = None):
+    q = {"user_id": user["id"]}
+    if status: q["status"] = status
+    out = []
+    async for c in db.cases.find(q, {"_id": 0}).sort("updated_at", -1).limit(200):
+        out.append(c)
+    return {"cases": out}
+
+@api_router.get("/cases/{case_id}")
+async def get_case(case_id: str, user: dict = Depends(get_user)):
+    c = await db.cases.find_one({"id": case_id, "user_id": user["id"]}, {"_id": 0})
+    if not c: raise HTTPException(404, "Case not found")
+    items = []
+    async for it in db.case_items.find({"case_id": case_id, "user_id": user["id"]}, {"_id": 0}).sort("created_at", -1):
+        items.append(it)
+    c["items"] = items
+    return c
+
+@api_router.patch("/cases/{case_id}")
+async def update_case(case_id: str, data: CaseUpdate, user: dict = Depends(get_user)):
+    upd = {k: v for k, v in data.dict(exclude_none=True).items() if k in ("name", "summary", "status")}
+    if not upd: raise HTTPException(400, "Nothing to update")
+    upd["updated_at"] = datetime.now(timezone.utc).isoformat()
+    r = await db.cases.update_one({"id": case_id, "user_id": user["id"]}, {"$set": upd})
+    if r.matched_count == 0: raise HTTPException(404, "Case not found")
+    c = await db.cases.find_one({"id": case_id}, {"_id": 0})
+    return c
+
+@api_router.delete("/cases/{case_id}")
+async def delete_case(case_id: str, user: dict = Depends(get_user)):
+    r = await db.cases.delete_one({"id": case_id, "user_id": user["id"]})
+    if r.deleted_count == 0: raise HTTPException(404, "Case not found")
+    await db.case_items.delete_many({"case_id": case_id})
+    return {"deleted": True}
+
+@api_router.post("/cases/{case_id}/items")
+async def attach_item(case_id: str, data: CaseItemAttach, user: dict = Depends(get_user)):
+    c = await db.cases.find_one({"id": case_id, "user_id": user["id"]})
+    if not c: raise HTTPException(404, "Case not found")
+    item = {
+        "id": str(uuid.uuid4()), "case_id": case_id, "user_id": user["id"],
+        "item_type": data.item_type, "item_id": data.item_id,
+        "title": (data.title or "")[:200], "preview": (data.preview or "")[:500],
+        "timestamp_utc": data.timestamp_utc or datetime.now(timezone.utc).isoformat(),
+        "location": data.location or None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.case_items.insert_one(item)
+    await db.cases.update_one({"id": case_id}, {"$inc": {"items_count": 1}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}})
+    item.pop("_id", None)
+    return item
+
+@api_router.post("/cases/{case_id}/auto-name")
+async def auto_name_case(case_id: str, user: dict = Depends(get_user)):
+    """Use Lex to auto-name a case from its first 5 items (privacy-preserving — short summary only)."""
+    c = await db.cases.find_one({"id": case_id, "user_id": user["id"]}, {"_id": 0})
+    if not c: raise HTTPException(404, "Case not found")
+    items = []
+    async for it in db.case_items.find({"case_id": case_id}, {"_id": 0}).sort("created_at", 1).limit(5):
+        items.append(f"- [{it['item_type']}] {it.get('title','')[:80]} {it.get('preview','')[:200]}")
+    if not items:
+        return {"name": c["name"]}
+    blob = "\n".join(items)
+    prompt = f"""Based on the following items from a legal case file, give me a short 2–6 word case name in English (or the user's language).
+Just the name, no quotes, no preamble.
+Items:
+{blob}"""
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"case_name_{case_id}",
+                       system_message="You name legal case files. Reply with ONLY the case name, no other text. Examples: 'Parking PCN Appeal', 'Unfair Dismissal — Acme Ltd', 'Section 21 Eviction'."
+                       ).with_model("anthropic", "claude-haiku-4-5-20251001").with_params(max_tokens=40)
+        name = (await chat.send_message(UserMessage(text=prompt))).strip().strip('"').strip("'")[:80]
+    except Exception:
+        try:
+            chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"case_name_{case_id}",
+                           system_message="Name legal case files. Reply with ONLY the case name."
+                           ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=40)
+            name = (await chat.send_message(UserMessage(text=prompt))).strip().strip('"').strip("'")[:80]
+        except Exception:
+            name = c["name"]
+    if name and name != c["name"]:
+        await db.cases.update_one({"id": case_id}, {"$set": {"name": name, "updated_at": datetime.now(timezone.utc).isoformat()}})
+    return {"name": name}
+
+@api_router.get("/cases/{case_id}/export-pdf")
+async def export_case_pdf(case_id: str, user: dict = Depends(get_user)):
+    """Court-ready PDF: timeline of every chat, photo, video, letter — with timestamps + locations + SHA256 hashes."""
+    c = await db.cases.find_one({"id": case_id, "user_id": user["id"]}, {"_id": 0})
+    if not c: raise HTTPException(404, "Case not found")
+    items = []
+    async for it in db.case_items.find({"case_id": case_id}, {"_id": 0}).sort("created_at", 1):
+        items.append(it)
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.lib.units import cm
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph(f"<b>Case File: {c['name']}</b>", styles["Title"]),
+        Paragraph(f"User: {user['email']}", styles["Normal"]),
+        Paragraph(f"Case opened: {c['created_at']}", styles["Normal"]),
+        Paragraph(f"Status: {c['status'].upper()}", styles["Normal"]),
+        Paragraph(f"Exported: {datetime.now(timezone.utc).isoformat()}", styles["Normal"]),
+        Paragraph(f"Items: {len(items)}", styles["Normal"]),
+        Spacer(1, 0.5*cm),
+        Paragraph("<b>Timeline</b>", styles["Heading2"]),
+    ]
+    import hashlib as _hashlib
+    for i, it in enumerate(items, 1):
+        h = _hashlib.sha256(f"{it.get('item_id','')}{it.get('timestamp_utc','')}{user['id']}".encode()).hexdigest()[:16]
+        story += [
+            Paragraph(f"<b>{i}. [{it.get('item_type','').upper()}]</b> {it.get('title','')}", styles["Heading3"]),
+            Paragraph(f"<i>Recorded: {it.get('timestamp_utc','')}</i>", styles["Normal"]),
+        ]
+        if it.get("location"):
+            story.append(Paragraph(f"<i>Location: {it['location']}</i>", styles["Normal"]))
+        story.append(Paragraph(f"<i>Evidence hash: {h}</i>", styles["Normal"]))
+        if it.get("preview"):
+            story.append(Paragraph(it["preview"][:1500].replace("\n","<br/>"), styles["Normal"]))
+        story.append(Spacer(1, 0.3*cm))
+    doc.build(story)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="application/pdf",
+                             headers={"Content-Disposition": f'attachment; filename="case-{case_id[:8]}.pdf"'})
+
+# ==================== VIDEO RECORDING + LEX ANALYSIS ====================
+@api_router.post("/video/analyze")
+async def analyze_video(audio: UploadFile = File(...), language: str = "en-GB", country: str = "GB",
+                         case_id: Optional[str] = None, location: Optional[str] = None,
+                         user: dict = Depends(get_user)):
+    """Pro-tier: receive audio extracted from video → Whisper transcript → Lex analysis →
+    flag rights violations, leading questions, drafts complaint letter."""
+    pub = user_to_public(user)
+    if not tier_has_access(pub["tier"], "court_categories"):
+        raise HTTPException(402, "Video analysis requires Pro. Upgrade to unlock.")
+    # Quota
+    ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "evidence_analyze", "monthly")
+    if not ok: raise HTTPException(429, f"Monthly evidence limit reached ({used}/{limit}).")
+
+    audio_bytes = await audio.read()
+    if len(audio_bytes) > 25 * 1024 * 1024:  # 25MB whisper limit
+        raise HTTPException(413, "Audio too large (max 25MB). Trim to first 5 minutes of the most relevant section.")
+    stt_client = OpenAISpeechToText(api_key=EMERGENT_LLM_KEY)
+    try:
+        transcript = await stt_client.transcribe_audio(
+            audio_data=audio_bytes, filename=audio.filename or "video.webm",
+            model="whisper-1", language=language[:2],
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Transcription failed: {str(e)}")
+
+    # Lex analysis
+    sys_prompt = lex_system_prompt(language, country, "record")
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()), system_message=sys_prompt
+                   ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=3000)
+    analysis_prompt = f"""I have video footage of a legal interaction (police questioning / public dispute / harassment / official interview).
+Here is the transcript of the audio:
+
+{transcript[:8000]}
+
+Please:
+1. Flag any rights violations (no caution given, leading questions, intimidation, refusal of representation).
+2. Identify anything I said that I shouldn't have (admissions, contradictions).
+3. Identify anything the other party said that helps my case.
+4. Draft a short complaint letter or defence statement I can send (formal, UK style if my country is GB, otherwise localised to {country}).
+5. End with a Confidence rating (High/Medium/Low) and a recommended next step."""
+    try:
+        analysis = await chat.send_message(UserMessage(text=analysis_prompt))
+    except Exception as e:
+        raise HTTPException(500, f"Lex analysis failed: {str(e)}")
+
+    # Save evidence record
+    ev_id = str(uuid.uuid4())
+    import hashlib as _h
+    evidence_hash = _h.sha256(audio_bytes).hexdigest()
+    rec = {
+        "id": ev_id, "user_id": user["id"], "kind": "video",
+        "transcript": transcript[:20000], "analysis": analysis,
+        "language": language, "country": country, "location": location,
+        "evidence_hash": evidence_hash, "filename": audio.filename or "video.webm",
+        "case_id": case_id, "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.evidence.insert_one(rec)
+    # Auto-attach to case if provided
+    if case_id:
+        await db.case_items.insert_one({
+            "id": str(uuid.uuid4()), "case_id": case_id, "user_id": user["id"],
+            "item_type": "video", "item_id": ev_id,
+            "title": (audio.filename or "Video recording"),
+            "preview": transcript[:400],
+            "timestamp_utc": rec["created_at"], "location": location,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        await db.cases.update_one({"id": case_id}, {"$inc": {"items_count": 1}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}})
+    rec.pop("_id", None)
+    return rec
+
+# ==================== LIMITATION-PERIOD REMINDERS ====================
+@api_router.post("/reminders")
+async def create_reminder(data: ReminderCreate, user: dict = Depends(get_user)):
+    rid = str(uuid.uuid4())
+    doc = {
+        "id": rid, "user_id": user["id"], "case_id": data.case_id,
+        "title": data.title[:200], "description": (data.description or "")[:500],
+        "due_at": data.due_at, "kind": data.kind, "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.reminders.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.get("/reminders")
+async def list_reminders(user: dict = Depends(get_user), status: Optional[str] = "pending"):
+    q = {"user_id": user["id"]}
+    if status: q["status"] = status
+    out = []
+    async for r in db.reminders.find(q, {"_id": 0}).sort("due_at", 1).limit(100):
+        out.append(r)
+    return {"reminders": out}
+
+@api_router.patch("/reminders/{rid}")
+async def update_reminder(rid: str, status: Optional[str] = None, user: dict = Depends(get_user)):
+    if status not in ("pending", "done", "dismissed"):
+        raise HTTPException(400, "Invalid status")
+    r = await db.reminders.update_one({"id": rid, "user_id": user["id"]}, {"$set": {"status": status}})
+    if r.matched_count == 0: raise HTTPException(404, "Reminder not found")
+    return {"updated": True}
+
+@api_router.post("/reminders/detect")
+async def detect_deadlines(message: str = Form(...), language: str = Form("en-GB"), country: str = Form("GB"),
+                            user: dict = Depends(get_user)):
+    """Ask Lex to extract any limitation periods / deadlines / hearing dates from a chat message.
+    Returns a list of suggested reminders the user can one-tap accept."""
+    sys_prompt = f"""You are a legal deadline detector. The user is in {country}. Read the message below and extract any
+LEGAL DEADLINES, LIMITATION PERIODS, HEARING DATES, RESPONSE DEADLINES, or PAYMENT DUE DATES.
+For each deadline found, return a JSON array entry: {{"title": "...", "due_at": "YYYY-MM-DDTHH:MM:SS+00:00", "kind": "deadline|hearing|follow_up"}}.
+If no deadlines found, return [].
+Reply with ONLY valid JSON — no preamble, no explanation.
+If a relative date is mentioned (e.g. "within 14 days"), compute it from today {datetime.now(timezone.utc).date().isoformat()}."""
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()), system_message=sys_prompt
+                       ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=500)
+        raw = (await chat.send_message(UserMessage(text=message))).strip()
+        # Strip code fences if any
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].lstrip("json").strip()
+        import json as _json
+        deadlines = _json.loads(raw)
+        if not isinstance(deadlines, list): deadlines = []
+    except Exception as e:
+        logger.warning(f"Deadline detect parse err: {e}")
+        deadlines = []
+    return {"deadlines": deadlines[:5]}
+
+# ==================== LAW FIRM PORTAL ====================
+@api_router.post("/firm/signup")
+async def firm_signup(data: FirmPortalSignup):
+    existing = await db.firm_accounts.find_one({"email": data.email.lower()})
+    if existing:
+        raise HTTPException(409, "Email already registered")
+    fid = str(uuid.uuid4())
+    doc = {
+        "id": fid, "email": data.email.lower(), "password": hash_pw(data.password),
+        "firm_name": data.firm_name, "contact_name": data.contact_name,
+        "sra_number": data.sra_number, "country": data.country, "city": data.city,
+        "phone": data.phone, "specialties": data.specialties, "website": data.website,
+        "status": "pending_review",   # pending_review | approved | rejected | suspended
+        "tier": "free",               # free | featured | verified
+        "verified": False, "featured": False,
+        "lead_count_30d": 0, "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.firm_accounts.insert_one(doc)
+    token = jwt.encode({"sub": fid, "kind": "firm", "exp": datetime.now(timezone.utc) + timedelta(days=30)}, JWT_SECRET, algorithm="HS256")
+    doc.pop("_id", None); doc.pop("password", None)
+    return {"access_token": token, "firm": doc}
+
+@api_router.post("/firm/login")
+async def firm_login(data: FirmPortalLogin):
+    f = await db.firm_accounts.find_one({"email": data.email.lower()})
+    if not f or not verify_pw(data.password, f["password"]):
+        raise HTTPException(401, "Invalid credentials")
+    token = jwt.encode({"sub": f["id"], "kind": "firm", "exp": datetime.now(timezone.utc) + timedelta(days=30)}, JWT_SECRET, algorithm="HS256")
+    f.pop("_id", None); f.pop("password", None)
+    return {"access_token": token, "firm": f}
+
+async def get_firm(authorization: Optional[str] = Header(None)) -> dict:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "No token")
+    token = authorization.split(" ", 1)[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except Exception:
+        raise HTTPException(401, "Invalid token")
+    if payload.get("kind") != "firm":
+        raise HTTPException(403, "Not a firm account")
+    f = await db.firm_accounts.find_one({"id": payload["sub"]}, {"_id": 0, "password": 0})
+    if not f: raise HTTPException(401, "Firm not found")
+    return f
+
+@api_router.get("/firm/me")
+async def firm_me(firm: dict = Depends(get_firm)):
+    # Recent leads
+    leads = []
+    async for q in db.inquiries.find({"firm_id": firm["id"]}, {"_id": 0}).sort("created_at", -1).limit(50):
+        leads.append(q)
+    firm["recent_leads"] = leads
+    return firm
+
+@api_router.patch("/firm/listing")
+async def firm_update_listing(data: FirmListingUpdate, firm: dict = Depends(get_firm)):
+    if firm["status"] != "approved":
+        raise HTTPException(403, "Firm not yet approved by AI Advocate admin")
+    upd = {k: v for k, v in data.dict(exclude_none=True).items()}
+    upd["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.lawfirms.update_one({"firm_account_id": firm["id"]}, {"$set": upd})
+    return {"updated": True}
+
+@api_router.post("/firm/subscribe")
+async def firm_subscribe(plan: str = "featured", firm: dict = Depends(get_firm)):
+    """Stripe checkout for firms — £49/mo Featured or £19/mo Verified."""
+    if plan not in ("featured", "verified"):
+        raise HTTPException(400, "plan must be 'featured' or 'verified'")
+    if not STRIPE_API_KEY:
+        raise HTTPException(503, "Billing not configured")
+    # Reuse PRICE_TO_TIER pattern — but firm prices come from env (placeholders for now)
+    price_id = os.environ.get(f"STRIPE_PRICE_FIRM_{plan.upper()}", "")
+    if not price_id:
+        raise HTTPException(503, f"Stripe price ID for firm {plan} not configured. Set STRIPE_PRICE_FIRM_{plan.upper()} in .env")
+    try:
+        session = stripe.checkout.Session.create(
+            mode="subscription", line_items=[{"price": price_id, "quantity": 1}],
+            customer_email=firm["email"],
+            success_url=f"{(os.environ.get('FRONTEND_URL') or '').rstrip('/') }/firm-portal?paid=1",
+            cancel_url=f"{(os.environ.get('FRONTEND_URL') or '').rstrip('/') }/firm-portal?cancelled=1",
+            metadata={"firm_id": firm["id"], "firm_plan": plan},
+        )
+        return {"checkout_url": session.url}
+    except Exception as e:
+        raise HTTPException(500, f"Stripe checkout failed: {str(e)}")
+
+# ==================== ADMIN DASHBOARD ====================
+ADMIN_EMAILS = [e.strip().lower() for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",") if e.strip()]
+
+async def require_admin(user: dict = Depends(get_user)):
+    if user.get("email", "").lower() not in ADMIN_EMAILS:
+        raise HTTPException(403, "Admin only")
+    return user
+
+@api_router.get("/admin/stats")
+async def admin_stats(_: dict = Depends(require_admin)):
+    return {
+        "users_total": await db.users.count_documents({}),
+        "users_trial": await db.users.count_documents({"tier": "trial_pro"}),
+        "users_plus": await db.users.count_documents({"tier": "plus", "subscription_status": "active"}),
+        "users_pro": await db.users.count_documents({"tier": "pro", "subscription_status": "active"}),
+        "users_yearly": await db.users.count_documents({"tier": "yearly", "subscription_status": "active"}),
+        "firms_pending": await db.firm_accounts.count_documents({"status": "pending_review"}),
+        "firms_approved": await db.firm_accounts.count_documents({"status": "approved"}),
+        "chats_today": await db.conversations.count_documents({"created_at": {"$gte": datetime.now(timezone.utc).date().isoformat()}}),
+        "leads_today": await db.inquiries.count_documents({"created_at": {"$gte": datetime.now(timezone.utc).date().isoformat()}}),
+    }
+
+@api_router.get("/admin/firms")
+async def admin_list_firms(_: dict = Depends(require_admin), status: Optional[str] = None):
+    q = {}
+    if status: q["status"] = status
+    out = []
+    async for f in db.firm_accounts.find(q, {"_id": 0, "password": 0}).sort("created_at", -1).limit(200):
+        out.append(f)
+    return {"firms": out}
+
+@api_router.post("/admin/firms/action")
+async def admin_firm_action(data: AdminFirmAction, admin: dict = Depends(require_admin)):
+    f = await db.firm_accounts.find_one({"id": data.firm_id})
+    if not f: raise HTTPException(404, "Firm not found")
+    upd = {"reviewed_at": datetime.now(timezone.utc).isoformat(), "reviewed_by": admin["email"], "review_notes": data.notes}
+    if data.action == "approve":
+        upd["status"] = "approved"
+        # Create the directory listing
+        if not await db.lawfirms.find_one({"firm_account_id": f["id"]}):
+            await db.lawfirms.insert_one({
+                "id": str(uuid.uuid4()), "firm_account_id": f["id"], "name": f["firm_name"],
+                "country": f["country"], "city": f["city"], "phone": f["phone"],
+                "website": f["website"], "specialties": f.get("specialties", []),
+                "verified": False, "featured": False,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+    elif data.action == "reject":
+        upd["status"] = "rejected"
+    elif data.action == "suspend":
+        upd["status"] = "suspended"
+        await db.lawfirms.update_one({"firm_account_id": f["id"]}, {"$set": {"suspended": True}})
+    elif data.action == "verify":
+        upd["verified"] = True
+        await db.lawfirms.update_one({"firm_account_id": f["id"]}, {"$set": {"verified": True}})
+    elif data.action == "unverify":
+        upd["verified"] = False
+        await db.lawfirms.update_one({"firm_account_id": f["id"]}, {"$set": {"verified": False}})
+    else:
+        raise HTTPException(400, "Invalid action")
+    await db.firm_accounts.update_one({"id": data.firm_id}, {"$set": upd})
+    return {"ok": True, "new_status": upd.get("status", f["status"])}
+
+# ==================== CLOUD BACKUP (Export-as-JSON) ====================
+@api_router.get("/backup/export")
+async def export_user_data(user: dict = Depends(get_user)):
+    """Plus+ feature — bundle ALL user data into a JSON file (court-ready + GDPR right-to-portability).
+    User can save this to iCloud Drive / Google Drive manually via the OS Share sheet."""
+    pub = user_to_public(user)
+    if pub["tier"] == "free":
+        raise HTTPException(402, "Cloud Backup requires Plus or Pro. Upgrade to unlock data export.")
+    bundle = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "user": {"email": user["email"], "id": user["id"], "country": user.get("country"), "tier": pub["tier"]},
+        "cases": [], "conversations": [], "evidence": [], "letters": [], "reminders": [], "recordings": [],
+    }
+    async for c in db.cases.find({"user_id": user["id"]}, {"_id": 0}): bundle["cases"].append(c)
+    async for c in db.conversations.find({"user_id": user["id"]}, {"_id": 0}).limit(2000): bundle["conversations"].append(c)
+    async for e in db.evidence.find({"user_id": user["id"]}, {"_id": 0}): bundle["evidence"].append(e)
+    async for l in db.letters.find({"user_id": user["id"]}, {"_id": 0}): bundle["letters"].append(l)
+    async for r in db.reminders.find({"user_id": user["id"]}, {"_id": 0}): bundle["reminders"].append(r)
+    async for r in db.recordings.find({"user_id": user["id"]}, {"_id": 0}): bundle["recordings"].append(r)
+    import json as _json
+    body = _json.dumps(bundle, indent=2, default=str)
+    return StreamingResponse(io.BytesIO(body.encode()), media_type="application/json",
+                             headers={"Content-Disposition": f'attachment; filename="ai-advocate-backup-{user["id"][:8]}.json"'})
+
+# ==================== TRUSTPILOT PRE-RENEWAL REMINDER ====================
+@api_router.get("/review/should-prompt")
+async def review_should_prompt(user: dict = Depends(get_user)):
+    """Returns true if the user is within 7 days of subscription renewal AND has NOT clicked the Trustpilot link yet."""
+    if user.get("review_left"):
+        return {"should_prompt": False, "reason": "already_reviewed"}
+    pub = user_to_public(user)
+    if pub["tier"] in ("free",):
+        return {"should_prompt": False, "reason": "free_tier"}
+    # Trial — prompt at day 12 of 14
+    if pub["tier"] == "trial_pro":
+        days_left = pub.get("trial_days_remaining", 14)
+        if 0 < days_left <= 2:
+            return {"should_prompt": True, "reason": "trial_ending", "days_left": days_left}
+        return {"should_prompt": False, "reason": "trial_running"}
+    # Paid — prompt at 7 days before next billing date
+    nbd_iso = user.get("next_billing_date") or user.get("current_period_end")
+    if not nbd_iso:
+        return {"should_prompt": False, "reason": "no_billing_date"}
+    try:
+        nbd = datetime.fromisoformat(nbd_iso.replace("Z", "+00:00")) if isinstance(nbd_iso, str) else nbd_iso
+        days_to_renew = (nbd - datetime.now(timezone.utc)).days
+        if 0 < days_to_renew <= 7:
+            return {"should_prompt": True, "reason": "renewal_soon", "days_left": days_to_renew}
+    except Exception:
+        pass
+    return {"should_prompt": False, "reason": "not_yet"}
+
+@api_router.post("/review/recorded")
+async def review_recorded(user: dict = Depends(get_user)):
+    """Marks the user as having clicked through to Trustpilot — stops further prompts."""
+    await db.users.update_one({"id": user["id"]}, {"$set": {"review_left": True, "review_left_at": datetime.now(timezone.utc).isoformat()}})
+    return {"recorded": True}
 
 app.include_router(api_router)
 app.add_middleware(

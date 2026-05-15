@@ -1,0 +1,52 @@
+{
+  "summary": "Iter9 end-to-end testing of 8 new feature groups: Case Files, Reminders, Video gating, Law Firm Portal, Admin Dashboard, Cloud Backup, Trustpilot Review prompt + Reader-App compliance. Backend pytest: 21/21 PASS after fixing 1 real bug. Frontend: critical Cases flow verified — login → tile-cases → cases-modal → new-case-btn → new-case-name → create-case-confirm successfully creates a case and shows the detail view with Rename/Export PDF/Delete buttons. Dashboard tiles tile-cases, tile-reminders, tile-ask_lex, settings-btn all present.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/review/should-prompt", "issue": "FIXED in this iter — was reading `user.get('trial_days_remaining', 14)` from raw DB doc (field never stored), so trial_ending branch never fired. Changed to `pub.get('trial_days_remaining', 14)` (line 2697)."},
+      {"endpoint": "/api/review/should-prompt (residual)", "issue": "(trial_end - now).days floors, so when <24h remain trial_days_remaining=0 and `0 < 0 <= 2` is False — last-day users never get the prompt. Consider using `math.ceil(hours/24)` so 12h-left → 1 day → True. Non-blocking, minor."},
+      {"endpoint": "/api/firm/subscribe", "issue": "Returns 503 if STRIPE_PRICE_FIRM_FEATURED / STRIPE_PRICE_FIRM_VERIFIED env vars missing — these are intentionally unset right now per problem statement. No fix needed."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CaseFilesModal", "issue": "After clicking create-case-confirm, modal auto-navigates to case detail view but pressing Escape does NOT close the modal (back-to-list works, ESC does not). Minor UX gap.", "selector": "[data-testid='cases-modal']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter9_features.py",
+    "/app/test_reports/pytest/iter9_results.xml"
+  ],
+  "action_items": [
+    "(Recommended) Make CaseFilesModal close on Escape / outside-click consistently — Detail view currently traps ESC.",
+    "(Optional) Use math.ceil for trial_days_remaining (or compute hours-based threshold) so users in last 24h still get the Trustpilot prompt.",
+    "(Carried over) Split /app/backend/server.py — now ~2737 lines.",
+    "(Manual verify needed by main agent) tile-reminders → reminders-modal → add-reminder-btn flow (testids exist per source); settings-btn → settings-cloud-backup → export-backup-btn flow; Capacitor IS_NATIVE → trial-banner-free-native + settings-upgrade-web-link. These were not reachable in this Playwright run because the cases-modal kept its state across navigation attempts; recommend re-testing via a fresh window each time."
+  ],
+  "critical_code_review_comments": [
+    "BUG FOUND & FIXED: review_should_prompt() at server.py:2697 read trial_days_remaining off the raw user DB doc (never stored there), defaulting to 14, which meant the Trustpilot trial_ending branch could NEVER fire. Changed to read from pub (which is user_to_public(user)) instead.",
+    "Floor-based (trial_end - now).days means users in the final 24h of trial get days_left=0 and miss the prompt — recommend ceil-based or hours-based comparison.",
+    "/api/admin/stats counts `chats_today` and `leads_today` by string-prefix on ISO date — works only because created_at is stored as ISO-8601 string, but a 'YYYY-MM-DD' prefix comparison against full ISO timestamps misses entries with timezone offsets. Currently fine since all rows use UTC isoformat(), but fragile.",
+    "/api/admin/firms/action correctly supports approve/reject/suspend/verify/unverify and creates the lawfirms directory row on approve — good.",
+    "/api/backup/export streams JSON in-memory with json.dumps — fine for current dataset, but for paid users with 2000+ conversations this can balloon RAM. Consider chunked streaming.",
+    "/api/cases/{id}/export-pdf hashes (item_id + timestamp + user_id) — good for tamper-evidence, but doesn't hash the actual content. Recommend hashing preview bytes too so any tampering of the content invalidates the hash.",
+    "/api/firm/signup stores plain firm_accounts.password = hash_pw(...) — good, but the doc echoed back to the client includes password field cleanup only after JWT issuance. Verified pop('password') is called before returning — OK.",
+    "Capacitor IS_NATIVE compliance gating (settings-upgrade-btn → settings-upgrade-web-link) NOT verified end-to-end in this iter — requires fresh browser context with addInitScript."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (line 2697: trial_days_remaining bug fix)",
+    "/app/backend/tests/test_iter9_features.py (NEW — 21 tests across 7 feature groups)"
+  ],
+  "success_rate": {
+    "backend": "100% (21/21 — Cases 3, Reminders 2, Video gating 1, Firm Portal 4, Admin 5, Backup 2, Review 4)",
+    "frontend": "Partial — Cases flow verified end-to-end with create+detail view; Reminders/Settings/Capacitor flows blocked by stale modal state in single-page test session. Tiles all present."
+  },
+  "test_credentials": "test@advocate.app / Test12345! (trial_pro) — works. admin@aiadvocate.co.uk / Test12345! created by test suite. Per-run TEST_iter9_*@advocate.app users created via /api/auth/signup.",
+  "seed_data_creation": "Each test class creates fresh TEST_iter9_* users + firm_test_* firm accounts. admin@aiadvocate.co.uk user is created on first run and reused. No cleanup fixture — DB now has TEST_ prefixed users from iter5–iter9; recommend a periodic cleanup script.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "BACKEND 21/21 PASS after fixing review_should_prompt bug (user→pub for trial_days_remaining). Reminders/Settings/Cloud-Backup/Capacitor UI flows still need a full Playwright pass — when testing, OPEN A FRESH BROWSER CONTEXT for each modal flow because the CaseFilesModal detail view traps Escape and breaks subsequent tile clicks in the same session. Login sequence (mobile 390x844): (1) Lang picker OK button → (2) check checkbox first then click data-testid='accept-terms-btn' → (3) data-testid='auth-submit-btn'. Pre-seeded user test@advocate.app/Test12345! works.",
+  "rca of the issue": "BUG (FIXED): /api/review/should-prompt (server.py line 2697) read `days_left = user.get('trial_days_remaining', 14)` from the raw MongoDB user document. However, trial_days_remaining is a DERIVED field — it is computed inside user_to_public() from trial_end_date and never persisted. So the lookup always hit the default 14, and `0 < 14 <= 2` is False, meaning the trial_ending Trustpilot prompt branch could never fire. Fix: read from `pub` (the user_to_public result) which has the freshly computed value. Reproduction: signup → update users.trial_end_date to 30h from now → GET /api/review/should-prompt → was returning {should_prompt: false, reason: 'trial_running'}; now correctly returns {should_prompt: true, reason: 'trial_ending', days_left: 1}. Verified by 4 pytest cases in TestReview."
+}

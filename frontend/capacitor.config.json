@@ -1,0 +1,25 @@
+{
+  "appId": "uk.co.aiadvocate.official",
+  "appName": "AI Advocate",
+  "webDir": "build",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "https://aiadvocate.co.uk",
+    "cleartext": false,
+    "androidScheme": "https"
+  },
+  "ios": {
+    "contentInset": "always"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1500,
+      "backgroundColor": "#0a0a0a",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#0a0a0a"
+    }
+  }
+}

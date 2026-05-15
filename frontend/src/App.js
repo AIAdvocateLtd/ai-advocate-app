@@ -5,9 +5,14 @@ import {
   MessageCircle, Mic, Folder, FileText, Gavel, Globe, Briefcase, Home as HomeIcon,
   Stethoscope, Scale, X, Send, Upload, Languages, LogOut, Check, ArrowLeft, Square, Play,
   Camera, MapPin, Phone, ExternalLink, Settings as SettingsIcon, Star, Building2, Image as ImageIcon,
-  Download
+  Download, Trash2
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
+
+// Apple Reader-App compliance — when running inside the native iOS binary,
+// we hide all Subscribe / Upgrade buttons (and replace them with a web-billing notice).
+// This passes Apple Guideline 3.1.3(a). Web users see Stripe checkout as normal.
+const IS_NATIVE = typeof window !== "undefined" && !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 import {
   AskLexIcon, RecordIcon, CameraIcon, LawyerIcon, FilesIcon, LetterIcon,
   CourtIcon, ImmigrationIcon, EmploymentIcon, PropertyIcon, MedicalIcon
@@ -785,6 +790,17 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
           if (u) setDtUsed({ used: u.used, limit: u.limit });
         }).catch(() => {});
       }
+      // ⏰ Limitation-period detector — fire-and-forget; if Lex finds a deadline, surface a one-tap "Add reminder" chip.
+      const fd = new FormData();
+      fd.append("message", text);
+      fd.append("language", lang);
+      fd.append("country", country);
+      api.post("/reminders/detect", fd).then(r => {
+        const dls = r.data?.deadlines || [];
+        if (dls.length) {
+          setMessages(m => [...m, { role: "deadlines", content: "", at: new Date().toISOString(), deadlines: dls }]);
+        }
+      }).catch(() => {});
       // TTS playback
       try {
         const r = await api.post("/voice/tts", { text: data.response.slice(0, 1500), voice: "onyx", language: data.reply_language }, { responseType: "blob" });
@@ -794,6 +810,20 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
     } catch (e) {
       setMessages(m => [...m, { role: "lex", content: e?.response?.data?.detail || "Error: try again" }]);
     } finally { setBusy(false); }
+  };
+
+  const addDeadlineAsReminder = async (dl, idx) => {
+    try {
+      await api.post("/reminders", { title: dl.title, due_at: dl.due_at, kind: dl.kind || "deadline" });
+      // Mark this deadline as "added" in the local message
+      setMessages(ms => ms.map((m, i) => {
+        if (m.role !== "deadlines") return m;
+        const newDls = m.deadlines.map((d, di) => di === idx ? { ...d, _added: true } : d);
+        return { ...m, deadlines: newDls };
+      }));
+    } catch (e) {
+      alert(e?.response?.data?.detail || t(lang, "failed"));
+    }
   };
 
   const onMic = async () => {
@@ -869,15 +899,36 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
           )}
           {messages.map((m, i) => (
             <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start" }}>
-              <div className={m.role === "user" ? "bubble-user" : "bubble-lex"}
-                   data-testid={`msg-${m.role}-${i}`}
-                   style={{ padding: "10px 14px", borderRadius: 14, maxWidth: "82%", whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 }}>
-                {m.content}
-              </div>
-              {m.at && (
-                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2, padding: "0 6px" }} data-testid={`ts-${i}`}>
-                  {new Date(m.at).toLocaleString()}
+              {m.role === "deadlines" ? (
+                <div data-testid={`deadline-card-${i}`} style={{ background: "rgba(220,38,38,0.15)", border: "1px solid #fca5a5", borderRadius: 12, padding: 12, width: "100%", marginTop: 4 }}>
+                  <div style={{ color: "#fca5a5", fontWeight: 700, fontSize: 12, marginBottom: 6 }}>⏰ {t(lang, "deadlineFound")}</div>
+                  {(m.deadlines || []).map((dl, di) => (
+                    <div key={di} style={{ marginBottom: 6 }}>
+                      <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>{dl.title}</div>
+                      <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>
+                        Due {new Date(dl.due_at).toLocaleString()}
+                      </div>
+                      <button data-testid={`add-deadline-${i}-${di}`} onClick={() => addDeadlineAsReminder(dl, di)} disabled={dl._added}
+                        style={{ background: dl._added ? "var(--bg-card)" : "var(--gold)", color: dl._added ? "var(--text-muted)" : "#1a1300",
+                                 border: "none", borderRadius: 12, padding: "5px 12px", fontSize: 11, fontWeight: 600, cursor: dl._added ? "default" : "pointer" }}>
+                        {dl._added ? "✓ Added" : t(lang, "addToReminders")}
+                      </button>
+                    </div>
+                  ))}
                 </div>
+              ) : (
+                <>
+                  <div className={m.role === "user" ? "bubble-user" : "bubble-lex"}
+                       data-testid={`msg-${m.role}-${i}`}
+                       style={{ padding: "10px 14px", borderRadius: 14, maxWidth: "82%", whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 }}>
+                    {m.content}
+                  </div>
+                  {m.at && (
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2, padding: "0 6px" }} data-testid={`ts-${i}`}>
+                      {new Date(m.at).toLocaleString()}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           ))}
@@ -1572,6 +1623,218 @@ function FilesModal({ lang, onClose }) {
   );
 }
 
+// ---------- Case Files (group chats / photos / videos / letters per case) ----------
+function CaseFilesModal({ lang, onClose }) {
+  const [cases, setCases] = useState([]);
+  const [open, setOpen] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = () => api.get("/cases").then(r => setCases(r.data.cases || [])).catch(() => {});
+  useEffect(() => { load(); }, []);
+
+  const openCase = async (c) => {
+    const r = await api.get(`/cases/${c.id}`);
+    setOpen(r.data);
+  };
+
+  const createCase = async () => {
+    if (!newName.trim() && !creating) return;
+    setBusy(true);
+    try {
+      const r = await api.post("/cases", { name: newName.trim() || "Untitled case" });
+      setNewName(""); setCreating(false); await load(); openCase(r.data);
+    } catch (e) { alert(e?.response?.data?.detail || t(lang, "failed")); }
+    finally { setBusy(false); }
+  };
+
+  const rename = async () => {
+    const v = prompt(t(lang, "renameCase"), open.name);
+    if (!v || !v.trim()) return;
+    const r = await api.patch(`/cases/${open.id}`, { name: v.trim() });
+    setOpen({ ...open, name: r.data.name }); load();
+  };
+
+  const remove = async () => {
+    if (!window.confirm(t(lang, "deleteConfirm"))) return;
+    await api.delete(`/cases/${open.id}`); setOpen(null); load();
+  };
+
+  const exportPdf = async () => {
+    try {
+      const r = await api.get(`/cases/${open.id}/export-pdf`, { responseType: "blob" });
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement("a"); a.href = url; a.download = `case-${open.id.slice(0,8)}.pdf`; a.click();
+    } catch (e) { alert(e?.response?.data?.detail || t(lang, "failed")); }
+  };
+
+  return (
+    <div className="modal-bg" data-testid="cases-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "92vh" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "caseFiles")}</h2>
+          <button onClick={onClose} data-testid="cases-close" style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={24} /></button>
+        </div>
+        {!open ? (
+          <div style={{ overflowY: "auto", paddingBottom: 60 }}>
+            {!creating ? (
+              <button className="btn-gold w-full" data-testid="new-case-btn" onClick={() => setCreating(true)} style={{ marginBottom: 12 }}>
+                + {t(lang, "newCase")}
+              </button>
+            ) : (
+              <div style={{ marginBottom: 12 }}>
+                <input className="input" data-testid="new-case-name" placeholder={t(lang, "caseNamePlaceholder")} value={newName} onChange={(e) => setNewName(e.target.value)} style={{ marginBottom: 8 }} />
+                <div className="flex gap-2">
+                  <button className="btn-gold" data-testid="create-case-confirm" disabled={busy} onClick={createCase} style={{ flex: 1 }}>{busy ? <span className="spinner" /> : t(lang, "save")}</button>
+                  <button className="btn-ghost" onClick={() => { setCreating(false); setNewName(""); }} style={{ flex: 1 }}>{t(lang, "cancel")}</button>
+                </div>
+              </div>
+            )}
+            {cases.length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>{t(lang, "noCases")}</p>}
+            {cases.map(c => (
+              <button key={c.id} onClick={() => openCase(c)} data-testid={`case-${c.id}`} className="w-full"
+                      style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 12, padding: 14, marginBottom: 8, color: "var(--text)", textAlign: "left", cursor: "pointer" }}>
+                <div style={{ color: "var(--gold)", fontWeight: 600 }}>{c.name}</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                  {c.status === "open" ? t(lang, "caseStatusOpen") : t(lang, "caseStatusClosed")} · {t(lang, "itemsInCase", { n: c.items_count || 0 })} · {new Date(c.updated_at).toLocaleDateString()}
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div style={{ overflowY: "auto", paddingBottom: 60 }}>
+            <button className="btn-ghost" onClick={() => setOpen(null)} style={{ marginBottom: 12, padding: "6px 12px", fontSize: 13 }}><ArrowLeft size={14} /> {t(lang, "backToList")}</button>
+            <h3 style={{ color: "var(--gold)", marginBottom: 4 }}>{open.name}</h3>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 14 }}>
+              {t(lang, "timestamp")}: {new Date(open.created_at).toLocaleString()}
+            </div>
+            <div className="flex gap-2" style={{ marginBottom: 14 }}>
+              <button className="btn-ghost" onClick={rename} data-testid="rename-case-btn" style={{ flex: 1, fontSize: 12 }}>{t(lang, "renameCase")}</button>
+              <button className="btn-ghost" onClick={exportPdf} data-testid="export-case-btn" style={{ flex: 1, fontSize: 12 }}>{t(lang, "exportCasePdf")}</button>
+              <button className="btn-ghost" onClick={remove} data-testid="delete-case-btn" style={{ flex: 0.7, fontSize: 12, color: "#fca5a5" }}><Trash2 size={14} /></button>
+            </div>
+            {(open.items || []).length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 14, fontSize: 13 }}>{t(lang, "noFilesYet")}</p>}
+            {(open.items || []).map(it => (
+              <div key={it.id} data-testid={`case-item-${it.id}`} style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  <span style={{ background: "var(--gold-deep)", color: "#1a1300", padding: "2px 7px", borderRadius: 8, fontSize: 10, fontWeight: 700, letterSpacing: "0.05em" }}>{it.item_type.toUpperCase()}</span>
+                  <span style={{ color: "var(--gold)", fontSize: 13, fontWeight: 600 }}>{it.title}</span>
+                </div>
+                {it.preview && <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4, whiteSpace: "pre-wrap" }}>{it.preview}</div>}
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6 }}>
+                  {new Date(it.timestamp_utc || it.created_at).toLocaleString()}
+                  {it.location && ` · 📍 ${it.location}`}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Reminders / Limitation Periods ----------
+function RemindersModal({ lang, onClose }) {
+  const [reminders, setReminders] = useState([]);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ title: "", description: "", due_at: "" });
+  const [busy, setBusy] = useState(false);
+  const load = () => api.get("/reminders").then(r => setReminders(r.data.reminders || [])).catch(() => {});
+  useEffect(() => { load(); }, []);
+
+  const create = async () => {
+    if (!form.title.trim() || !form.due_at) return;
+    setBusy(true);
+    try {
+      // Ensure ISO format
+      const dueIso = new Date(form.due_at).toISOString();
+      await api.post("/reminders", { title: form.title, description: form.description, due_at: dueIso });
+      setForm({ title: "", description: "", due_at: "" }); setAdding(false); load();
+    } catch (e) { alert(e?.response?.data?.detail || t(lang, "failed")); }
+    finally { setBusy(false); }
+  };
+
+  const markDone = async (rid) => { await api.patch(`/reminders/${rid}?status=done`); load(); };
+
+  return (
+    <div className="modal-bg" data-testid="reminders-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "92vh" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "reminders")}</h2>
+          <button onClick={onClose} data-testid="reminders-close" style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={24} /></button>
+        </div>
+        <div style={{ overflowY: "auto", paddingBottom: 60 }}>
+          {!adding ? (
+            <button className="btn-gold w-full" data-testid="add-reminder-btn" onClick={() => setAdding(true)} style={{ marginBottom: 12 }}>+ {t(lang, "addReminder")}</button>
+          ) : (
+            <div style={{ marginBottom: 12 }}>
+              <input className="input" data-testid="rem-title" placeholder={t(lang, "reminderTitle")} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} style={{ marginBottom: 8 }} />
+              <textarea className="input" data-testid="rem-desc" rows={2} placeholder={t(lang, "reminderDescription")} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ marginBottom: 8 }} />
+              <input className="input" data-testid="rem-due" type="datetime-local" value={form.due_at} onChange={(e) => setForm({ ...form, due_at: e.target.value })} style={{ marginBottom: 8 }} />
+              <div className="flex gap-2">
+                <button className="btn-gold" data-testid="save-rem-btn" disabled={busy} onClick={create} style={{ flex: 1 }}>{busy ? <span className="spinner" /> : t(lang, "save")}</button>
+                <button className="btn-ghost" onClick={() => setAdding(false)} style={{ flex: 1 }}>{t(lang, "cancel")}</button>
+              </div>
+            </div>
+          )}
+          {reminders.length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>{t(lang, "noReminders")}</p>}
+          {reminders.map(r => {
+            const due = new Date(r.due_at);
+            const daysOut = Math.ceil((due - new Date()) / (24 * 3600 * 1000));
+            const urgent = daysOut <= 3;
+            return (
+              <div key={r.id} data-testid={`rem-${r.id}`}
+                   style={{ background: "var(--bg-card)", border: `1px solid ${urgent ? "#dc2626" : "var(--line)"}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
+                <div style={{ color: urgent ? "#fca5a5" : "var(--gold)", fontWeight: 600 }}>
+                  {urgent && "⚠ "}{r.title}
+                </div>
+                {r.description && <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>{r.description}</div>}
+                <div style={{ fontSize: 11, color: urgent ? "#fca5a5" : "var(--text-muted)", marginTop: 6 }}>
+                  Due {due.toLocaleString()} · {daysOut > 0 ? `${daysOut}d left` : `${-daysOut}d overdue`}
+                </div>
+                <button className="btn-ghost" onClick={() => markDone(r.id)} data-testid={`done-${r.id}`} style={{ marginTop: 8, padding: "4px 10px", fontSize: 11 }}>
+                  ✓ {t(lang, "reminderMarkDone")}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Trustpilot pre-renewal review prompt ----------
+function ReviewPrompt({ lang, onClose, daysLeft }) {
+  return (
+    <div className="modal-bg" data-testid="review-prompt" style={{ zIndex: 10001 }}>
+      <div className="modal-card" style={{ padding: 22, maxHeight: "60vh", textAlign: "center" }}>
+        <div style={{ fontSize: 38, marginBottom: 8 }}>⭐</div>
+        <h2 className="brand-font gold" style={{ fontSize: 22, marginBottom: 8 }}>{t(lang, "leaveReview")}</h2>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6, marginBottom: 18 }}>
+          {t(lang, "reviewSubText")}
+          {daysLeft != null && daysLeft > 0 && (
+            <><br /><strong style={{ color: "var(--gold)" }}>{daysLeft}d</strong></>
+          )}
+        </p>
+        <a href="https://www.trustpilot.com/review/aiadvocate.co.uk" target="_blank" rel="noreferrer"
+           data-testid="trustpilot-link"
+           onClick={() => { api.post("/review/recorded").catch(() => {}); setTimeout(onClose, 200); }}
+           className="btn-gold" style={{ display: "block", padding: "12px 18px", marginBottom: 10, textDecoration: "none" }}>
+          ⭐ {t(lang, "rateOnTrustpilot")}
+        </a>
+        <button className="btn-ghost" data-testid="review-not-now" onClick={onClose} style={{ padding: "10px 18px", fontSize: 13 }}>
+          {t(lang, "notNow")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+
 // ---------- Snap Evidence (camera + upload) ----------
 function SnapEvidenceModal({ lang, country, onClose }) {
   const [files, setFiles] = useState([]); // [{ file, preview }]
@@ -1955,12 +2218,20 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             {user.tier === "trial_pro" && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--gold)" }}>{t(lang, "trialLeft", { n: user.trial_days_remaining })}</span>}
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <button className="btn-gold" data-testid="settings-upgrade-btn"
-              onClick={() => { onClose(); window.dispatchEvent(new CustomEvent("aa:open-subscribe", { detail: { preset: "pro" } })); }}
-              style={{ flex: 1, padding: "8px 12px", fontSize: 13 }}>
-              {user.tier === "free" ? t(lang, "upgrade") : t(lang, "changePlan")}
-            </button>
-            {user.stripe_customer_id && (
+            {!IS_NATIVE && (
+              <button className="btn-gold" data-testid="settings-upgrade-btn"
+                onClick={() => { onClose(); window.dispatchEvent(new CustomEvent("aa:open-subscribe", { detail: { preset: "pro" } })); }}
+                style={{ flex: 1, padding: "8px 12px", fontSize: 13 }}>
+                {user.tier === "free" ? t(lang, "upgrade") : t(lang, "changePlan")}
+              </button>
+            )}
+            {IS_NATIVE && (
+              <a href="https://aiadvocate.co.uk/subscribe" data-testid="settings-upgrade-web-link"
+                 style={{ flex: 1, padding: "8px 12px", fontSize: 12, background: "var(--bg-card)", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 10, textAlign: "center", textDecoration: "none" }}>
+                {t(lang, "manageOnWeb")}
+              </a>
+            )}
+            {user.stripe_customer_id && !IS_NATIVE && (
               <button className="btn-ghost" data-testid="settings-portal-btn"
                 onClick={async () => { try { const { data } = await api.post("/subscription/portal"); window.location.href = data.portal_url; } catch (e) { alert(e?.response?.data?.detail || t(lang, "failed")); } }}
                 style={{ flex: 1, padding: "8px 12px", fontSize: 13 }}>
@@ -2132,6 +2403,30 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
           <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
             {t(lang, "locationStampDesc")}
           </div>
+        </div>
+
+        {/* Cloud Backup — Plus+ data export */}
+        <div data-testid="settings-cloud-backup" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <Folder size={18} style={{ color: "var(--gold)" }} />
+            <span style={{ fontWeight: 600 }}>{t(lang, "cloudBackup")}</span>
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 10 }}>
+            {t(lang, "cloudBackupDesc")}
+          </div>
+          <button data-testid="export-backup-btn" className="btn-ghost" style={{ width: "100%", padding: "10px", fontSize: 13 }}
+            onClick={async () => {
+              try {
+                const r = await api.get("/backup/export", { responseType: "blob" });
+                const url = URL.createObjectURL(r.data);
+                const a = document.createElement("a"); a.href = url; a.download = `ai-advocate-backup-${Date.now()}.json`; a.click();
+                URL.revokeObjectURL(url);
+              } catch (e) {
+                alert(e?.response?.data?.detail || t(lang, "failed"));
+              }
+            }}>
+            📥 {t(lang, "downloadBackup")}
+          </button>
         </div>
 
         {/* Contact & Support */}
@@ -2365,6 +2660,16 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
   }, []);
 
   const [voiceMode, setVoiceMode] = useState(null); // {initialText} | null
+  const [reviewPrompt, setReviewPrompt] = useState(null); // {daysLeft}
+
+  // Trustpilot pre-renewal nudge — once per session, only if backend says it's the right window
+  useEffect(() => {
+    if (sessionStorage.getItem("aa_review_checked")) return;
+    sessionStorage.setItem("aa_review_checked", "1");
+    api.get("/review/should-prompt").then(r => {
+      if (r.data?.should_prompt) setReviewPrompt({ daysLeft: r.data.days_left });
+    }).catch(() => {});
+  }, []);
   // "Hey Lex" wake word — opens Siri-style Voice Mode (Plus+ only)
   const handleWake = useCallback((trailing) => {
     if (modal || voiceMode) return;
@@ -2381,6 +2686,8 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
     { id: "lawyers", label: t(lang, "findLawyer"), Icon: LawyerIcon, req: "free" },
     { id: "files", label: t(lang, "myFiles"), Icon: FilesIcon, req: "free" },
+    { id: "cases", label: t(lang, "caseFiles"), Icon: FilesIcon, req: "free" },
+    { id: "reminders", label: t(lang, "reminders"), Icon: FilesIcon, req: "free" },
     { id: "letter", label: t(lang, "letterLibrary"), Icon: LetterIcon, req: "free" },
     { id: "immigration", label: t(lang, "immigration"), Icon: ImmigrationIcon, cat: "immigration", req: "plus" },
     { id: "employment", label: t(lang, "employment"), Icon: EmploymentIcon, cat: "employment", req: "plus" },
@@ -2395,6 +2702,8 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       return;
     }
     if (tile.id === "files") setModal({ type: "files" });
+    else if (tile.id === "cases") setModal({ type: "cases" });
+    else if (tile.id === "reminders") setModal({ type: "reminders" });
     else if (tile.id === "letter") setModal({ type: "letter_lib" });
     else if (tile.id === "record") setModal({ type: "record" });
     else if (tile.id === "snap") setModal({ type: "snap" });
@@ -2441,12 +2750,18 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
         <span style={{ fontSize: 18 }}>⚠</span> {t(lang, "arrestedBtn")}
       </button>
 
-      {tier === "free" && (
+      {tier === "free" && !IS_NATIVE && (
         <div className="trial-banner" data-testid="trial-banner-free" style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span>{t(lang, "freePlanUnlock")}</span>
           <button className="btn-gold" data-testid="open-subscribe-btn" onClick={() => { setSubPreset("plus"); setShowSub(true); }} style={{ padding: "8px 14px", fontSize: 13 }}>
             {t(lang, "upgrade")}
           </button>
+        </div>
+      )}
+      {tier === "free" && IS_NATIVE && (
+        <div className="trial-banner" data-testid="trial-banner-free-native" style={{ marginBottom: 14, fontSize: 12 }}>
+          <span>{t(lang, "freePlanUnlock")} — </span>
+          <a href="https://aiadvocate.co.uk/subscribe" style={{ color: "var(--gold)", textDecoration: "underline" }}>aiadvocate.co.uk/subscribe</a>
         </div>
       )}
       {tier === "trial_pro" && (
@@ -2509,6 +2824,8 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "courtroom" && <CourtroomModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "letter_lib" && <LetterLibraryModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "files" && <FilesModal lang={lang} onClose={() => setModal(null)} />}
+      {modal?.type === "cases" && <CaseFilesModal lang={lang} onClose={() => setModal(null)} />}
+      {modal?.type === "reminders" && <RemindersModal lang={lang} onClose={() => setModal(null)} />}
       {modal?.type === "letter" && <LegalLetterModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "record" && <RecordModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "snap" && <SnapEvidenceModal lang={lang} country={country} onClose={() => setModal(null)} />}
@@ -2519,6 +2836,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {showSub && <SubscribeModal lang={lang} user={user} presetPlan={subPreset} onClose={() => setShowSub(false)} onActivated={(u) => { refreshUser(u); setShowSub(false); }} />}
       {showSettings && <SettingsModal lang={lang} country={country} user={user} onClose={() => setShowSettings(false)} onUpdate={(u) => refreshUser(u)} setLang={setLang} setCountry={setCountry} />}
       {showAdvertise && <AdvertiseModal lang={lang} onClose={() => setShowAdvertise(false)} />}
+      {reviewPrompt && <ReviewPrompt lang={lang} daysLeft={reviewPrompt.daysLeft} onClose={() => setReviewPrompt(null)} />}
     </div>
   );
 }
