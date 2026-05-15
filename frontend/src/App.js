@@ -143,7 +143,7 @@ function TermsScreen({ lang, onAccept, onDecline, onChangeLang }) {
         <div className="flex items-center justify-between" style={{ marginBottom: 12, flexShrink: 0 }}>
           <h2 className="brand-font gold" style={{ fontSize: 22 }}>{t(lang, "termsTitle")}</h2>
           <button className="btn-gold" data-testid="terms-lang-btn" onClick={onChangeLang}
-                  title="Change language"
+                  title={t(lang, "changeLanguage")}
                   style={{ padding: "8px 14px", fontSize: 24, lineHeight: 1 }}>
             {(LANGS.find(l => l.code === lang) || LANGS[0]).flag}
           </button>
@@ -239,7 +239,7 @@ function AuthScreen({ lang, country, onAuth }) {
   };
 
   const googleReal = () => {
-    if (!window.google?.accounts?.id) { alert("Google not loaded"); return; }
+    if (!window.google?.accounts?.id) { alert(t(lang, "googleNotLoaded")); return; }
     window.google.accounts.id.initialize({
       client_id: providers.google_client_id,
       callback: async (resp) => {
@@ -263,7 +263,7 @@ function AuthScreen({ lang, country, onAuth }) {
   };
 
   const appleSignIn = async () => {
-    if (!window.AppleID?.auth) { alert("Apple not loaded — refresh the page"); return; }
+    if (!window.AppleID?.auth) { alert(t(lang, "appleNotLoaded")); return; }
     setBusy(true); setErr("");
     try {
       const r = await window.AppleID.auth.signIn();
@@ -342,7 +342,7 @@ const useRecorder = () => {
       recorder.start();
       mr.current = { recorder, stream };
       setRecording(true);
-    } catch (e) { alert("Microphone access denied"); }
+    } catch (e) { alert(t(lang, "micAccessDenied")); }
   };
   const stop = () => new Promise((resolve) => {
     if (!mr.current) return resolve(null);
@@ -711,7 +711,7 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
 
         <div style={{ marginTop: "auto", display: "flex", gap: 12 }}>
           <button onClick={() => { unlockAudio(); stopAll(); try { audioElRef.current?.pause(); } catch {}; startListening(); }}
-            data-testid="voice-mode-mic" title="Talk to Lex"
+            data-testid="voice-mode-mic" title={t(lang, "talkToLex")}
             style={{ background: "#000", border: "2px solid var(--gold)", borderRadius: "50%",
                      width: 76, height: 76, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
                      boxShadow: phase === "listening" ? "0 0 20px rgba(247,201,72,0.6)" : "none" }}>
@@ -731,15 +731,18 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
 }
 
 // ---------- Lex Chat ----------
-function LexChat({ lang, country, category, title, onClose, autoMic = false }) {
+function LexChat({ lang, country, category, title, onClose, autoMic = false, tier = "free" }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [sessionId, setSessionId] = useState(null);
+  const [deepThink, setDeepThink] = useState(false);
   const { recording, start, stop } = useRecorder();
   const audioRef = useRef(null);
   const scrollRef = useRef(null);
   const autoStartedRef = useRef(false);
+
+  const isPro = tier === "pro" || tier === "yearly" || tier === "trial_pro";
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: 1e9, behavior: "smooth" }); }, [messages, busy]);
 
@@ -755,14 +758,19 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false }) {
 
   const send = async (text) => {
     if (!text.trim()) return;
-    setMessages(m => [...m, { role: "user", content: text }]); setInput(""); setBusy(true);
+    setMessages(m => [...m, { role: "user", content: text, at: new Date().toISOString() }]); setInput(""); setBusy(true);
     try {
-      const { data } = await api.post("/lex/chat", { message: text, session_id: sessionId, language: lang, country, category });
+      const autoDetect = localStorage.getItem("aa_autodetect") !== "0";
+      const { data } = await api.post("/lex/chat", {
+        message: text, session_id: sessionId, language: lang, country, category,
+        deep_think: deepThink && isPro,
+        auto_detect: autoDetect,
+      });
       setSessionId(data.session_id);
-      setMessages(m => [...m, { role: "lex", content: data.response }]);
+      setMessages(m => [...m, { role: "lex", content: data.response, at: new Date().toISOString(), model: data.model, replyLang: data.reply_language }]);
       // TTS playback
       try {
-        const r = await api.post("/voice/tts", { text: data.response.slice(0, 1500), voice: "onyx" }, { responseType: "blob" });
+        const r = await api.post("/voice/tts", { text: data.response.slice(0, 1500), voice: "onyx", language: data.reply_language }, { responseType: "blob" });
         const url = URL.createObjectURL(r.data);
         if (audioRef.current) { audioRef.current.src = url; audioRef.current.play().catch(() => {}); }
       } catch {}
@@ -793,9 +801,27 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false }) {
             <div className="brand-font gold" style={{ fontSize: 18, letterSpacing: "0.04em" }}>{title || "LEX"}</div>
             <div style={{ fontSize: 11, color: "var(--text-muted)" }}>AI Advocate</div>
           </div>
-          <button onClick={onClose} data-testid="lex-close-btn" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}>
-            <X size={24} />
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Deep Think toggle — Pro only */}
+            <button data-testid="deep-think-toggle"
+              onClick={() => {
+                if (!isPro) { alert(t(lang, "deepThinkProOnly")); return; }
+                setDeepThink(v => !v);
+              }}
+              title={t(lang, "deepThink")}
+              style={{
+                background: deepThink && isPro ? "var(--gold)" : "transparent",
+                color: deepThink && isPro ? "#1a1300" : (isPro ? "var(--gold)" : "var(--text-muted)"),
+                border: `1px solid ${isPro ? "var(--gold-deep)" : "var(--line)"}`,
+                borderRadius: 16, padding: "5px 10px", fontSize: 11, cursor: "pointer",
+                fontWeight: 600, letterSpacing: "0.04em",
+              }}>
+              🧠 {deepThink && isPro ? t(lang, "deepThinkOn") : t(lang, "deepThink")}{!isPro ? " 🔒" : ""}
+            </button>
+            <button onClick={onClose} data-testid="lex-close-btn" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}>
+              <X size={24} />
+            </button>
+          </div>
         </div>
 
         <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
@@ -820,10 +846,17 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false }) {
             </div>
           )}
           {messages.map((m, i) => (
-            <div key={i} className={m.role === "user" ? "bubble-user" : "bubble-lex"}
-                 data-testid={`msg-${m.role}-${i}`}
-                 style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", padding: "10px 14px", borderRadius: 14, maxWidth: "82%", whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 }}>
-              {m.content}
+            <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start" }}>
+              <div className={m.role === "user" ? "bubble-user" : "bubble-lex"}
+                   data-testid={`msg-${m.role}-${i}`}
+                   style={{ padding: "10px 14px", borderRadius: 14, maxWidth: "82%", whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 }}>
+                {m.content}
+              </div>
+              {m.at && (
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2, padding: "0 6px" }} data-testid={`ts-${i}`}>
+                  {new Date(m.at).toLocaleString()}
+                </div>
+              )}
             </div>
           ))}
           {busy && <div className="bubble-lex" style={{ alignSelf: "flex-start", padding: "10px 14px", borderRadius: 14 }}><span className="spinner" /> Lex thinking…</div>}
@@ -861,6 +894,8 @@ function EmergencyModal({ lang, country, user, onClose }) {
   const [busy, setBusy] = useState(true);
   const [note, setNote] = useState("");
   const [coords, setCoords] = useState(null);
+  const [reading, setReading] = useState(false);
+  const audioRef = useRef(null);
 
   const fetchRights = useCallback(async (n) => {
     setBusy(true);
@@ -871,6 +906,31 @@ function EmergencyModal({ lang, country, user, onClose }) {
     } catch (e) { setRights(e?.response?.data?.detail || "Could not load rights. Stay silent. Ask for a lawyer."); }
     finally { setBusy(false); }
   }, [lang, country, coords]);
+
+  const readAloud = async () => {
+    if (reading) {
+      try { audioRef.current?.pause(); } catch {}
+      setReading(false);
+      return;
+    }
+    if (!rights) return;
+    try {
+      setReading(true);
+      const r = await api.post("/voice/tts", { text: rights, language: lang }, { responseType: "blob" });
+      const url = URL.createObjectURL(r.data);
+      const a = new Audio(url);
+      audioRef.current = a;
+      a.onended = () => { setReading(false); URL.revokeObjectURL(url); };
+      a.onerror = () => { setReading(false); };
+      await a.play();
+    } catch (e) {
+      setReading(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => { try { audioRef.current?.pause(); } catch {} };
+  }, []);
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -900,7 +960,7 @@ function EmergencyModal({ lang, country, user, onClose }) {
   const sendSms = () => {
     const phone = (user?.emergency_contact_phone || "").trim();
     if (!phone) {
-      alert("No emergency contact set. Open Settings → Emergency contact to add one.");
+      alert(t(lang, "emergencyNoContact"));
       return;
     }
     const body = encodeURIComponent(buildSms());
@@ -913,20 +973,20 @@ function EmergencyModal({ lang, country, user, onClose }) {
   const callContact = () => {
     const phone = (user?.emergency_contact_phone || "").trim();
     if (!phone) {
-      alert("No emergency contact set. Open Settings → Emergency contact to add one.");
+      alert(t(lang, "emergencyNoContact"));
       return;
     }
     window.location.href = `tel:${phone}`;
   };
 
-  const contactName = (user?.emergency_contact_name || "your contact").trim();
+  const contactName = (user?.emergency_contact_name || t(lang, "yourContact")).trim();
   const hasContact = !!(user?.emergency_contact_phone || "").trim();
 
   return (
     <div className="modal-bg" data-testid="emergency-modal" style={{ background: "rgba(60,0,0,0.85)" }}>
       <div className="modal-card" style={{ padding: 18, maxHeight: "95vh", border: "2px solid #dc2626" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
-          <h2 style={{ fontSize: 20, color: "#fca5a5", fontFamily: "Cinzel, serif", letterSpacing: "0.04em" }}>EMERGENCY — YOUR RIGHTS</h2>
+          <h2 style={{ fontSize: 20, color: "#fca5a5", fontFamily: "Cinzel, serif", letterSpacing: "0.04em" }}>{t(lang, "emergencyTitle")}</h2>
           <button onClick={onClose} data-testid="emergency-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}>
             <X size={24} />
           </button>
@@ -939,34 +999,43 @@ function EmergencyModal({ lang, country, user, onClose }) {
                      border: `1px solid ${hasContact ? "#fca5a5" : "var(--line)"}`,
                      color: hasContact ? "#fff" : "var(--text-muted)", borderRadius: 12, fontWeight: 700,
                      fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-            📱 {hasContact ? `Text ${contactName}` : "Add emergency contact"}
+            📱 {hasContact ? t(lang, "emergencyTextContact", { name: contactName }) : t(lang, "emergencyAddContact")}
           </button>
           {hasContact && (
             <button data-testid="emergency-call-btn" onClick={callContact}
               style={{ padding: "11px 14px", background: "transparent", border: "1px solid var(--gold-deep)",
                        color: "var(--gold)", borderRadius: 12, fontWeight: 700, fontSize: 13, cursor: "pointer",
                        display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              📞 Call {contactName}
+              📞 {t(lang, "emergencyCallContact", { name: contactName })}
             </button>
           )}
         </div>
 
-        <div style={{ fontSize: 12, color: "#fca5a5", marginBottom: 8 }}>Country: <strong>{country}</strong>. Stay calm. Read this aloud if needed.</div>
-        <div data-testid="rights-script" style={{ overflowY: "auto", maxHeight: "45vh", padding: 14, background: "#0a0000",
+        <div style={{ fontSize: 12, color: "#fca5a5", marginBottom: 8 }}>{t(lang, "emergencyStayCalm", { country })}</div>
+        <div data-testid="rights-script" style={{ overflowY: "auto", maxHeight: "40vh", padding: 14, background: "#0a0000",
                      borderRadius: 12, border: "1px solid #7f1d1d", fontSize: 14, color: "var(--text)",
                      lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
           {busy ? <span className="spinner" /> : rights}
         </div>
-        <textarea className="input" data-testid="emergency-note" rows={2} placeholder="Optional: one line about what happened (also included in SMS)"
+        {/* Read aloud (TTS) — critical for distress moments where reading isn't possible */}
+        <button data-testid="emergency-read-aloud" onClick={readAloud} disabled={busy || !rights}
+          style={{ width: "100%", marginTop: 10, padding: "10px 14px",
+                   background: reading ? "var(--gold)" : "transparent",
+                   color: reading ? "#1a1300" : "var(--gold)",
+                   border: "1px solid var(--gold-deep)", borderRadius: 12, fontWeight: 600,
+                   cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          🔊 {reading ? t(lang, "emergencyStopReading") : t(lang, "emergencyReadAloud")}
+        </button>
+        <textarea className="input" data-testid="emergency-note" rows={2} placeholder={t(lang, "emergencyNotePlaceholder")}
           value={note} onChange={(e) => setNote(e.target.value)} style={{ marginTop: 10 }} />
         <div className="flex gap-2" style={{ marginTop: 10 }}>
           <button className="btn-gold" data-testid="rights-refresh" disabled={busy} onClick={() => fetchRights(note)} style={{ flex: 1 }}>
-            Re-generate with note
+            {t(lang, "emergencyRegenWithNote")}
           </button>
-          <button className="btn-ghost" onClick={onClose} style={{ flex: 1 }}>Close</button>
+          <button className="btn-ghost" onClick={onClose} style={{ flex: 1 }}>{t(lang, "emergencyClose")}</button>
         </div>
         <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 10, textAlign: "center" }}>
-          Information only — not legal advice. If you can, call a duty solicitor immediately.
+          {t(lang, "emergencyDisclaimer")}
         </div>
       </div>
     </div>
@@ -1087,7 +1156,7 @@ function CourtroomModal({ lang, country, onClose }) {
     <div className="modal-bg" data-testid="courtroom-modal">
       <div className="modal-card" style={{ height: "92vh", padding: 0 }}>
         <div className="flex items-center justify-between" style={{ padding: 14, borderBottom: "1px solid var(--line)" }}>
-          <h2 className="brand-font gold" style={{ fontSize: 18, letterSpacing: "0.04em" }}>COURTROOM TRAINER</h2>
+          <h2 className="brand-font gold" style={{ fontSize: 18, letterSpacing: "0.04em" }}>{t(lang, "courtroomTrainer").toUpperCase()}</h2>
           <button onClick={onClose} data-testid="courtroom-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
         </div>
         <div style={{ display: "flex", padding: "10px 14px", gap: 6 }}>
@@ -1109,11 +1178,11 @@ function CourtroomModal({ lang, country, onClose }) {
           <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "0 14px 14px", overflow: "hidden" }}>
             {pMsgs.length === 0 && (
               <>
-                <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 6 }}>Lex will role-play your toughest opponent so you can rehearse out loud. Pick a role and brief the facts. Safe to use anywhere — no recording sent to anyone.</div>
+                <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 6 }}>{t(lang, "practiceIntro")}</div>
                 <select className="input" data-testid="practice-role" value={role} onChange={(e) => setRole(e.target.value)} style={{ marginBottom: 8 }}>
                   {PRACTICE_ROLES.map(r => <option key={r.v} value={r.v}>{r.label}</option>)}
                 </select>
-                <textarea className="input" data-testid="practice-facts" rows={3} value={facts} onChange={(e) => setFacts(e.target.value)} placeholder="Brief Lex on your case (e.g. arrested for drink-driving, blew 60mg, claims he wasn't driving)" />
+                <textarea className="input" data-testid="practice-facts" rows={3} value={facts} onChange={(e) => setFacts(e.target.value)} placeholder={t(lang, "practiceFactsPlaceholder")} />
               </>
             )}
             <div ref={pScroll} style={{ flex: 1, overflowY: "auto", marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1144,15 +1213,15 @@ function CourtroomModal({ lang, country, onClose }) {
                 <div style={{ background: "#2a0a0a", border: "1px solid #7f1d1d", borderRadius: 12, padding: 14, marginBottom: 10 }}>
                   <div style={{ color: "#fca5a5", fontWeight: 600, marginBottom: 6 }}>⚠ Permitted use only</div>
                   <div style={{ fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.6 }}>
-                    Live Legal Assist listens to your conversation and tells you what to say in real time. <strong>Recording inside an active courtroom is a criminal offence</strong> in the UK and most jurisdictions and AI Advocate refuses to be used for that.
+                    {t(lang, "liveAssistWarning")}
                     <br /><br />
-                    Use this ONLY in:
+                    {t(lang, "liveAssistAllowed")}
                     <ul style={{ marginLeft: 18, marginTop: 6 }}>
-                      <li>Police interview (with your legal rep present)</li>
-                      <li>Tribunal hearings where recording is permitted</li>
-                      <li>Calls with your own lawyer</li>
-                      <li>Mediation / arbitration with all-party consent</li>
-                      <li>Internal disciplinary / HR hearings</li>
+                      <li>{t(lang, "liveUse1")}</li>
+                      <li>{t(lang, "liveUse2")}</li>
+                      <li>{t(lang, "liveUse3")}</li>
+                      <li>{t(lang, "liveUse4")}</li>
+                      <li>{t(lang, "liveUse5")}</li>
                     </ul>
                   </div>
                 </div>
@@ -1161,7 +1230,7 @@ function CourtroomModal({ lang, country, onClose }) {
                     style={{ width: 18, height: 18, accentColor: "var(--gold)", marginTop: 3 }} />
                   <span style={{ fontSize: 12.5, color: "var(--text-dim)" }}>I confirm I have lawful permission to record this conversation, that I am NOT in an active courtroom, and I accept full responsibility for the legality of this use in my jurisdiction.</span>
                 </label>
-                <button className="btn-gold w-full" data-testid="consent-continue" disabled={!consent} onClick={() => setConsent(true)} style={{ marginTop: 14 }}>Continue</button>
+                <button className="btn-gold w-full" data-testid="consent-continue" disabled={!consent} onClick={() => setConsent(true)} style={{ marginTop: 14 }}>{t(lang, "consentContinue")}</button>
               </div>
             ) : (
               <>
@@ -1170,7 +1239,7 @@ function CourtroomModal({ lang, country, onClose }) {
                     <select className="input" data-testid="live-scenario" value={scenario} onChange={(e) => setScenario(e.target.value)} style={{ marginBottom: 8 }}>
                       {LIVE_SCENARIOS.map(s => <option key={s.v} value={s.v}>{s.label}</option>)}
                     </select>
-                    <textarea className="input" data-testid="live-facts" rows={2} value={lFacts} onChange={(e) => setLFacts(e.target.value)} placeholder="One-line case brief (helps Lex give sharper advice)" />
+                    <textarea className="input" data-testid="live-facts" rows={2} value={lFacts} onChange={(e) => setLFacts(e.target.value)} placeholder={t(lang, "liveFactsPlaceholder")} />
                   </>
                 )}
                 <button className="btn-gold w-full" data-testid={liveActive ? "live-stop" : "live-start"} onClick={liveActive ? stopLive : startLive}
@@ -1179,7 +1248,7 @@ function CourtroomModal({ lang, country, onClose }) {
                 </button>
                 {liveActive && <div style={{ textAlign: "center", color: "var(--gold)", fontSize: 12, marginTop: 6 }}>🎙 Listening — Lex will whisper advice as the other side speaks</div>}
                 <div style={{ flex: 1, overflowY: "auto", marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-                  {advice.length === 0 && liveActive && <div style={{ color: "var(--text-muted)", textAlign: "center", padding: 20, fontSize: 13 }}>Waiting for the other side to speak…</div>}
+                  {advice.length === 0 && liveActive && <div style={{ color: "var(--text-muted)", textAlign: "center", padding: 20, fontSize: 13 }}>{t(lang, "waitingForOtherSide")}</div>}
                   {advice.map((a, i) => (
                     <div key={i} style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 10 }}>
                       <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>{a.at} — They said:</div>
@@ -1233,7 +1302,7 @@ function LetterLibraryModal({ lang, country, onClose }) {
 
         {!sel && (
           <>
-            <input className="input" data-testid="letter-search" placeholder="Search templates…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 12 }} />
+            <input className="input" data-testid="letter-search" placeholder={t(lang, "searchTemplates")} value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 12 }} />
             <div style={{ overflowY: "auto", maxHeight: "70vh" }}>
               {Object.entries(grouped).map(([cat, items]) => (
                 <div key={cat} style={{ marginBottom: 14 }}>
@@ -1257,9 +1326,9 @@ function LetterLibraryModal({ lang, country, onClose }) {
             <button className="btn-ghost" onClick={() => setSel(null)} style={{ marginBottom: 10, padding: "6px 12px" }}>
               <ArrowLeft size={14} style={{ display: "inline", marginRight: 4 }} />Back
             </button>
-            <input className="input" data-testid="letter-name" placeholder="Your full name" value={form.your_name} onChange={(e) => setForm({ ...form, your_name: e.target.value })} style={{ marginBottom: 8 }} />
-            <input className="input" data-testid="letter-recipient" placeholder="Recipient name & address" value={form.recipient} onChange={(e) => setForm({ ...form, recipient: e.target.value })} style={{ marginBottom: 8 }} />
-            <textarea className="input" data-testid="letter-facts" rows={5} placeholder="Tell Lex what happened (dates, amounts, key facts)" value={form.facts} onChange={(e) => setForm({ ...form, facts: e.target.value })} />
+            <input className="input" data-testid="letter-name" placeholder={t(lang, "yourFullName")} value={form.your_name} onChange={(e) => setForm({ ...form, your_name: e.target.value })} style={{ marginBottom: 8 }} />
+            <input className="input" data-testid="letter-recipient" placeholder={t(lang, "recipientNameAddr")} value={form.recipient} onChange={(e) => setForm({ ...form, recipient: e.target.value })} style={{ marginBottom: 8 }} />
+            <textarea className="input" data-testid="letter-facts" rows={5} placeholder={t(lang, "letterFactsPlaceholder")} value={form.facts} onChange={(e) => setForm({ ...form, facts: e.target.value })} />
             <button className="btn-gold w-full" data-testid="letter-gen-btn" onClick={generate} disabled={busy || !form.your_name || !form.recipient || !form.facts} style={{ marginTop: 12 }}>
               {busy ? <span className="spinner" /> : "Generate Letter"}
             </button>
@@ -1276,7 +1345,7 @@ function LetterLibraryModal({ lang, country, onClose }) {
                 style={{ flex: 1 }}>
                 <Download size={14} style={{ display: "inline", marginRight: 6 }} />Download PDF
               </button>
-              <button className="btn-ghost" onClick={() => { setLetter(""); setLetterId(null); }} style={{ flex: 1 }}>Edit / Re-do</button>
+              <button className="btn-ghost" onClick={() => { setLetter(""); setLetterId(null); }} style={{ flex: 1 }}>{t(lang, "letterRedo")}</button>
             </div>
           </div>
         )}
@@ -1305,7 +1374,7 @@ function ContractUploader({ lang, country, onClose }) {
     <div className="modal-bg" data-testid="contract-modal">
       <div className="modal-card" style={{ padding: 20, maxHeight: "92vh" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="brand-font gold" style={{ fontSize: 20 }}>Contract Review</h2>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "contractReview")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={24} /></button>
         </div>
         {!result ? (
@@ -1378,7 +1447,7 @@ function LegalLetterModal({ lang, country, onClose }) {
               })} style={{ flex: 1 }}>
                 <Download size={16} style={{ display: "inline", marginRight: 6 }} />Download PDF
               </button>
-              <button className="btn-ghost" onClick={() => setLetter("")} style={{ flex: 1 }}>New letter</button>
+              <button className="btn-ghost" onClick={() => setLetter("")} style={{ flex: 1 }}>{t(lang, "letterNewLetter")}</button>
             </div>
           </div>
         )}
@@ -1426,15 +1495,15 @@ function RecordModal({ lang, country, onClose }) {
           </div>
         ) : (
           <div style={{ overflowY: "auto" }}>
-            <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6 }}>Transcript</div>
+            <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6 }}>{t(lang, "transcript")}</div>
             <div style={{ background: "#0a0a0a", padding: 12, borderRadius: 10, color: "var(--text-dim)", fontSize: 13.5, marginBottom: 14 }}>{result.transcript}</div>
-            <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6 }}>Lex's Analysis</div>
+            <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6 }}>{t(lang, "lexAnalysis")}</div>
             <div style={{ background: "#0a0a0a", padding: 12, borderRadius: 10, color: "var(--text-dim)", fontSize: 13.5, whiteSpace: "pre-wrap" }}>{result.analysis}</div>
             <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
               <button className="btn-gold" data-testid="record-pdf-btn" onClick={() => pdfForFile(result.id, result.filename || "recording")} style={{ flex: 1 }}>
                 <Download size={16} style={{ display: "inline", marginRight: 6 }} />Download PDF
               </button>
-              <button className="btn-ghost" onClick={() => setResult(null)} style={{ flex: 1 }}>Record another</button>
+              <button className="btn-ghost" onClick={() => setResult(null)} style={{ flex: 1 }}>{t(lang, "recordAnother")}</button>
             </div>
           </div>
         )}
@@ -1456,7 +1525,7 @@ function FilesModal({ lang, onClose }) {
         </div>
         {!open ? (
           <div style={{ overflowY: "auto" }}>
-            {files.length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>No files yet.</p>}
+            {files.length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>{t(lang, "noFilesYet")}</p>}
             {files.map(f => (
               <button key={f.id} onClick={() => setOpen(f)} className="w-full" data-testid={`file-${f.id}`}
                       style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 14, marginBottom: 8, color: "var(--text)", textAlign: "left", cursor: "pointer" }}>
@@ -1546,7 +1615,7 @@ function SnapEvidenceModal({ lang, country, onClose }) {
               </button>
               <button data-testid="evidence-library-btn" onClick={() => libraryRef.current?.click()}
                 style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 18, color: "var(--gold)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-                <ImageIcon size={28} /><span style={{ fontSize: 12, color: "var(--text)" }}>Add multiple from library</span>
+                <ImageIcon size={28} /><span style={{ fontSize: 12, color: "var(--text)" }}>{t(lang, "addMultiplePhotos")}</span>
               </button>
               <input ref={cameraRef} data-testid="evidence-camera-input" type="file" accept="image/*" capture="environment" onChange={onFile} style={{ display: "none" }} />
               <input ref={libraryRef} data-testid="evidence-library-input" type="file" accept="image/*,.pdf,.docx" multiple onChange={onFile} style={{ display: "none" }} />
@@ -1554,7 +1623,7 @@ function SnapEvidenceModal({ lang, country, onClose }) {
 
             {files.length > 0 && (
               <>
-                <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>{files.length} file{files.length > 1 ? "s" : ""} selected (max 10):</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>{t(lang, "filesSelectedMax", { n: files.length })}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
                   {files.map(f => (
                     <div key={f.id} style={{ position: "relative", borderRadius: 10, overflow: "hidden", border: "1px solid var(--line)", aspectRatio: "1 / 1", background: "#0a0a0a" }}>
@@ -1584,7 +1653,7 @@ function SnapEvidenceModal({ lang, country, onClose }) {
                 <textarea className="input" data-testid="evidence-note" rows={3} placeholder={t(lang, "addNote")}
                   value={description} onChange={(e) => setDescription(e.target.value)} />
                 <button className="btn-gold w-full" data-testid="evidence-analyze-btn" disabled={busy} onClick={submit} style={{ marginTop: 12 }}>
-                  {busy ? <span className="spinner" /> : `Analyse ${files.length} file${files.length > 1 ? "s" : ""}`}
+                  {busy ? <span className="spinner" /> : t(lang, "analyseNFiles", { n: files.length })}
                 </button>
               </>
             )}
@@ -1603,7 +1672,7 @@ function SnapEvidenceModal({ lang, country, onClose }) {
               </div>
             ))}
             <button className="btn-gold w-full" onClick={() => { setResults([]); setFiles([]); setDescription(""); }}>
-              Analyse more
+              {t(lang, "analyseMore")}
             </button>
           </div>
         )}
@@ -1679,7 +1748,7 @@ function LawyersModal({ lang, country, user, onClose, openAdvertise }) {
 
             <div style={{ overflowY: "auto", flex: 1 }}>
               {busy && <div style={{ textAlign: "center", padding: 24 }}><span className="spinner" /></div>}
-              {!busy && firms.length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>No firms found.</p>}
+              {!busy && firms.length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>{t(lang, "noFirmsFound")}</p>}
               {firms.map(f => (
                 <button key={f.id} data-testid={`firm-${f.id}`} onClick={() => { setSelected(f); setSent(false); }} className="w-full"
                   style={{ background: "var(--bg-card)", border: f.sponsored ? "1px solid var(--gold)" : "1px solid var(--line)", borderRadius: 12, padding: 14, marginBottom: 10, color: "var(--text)", textAlign: "left", cursor: "pointer", position: "relative" }}>
@@ -1712,9 +1781,9 @@ function LawyersModal({ lang, country, user, onClose, openAdvertise }) {
         ) : sent ? (
           <div style={{ textAlign: "center", padding: 30 }}>
             <Check size={48} style={{ color: "var(--gold)" }} />
-            <h3 style={{ color: "var(--gold)", marginTop: 12 }}>Message sent</h3>
+            <h3 style={{ color: "var(--gold)", marginTop: 12 }}>{t(lang, "messageSent")}</h3>
             <p style={{ color: "var(--text-dim)", fontSize: 14 }}>{selected.name} will get back to you soon.</p>
-            <button className="btn-ghost w-full" onClick={() => { setSelected(null); setSent(false); }} style={{ marginTop: 16 }}>Back to list</button>
+            <button className="btn-ghost w-full" onClick={() => { setSelected(null); setSent(false); }} style={{ marginTop: 16 }}>{t(lang, "backToList")}</button>
           </div>
         ) : (
           <div style={{ overflowY: "auto" }}>
@@ -1738,10 +1807,10 @@ function LawyersModal({ lang, country, user, onClose, openAdvertise }) {
               </a>
             </div>
             <h4 style={{ color: "var(--gold)", marginTop: 18 }}>{t(lang, "inquireTitle")}</h4>
-            <input className="input" data-testid="inq-name" value={inquiry.name} onChange={(e) => setInquiry({ ...inquiry, name: e.target.value })} placeholder="Name" style={{ marginBottom: 8 }} />
-            <input className="input" data-testid="inq-email" value={inquiry.email} onChange={(e) => setInquiry({ ...inquiry, email: e.target.value })} placeholder="Email" style={{ marginBottom: 8 }} />
-            <input className="input" data-testid="inq-phone" value={inquiry.phone} onChange={(e) => setInquiry({ ...inquiry, phone: e.target.value })} placeholder="Phone (optional)" style={{ marginBottom: 8 }} />
-            <textarea className="input" data-testid="inq-message" rows={3} value={inquiry.message} onChange={(e) => setInquiry({ ...inquiry, message: e.target.value })} placeholder="Your message" />
+            <input className="input" data-testid="inq-name" value={inquiry.name} onChange={(e) => setInquiry({ ...inquiry, name: e.target.value })} placeholder={t(lang, "name")} style={{ marginBottom: 8 }} />
+            <input className="input" data-testid="inq-email" value={inquiry.email} onChange={(e) => setInquiry({ ...inquiry, email: e.target.value })} placeholder={t(lang, "email")} style={{ marginBottom: 8 }} />
+            <input className="input" data-testid="inq-phone" value={inquiry.phone} onChange={(e) => setInquiry({ ...inquiry, phone: e.target.value })} placeholder={t(lang, "phoneOptional")} style={{ marginBottom: 8 }} />
+            <textarea className="input" data-testid="inq-message" rows={3} value={inquiry.message} onChange={(e) => setInquiry({ ...inquiry, message: e.target.value })} placeholder={t(lang, "yourMessage")} />
             <button className="btn-gold w-full" data-testid="send-inquiry-btn" onClick={sendInquiry} disabled={!inquiry.name || !inquiry.email || !inquiry.message} style={{ marginTop: 10 }}>
               {t(lang, "sendInquiry")}
             </button>
@@ -1810,7 +1879,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
   const toggleLocation = async () => {
     if (!locOn) {
       // Turn ON — request geolocation
-      if (!navigator.geolocation) { alert("Geolocation not supported"); return; }
+      if (!navigator.geolocation) { alert(t(lang, "geolocationNotSupported")); return; }
       setBusy(true);
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
@@ -1821,7 +1890,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
               longitude: pos.coords.longitude,
             });
             onUpdate(data); setLocOn(true);
-          } catch (e) { alert("Failed to save"); }
+          } catch (e) { alert(t(lang, "failedToSave")); }
           finally { setBusy(false); }
         },
         (err) => { setBusy(false); alert(t(lang, "locationBlocked")); },
@@ -1832,7 +1901,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
       try {
         const { data } = await api.patch("/auth/preferences", { location_enabled: false });
         onUpdate(data); setLocOn(false);
-      } catch (e) { alert("Failed"); }
+      } catch (e) { alert(t(lang, "failed")); }
       finally { setBusy(false); }
     }
   };
@@ -1855,25 +1924,25 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
         <div data-testid="settings-subscription" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
             <Star size={18} style={{ color: "var(--gold)" }} fill="currentColor" />
-            <span style={{ fontWeight: 600 }}>Subscription</span>
+            <span style={{ fontWeight: 600 }}>{t(lang, "subscription")}</span>
           </div>
           <div style={{ fontSize: 13, color: "var(--text-dim)" }}>
-            Current plan: <strong style={{ color: "var(--gold)" }}>{(user.tier || "free").toUpperCase()}</strong>
-            {user.subscription_status === "active" && <span style={{ marginLeft: 8, fontSize: 11, color: "#16a34a" }}>● ACTIVE</span>}
-            {user.subscription_status === "past_due" && <span style={{ marginLeft: 8, fontSize: 11, color: "#dc2626" }}>● PAST DUE</span>}
-            {user.tier === "trial_pro" && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--gold)" }}>{user.trial_days_remaining}d trial left</span>}
+            {t(lang, "currentPlan")}: <strong style={{ color: "var(--gold)" }}>{(user.tier || "free").toUpperCase()}</strong>
+            {user.subscription_status === "active" && <span style={{ marginLeft: 8, fontSize: 11, color: "#16a34a" }}>● {t(lang, "active")}</span>}
+            {user.subscription_status === "past_due" && <span style={{ marginLeft: 8, fontSize: 11, color: "#dc2626" }}>● {t(lang, "pastDue")}</span>}
+            {user.tier === "trial_pro" && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--gold)" }}>{t(lang, "trialLeft", { n: user.trial_days_remaining })}</span>}
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <button className="btn-gold" data-testid="settings-upgrade-btn"
               onClick={() => { onClose(); window.dispatchEvent(new CustomEvent("aa:open-subscribe", { detail: { preset: "pro" } })); }}
               style={{ flex: 1, padding: "8px 12px", fontSize: 13 }}>
-              {user.tier === "free" ? "Upgrade" : "Change plan"}
+              {user.tier === "free" ? t(lang, "upgrade") : t(lang, "changePlan")}
             </button>
             {user.stripe_customer_id && (
               <button className="btn-ghost" data-testid="settings-portal-btn"
-                onClick={async () => { try { const { data } = await api.post("/subscription/portal"); window.location.href = data.portal_url; } catch (e) { alert(e?.response?.data?.detail || "Failed"); } }}
+                onClick={async () => { try { const { data } = await api.post("/subscription/portal"); window.location.href = data.portal_url; } catch (e) { alert(e?.response?.data?.detail || t(lang, "failed")); } }}
                 style={{ flex: 1, padding: "8px 12px", fontSize: 13 }}>
-                Manage billing
+                {t(lang, "manageBilling")}
               </button>
             )}
           </div>
@@ -1911,7 +1980,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
           </select>
           <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>
-            Lex applies the laws of your selected country
+            {t(lang, "countryLawApplied")}
           </div>
         </div>
 
@@ -1919,17 +1988,41 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
         <div data-testid="settings-emergency-contact" style={{ background: "var(--bg-card)", border: "1px solid #7f1d1d", borderRadius: 14, padding: 16, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <span style={{ color: "#fca5a5", fontSize: 18 }}>⚠</span>
-            <span style={{ fontWeight: 600 }}>Emergency contact</span>
+            <span style={{ fontWeight: 600 }}>{t(lang, "emergencyContact")}</span>
           </div>
           <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10, lineHeight: 1.5 }}>
-            One tap from the Emergency screen will text this person your rights, your location and that you need help.
+            {t(lang, "emergencyContactDesc")}
           </div>
-          <input className="input" data-testid="emergency-name-input" placeholder="Name (e.g. Mum, my lawyer)"
-            defaultValue={user.emergency_contact_name || ""}
+          {/* Native Contact Picker — works on Chrome Android & some iOS. Falls back to manual inputs below. */}
+          {("contacts" in navigator) && ("ContactsManager" in window) && (
+            <button data-testid="pick-contact-btn" className="btn-ghost" style={{ width: "100%", marginBottom: 10, padding: "10px", fontSize: 13 }}
+              onClick={async () => {
+                try {
+                  const props = ["name", "tel"];
+                  const opts = { multiple: false };
+                  const result = await navigator.contacts.select(props, opts);
+                  if (result && result.length) {
+                    const c = result[0];
+                    const name = (c.name && c.name[0]) || "";
+                    const tel = (c.tel && c.tel[0]) ? c.tel[0].replace(/\s/g, "") : "";
+                    try {
+                      const r = await api.patch("/auth/preferences", { emergency_contact_name: name, emergency_contact_phone: tel });
+                      onUpdate(r.data);
+                    } catch (e) { alert(e?.response?.data?.detail || t(lang, "failedToSave")); }
+                  }
+                } catch (e) {
+                  alert(t(lang, "contactPickerUnavailable"));
+                }
+              }}>
+              📇 {t(lang, "pickFromContacts")}
+            </button>
+          )}
+          <input className="input" data-testid="emergency-name-input" placeholder={t(lang, "emergencyNamePlaceholder")}
+            defaultValue={user.emergency_contact_name || ""} key={`ename-${user.emergency_contact_name || ""}`}
             onBlur={async (e) => { await api.patch("/auth/preferences", { emergency_contact_name: e.target.value }).then(r => onUpdate(r.data)).catch(() => {}); }}
             style={{ marginBottom: 8 }} />
-          <input className="input" data-testid="emergency-phone-input" placeholder="Phone number (with country code, e.g. +447123456789)"
-            type="tel" defaultValue={user.emergency_contact_phone || ""}
+          <input className="input" data-testid="emergency-phone-input" placeholder={t(lang, "emergencyPhonePlaceholder")}
+            type="tel" defaultValue={user.emergency_contact_phone || ""} key={`ephone-${user.emergency_contact_phone || ""}`}
             onBlur={async (e) => { await api.patch("/auth/preferences", { emergency_contact_phone: e.target.value.replace(/\s/g, "") }).then(r => onUpdate(r.data)).catch(() => {}); }} />
         </div>
 
@@ -1937,7 +2030,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
         <div data-testid="settings-heylex" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Mic size={18} style={{ color: "var(--gold)" }} />
-              <span style={{ fontWeight: 600 }}>"Hey Lex" wake word</span>
+              <span style={{ fontWeight: 600 }}>{t(lang, "heyLexWake")}</span>
             </div>
             <label style={{ position: "relative", display: "inline-block", width: 48, height: 26, cursor: "pointer" }}>
               <input type="checkbox" data-testid="heylex-toggle" defaultChecked={localStorage.getItem("aa_wake") !== "0"}
@@ -1950,7 +2043,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
                       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                       stream.getTracks().forEach(tr => tr.stop());
                     } catch (err) {
-                      alert("Microphone permission was not granted. Hey Lex needs mic access. Please open browser settings and allow microphone.");
+                      alert(t(lang, "micPermDenied"));
                       localStorage.setItem("aa_wake", "0");
                       e.target.checked = false;
                       return;
@@ -1968,21 +2061,67 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             </label>
           </div>
           <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
-            Say <em>"Hey Lex"</em> anywhere on the home screen and Lex will start listening. Requires microphone permission.
-            <br/><strong style={{ color: "var(--gold-soft)" }}>Note:</strong> iOS Safari may block always-listening when the screen is off. For full hands-free use, the iOS App Store version will support this (coming soon).
+            {t(lang, "heyLexDesc")}
+            <br/><strong style={{ color: "var(--gold-soft)" }}>{t(lang, "heyLexIosNote")}</strong>
+          </div>
+        </div>
+
+        {/* Auto-detect language toggle */}
+        <div data-testid="settings-autodetect" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Languages size={18} style={{ color: "var(--gold)" }} />
+              <span style={{ fontWeight: 600 }}>{t(lang, "autoDetectLang")}</span>
+            </div>
+            <label style={{ position: "relative", display: "inline-block", width: 48, height: 26, cursor: "pointer" }}>
+              <input type="checkbox" data-testid="autodetect-toggle" defaultChecked={localStorage.getItem("aa_autodetect") !== "0"}
+                onChange={(e) => { localStorage.setItem("aa_autodetect", e.target.checked ? "1" : "0"); }}
+                style={{ opacity: 0, width: 0, height: 0 }} />
+              <span style={{ position: "absolute", inset: 0, background: localStorage.getItem("aa_autodetect") !== "0" ? "var(--gold)" : "var(--line)",
+                             borderRadius: 13, transition: "0.2s" }}>
+                <span style={{ position: "absolute", height: 20, width: 20, left: localStorage.getItem("aa_autodetect") !== "0" ? 25 : 3, top: 3,
+                               background: "#000", borderRadius: "50%", transition: "0.2s" }} />
+              </span>
+            </label>
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
+            {t(lang, "autoDetectDesc")}
+          </div>
+        </div>
+
+        {/* Location stamping toggle for evidence */}
+        <div data-testid="settings-location-stamp" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <MapPin size={18} style={{ color: "var(--gold)" }} />
+              <span style={{ fontWeight: 600 }}>{t(lang, "locationStamp")}</span>
+            </div>
+            <label style={{ position: "relative", display: "inline-block", width: 48, height: 26, cursor: "pointer" }}>
+              <input type="checkbox" data-testid="locstamp-toggle" defaultChecked={localStorage.getItem("aa_locstamp") === "1"}
+                onChange={(e) => { localStorage.setItem("aa_locstamp", e.target.checked ? "1" : "0"); }}
+                style={{ opacity: 0, width: 0, height: 0 }} />
+              <span style={{ position: "absolute", inset: 0, background: localStorage.getItem("aa_locstamp") === "1" ? "var(--gold)" : "var(--line)",
+                             borderRadius: 13, transition: "0.2s" }}>
+                <span style={{ position: "absolute", height: 20, width: 20, left: localStorage.getItem("aa_locstamp") === "1" ? 25 : 3, top: 3,
+                               background: "#000", borderRadius: "50%", transition: "0.2s" }} />
+              </span>
+            </label>
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
+            {t(lang, "locationStampDesc")}
           </div>
         </div>
 
         {/* Contact & Support */}
         <div data-testid="settings-contact" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <MessageCircle size={18} style={{ color: "var(--gold)" }} />
-            <span style={{ fontWeight: 600 }}>Contact & Support</span>
+            <span style={{ fontWeight: 600 }}>{t(lang, "contactSupport")}</span>
           </div>
           {[
-            { label: "Customer support", email: "support@aiadvocate.co.uk" },
-            { label: "Business & partnerships", email: "admin@aiadvocate.co.uk" },
-            { label: "Press enquiries", email: "press@aiadvocate.co.uk" },
-            { label: "General info", email: "info@aiadvocate.co.uk" },
+            { label: t(lang, "customerSupport"), email: "support@aiadvocate.co.uk" },
+            { label: t(lang, "businessPartnerships"), email: "admin@aiadvocate.co.uk" },
+            { label: t(lang, "pressEnquiries"), email: "press@aiadvocate.co.uk" },
+            { label: t(lang, "generalInfo"), email: "info@aiadvocate.co.uk" },
           ].map(c => (
             <a key={c.email} href={`mailto:${c.email}`} data-testid={`contact-${c.email.split("@")[0]}`}
               style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--line)",
@@ -1992,7 +2131,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             </a>
           ))}
           <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
-            We aim to reply within 24 hours on weekdays.
+            {t(lang, "replyWithin24h")}
           </div>
         </div>
 
@@ -2001,7 +2140,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
           style={{ display: "block", textAlign: "center", padding: "10px 12px", background: "var(--bg-card)",
                    border: "1px solid var(--gold-deep)", borderRadius: 12, color: "var(--gold)",
                    textDecoration: "none", fontSize: 13, marginBottom: 12 }}>
-          ⭐ Rate us on Trustpilot
+          ⭐ {t(lang, "rateOnTrustpilot")}
         </a>
         </div>
       </div>
@@ -2045,13 +2184,13 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
     <div className="modal-bg" data-testid="subscribe-modal">
       <div className="modal-card" style={{ padding: 18, height: "94vh", display: "flex", flexDirection: "column" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 10, flexShrink: 0 }}>
-          <h2 className="brand-font gold" style={{ fontSize: 20 }}>Choose your plan</h2>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "chooseYourPlan")}</h2>
           <button onClick={onClose} data-testid="subscribe-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
         </div>
         <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12, flexShrink: 0 }}>
           You're on <strong style={{ color: "var(--gold)" }}>{onTier === "trial_pro" ? "Free Trial (Pro features)" : onTier.toUpperCase()}</strong>.
           {onTier !== "free" && onTier !== "trial_pro" && (
-            <button onClick={openPortal} data-testid="manage-sub-btn" style={{ marginLeft: 8, background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 14, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>Manage subscription</button>
+            <button onClick={openPortal} data-testid="manage-sub-btn" style={{ marginLeft: 8, background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 14, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>{t(lang, "manageSubscription")}</button>
           )}
         </div>
 
@@ -2215,12 +2354,12 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
   // Tier required per tile. "free" = available to all; emergency is separate.
   const tiles = [
     { id: "ask_lex", label: t(lang, "askLex"), sub: t(lang, "askLexSub"), Icon: AskLexIcon, cat: "ask_lex", req: "free" },
-    { id: "courtroom", label: "Courtroom Trainer", Icon: CourtIcon, req: "plus" },
+    { id: "courtroom", label: t(lang, "courtroomTrainer"), Icon: CourtIcon, req: "plus" },
     { id: "record", label: t(lang, "recordLegal"), Icon: RecordIcon, cat: "record", req: "plus" },
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
     { id: "lawyers", label: t(lang, "findLawyer"), Icon: LawyerIcon, req: "free" },
     { id: "files", label: t(lang, "myFiles"), Icon: FilesIcon, req: "free" },
-    { id: "letter", label: "Letter Library", Icon: LetterIcon, req: "free" },
+    { id: "letter", label: t(lang, "letterLibrary"), Icon: LetterIcon, req: "free" },
     { id: "immigration", label: t(lang, "immigration"), Icon: ImmigrationIcon, cat: "immigration", req: "plus" },
     { id: "employment", label: t(lang, "employment"), Icon: EmploymentIcon, cat: "employment", req: "plus" },
     { id: "property", label: t(lang, "property"), Icon: PropertyIcon, cat: "property", req: "plus" },
@@ -2248,7 +2387,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
   return (
     <div className="app-shell" style={{ padding: "20px 18px 130px", maxWidth: 760, margin: "0 auto" }} data-testid="dashboard">
       <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Hi, <span style={{ color: "var(--gold)" }}>{user.full_name || user.email.split("@")[0]}</span></div>
+        <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{t(lang, "hi")}, <span style={{ color: "var(--gold)" }}>{user.full_name || user.email.split("@")[0]}</span></div>
         <div className="flex items-center gap-2">
           <button onClick={() => setShowSettings(true)} data-testid="settings-btn" title={t(lang, "settings")}
                   style={{ background: "transparent", border: "1px solid var(--line)", color: "var(--gold)", borderRadius: "50%", width: 34, height: 34, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -2277,33 +2416,33 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
                  boxShadow: "0 0 18px rgba(220,38,38,0.55)", display: "flex",
                  alignItems: "center", justifyContent: "center", gap: 8,
                  fontFamily: "Cinzel, serif", textTransform: "uppercase" }}>
-        <span style={{ fontSize: 18 }}>⚠</span> I've Been Arrested — My Rights NOW
+        <span style={{ fontSize: 18 }}>⚠</span> {t(lang, "arrestedBtn")}
       </button>
 
       {tier === "free" && (
         <div className="trial-banner" data-testid="trial-banner-free" style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span><strong>Free plan</strong> · Unlock Lex with Plus or Pro</span>
+          <span>{t(lang, "freePlanUnlock")}</span>
           <button className="btn-gold" data-testid="open-subscribe-btn" onClick={() => { setSubPreset("plus"); setShowSub(true); }} style={{ padding: "8px 14px", fontSize: 13 }}>
-            Upgrade
+            {t(lang, "upgrade")}
           </button>
         </div>
       )}
       {tier === "trial_pro" && (
         <div className="trial-banner" data-testid="trial-banner" style={{ marginBottom: 14 }}>
-          {t(lang, "trialDays", { n: user.trial_days_remaining })} (Pro features unlocked)
+          {t(lang, "trialDays", { n: user.trial_days_remaining })}
         </div>
       )}
       {tier === "plus" && (
         <div className="trial-banner" data-testid="tier-banner-plus" style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span><strong>Plus</strong> active · Upgrade to Pro for Live Legal Assist</span>
+          <span>{t(lang, "plusActiveUpgrade")}</span>
           <button className="btn-gold" data-testid="open-pro-upgrade-btn" onClick={() => { setSubPreset("pro"); setShowSub(true); }} style={{ padding: "8px 14px", fontSize: 13 }}>
-            Go Pro
+            {t(lang, "goPro")}
           </button>
         </div>
       )}
       {(tier === "pro" || tier === "yearly") && user.subscription_status === "active" && (
         <div className="trial-banner" data-testid="tier-banner-pro" style={{ marginBottom: 14, opacity: 0.85 }}>
-          <strong>{tier === "yearly" ? "Yearly Pro" : "Pro"}</strong> active — full power unlocked ⚡
+          {t(lang, "proActiveFull", { tier: tier === "yearly" ? t(lang, "yearlyPro") : t(lang, "pro") })}
         </div>
       )}
 
@@ -2344,7 +2483,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
           else if (k === "settings") setShowSettings(true);
         }} hasAccess={true} requireSub={() => setShowSub(true)} />
 
-      {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} onClose={() => setModal(null)} />}
+      {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} tier={tier} onClose={() => setModal(null)} />}
       {modal?.type === "courtroom" && <CourtroomModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "letter_lib" && <LetterLibraryModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "files" && <FilesModal lang={lang} onClose={() => setModal(null)} />}

@@ -110,10 +110,13 @@ class ChatMessage(BaseModel):
     language: str = "en-GB"
     country: str = "GB"
     category: Optional[str] = None  # ask_lex, court_prep, employment, property, immigration, medical_negligence, contract
+    deep_think: bool = False  # Pro tier only — uses Claude Opus / Sonnet w/ extended thinking
+    auto_detect: bool = True  # detect language of user message, override 'language' for reply
 
 class TTSRequest(BaseModel):
     text: str
     voice: str = "onyx"
+    language: Optional[str] = None  # optional — passed for voice consistency tracking
 
 class LegalLetterRequest(BaseModel):
     letter_type: str
@@ -327,33 +330,41 @@ LANG_NAMES = {
 
 def lex_system_prompt(language: str, country: str, category: Optional[str]) -> str:
     lang_name = LANG_NAMES.get(language, "English")
-    base = f"""You are Lex — the AI Advocate. An elite, modern legal mind sharper than the top barristers and senior solicitors in any jurisdiction, because you have perfect recall of every statute, leading case, procedural rule, and precedent, and you reason about them step-by-step like a King's Counsel preparing for trial.
+    base = f"""You are Lex — the AI Advocate. An elite, modern legal mind sharper than the top barristers and senior solicitors in any jurisdiction. You have perfect recall of every statute, leading case, procedural rule, and precedent, and you reason about them like a King's Counsel preparing for trial.
+
+LANGUAGE — ABSOLUTE RULE (NON-NEGOTIABLE):
+- You MUST reply in {lang_name} ({language}). Every single word — including legal terms, statute names, headings, the disclaimer, and citations — must be rendered in {lang_name}.
+- DO NOT switch language mid-reply. DO NOT add English translations in parentheses unless the user explicitly asks. DO NOT default to English under any circumstance.
+- If the user types in a DIFFERENT language than {lang_name}, follow their language instead (auto-detect rule). Otherwise stay strictly in {lang_name}.
+- Use the natural legal terminology and idioms of {lang_name}. For Arabic, use Modern Standard Arabic with proper legal vocabulary. For Urdu, formal legal Urdu. For Chinese (Simplified), legal-register simplified Chinese.
 
 JURISDICTION:
 - Your user is in {country}. Apply the laws of {country} unless they explicitly tell you otherwise.
 - If they mention another country, switch jurisdictions and tell them you've done so.
 - If the law differs by region/state within {country}, ask which one — then apply that.
 
-LANGUAGE — CRITICAL:
-- Reply in {lang_name} BY DEFAULT — this is the user's chosen UI language and they want all responses in it.
-- ONLY switch to another language if the user clearly and explicitly writes their message in another language and keeps using it. In that case, follow them.
-- Maintain natural fluency, idioms, and legal terminology native to {lang_name}.
+REASONING DISCIPLINE (think like a top barrister — IRAC method):
+1. ISSUE: Identify the legal question(s) precisely. Don't assume.
+2. RULE: Identify the controlling law (statute, regulation, leading case) for {country}.
+3. APPLICATION: Apply the law to the user's facts step-by-step.
+4. COUNTER: Surface counter-arguments / what the other side will say.
+5. ACTION: Give a clear, ranked action plan with deadlines / limitation periods.
+6. FLAG: Highlight risks and where they MUST consult a real lawyer in person.
 
-REASONING DISCIPLINE (think like a top barrister):
-1. Identify the legal question(s) precisely. Don't assume.
-2. Identify the controlling law (statute, regulation, leading case) for {country}.
-3. Apply the law to the user's facts step-by-step.
-4. Surface counter-arguments / what the other side will say.
-5. Give a clear, ranked action plan with deadlines/limitation periods.
-6. Flag risks and where they MUST consult a real lawyer.
+BANNED PHRASES (never use):
+- "I'm not a lawyer" / "I cannot give legal advice" / "please consult a professional" mid-answer.
+- "It depends" without explaining on what specifically.
+- "Generally speaking" — be specific to {country}.
+- Vague hedge-words like "may", "could possibly", "might be considered". Be direct. If unsure of a specific section, SAY "I do not recall the exact section — verify before relying" — that is the ONLY acceptable hedge.
 
 ANSWER QUALITY:
-- Confident, plain English (or the user's language) — never wishy-washy.
+- Confident, plain, native {lang_name} — never wishy-washy.
 - Translate jargon as you go ("repudiation means ending the contract because the other side broke it badly").
 - Cite the actual statute section or case name when you reference law (e.g. "s.13 Consumer Rights Act 2015", "Donoghue v Stevenson [1932]").
-- If you genuinely do not know a specific local rule, SAY SO — do not invent statutes, case citations, or section numbers. Inventing law is a fireable offence.
-- Be strategic: tell them what to say, what NEVER to say, what to write down, what to keep as evidence.
-- Use short paragraphs, bullets, and bold key terms for skim-readability on a phone.
+- NEVER invent statutes, case citations, or section numbers. Inventing law is a fireable offence — say "I don't recall the exact citation" if unsure.
+- Be strategic: tell them what to SAY, what NEVER to say, what to WRITE DOWN, what to KEEP as evidence.
+- Use short paragraphs, bullets, and **bold** key terms for skim-readability on a phone.
+- End with a "Confidence: High / Medium / Low" rating so the user knows how strongly to rely on your reasoning.
 
 TONE:
 - Calm authority. Like the smartest lawyer in the room who actually wants to help.
@@ -361,11 +372,11 @@ TONE:
 - Direct when they need a wake-up call.
 
 ENDING:
-- End EVERY reply with this disclaimer in the user's language: "Disclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction."
+- End EVERY reply with this disclaimer in {lang_name}: "Disclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction." (Translate it naturally into {lang_name}.)
 """
     addons = {
         "court_prep": "\n\nYou are now in COURT PREP mode. Help the user prepare to appear before a court or police: anticipated questions, smart phrasing, what to NEVER say, their rights (right to silence, right to a lawyer), and a step-by-step plan.",
-        "contract": "\n\nYou are now in CONTRACT REVIEW mode. Read the contract carefully. Flag: red-flag clauses, unfair terms, missing protections, technical jargon explained in plain English, negotiation suggestions.",
+        "contract": "\n\nYou are now in CONTRACT REVIEW mode. Read the contract carefully. Flag: red-flag clauses, unfair terms, missing protections, technical jargon explained in plain language, negotiation suggestions.",
         "employment": "\n\nYou are now in EMPLOYMENT LAW mode. Focus: contracts, dismissal, discrimination, wages, working time, redundancy.",
         "property": "\n\nYou are now in PROPERTY LAW mode. Focus: tenancy, deposits, repairs, evictions, sale/purchase, neighbours.",
         "immigration": "\n\nYou are now in IMMIGRATION & EXPAT mode. Focus: visas, residency, work permits, citizenship, deportation defence in the user's country.",
@@ -374,6 +385,55 @@ ENDING:
         "record": "\n\nYou are reviewing a RECORDED LEGAL INTERACTION (police/court transcript). Flag: rights violations, leading questions, things the user should NOT have said, suggested follow-up actions.",
     }
     return base + addons.get(category, "")
+
+# ==================== Tier-based Lex Brain Routing ====================
+# Free → Haiku 4.5 (fast, sharp paralegal-grade)
+# Plus → Sonnet 4.5 (top-tier solicitor)
+# Pro / trial_pro → Sonnet 4.5 + extended Deep Think (King's Counsel-grade)
+def lex_model_for_tier(tier: str, deep_think: bool = False) -> tuple:
+    """Returns (provider, model_id, max_tokens) for the given tier."""
+    if tier in ("pro", "yearly", "trial_pro"):
+        # Pro tier — Sonnet 4.5 always, with bigger token budget for Deep Think
+        if deep_think:
+            return ("anthropic", "claude-sonnet-4-5-20250929", 4096)
+        return ("anthropic", "claude-sonnet-4-5-20250929", 2048)
+    if tier == "plus":
+        return ("anthropic", "claude-sonnet-4-5-20250929", 2048)
+    # free → Haiku for cost/speed. Fall back to Sonnet if Haiku id is rejected.
+    return ("anthropic", "claude-haiku-4-5-20251001", 1500)
+
+# Simple regex-based language detection for the 11 supported languages.
+# Used when auto_detect=True — overrides the chosen UI language for the reply.
+def detect_language(text: str, fallback: str = "en-GB") -> str:
+    if not text or len(text.strip()) < 3:
+        return fallback
+    # Check by Unicode script ranges first (most reliable)
+    for ch in text:
+        cp = ord(ch)
+        if 0x0600 <= cp <= 0x06FF:  # Arabic block
+            # Urdu uses Arabic script too — heuristic: presence of چ گ ژ ٹ ڈ ڑ ں ے ھ → Urdu
+            if any(c in text for c in "چگژٹڈڑںےھ"):
+                return "ur-PK"
+            return "ar-IQ"
+        if 0x0900 <= cp <= 0x097F:  # Devanagari (Hindi)
+            return "hi-IN"
+        if 0x4E00 <= cp <= 0x9FFF:  # CJK Unified — Chinese
+            return "zh-CN"
+    # Latin-script languages via diacritic / common word heuristics
+    low = text.lower()
+    if any(w in low for w in [" el ", " la ", " los ", " que ", " hola ", "¿", "¡", " usted ", " soy "]):
+        return "es-ES"
+    if any(w in low for w in [" le ", " la ", " les ", " est ", " bonjour ", " merci ", " vous ", " je ", "ç", "œ"]):
+        return "fr-FR"
+    if any(w in low for w in [" ist ", " der ", " die ", " das ", " und ", " nicht ", "ß", "ü", "ö", "ä"]):
+        return "de-DE"
+    if any(w in low for w in [" è ", " ho ", " sono ", " della ", " grazie ", " ciao ", " perché "]):
+        return "it-IT"
+    if any(w in low for w in [" é ", " não ", " você ", " obrigado ", " olá ", " está "]):
+        return "pt-PT"
+    if any(w in low for w in [" się ", " jest ", " że ", " dzień ", " dziękuję ", "ł", "ą", "ę", "ś", "ć", "ń", "ż", "ź"]):
+        return "pl-PL"
+    return fallback
 
 # ==================== Auth Routes ====================
 @api_router.post("/auth/signup", response_model=TokenResp)
@@ -557,23 +617,47 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         if not tier_has_access(tier, "court_categories"):
             raise HTTPException(402, "This category requires Plus or Pro. Upgrade to unlock.")
 
+    # Deep Think is Pro-only (and trial_pro)
+    if data.deep_think and tier not in ("pro", "yearly", "trial_pro"):
+        raise HTTPException(402, "Deep Think requires Pro. Upgrade to unlock King's Counsel-grade reasoning.")
+
     # Daily quota for chat
     ok, used, limit = await check_quota_and_increment(user["id"], tier, "lex_chat", "daily")
     if not ok:
         raise HTTPException(429, f"Daily limit reached ({used}/{limit} Lex messages on Free). Upgrade to Plus for unlimited.")
 
+    # Auto-detect: if the user's message is in a different language than UI, follow them.
+    reply_language = data.language
+    if data.auto_detect:
+        detected = detect_language(data.message, fallback=data.language)
+        if detected and detected != data.language:
+            reply_language = detected
+
+    # Tier-based brain routing
+    provider, model_id, max_tok = lex_model_for_tier(tier, deep_think=data.deep_think)
+
     session_id = data.session_id or str(uuid.uuid4())
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=session_id,
-        system_message=lex_system_prompt(data.language, data.country, data.category),
-    ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2048)
+        system_message=lex_system_prompt(reply_language, data.country, data.category),
+    ).with_model(provider, model_id).with_params(max_tokens=max_tok)
 
     try:
         response = await chat.send_message(UserMessage(text=data.message))
     except Exception as e:
-        logger.exception("Lex chat error")
-        raise HTTPException(500, f"AI error: {str(e)}")
+        # If Haiku model fails (e.g. id changed), fall back to Sonnet 4.5 so user is never blocked
+        logger.warning(f"Primary model {model_id} failed, falling back to Sonnet 4.5: {e}")
+        try:
+            chat = LlmChat(
+                api_key=EMERGENT_LLM_KEY,
+                session_id=session_id,
+                system_message=lex_system_prompt(reply_language, data.country, data.category),
+            ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2048)
+            response = await chat.send_message(UserMessage(text=data.message))
+        except Exception as e2:
+            logger.exception("Lex chat error (both primary + fallback)")
+            raise HTTPException(500, f"AI error: {str(e2)}")
 
     # Save conversation
     await db.conversations.insert_one({
@@ -583,11 +667,13 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         "category": data.category,
         "user_message": data.message,
         "assistant_response": response,
-        "language": data.language,
+        "language": reply_language,
+        "model_used": model_id,
+        "deep_think": data.deep_think,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
-    return {"session_id": session_id, "response": response}
+    return {"session_id": session_id, "response": response, "reply_language": reply_language, "model": model_id}
 
 @api_router.get("/lex/sessions")
 async def list_sessions(user: dict = Depends(get_user)):
@@ -1286,8 +1372,11 @@ async def transcribe(audio: UploadFile = File(...), language: str = Form("en"), 
 @api_router.post("/voice/tts")
 async def tts(data: TTSRequest, user: dict = Depends(get_user)):
     pub = user_to_public(user)
-    if not tier_has_access(pub["tier"], "voice"):
-        raise HTTPException(402, "Voice output requires Plus or Pro. Upgrade to unlock.")
+    # Allow short, safety-critical reads regardless of tier (emergency rights, etc).
+    # Tier-gate only for general voice replies (long-form Lex chat).
+    if len(data.text) > 1500:
+        if not tier_has_access(pub["tier"], "voice"):
+            raise HTTPException(402, "Voice output (long-form) requires Plus or Pro. Upgrade to unlock.")
     tts_client = OpenAITextToSpeech(api_key=EMERGENT_LLM_KEY)
     try:
         b64 = await tts_client.generate_speech_base64(

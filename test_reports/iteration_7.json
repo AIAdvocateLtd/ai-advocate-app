@@ -1,0 +1,51 @@
+{
+  "summary": "Iteration 7 — validated Lex tier-based brain routing, Deep Think gating, auto-detect language, Emergency-rights TTS gating, and the new frontend additions (Read-Aloud, SMS, Deep Think toggle, chat timestamps, Spanish translations). Created /app/backend/tests/test_lex_routing.py with 16 pytest cases. Backend: 15/16 PASSED. One real backend bug confirmed: detect_language() incorrectly classifies French as Spanish (Spanish patterns include ' la ' which also occurs in French, and Spanish is checked first). Frontend (mobile 390x844, test@advocate.app trial_pro user): dashboard, Emergency modal (read-aloud + sms-btn testids present), Deep Think toggle works correctly ('🧠 Deep Think' → '🧠 Deep Think: ON' on click for trial_pro user), Spanish UI translation verified across Emergency button, Settings, Emergency Contact section. ONE FRONTEND BUG FOUND: chat message bubbles have NO data-testid='ts-*' timestamp elements after sending a message (timestamps required by review). Also: send-btn click followed by 15s wait produced no visible response in the chat panel — suggestion chips remain and the message text 'Hi' stays in the input — needs investigation.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/lex/chat (helper: detect_language)", "issue": "French is mis-detected as Spanish. Sending a clearly French message ('Bonjour, je voudrais savoir, qu'est-ce que c'est la loi?') with language='en-GB' and auto_detect=true returns reply_language='es-ES'. Root cause: in server.py ~line 424, Spanish heuristic matches ' la ' which also occurs in French, AND the Spanish branch is evaluated BEFORE the French branch. Fix: re-order Latin-script checks so French is checked before Spanish, OR require a more specific Spanish trigger ('¿', '¡', 'usted', 'hola', 'el ', 'los ', 'que ') and remove the ambiguous ' la ' token from the Spanish set.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "/api/lex/chat", "issue": "Free-tier test ran via Haiku and returned model='claude-haiku-4-5-20251001' successfully — no fallback path was triggered in this run. The Sonnet fallback branch (server.py ~line 650) is therefore exercised only on Anthropic-side failures; recommend adding a unit test that monkeypatches LlmChat to force the first call to fail and asserts that the second call succeeds with Sonnet."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "LexChat message bubbles", "issue": "After sending a chat message ('Hi') and waiting 15s, NO data-testid='ts-0'/'ts-1' elements are rendered on the page. Review request explicitly requires timestamp testids under each bubble. Additionally, the chat panel did not visibly render the user bubble nor the AI reply — the suggestion-chip placeholder ('TRY ASKING LEX:') remained and the input still contained the typed text 'Hi'. Either (a) send-btn click is not wired to the submit handler, or (b) the message dispatch is silently failing. Reproduce: login → tile-ask_lex → fill chat-input → click send-btn → observe nothing happens.", "selector": "[data-testid='send-btn'], [data-testid^='ts-']", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "LexChat send", "issue": "send-btn click does not dispatch the message to /api/lex/chat (or the response is not rendered). No visible state change for 15s. This may be the root cause of the missing timestamps — if no bubble is rendered, no ts-* will be either.", "affected_selectors": ["[data-testid='send-btn']", "[data-testid='chat-input']", "[data-testid^='ts-']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_lex_routing.py",
+    "/app/test_reports/pytest/iter7_lex_results.xml"
+  ],
+  "action_items": [
+    "FIX detect_language() in /app/backend/server.py ~line 424: remove ' la ' from the Spanish heuristic OR re-order the Latin-script checks so French is evaluated first (since French shares many short tokens with Spanish). Re-run /app/backend/tests/test_lex_routing.py::TestAutoDetect::test_french_in_english_ui_detects_fr to verify.",
+    "INVESTIGATE LexChat send flow in /app/frontend/src/App.js LexChat() ~line 734: confirm send-btn onClick handler fires, posts to /api/lex/chat, and pushes both the user bubble and the assistant bubble into state. Verify each rendered bubble emits its own data-testid='ts-<index>' timestamp element (the review request requires ts-0, ts-1, …).",
+    "Once send works, manually verify chat bubble timestamps render in correct user locale (e.g., '14:32' format) and update tests to assert at least 2 ts-* elements after one round-trip.",
+    "Add a backend regression test that monkeypatches LlmChat so the Haiku call raises and asserts the Sonnet fallback path runs cleanly (covers code at server.py lines 650-660 that is otherwise untested)."
+  ],
+  "critical_code_review_comments": [
+    "/app/backend/server.py is now 2137 lines — same recommendation as iter6: split into routers (auth/lex/letters/subscription/voice/webhook). Iter6 was 1694 lines; we've grown ~440 lines this iteration without splitting.",
+    "detect_language() uses ordered if/elif Latin checks with overlapping tokens (' la ' is in Spanish, French AND Italian sets). Recommend switching to a score-based detector: count matches per language and pick the max, or use a tiny library like langdetect/fasttext. Current regex order is brittle and silently mis-routes users.",
+    "lex_model_for_tier() hardcodes model IDs in a tuple return — when a new tier or model is added, every caller of this function must be updated. Consider returning a typed dataclass (provider, model_id, max_tokens, supports_deep_think) so the route layer doesn't need to repeat the deep_think check separately from model selection.",
+    "user_to_public() tier inference at server.py:197 requires subscription_status=='active' AND tier in (plus,pro,yearly) to honor a paid tier; if Stripe webhook fails to flip subscription_status to 'active' the persisted tier='pro' silently downgrades the user to 'free'. Document this precedence clearly OR persist a computed tier and rely on it (with a daily reconciliation job).",
+    "/api/voice/tts now allows ANY authenticated user to call it as long as text<=1500 chars (server.py:1377). This is intentional for safety reads (Emergency rights) but is also an OpenAI billing surface — a malicious free user can spam short TTS requests. Recommend per-day TTS quota for free tier (e.g., 20 calls/day) similar to lex_chat_daily=5.",
+    "Frontend chat-input + send-btn appear to be present (data-testids exist) but the send action does not visibly fire — possibly a missing await on the fetch, an early return on validation, or a render bug. Check console for an uncaught promise rejection during send. No console errors were captured this run but the chat console hook only captured 'error' level."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_lex_routing.py (NEW — 16 tests covering tier routing, deep think gate, auto-detect for 5 scripts, TTS gating, emergency rights sanity)"
+  ],
+  "success_rate": {
+    "backend": "94% (15/16 — only failure is the real French-vs-Spanish detection bug)",
+    "frontend": "80% — Spanish translation, Emergency modal (read-aloud + sms-btn testids), Deep Think toggle ON/OFF for trial_pro, all verified. BLOCKED on chat send-btn not visibly producing a response or rendering ts-* timestamps."
+  },
+  "test_credentials": "Pre-seeded test@advocate.app / Test12345! (trial_pro, 9 days remaining). Per-run users created with prefix TEST_iter7_*, all with password Test12345!.",
+  "seed_data_creation": "Each backend test creates a fresh user via /api/auth/signup and directly mutates db.users via motor: free → subscription_status=free, trial expired; plus/pro → subscription_status='active' + trial expired (required for user_to_public to honor the paid tier — see iter6 review note on tier inference). No cleanup performed; TEST_ prefix purge fixture recommended for next iteration.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Two issues remain after this iteration: (1) French language detection bug in detect_language(), (2) LexChat send produces no visible bubbles + no ts-* timestamps. Once the agent applies the two fixes, re-run /app/backend/tests/test_lex_routing.py (should be 16/16) and re-test the chat flow in /app/frontend/src/App.js LexChat() — assert that after clicking send-btn, two bubbles render with data-testid='ts-0' and 'ts-1', and that the timestamps are localized. Iter6's open items (server.py file size, /api/subscription/activate-test exposure, mobile-modal scroll) are STILL valid. Do NOT retest Stripe/Apple — already verified in iter5/iter6.",
+  "rca of the issue": "BUG 1 (French→Spanish mis-detection): detect_language() in server.py:407 uses an ordered if/elif over Latin-script languages where the Spanish branch is checked BEFORE the French branch. The Spanish trigger set includes ' la ' which is also a French definite article. Repro: POST /api/lex/chat with message='Bonjour, je voudrais savoir, qu'est-ce que c'est la loi?', language='en-GB', auto_detect=true → reply_language='es-ES' (expected 'fr-FR'). Mitigation: (a) remove ' la ' from Spanish set, OR (b) require at least one Spanish-unique marker like '¿', '¡', or ' usted '/' hola ', OR (c) switch to a count-based detector that picks max(score_es, score_fr, ...). BUG 2 (chat send produces no visible bubbles + no ts-*): Likely root cause is in the LexChat() React component's send handler — either the await-fetch path returns early, the state setter is not pushing into the messages array, or the bubble component doesn't render the ts-* testid. Repro: open Ask Lex tile → type 'Hi' → click send-btn → wait 15s → no bubble, no ts-* element, suggestion chips still showing, input still contains 'Hi'. Investigation in /app/frontend/src/App.js around LexChat() (~line 734) needed."
+}
