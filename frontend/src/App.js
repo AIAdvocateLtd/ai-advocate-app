@@ -15,7 +15,8 @@ import { STRINGS, t, RTL_LANGS } from "@/i18n";
 const IS_NATIVE = typeof window !== "undefined" && !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 import {
   AskLexIcon, RecordIcon, CameraIcon, LawyerIcon, FilesIcon, LetterIcon,
-  CourtIcon, ImmigrationIcon, EmploymentIcon, PropertyIcon, MedicalIcon
+  CourtIcon, ImmigrationIcon, EmploymentIcon, PropertyIcon, MedicalIcon,
+  OutcomeIcon, CostIcon, HearingIcon, AidIcon
 } from "@/icons";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -2918,10 +2919,10 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "record", label: t(lang, "recordLegal"), Icon: RecordIcon, cat: "record", req: "plus" },
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
     { id: "letter_reader", label: "Letter Reader", Icon: LetterIcon, req: "free" },
-    { id: "outcome", label: "Predict Outcome", Icon: Scale, req: "plus" },
-    { id: "cost", label: "Lawyer Cost", Icon: Briefcase, req: "free" },
-    { id: "hearing", label: "Hearing Recorder", Icon: Mic, req: "plus" },
-    { id: "legal_aid", label: "Free Legal Aid", Icon: HomeIcon, req: "free" },
+    { id: "outcome", label: "Predict Outcome", Icon: OutcomeIcon, req: "plus" },
+    { id: "cost", label: "Lawyer Cost", Icon: CostIcon, req: "free" },
+    { id: "hearing", label: "Hearing Recorder", Icon: HearingIcon, req: "plus" },
+    { id: "legal_aid", label: "Free Legal Aid", Icon: AidIcon, req: "free" },
     { id: "lawyers", label: t(lang, "findLawyer"), Icon: LawyerIcon, req: "free" },
     { id: "files", label: t(lang, "myFiles"), Icon: FilesIcon, req: "free" },
     { id: "cases", label: t(lang, "caseFiles"), Icon: FilesIcon, req: "free" },

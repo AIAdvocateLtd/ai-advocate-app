@@ -127,3 +127,50 @@ export const MedicalIcon = ({ size = 44 }) => (
     <path d="M28 12 Q32 8 36 12 L34 16 H30 Z"/>
   </svg>
 );
+
+
+// ---------- Round 2 icons ----------
+
+// OutcomeIcon — crystal-ball / forecast (Predict Outcome)
+export const OutcomeIcon = ({ size = 44 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" {...base}>
+    <circle cx="32" cy="30" r="16"/>
+    <path d="M20 46 H44 L40 54 H24 Z"/>
+    <path d="M25 26 Q32 20 39 26"/>
+    <circle cx="27" cy="22" r="0.8" fill="currentColor"/>
+    <circle cx="37" cy="22" r="0.8" fill="currentColor"/>
+    <path d="M28 34 Q32 38 36 34"/>
+  </svg>
+);
+
+// CostIcon — coin stack with £ (Lawyer Cost)
+export const CostIcon = ({ size = 44 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" {...base}>
+    <ellipse cx="32" cy="20" rx="14" ry="5"/>
+    <path d="M18 20 V32 Q18 36 32 36 Q46 36 46 32 V20"/>
+    <path d="M18 32 V44 Q18 48 32 48 Q46 48 46 44 V32"/>
+    <text x="32" y="42" textAnchor="middle" fontSize="13" fontWeight="700"
+          stroke="none" fill="currentColor" fontFamily="serif">£</text>
+  </svg>
+);
+
+// HearingIcon — podium / lectern mic (Hearing Recorder)
+export const HearingIcon = ({ size = 44 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" {...base}>
+    <line x1="32" y1="14" x2="32" y2="22"/>
+    <rect x="28" y="22" width="8" height="14" rx="4"/>
+    <path d="M22 30 Q22 38 32 38 Q42 38 42 30"/>
+    <line x1="32" y1="38" x2="32" y2="46"/>
+    <path d="M20 54 L26 46 H38 L44 54 Z"/>
+    <line x1="14" y1="20" x2="18" y2="22"/>
+    <line x1="46" y1="22" x2="50" y2="20"/>
+  </svg>
+);
+
+// AidIcon — helping hand cradling a heart (Free Legal Aid)
+export const AidIcon = ({ size = 44 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" {...base}>
+    <path d="M32 30 C30 26 24 26 24 20 C24 16 28 14 32 18 C36 14 40 16 40 20 C40 26 34 26 32 30 Z"/>
+    <path d="M14 38 Q18 32 26 36 L34 40 H42 Q46 40 46 44 Q46 48 42 48 H30 L24 52 Q14 50 14 44 Z"/>
+  </svg>
+);
