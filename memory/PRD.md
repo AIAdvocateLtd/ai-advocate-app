@@ -7,6 +7,26 @@ A multilingual "lawyer in your pocket" web + iOS + Android app. Core: Lex AI cha
 - Pure-black (#000) background, gold accents (#f7c948), Cinzel serif for headings, Heraldic SVG icons, Lex avatar character (mix-blend-mode lighten).
 - RTL support for Arabic & Urdu. 11 languages total.
 
+## Trial economics (UPDATED 2026-02-16)
+- 14-day trial_pro tier protects LLM costs via tighter caps than paid Pro:
+  - lex_chat: 50/day, evidence_analyze: 10/mo, doc_analyze: 10/mo, letters_generate: 5/mo
+  - deep_think: 5/mo (vs Pro 30/mo), live_assist: 1 session/day, files_total: 20
+
+## Firm Tiers (UPDATED 2026-02-16 — consolidated to 2)
+| Tier | Price | What firm gets |
+|---|---|---|
+| Featured | £49 / mo | Top-of-list placement, Sponsored badge, gold border, direct enquiries |
+| Premium Sponsor | £149 / mo | Hero card, Verified ✓ badge, logo slot, direct call CTA |
+
+`STRIPE_PRICE_FIRM_VERIFIED` (£19) tier is REMOVED. `/api/firm/subscribe` rejects `verified` plan with 400.
+
+## Round-1 New Features (2026-02-16)
+- ✅ **Live Mode timestamped notes** — every utterance during police interview / disciplinary / tribunal is logged with millisecond UTC timestamps (`POST /api/live/notes`); list & PDF export endpoints added (`GET /api/live/sessions`, `GET /api/live/notes/{id}/export`). Frontend wires into existing CourtroomModal Live tab; Export PDF button appears after session.
+- ✅ **Document/Letter Auto-Responder** — new tile "Letter Reader" on dashboard. User snaps any letter; Gemini vision returns category + summary + deadlines + drafted response + next_steps + severity in strict JSON. Auto-creates case_items entry AND auto-creates `doc_auto` reminders for every extracted deadline (status=pending, kind=deadline). Endpoint: `POST /api/document/analyze`.
+- ✅ **Smart Deadline Tracker** — flows from doc analysis above; reminders appear in default `GET /api/reminders` listing.
+- ✅ **Thumbs up/down feedback** — every Lex chat reply has `fb-up-{i}` / `fb-down-{i}` buttons; persists to `feedback` collection via `POST /api/feedback`.
+- ✅ **Daily "Know Your Rights" tip** — `GET /api/tips/daily?language&country` cached per-day per-language. Renders as DailyTipCard at top of dashboard.
+
 ## Auth
 - Email/password (custom JWT)
 - Apple Sign-In — ✅ WORKING (Services ID: `app.aiadvocate.signin`, domain `ai-law-guide-1.preview.emergentagent.com`, return URL with trailing `/`)

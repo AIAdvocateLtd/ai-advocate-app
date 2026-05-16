@@ -2846,8 +2846,9 @@ If the document is NOT a legal/official letter, set category=\"other\", severity
                 due = datetime.fromisoformat(dl["date_iso"]).replace(tzinfo=timezone.utc)
                 await db.reminders.insert_one({
                     "id": str(uuid.uuid4()), "user_id": user["id"], "case_id": case_id,
-                    "title": dl.get("label", "Deadline"), "due_at": due.isoformat(),
-                    "source": "doc_auto", "completed": False,
+                    "title": dl.get("label", "Deadline"), "description": "",
+                    "due_at": due.isoformat(), "kind": "deadline",
+                    "status": "pending", "source": "doc_auto",
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 })
             except Exception:
