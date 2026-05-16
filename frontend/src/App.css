@@ -1,22 +1,21 @@
 /* Component-specific styles (kept minimal, main styles in index.css) */
 .App { min-height: 100vh; }
 
-/* Gold-only shimmer: a gentle brightness/saturation pulse on the logo.
-   Because the logo image uses mix-blend-mode: lighten on a pure-black
-   background, brightening the image only visibly lifts the gold pixels —
-   the black areas stay invisible. Result: only the gold "glints". */
+/* Option 2 — Brightness pulse on the transparent logo PNG.
+   Gold pixels brighten & saturate briefly with a soft drop-shadow
+   glow — like the logo catches the light. No box, no moving streak. */
 .aa-logo-shimmer { display: inline-block; }
 .aa-logo-shimmer img {
-  animation: aa-logo-glint 4.5s ease-in-out infinite;
+  animation: aa-logo-glint 4s ease-in-out infinite;
 }
 @keyframes aa-logo-glint {
-  0%, 70%, 100% {
+  0%, 100% {
     filter: brightness(1) saturate(1)
             drop-shadow(0 0 0 rgba(247,201,72,0));
   }
-  35% {
-    filter: brightness(1.35) saturate(1.15)
-            drop-shadow(0 0 10px rgba(247,201,72,0.55));
+  50% {
+    filter: brightness(1.4) saturate(1.2)
+            drop-shadow(0 0 10px rgba(247,201,72,0.5));
   }
 }
 

@@ -69,10 +69,9 @@ const Logo = ({ size = "lg" }) => {
   const w = size === "lg" ? 220 : size === "md" ? 140 : 80;
   return (
     <div className="flex flex-col items-center" data-testid="app-logo">
-      <div className="aa-logo-shimmer" style={{ width: w, position: "relative", display: "inline-block" }}>
-        <img src="/assets/logo.jpg" alt="AI Advocate"
-             style={{ width: w, height: "auto", display: "block",
-                      mixBlendMode: "lighten" }} />
+      <div className="aa-logo-shimmer" style={{ width: w, display: "inline-block" }}>
+        <img src="/assets/logo-transparent.png" alt="AI Advocate"
+             style={{ width: w, height: "auto", display: "block" }} />
       </div>
     </div>
   );
