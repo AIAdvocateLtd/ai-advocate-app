@@ -3082,7 +3082,8 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
         })}
       </div>
 
-      <StatsWall lang={lang} />
+      {/* StatsWall hidden until we have real user counts post-launch */}
+      {/* <StatsWall lang={lang} /> */}
 
       <BottomNav lang={lang} active="home"
         onNav={(k) => {
