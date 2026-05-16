@@ -3018,6 +3018,7 @@ function SplashScreen({ onDone }) {
         autoPlay muted playsInline
         onEnded={finish}
         onError={finish}
+        className="aa-splash-video"
         style={{ width: "70vw", maxWidth: 480, height: "auto", objectFit: "contain" }}
       />
     </div>
