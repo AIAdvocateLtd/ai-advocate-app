@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>AI Advocate — Firm Tier & Logo Preview</title>
+<style>
+  :root {
+    --bg: #000;
+    --bg-card: #0f0c06;
+    --gold: #f7c948;
+    --gold-deep: #b8860b;
+    --gold-soft: #e6b539;
+    --text: #f5e9c8;
+    --text-dim: #c6b07a;
+    --text-muted: #7a6c4a;
+    --line: #2a2418;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 20px; min-height: 100vh;
+    background: radial-gradient(ellipse at top, #1a1300 0%, #000 60%);
+    font-family: -apple-system, Segoe UI, sans-serif;
+    color: var(--text);
+  }
+  h1 { font-family: 'Cinzel', serif; color: var(--gold); text-align: center; font-size: 28px; margin: 0 0 8px; letter-spacing: 1px; }
+  .sub { text-align: center; color: var(--text-muted); font-size: 13px; margin-bottom: 36px; }
+  h2 { font-family: 'Cinzel', serif; color: var(--gold); font-size: 20px; margin: 40px 0 14px; padding-left: 6px; border-left: 3px solid var(--gold); }
+  .grid {
+    display: grid; gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    max-width: 1280px; margin: 0 auto;
+  }
+  .label { color: var(--gold-soft); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px; }
+  .price { color: var(--text-dim); font-size: 12px; margin-bottom: 10px; }
+
+  /* ----- Firm Cards ----- */
+  .firm-card {
+    background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px; position: relative;
+    transition: transform 0.2s;
+  }
+  .firm-name { color: var(--gold); font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 6px; }
+  .firm-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .firm-specialties { font-size: 12px; color: var(--text-dim); margin-top: 6px; }
+  .firm-rating { display: flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 12px; color: var(--gold-soft); }
+
+  /* ----- Verified (£19) — small blue trust badge ----- */
+  .verified-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: linear-gradient(135deg, #3b82f6, #1e40af);
+    color: white; font-size: 11px; font-weight: bold;
+    box-shadow: 0 0 8px rgba(59,130,246,0.5);
+  }
+
+  /* ----- Featured (£49.99) — gold border + Sponsored pill ----- */
+  .featured-card { border: 1px solid var(--gold); }
+  .sponsored-pill {
+    position: absolute; top: -8px; right: 12px;
+    background: var(--gold); color: #1a1300;
+    font-size: 10px; padding: 2px 8px; border-radius: 6px; font-weight: 600;
+  }
+
+  /* ----- Premium Sponsor (£149) — HERO card ----- */
+  .premium-hero {
+    border: 1px solid var(--gold);
+    border-radius: 16px; padding: 20px 18px;
+    background: linear-gradient(180deg, #1a1300 0%, var(--bg-card) 100%);
+    position: relative; overflow: hidden;
+    box-shadow: 0 0 24px rgba(247,201,72,0.18), inset 0 0 16px rgba(247,201,72,0.06);
+  }
+  .premium-hero::before {
+    content: "";
+    position: absolute; inset: -2px;
+    background: linear-gradient(110deg, transparent 40%, rgba(247,201,72,0.25) 50%, transparent 60%);
+    background-size: 200% 100%;
+    animation: hero-shimmer 4s linear infinite;
+    pointer-events: none;
+  }
+  @keyframes hero-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  .premium-row { display: flex; gap: 14px; align-items: center; }
+  .firm-logo {
+    width: 56px; height: 56px; border-radius: 12px;
+    background: #2a2418; flex-shrink: 0;
+    border: 1px solid var(--gold-deep);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--gold); font-weight: 700;
+  }
+  .premium-info { flex: 1; }
+  .premium-name { color: var(--gold); font-weight: 700; font-size: 18px; font-family: 'Cinzel', serif; letter-spacing: 0.5px; }
+  .premium-tagline { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
+  .premium-cta {
+    margin-top: 12px; display: flex; gap: 8px;
+  }
+  .btn-gold {
+    flex: 1; background: var(--gold); color: #1a1300;
+    border: none; border-radius: 10px; padding: 10px;
+    font-weight: 700; font-size: 13px; cursor: pointer;
+  }
+  .btn-ghost {
+    flex: 1; background: transparent; color: var(--gold);
+    border: 1px solid var(--gold-deep); border-radius: 10px;
+    padding: 10px; font-weight: 600; font-size: 13px; cursor: pointer;
+  }
+
+  /* ----- Premium Partner badge (animated AI Advocate shield) ----- */
+  .premium-partner-badge {
+    position: absolute; top: 12px; right: 12px;
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(247,201,72,0.08);
+    border: 1px solid var(--gold);
+    border-radius: 20px; padding: 4px 10px 4px 4px;
+    backdrop-filter: blur(4px);
+  }
+  .badge-shield {
+    width: 22px; height: 22px; border-radius: 50%;
+    background-image: url('/assets/logo.jpg');
+    background-size: cover; background-position: center;
+    position: relative; overflow: hidden;
+  }
+  .badge-shield::after {
+    content: "";
+    position: absolute; inset: 0;
+    background: linear-gradient(115deg, transparent 35%, rgba(255,245,184,0.85) 50%, transparent 65%);
+    transform: translateX(-100%);
+    animation: badge-shine 2.6s ease-in-out infinite;
+    mix-blend-mode: screen;
+  }
+  @keyframes badge-shine {
+    0%   { transform: translateX(-100%); }
+    60%  { transform: translateX(100%); }
+    100% { transform: translateX(100%); }
+  }
+  .badge-text { color: var(--gold); font-size: 10px; font-weight: 700; letter-spacing: 0.8px; }
+
+  /* ====================================================== */
+  /* LOGO OPTION A — Static logo with moving gold shimmer    */
+  /* ====================================================== */
+  .logo-demo {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 28px 18px;
+    background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+  .logo-demo h3 { color: var(--gold); margin: 14px 0 6px; font-family: 'Cinzel', serif; font-size: 17px; }
+  .logo-demo p { color: var(--text-muted); font-size: 12px; text-align: center; margin: 0 0 14px; max-width: 260px; line-height: 1.5; }
+
+  .logo-wrap-shimmer {
+    width: 140px; height: 140px;
+    position: relative;
+    border-radius: 16px; overflow: hidden;
+    background: #000;
+  }
+  .logo-wrap-shimmer img {
+    width: 100%; height: 100%; object-fit: cover;
+    display: block;
+  }
+  .logo-wrap-shimmer::after {
+    content: "";
+    position: absolute; inset: 0;
+    background: linear-gradient(115deg,
+      transparent 30%,
+      rgba(255,245,184,0.0) 42%,
+      rgba(255,245,184,0.75) 50%,
+      rgba(255,245,184,0.0) 58%,
+      transparent 70%);
+    transform: translateX(-100%);
+    animation: logo-shimmer 3s ease-in-out infinite;
+    mix-blend-mode: screen;
+    pointer-events: none;
+  }
+  @keyframes logo-shimmer {
+    0%   { transform: translateX(-100%); }
+    70%  { transform: translateX(100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  /* ====================================================== */
+  /* LOGO OPTION B — 3D spinning logo                       */
+  /* ====================================================== */
+  .logo-3d-stage {
+    width: 140px; height: 140px;
+    perspective: 700px;
+  }
+  .logo-3d {
+    width: 100%; height: 100%;
+    border-radius: 16px;
+    transform-style: preserve-3d;
+    animation: logo-spin 5s linear infinite;
+    box-shadow: 0 8px 28px rgba(247,201,72,0.25);
+  }
+  .logo-3d img {
+    width: 100%; height: 100%;
+    border-radius: 16px;
+    object-fit: cover;
+    display: block;
+    backface-visibility: hidden;
+  }
+  @keyframes logo-spin {
+    0%   { transform: rotateY(0deg); }
+    100% { transform: rotateY(360deg); }
+  }
+
+  /* ====================================================== */
+  /* LOGO OPTION C — Sparkle particles + gentle pulse glow  */
+  /* ====================================================== */
+  .logo-wrap-sparkle {
+    width: 140px; height: 140px; position: relative;
+    border-radius: 16px; overflow: visible;
+  }
+  .logo-wrap-sparkle img {
+    width: 100%; height: 100%; object-fit: cover;
+    border-radius: 16px;
+    animation: pulse-glow 2.5s ease-in-out infinite;
+  }
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 18px rgba(247,201,72,0.4); }
+    50%      { box-shadow: 0 0 36px rgba(247,201,72,0.85), 0 0 60px rgba(247,201,72,0.4); }
+  }
+  .sparkle {
+    position: absolute; width: 8px; height: 8px;
+    background: white; border-radius: 50%;
+    box-shadow: 0 0 6px white, 0 0 12px rgba(255,245,184,0.8);
+    opacity: 0;
+    animation: sparkle-pop 2.5s ease-in-out infinite;
+  }
+  .sparkle.s1 { top: 6%; left: 12%;  animation-delay: 0s; }
+  .sparkle.s2 { top: 22%; right: 8%; animation-delay: 0.6s; }
+  .sparkle.s3 { bottom: 14%; left: 18%; animation-delay: 1.2s; }
+  .sparkle.s4 { bottom: 6%; right: 22%; animation-delay: 1.8s; }
+  .sparkle.s5 { top: 50%; left: -4%;  animation-delay: 0.9s; }
+  @keyframes sparkle-pop {
+    0%, 100% { opacity: 0; transform: scale(0.4); }
+    50%      { opacity: 1; transform: scale(1.2); }
+  }
+
+  .footnote {
+    max-width: 720px; margin: 40px auto 0;
+    text-align: center; color: var(--text-muted); font-size: 12px;
+    border-top: 1px solid var(--line); padding-top: 20px; line-height: 1.7;
+  }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<h1>AI Advocate — Firm Tier Preview</h1>
+<p class="sub">Visual mock-up. Nothing on the live app has been changed.</p>
+
+<!-- =============================================== -->
+<!-- PART 1: FIRM TIER VISUAL DIFFERENTIATION       -->
+<!-- =============================================== -->
+<h2>Part 1 · Firm Tier Visual Hierarchy</h2>
+<div class="grid">
+
+  <!-- VERIFIED -->
+  <div>
+    <div class="label">Tier 1 — Verified</div>
+    <div class="price">£19 / month</div>
+    <div class="firm-card">
+      <div class="firm-name">
+        Smith &amp; Cole Solicitors
+        <span class="verified-badge" title="Verified firm">✓</span>
+      </div>
+      <div class="firm-meta">📍 London, GB · 1.2 km</div>
+      <div class="firm-specialties">criminal · employment · court_prep</div>
+      <div class="firm-rating">★ 4.7</div>
+    </div>
+  </div>
+
+  <!-- FEATURED -->
+  <div>
+    <div class="label">Tier 2 — Featured</div>
+    <div class="price">£49.99 / month</div>
+    <div class="firm-card featured-card">
+      <div class="sponsored-pill">SPONSORED</div>
+      <div class="firm-name">Crown Bench Chambers</div>
+      <div class="firm-meta">📍 Manchester, GB · 3.4 km</div>
+      <div class="firm-specialties">criminal · court_prep · ask_lex</div>
+      <div class="firm-rating">★ 4.8</div>
+    </div>
+  </div>
+
+  <!-- PREMIUM SPONSOR -->
+  <div>
+    <div class="label" style="color: var(--gold);">Tier 3 — Premium Sponsor</div>
+    <div class="price">£149 / month</div>
+    <div class="firm-card premium-hero">
+      <div class="premium-partner-badge">
+        <div class="badge-shield"></div>
+        <span class="badge-text">PREMIUM PARTNER</span>
+      </div>
+      <div class="premium-row">
+        <div class="firm-logo">AC</div>
+        <div class="premium-info">
+          <div class="premium-name">Aldgate &amp; Co.</div>
+          <div class="firm-meta">📍 London EC3 · 0.8 km · ★ 4.9</div>
+          <div class="premium-tagline">Award-winning personal injury &amp; medical negligence specialists.</div>
+        </div>
+      </div>
+      <div class="premium-cta">
+        <button class="btn-gold">📞 Call now</button>
+        <button class="btn-ghost">Send enquiry</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- =============================================== -->
+<!-- PART 2: PREMIUM LOGO TREATMENT OPTIONS         -->
+<!-- =============================================== -->
+<h2>Part 2 · "Special" AI Advocate Logo Treatments</h2>
+<p class="sub" style="margin-bottom: 22px;">Three options for the top-tier visual signature. Pick one (or mix).</p>
+
+<div class="grid">
+
+  <!-- OPTION A -->
+  <div class="logo-demo">
+    <div class="logo-wrap-shimmer">
+      <img src="/assets/logo.jpg" alt="AI Advocate" />
+    </div>
+    <h3>Option A · Moving Shimmer</h3>
+    <p>Static logo. A subtle gold "shine" sweeps across diagonally every few seconds — like polished gold catching the light. Tasteful, premium, never distracting.</p>
+  </div>
+
+  <!-- OPTION B -->
+  <div class="logo-demo">
+    <div class="logo-3d-stage">
+      <div class="logo-3d">
+        <img src="/assets/logo.jpg" alt="AI Advocate" />
+      </div>
+    </div>
+    <h3>Option B · 3D Spin</h3>
+    <p>The logo gently rotates on its Y-axis. High-impact, eye-catching, but can feel busy if it runs constantly. Best used as an entrance animation that stops after 1-2 spins.</p>
+  </div>
+
+  <!-- OPTION C -->
+  <div class="logo-demo">
+    <div class="logo-wrap-sparkle">
+      <span class="sparkle s1"></span>
+      <span class="sparkle s2"></span>
+      <span class="sparkle s3"></span>
+      <span class="sparkle s4"></span>
+      <span class="sparkle s5"></span>
+      <img src="/assets/logo.jpg" alt="AI Advocate" />
+    </div>
+    <h3>Option C · Sparkle + Glow</h3>
+    <p>Pulsing gold halo around the logo with small white sparkle particles popping at random points. Most "magical" — strongest premium feel, perfect for the Premium Partner badge.</p>
+  </div>
+
+</div>
+
+<p class="footnote">
+  Once you pick, I'll wire this so that <b>only Premium-tier firms (£149)</b> get the animated "Premium Partner" badge displayed next to their listing — and we can use the chosen treatment on the AI Advocate logo across the app for Pro users / launch screen as a brand signature.
+</p>
+
+</body>
+</html>
