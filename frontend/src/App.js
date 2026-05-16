@@ -3013,7 +3013,7 @@ function SplashScreen({ onDone }) {
     >
       <video
         ref={videoRef}
-        src="/assets/splash.mp4"
+        src="/assets/splash-clean.mp4"
         autoPlay muted playsInline
         onEnded={finish}
         onError={finish}
