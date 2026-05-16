@@ -1732,6 +1732,29 @@ async def stripe_webhook(request: Request):
     now_iso = datetime.now(timezone.utc).isoformat()
 
     if etype == "checkout.session.completed":
+        # FIRM portal checkout — metadata.firm_id is set by /api/firm/subscribe
+        firm_id = (obj.get("metadata") or {}).get("firm_id")
+        if firm_id:
+            firm_plan = (obj.get("metadata") or {}).get("firm_plan", "featured")
+            customer_id = obj.get("customer")
+            sub_id = obj.get("subscription")
+            set_doc = {
+                "billing_tier": firm_plan, "billing_status": "active",
+                "stripe_customer_id": customer_id, "stripe_subscription_id": sub_id,
+                "subscription_started_at": now_iso,
+            }
+            # Featured + Premium include the visible "featured" placement
+            if firm_plan in ("featured", "premium"):
+                set_doc["featured"] = True
+                await db.lawfirms.update_one({"firm_account_id": firm_id}, {"$set": {"featured": True}})
+            # Verified + Premium include the "verified" trust badge
+            if firm_plan in ("verified", "premium"):
+                set_doc["verified"] = True
+                await db.lawfirms.update_one({"firm_account_id": firm_id}, {"$set": {"verified": True}})
+            await db.firm_accounts.update_one({"id": firm_id}, {"$set": set_doc})
+            logger.info(f"Firm {firm_id} upgraded to {firm_plan}")
+            return {"ok": True, "firm_upgraded": True}
+
         user_id = obj.get("client_reference_id") or (obj.get("metadata") or {}).get("user_id")
         customer_id = obj.get("customer")
         sub_id = obj.get("subscription")
@@ -2574,12 +2597,11 @@ async def firm_update_listing(data: FirmListingUpdate, firm: dict = Depends(get_
 
 @api_router.post("/firm/subscribe")
 async def firm_subscribe(plan: str = "featured", firm: dict = Depends(get_firm)):
-    """Stripe checkout for firms — £49/mo Featured or £19/mo Verified."""
-    if plan not in ("featured", "verified"):
-        raise HTTPException(400, "plan must be 'featured' or 'verified'")
+    """Stripe checkout for firms — £49.99/mo Featured, £19/mo Verified, £149/mo Premium Sponsor."""
+    if plan not in ("featured", "verified", "premium"):
+        raise HTTPException(400, "plan must be 'featured', 'verified' or 'premium'")
     if not STRIPE_API_KEY:
         raise HTTPException(503, "Billing not configured")
-    # Reuse PRICE_TO_TIER pattern — but firm prices come from env (placeholders for now)
     price_id = os.environ.get(f"STRIPE_PRICE_FIRM_{plan.upper()}", "")
     if not price_id:
         raise HTTPException(503, f"Stripe price ID for firm {plan} not configured. Set STRIPE_PRICE_FIRM_{plan.upper()} in .env")
