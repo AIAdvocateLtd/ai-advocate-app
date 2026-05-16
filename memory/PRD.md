@@ -10,7 +10,7 @@ A multilingual "lawyer in your pocket" web + iOS + Android app. Core: Lex AI cha
 ## Auth
 - Email/password (custom JWT)
 - Apple Sign-In — ✅ WORKING (Services ID: `app.aiadvocate.signin`, domain `ai-law-guide-1.preview.emergentagent.com`, return URL with trailing `/`)
-- Google Sign-In — code ready, env var set, awaiting verify by user
+- Google Sign-In — ✅ WORKING (Client ID wired in env; button verified rendering on auth screen 2026-02-16)
 
 ## AI Stack (Emergent LLM Key)
 - **Chat (Lex):** Claude Sonnet 4.5 with court-prep-grade system prompt + auto-detect-language
