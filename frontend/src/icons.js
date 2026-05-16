@@ -153,15 +153,7 @@ export const CostIcon = ({ size = 44 }) => (
   </svg>
 );
 
-// ReminderIcon — bell with notch (Reminders) — visually distinct from FilesIcon
-export const ReminderIcon = ({ size = 44 }) => (
-  <svg width={size} height={size} viewBox="0 0 64 64" {...base}>
-    <path d="M32 12 V8"/>
-    <path d="M18 42 V32 Q18 18 32 18 Q46 18 46 32 V42"/>
-    <path d="M14 42 H50 L46 46 H18 Z"/>
-    <path d="M28 50 Q32 54 36 50"/>
-  </svg>
-);
+// ReminderIcon — calendar with a small bell badge (Reminders) — DEFINED ABOVE
 
 // HearingIcon — podium / lectern mic (Hearing Recorder)
 export const HearingIcon = ({ size = 44 }) => (
@@ -176,10 +168,42 @@ export const HearingIcon = ({ size = 44 }) => (
   </svg>
 );
 
-// AidIcon — helping hand cradling a heart (Free Legal Aid)
+// AidIcon — government-style crowned shield with scales (Legal Aid)
+// Original art evoking the UK Legal Aid Agency / MoJ visual language
+// without copying the actual trademarked logo.
 export const AidIcon = ({ size = 44 }) => (
   <svg width={size} height={size} viewBox="0 0 64 64" {...base}>
-    <path d="M32 30 C30 26 24 26 24 20 C24 16 28 14 32 18 C36 14 40 16 40 20 C40 26 34 26 32 30 Z"/>
-    <path d="M14 38 Q18 32 26 36 L34 40 H42 Q46 40 46 44 Q46 48 42 48 H30 L24 52 Q14 50 14 44 Z"/>
+    {/* small crown at the top */}
+    <path d="M24 14 L26 10 L29 14 L32 9 L35 14 L38 10 L40 14 L40 18 H24 Z"/>
+    <line x1="24" y1="14" x2="40" y2="14"/>
+    {/* shield outline */}
+    <path d="M16 20 H48 V36 Q48 50 32 56 Q16 50 16 36 Z"/>
+    {/* scales of justice inside the shield */}
+    <line x1="32" y1="26" x2="32" y2="44"/>
+    <line x1="22" y1="30" x2="42" y2="30"/>
+    <path d="M22 30 L19 38 H25 Z"/>
+    <path d="M42 30 L39 38 H45 Z"/>
+  </svg>
+);
+
+// ReminderIcon — calendar with a small bell badge (Reminders)
+export const ReminderIcon = ({ size = 44 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" {...base}>
+    {/* calendar body */}
+    <rect x="12" y="16" width="36" height="34" rx="3"/>
+    <line x1="12" y1="24" x2="48" y2="24"/>
+    {/* hangers */}
+    <line x1="20" y1="12" x2="20" y2="20"/>
+    <line x1="40" y1="12" x2="40" y2="20"/>
+    {/* date dot grid */}
+    <circle cx="22" cy="32" r="1.4" fill="currentColor"/>
+    <circle cx="30" cy="32" r="1.4" fill="currentColor"/>
+    <circle cx="22" cy="40" r="1.4" fill="currentColor"/>
+    <circle cx="30" cy="40" r="1.4" fill="currentColor"/>
+    {/* bell badge top-right */}
+    <circle cx="50" cy="20" r="9" fill="#000" stroke="currentColor"/>
+    <path d="M47 18 V16 Q47 13 50 13 Q53 13 53 16 V18"/>
+    <path d="M45 22 H55"/>
+    <path d="M49 24 Q50 25 51 24"/>
   </svg>
 );
