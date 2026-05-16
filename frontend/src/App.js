@@ -32,13 +32,33 @@ const COUNTRIES = [
 ];
 
 const LANGS = [
-  { code: "en-GB", name: "English", flag: "🇬🇧" }, { code: "es-ES", name: "Español", flag: "🇪🇸" },
-  { code: "fr-FR", name: "Français", flag: "🇫🇷" }, { code: "ar-IQ", name: "العربية", flag: "🇮🇶" },
-  { code: "pl-PL", name: "Polski", flag: "🇵🇱" }, { code: "de-DE", name: "Deutsch", flag: "🇩🇪" },
-  { code: "hi-IN", name: "हिन्दी", flag: "🇮🇳" }, { code: "ur-PK", name: "اردو", flag: "🇵🇰" },
-  { code: "it-IT", name: "Italiano", flag: "🇮🇹" }, { code: "pt-PT", name: "Português", flag: "🇵🇹" },
-  { code: "zh-CN", name: "中文 (简体)", flag: "🇨🇳" },
+  { code: "en-GB", name: "English", flag: "🇬🇧", cc: "gb" }, { code: "es-ES", name: "Español", flag: "🇪🇸", cc: "es" },
+  { code: "fr-FR", name: "Français", flag: "🇫🇷", cc: "fr" }, { code: "ar-IQ", name: "العربية", flag: "🇮🇶", cc: "iq" },
+  { code: "pl-PL", name: "Polski", flag: "🇵🇱", cc: "pl" }, { code: "de-DE", name: "Deutsch", flag: "🇩🇪", cc: "de" },
+  { code: "hi-IN", name: "हिन्दी", flag: "🇮🇳", cc: "in" }, { code: "ur-PK", name: "اردو", flag: "🇵🇰", cc: "pk" },
+  { code: "it-IT", name: "Italiano", flag: "🇮🇹", cc: "it" }, { code: "pt-PT", name: "Português", flag: "🇵🇹", cc: "pt" },
+  { code: "zh-CN", name: "中文 (简体)", flag: "🇨🇳", cc: "cn" },
 ];
+
+// Cross-platform flag — uses flagcdn.com SVGs so flags render
+// identically on Windows/Edge (which doesn't render emoji flags) and on iOS/Android.
+const Flag = ({ cc, size = 22, alt = "" }) => (
+  <img
+    src={`https://flagcdn.com/w40/${cc}.png`}
+    srcSet={`https://flagcdn.com/w80/${cc}.png 2x`}
+    width={Math.round(size * 1.4)}
+    height={size}
+    alt={alt}
+    loading="lazy"
+    style={{
+      display: "inline-block",
+      verticalAlign: "middle",
+      borderRadius: 3,
+      boxShadow: "0 0 0 1px rgba(0,0,0,0.25)",
+      objectFit: "cover",
+    }}
+  />
+);
 
 // ---------- API helpers ----------
 const api = axios.create({ baseURL: API });
@@ -105,8 +125,8 @@ function LanguagePicker({ initial, onConfirm, lang }) {
                 border: sel === l.code ? "1px solid var(--gold)" : "1px solid transparent",
                 marginBottom: 6, color: "var(--text)", textAlign: "left", cursor: "pointer"
               }}>
-              <span style={{ fontSize: 22 }}>{l.flag}</span>
-              <span style={{ flex: 1 }}>{l.name}</span>
+              <Flag cc={l.cc} size={22} alt={l.name} />
+              <span style={{ flex: 1, marginLeft: 4 }}>{l.name}</span>
               <span style={{ color: "var(--text-muted)", fontSize: 13 }}>({l.code})</span>
             </button>
           ))}
@@ -151,8 +171,8 @@ function TermsScreen({ lang, onAccept, onDecline, onChangeLang }) {
           <h2 className="brand-font gold" style={{ fontSize: 22 }}>{t(lang, "termsTitle")}</h2>
           <button className="btn-gold" data-testid="terms-lang-btn" onClick={onChangeLang}
                   title={t(lang, "changeLanguage")}
-                  style={{ padding: "8px 14px", fontSize: 24, lineHeight: 1 }}>
-            {(LANGS.find(l => l.code === lang) || LANGS[0]).flag}
+                  style={{ padding: "8px 12px", lineHeight: 1, display: "inline-flex", alignItems: "center" }}>
+            <Flag cc={(LANGS.find(l => l.code === lang) || LANGS[0]).cc} size={20} />
           </button>
         </div>
         <p style={{ color: "var(--text-dim)", fontSize: 13, flexShrink: 0 }}>
@@ -2969,8 +2989,9 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
             <SettingsIcon size={16} />
           </button>
           <button onClick={() => setShowLang(true)} data-testid="lang-toggle-btn"
-                  style={{ background: "transparent", border: "1px solid var(--line)", color: "var(--gold)", borderRadius: 20, padding: "5px 12px", fontSize: 13, cursor: "pointer" }}>
-            {langInfo.flag} {langInfo.code.split("-")[0].toUpperCase()}
+                  style={{ background: "transparent", border: "1px solid var(--line)", color: "var(--gold)", borderRadius: 20, padding: "5px 10px", fontSize: 13, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Flag cc={langInfo.cc} size={14} />
+            {langInfo.code.split("-")[0].toUpperCase()}
           </button>
           <button onClick={onLogout} data-testid="logout-btn" title={t(lang, "logout")}
                   style={{ background: "transparent", border: "1px solid var(--line)", color: "var(--text-dim)", borderRadius: "50%", width: 34, height: 34, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
