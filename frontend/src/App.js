@@ -2982,12 +2982,54 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
 }
 
 // ---------- Root App ----------
+function SplashScreen({ onDone }) {
+  const videoRef = useRef(null);
+  const [fadeOut, setFadeOut] = useState(false);
+  const calledRef = useRef(false);
+
+  const finish = useCallback(() => {
+    if (calledRef.current) return;
+    calledRef.current = true;
+    setFadeOut(true);
+    setTimeout(() => onDone(), 900);
+  }, [onDone]);
+
+  useEffect(() => {
+    // Hard cap at 4s in case video stalls or fails to load
+    const t = setTimeout(finish, 4000);
+    return () => clearTimeout(t);
+  }, [finish]);
+
+  return (
+    <div data-testid="splash-screen"
+      style={{
+        position: "fixed", inset: 0, background: "#000",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 9999, opacity: fadeOut ? 0 : 1,
+        transition: "opacity 0.9s ease-out", pointerEvents: fadeOut ? "none" : "auto",
+      }}
+      onClick={finish}
+    >
+      <video
+        ref={videoRef}
+        src="/assets/splash.mp4"
+        autoPlay muted playsInline
+        onEnded={finish}
+        onError={finish}
+        style={{ width: "70vw", maxWidth: 480, height: "auto", objectFit: "contain" }}
+      />
+    </div>
+  );
+}
+
 function App() {
   const [lang, setLang] = useState(localStorage.getItem("aa_lang") || "en-GB");
   const [country, setCountry] = useState(localStorage.getItem("aa_country") || "GB");
   const [step, setStep] = useState("loading"); // loading | lang | terms | auth | app
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem("aa_token"));
+  // Splash plays once per browser-tab session (not on every screen change)
+  const [showSplash, setShowSplash] = useState(() => !sessionStorage.getItem("aa_splash_seen"));
 
   useEffect(() => { localStorage.setItem("aa_lang", lang); document.documentElement.dir = RTL_LANGS.includes(lang) ? "rtl" : "ltr"; }, [lang]);
   useEffect(() => { localStorage.setItem("aa_country", country); }, [country]);
@@ -3030,6 +3072,7 @@ function App() {
 
   return (
     <div className="App app-shell">
+      {showSplash && <SplashScreen onDone={() => { sessionStorage.setItem("aa_splash_seen", "1"); setShowSplash(false); }} />}
       {step === "lang" && <LanguagePicker lang={lang} initial={lang} onConfirm={(l) => { setLang(l); setStep("terms"); }} />}
       {step === "terms" && <TermsScreen lang={lang} onAccept={() => { localStorage.setItem("aa_terms", "1"); setStep("auth"); }} onDecline={() => setStep("lang")} onChangeLang={() => setStep("lang")} />}
       {step === "auth" && <AuthScreen lang={lang} country={country} onAuth={onAuth} />}
