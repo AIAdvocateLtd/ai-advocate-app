@@ -1643,8 +1643,20 @@ function RecordModal({ lang, country, onClose }) {
 
 // ---------- My Files ----------
 function FilesModal({ lang, onClose }) {
-  const [files, setFiles] = useState([]); const [open, setOpen] = useState(null);
-  useEffect(() => { api.get("/legal-files").then(r => setFiles(r.data)).catch(() => {}); }, []);
+  const [files, setFiles] = useState([]); const [open, setOpen] = useState(null); const [busy, setBusy] = useState(false);
+  const load = () => api.get("/legal-files").then(r => setFiles(r.data)).catch(() => {});
+  useEffect(() => { load(); }, []);
+  const removeFile = async (id, e) => {
+    e?.stopPropagation?.();
+    if (!window.confirm("Delete this file? This cannot be undone.")) return;
+    setBusy(true);
+    try {
+      await api.delete(`/legal-files/${id}`);
+      if (open?.id === id) setOpen(null);
+      load();
+    } catch (err) { alert(err?.response?.data?.detail || "Delete failed"); }
+    finally { setBusy(false); }
+  };
   return (
     <div className="modal-bg" data-testid="files-modal">
       <div className="modal-card" style={{ padding: 20, maxHeight: "92vh" }}>
@@ -1656,11 +1668,18 @@ function FilesModal({ lang, onClose }) {
           <div style={{ overflowY: "auto" }}>
             {files.length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>{t(lang, "noFilesYet")}</p>}
             {files.map(f => (
-              <button key={f.id} onClick={() => setOpen(f)} className="w-full" data-testid={`file-${f.id}`}
-                      style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 14, marginBottom: 8, color: "var(--text)", textAlign: "left", cursor: "pointer" }}>
-                <div style={{ color: "var(--gold)", fontWeight: 600 }}>{f.filename || f.type}</div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{new Date(f.created_at).toLocaleString()}</div>
-              </button>
+              <div key={f.id} style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                <button onClick={() => setOpen(f)} className="w-full" data-testid={`file-${f.id}`}
+                        style={{ flex: 1, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 14, color: "var(--text)", textAlign: "left", cursor: "pointer" }}>
+                  <div style={{ color: "var(--gold)", fontWeight: 600 }}>{f.filename || f.type}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{new Date(f.created_at).toLocaleString()}</div>
+                </button>
+                <button data-testid={`file-delete-${f.id}`} title="Delete file" disabled={busy}
+                        onClick={(e) => removeFile(f.id, e)}
+                        style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 10, padding: "0 12px", cursor: "pointer" }}>
+                  <Trash2 size={16} />
+                </button>
+              </div>
             ))}
           </div>
         ) : (
@@ -1669,9 +1688,15 @@ function FilesModal({ lang, onClose }) {
             <h3 style={{ color: "var(--gold)" }}>{open.filename}</h3>
             {open.transcript && <><div style={{ color: "var(--gold)", marginTop: 10 }}>Transcript</div><div style={{ background: "#0a0a0a", padding: 10, borderRadius: 8, color: "var(--text-dim)", fontSize: 13 }}>{open.transcript}</div></>}
             {(open.analysis || open.content) && <><div style={{ color: "var(--gold)", marginTop: 10 }}>Content</div><div style={{ background: "#0a0a0a", padding: 10, borderRadius: 8, whiteSpace: "pre-wrap", color: "var(--text-dim)", fontSize: 13 }}>{open.analysis || open.content}</div></>}
-            <button className="btn-gold w-full" data-testid="file-pdf-btn" onClick={() => pdfForFile(open.id, open.filename || "ai_advocate")} style={{ marginTop: 14 }}>
-              <Download size={16} style={{ display: "inline", marginRight: 6 }} />Download PDF
-            </button>
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button className="btn-gold" data-testid="file-pdf-btn" onClick={() => pdfForFile(open.id, open.filename || "ai_advocate")} style={{ flex: 1 }}>
+                <Download size={16} style={{ display: "inline", marginRight: 6 }} />Download PDF
+              </button>
+              <button data-testid="file-delete-detail-btn" disabled={busy} onClick={(e) => removeFile(open.id, e)}
+                      style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 10, padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+                <Trash2 size={14} style={{ display: "inline", marginRight: 6 }} />Delete
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -1736,6 +1761,14 @@ function CaseFilesModal({ lang, onClose }) {
     } catch (e) { alert(e?.response?.data?.detail || t(lang, "failed")); }
   };
 
+  const shareCase = async () => {
+    try {
+      const { data } = await api.post(`/cases/${open.id}/share`);
+      await navigator.clipboard.writeText(data.url).catch(() => {});
+      alert(`Read-only share link copied to clipboard:\n\n${data.url}\n\nExpires in 30 days.`);
+    } catch (e) { alert(e?.response?.data?.detail || "Failed to create share link"); }
+  };
+
   return (
     <div className="modal-bg" data-testid="cases-modal">
       <div className="modal-card" style={{ padding: 20, maxHeight: "92vh" }}>
@@ -1779,6 +1812,7 @@ function CaseFilesModal({ lang, onClose }) {
             <div className="flex gap-2" style={{ marginBottom: 14 }}>
               <button className="btn-ghost" onClick={rename} data-testid="rename-case-btn" style={{ flex: 1, fontSize: 12 }}>{t(lang, "renameCase")}</button>
               <button className="btn-ghost" onClick={exportPdf} data-testid="export-case-btn" style={{ flex: 1, fontSize: 12 }}>{t(lang, "exportCasePdf")}</button>
+              <button className="btn-ghost" onClick={shareCase} data-testid="share-case-btn" style={{ flex: 1, fontSize: 12 }}>Share</button>
               <button className="btn-ghost" onClick={remove} data-testid="delete-case-btn" style={{ flex: 0.7, fontSize: 12, color: "#fca5a5" }}><Trash2 size={14} /></button>
             </div>
             {(open.items || []).length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 14, fontSize: 13 }}>{t(lang, "noFilesYet")}</p>}
@@ -2884,6 +2918,10 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "record", label: t(lang, "recordLegal"), Icon: RecordIcon, cat: "record", req: "plus" },
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
     { id: "letter_reader", label: "Letter Reader", Icon: LetterIcon, req: "free" },
+    { id: "outcome", label: "Predict Outcome", Icon: Scale, req: "plus" },
+    { id: "cost", label: "Lawyer Cost", Icon: Briefcase, req: "free" },
+    { id: "hearing", label: "Hearing Recorder", Icon: Mic, req: "plus" },
+    { id: "legal_aid", label: "Free Legal Aid", Icon: HomeIcon, req: "free" },
     { id: "lawyers", label: t(lang, "findLawyer"), Icon: LawyerIcon, req: "free" },
     { id: "files", label: t(lang, "myFiles"), Icon: FilesIcon, req: "free" },
     { id: "cases", label: t(lang, "caseFiles"), Icon: FilesIcon, req: "free" },
@@ -2908,6 +2946,10 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     else if (tile.id === "record") setModal({ type: "record" });
     else if (tile.id === "snap") setModal({ type: "snap" });
     else if (tile.id === "letter_reader") setModal({ type: "letter_reader" });
+    else if (tile.id === "outcome") setModal({ type: "outcome" });
+    else if (tile.id === "cost") setModal({ type: "cost" });
+    else if (tile.id === "hearing") setModal({ type: "hearing" });
+    else if (tile.id === "legal_aid") setModal({ type: "legal_aid" });
     else if (tile.id === "lawyers") setModal({ type: "lawyers" });
     else if (tile.id === "courtroom") setModal({ type: "courtroom" });
     else if (tile.id === "ask_lex") setModal({ type: "chat", title: t(lang, "askLex"), category: tile.cat });
@@ -3011,6 +3053,8 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
         })}
       </div>
 
+      <StatsWall />
+
       <BottomNav lang={lang} active="home"
         onNav={(k) => {
           if (k === "lex") {
@@ -3033,6 +3077,10 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "record" && <RecordModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "snap" && <SnapEvidenceModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "letter_reader" && <LetterReaderModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "outcome" && <OutcomeModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "cost" && <CostEstimateModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "hearing" && <HearingRecorderModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "legal_aid" && <LegalAidModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "lawyers" && <LawyersModal lang={lang} country={country} user={user} onClose={() => setModal(null)} openAdvertise={() => { setModal(null); setShowAdvertise(true); }} />}
       {showEmergency && <EmergencyModal lang={lang} country={country} user={user} onClose={() => setShowEmergency(false)} />}
       {voiceMode && <VoiceModeOverlay lang={lang} country={country} category="ask_lex" initialText={voiceMode.initialText} onClose={() => setVoiceMode(null)} />}
@@ -3041,6 +3089,267 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {showSettings && <SettingsModal lang={lang} country={country} user={user} onClose={() => setShowSettings(false)} onUpdate={(u) => refreshUser(u)} setLang={setLang} setCountry={setCountry} />}
       {showAdvertise && <AdvertiseModal lang={lang} onClose={() => setShowAdvertise(false)} />}
       {reviewPrompt && <ReviewPrompt lang={lang} daysLeft={reviewPrompt.daysLeft} onClose={() => setReviewPrompt(null)} />}
+    </div>
+  );
+}
+
+// ---------- Outcome Predictor ----------
+function OutcomeModal({ lang, country, onClose }) {
+  const [summary, setSummary] = useState("");
+  const [category, setCategory] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [r, setR] = useState(null);
+  const [err, setErr] = useState("");
+  const run = async () => {
+    setBusy(true); setErr("");
+    try {
+      const { data } = await api.post("/outcome/predict", { case_summary: summary, category, language: lang, country });
+      setR(data);
+    } catch (e) { setErr(e?.response?.data?.detail || "Failed"); }
+    finally { setBusy(false); }
+  };
+  const pct = r?.success_probability_pct ?? 0;
+  const ringColor = pct >= 70 ? "#22c55e" : pct >= 40 ? "#f7c948" : "#ef4444";
+  return (
+    <div className="modal-bg" data-testid="outcome-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>Outcome Predictor</h2>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
+        </div>
+        {!r ? (
+          <>
+            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12 }}>Describe your case in your own words. Lex gives a realistic % chance and cites similar past cases.</p>
+            <textarea className="input" rows={6} value={summary} onChange={(e) => setSummary(e.target.value)} data-testid="outcome-summary" placeholder="e.g. My landlord didn't protect my deposit in a scheme and only returned it 6 months after I moved out…" style={{ marginBottom: 8 }} />
+            <input className="input" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Category (employment / property / immigration…)" data-testid="outcome-category" style={{ marginBottom: 8 }} />
+            {err && <div style={{ color: "#fca5a5", fontSize: 13, marginBottom: 8 }}>{err}</div>}
+            <button className="btn-gold w-full" disabled={busy || summary.trim().length < 20} onClick={run} data-testid="outcome-run-btn">
+              {busy ? <span className="spinner" /> : "Predict outcome"}
+            </button>
+          </>
+        ) : (
+          <div data-testid="outcome-result">
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+              <div style={{ width: 130, height: 130, borderRadius: "50%", border: `8px solid ${ringColor}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ fontSize: 32, fontWeight: 700, color: ringColor }}>{pct}%</div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>chance of success</div>
+              </div>
+            </div>
+            <div style={{ color: "var(--gold)", fontSize: 13, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 6 }}>Strategy</div>
+            <p style={{ color: "var(--text)", fontSize: 14, lineHeight: 1.6, marginBottom: 14 }}>{r.recommended_strategy}</p>
+            {r.key_factors_for?.length > 0 && (
+              <>
+                <div style={{ color: "#22c55e", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "10px 0 6px" }}>Working for you</div>
+                <ul style={{ color: "var(--text-dim)", fontSize: 13, paddingLeft: 18, lineHeight: 1.6 }}>{r.key_factors_for.map((s, i) => <li key={i}>{s}</li>)}</ul>
+              </>
+            )}
+            {r.key_factors_against?.length > 0 && (
+              <>
+                <div style={{ color: "#ef4444", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "10px 0 6px" }}>Risks</div>
+                <ul style={{ color: "var(--text-dim)", fontSize: 13, paddingLeft: 18, lineHeight: 1.6 }}>{r.key_factors_against.map((s, i) => <li key={i}>{s}</li>)}</ul>
+              </>
+            )}
+            {r.similar_cases?.length > 0 && (
+              <>
+                <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "14px 0 6px" }}>Similar Past Cases</div>
+                {r.similar_cases.map((c, i) => (
+                  <div key={i} style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, marginBottom: 6 }}>
+                    <div style={{ color: "var(--gold)", fontSize: 13, fontWeight: 600 }}>{c.name}</div>
+                    <div style={{ color: "var(--text-dim)", fontSize: 12, marginTop: 2 }}>{c.outcome}</div>
+                  </div>
+                ))}
+              </>
+            )}
+            <button className="btn-ghost w-full" onClick={() => { setR(null); setSummary(""); setCategory(""); }} style={{ marginTop: 14 }}>Predict another case</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Lawyer Cost Estimator ----------
+function CostEstimateModal({ lang, country, onClose }) {
+  const [summary, setSummary] = useState("");
+  const [category, setCategory] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [r, setR] = useState(null);
+  const run = async () => {
+    setBusy(true);
+    try { const { data } = await api.post("/cost/estimate", { case_summary: summary, category, country, language: lang }); setR(data); }
+    catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="modal-bg" data-testid="cost-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>Lawyer Cost Estimator</h2>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
+        </div>
+        {!r ? (
+          <>
+            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12 }}>Find out roughly what a solicitor would charge for your matter.</p>
+            <textarea className="input" rows={5} value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="Brief description of your case…" data-testid="cost-summary" style={{ marginBottom: 8 }} />
+            <input className="input" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Category (optional)" data-testid="cost-category" style={{ marginBottom: 8 }} />
+            <button className="btn-gold w-full" disabled={busy || summary.trim().length < 20} onClick={run} data-testid="cost-run-btn">
+              {busy ? <span className="spinner" /> : "Estimate cost"}
+            </button>
+          </>
+        ) : (
+          <div data-testid="cost-result">
+            <div style={{ textAlign: "center", margin: "8px 0 18px" }}>
+              <div style={{ color: "var(--text-muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>Likely solicitor fee</div>
+              <div style={{ color: "var(--gold)", fontSize: 32, fontWeight: 700, marginTop: 4 }}>£{r.low_estimate_gbp?.toLocaleString()} – £{r.high_estimate_gbp?.toLocaleString()}</div>
+              <div style={{ color: "var(--text-dim)", fontSize: 12, marginTop: 2 }}>+ court fees ≈ £{r.court_fees_gbp || 0}</div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+              <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, textAlign: "center" }}>
+                <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Typical hours</div>
+                <div style={{ color: "var(--text)", fontWeight: 600 }}>{r.typical_hours}</div>
+              </div>
+              <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, textAlign: "center" }}>
+                <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Hourly rate</div>
+                <div style={{ color: "var(--text)", fontWeight: 600 }}>£{r.hourly_rate_range_gbp}</div>
+              </div>
+            </div>
+            {r.no_win_no_fee_available && (
+              <div style={{ background: "rgba(34,197,94,0.1)", border: "1px solid #22c55e", color: "#86efac", padding: 10, borderRadius: 10, fontSize: 13, marginBottom: 12 }}>
+                ✓ No Win No Fee may be available for this type of case.
+              </div>
+            )}
+            <p style={{ color: "var(--text-dim)", fontSize: 13, lineHeight: 1.6, marginBottom: 14 }}>{r.explanation}</p>
+            <div style={{ background: "linear-gradient(135deg, rgba(247,201,72,0.12), rgba(247,201,72,0.02))", border: "1px solid var(--gold)", borderRadius: 12, padding: 12, fontSize: 13, color: "var(--text)" }}>
+              <strong style={{ color: "var(--gold)" }}>AI Advocate covers this for £14.99/mo</strong>
+              <div style={{ color: "var(--text-dim)", marginTop: 4 }}>{r.ai_advocate_saving}</div>
+            </div>
+            <button className="btn-ghost w-full" onClick={() => { setR(null); setSummary(""); }} style={{ marginTop: 12 }}>Estimate another</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Legal Aid Finder ----------
+function LegalAidModal({ lang, country, onClose }) {
+  const [form, setForm] = useState({ monthly_income_gbp: "", savings_gbp: "", household_size: 1, case_category: "" });
+  const [busy, setBusy] = useState(false);
+  const [r, setR] = useState(null);
+  const run = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post("/legal-aid/check", {
+        monthly_income_gbp: parseFloat(form.monthly_income_gbp) || 0,
+        savings_gbp: parseFloat(form.savings_gbp) || 0,
+        household_size: parseInt(form.household_size) || 1,
+        case_category: form.case_category, country, language: lang,
+      });
+      setR(data);
+    } catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="modal-bg" data-testid="legal-aid-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>Free Legal Aid Finder</h2>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
+        </div>
+        {!r ? (
+          <>
+            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12 }}>Quick check — are you eligible for free legal aid or pro-bono help? Indicative only.</p>
+            <input className="input" type="number" placeholder="Monthly income (£)" value={form.monthly_income_gbp} onChange={(e) => setForm({ ...form, monthly_income_gbp: e.target.value })} data-testid="la-income" style={{ marginBottom: 8 }} />
+            <input className="input" type="number" placeholder="Total savings (£)" value={form.savings_gbp} onChange={(e) => setForm({ ...form, savings_gbp: e.target.value })} data-testid="la-savings" style={{ marginBottom: 8 }} />
+            <input className="input" type="number" placeholder="Household size" value={form.household_size} onChange={(e) => setForm({ ...form, household_size: e.target.value })} data-testid="la-household" style={{ marginBottom: 8 }} />
+            <input className="input" placeholder="Case category (e.g. eviction)" value={form.case_category} onChange={(e) => setForm({ ...form, case_category: e.target.value })} data-testid="la-category" style={{ marginBottom: 8 }} />
+            <button className="btn-gold w-full" disabled={busy || !form.monthly_income_gbp} onClick={run} data-testid="la-run-btn">
+              {busy ? <span className="spinner" /> : "Check eligibility"}
+            </button>
+          </>
+        ) : (
+          <div data-testid="legal-aid-result">
+            <div style={{ background: r.qualifies ? "rgba(34,197,94,0.1)" : "rgba(247,201,72,0.1)", border: `1px solid ${r.qualifies ? "#22c55e" : "var(--gold-deep)"}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+              <div style={{ color: r.qualifies ? "#86efac" : "var(--gold)", fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
+                {r.qualifies ? "✓ Likely eligible" : "Probably not eligible"}
+              </div>
+              {(r.reasons || []).map((re, i) => <div key={i} style={{ color: "var(--text-dim)", fontSize: 13, marginTop: 4 }}>{re}</div>)}
+            </div>
+            <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Free help near you</div>
+            {(r.signposts || []).map((s, i) => (
+              <a key={i} href={s.url} target="_blank" rel="noreferrer"
+                 style={{ display: "block", background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginBottom: 6, color: "var(--text)", textDecoration: "none" }}>
+                <div style={{ color: "var(--gold)", fontWeight: 600, fontSize: 14 }}>{s.name}</div>
+                <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>{s.url}</div>
+              </a>
+            ))}
+            <p style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 14, lineHeight: 1.5 }}>{r.disclaimer}</p>
+            <button className="btn-ghost w-full" onClick={() => setR(null)} style={{ marginTop: 8 }}>Run another check</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Hearing Recorder ----------
+function HearingRecorderModal({ lang, country, onClose }) {
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [r, setR] = useState(null);
+  const fileRef = useRef(null);
+  const upload = async () => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("audio", file); fd.append("language", lang); fd.append("country", country);
+      const { data } = await api.post("/hearing/transcribe", fd);
+      setR(data);
+    } catch (e) { alert(e?.response?.data?.detail || "Transcription failed"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="modal-bg" data-testid="hearing-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>Hearing Recorder</h2>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
+        </div>
+        {!r ? (
+          <>
+            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12 }}>Upload audio from a permitted hearing/tribunal/disciplinary. You'll get a full transcript + Lex's review.</p>
+            <input ref={fileRef} type="file" accept="audio/*,video/*" capture onChange={(e) => setFile(e.target.files?.[0])} style={{ display: "none" }} data-testid="hearing-file-input" />
+            <button className="btn-gold w-full" onClick={() => fileRef.current?.click()} data-testid="hearing-pick-btn" style={{ marginBottom: 10 }}>
+              <Mic size={16} style={{ display: "inline", marginRight: 6 }} />
+              {file ? `Selected: ${file.name}` : "Choose / record audio"}
+            </button>
+            {file && !busy && <button className="btn-gold w-full" onClick={upload} data-testid="hearing-upload-btn">Transcribe & analyse</button>}
+            {busy && <div style={{ textAlign: "center", padding: 16 }}><span className="spinner" /><div style={{ color: "var(--text-dim)", marginTop: 8, fontSize: 13 }}>Transcribing — this can take a minute…</div></div>}
+          </>
+        ) : (
+          <div data-testid="hearing-result">
+            <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Summary</div>
+            <p style={{ color: "var(--text)", fontSize: 14, lineHeight: 1.6, marginBottom: 12 }}>{r.analysis?.summary}</p>
+            {r.analysis?.favourable_moments?.length > 0 && (<>
+              <div style={{ color: "#22c55e", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Worked for you</div>
+              <ul style={{ color: "var(--text-dim)", fontSize: 13, paddingLeft: 18, lineHeight: 1.6 }}>{r.analysis.favourable_moments.map((s, i) => <li key={i}>{s}</li>)}</ul>
+            </>)}
+            {r.analysis?.unfavourable_moments?.length > 0 && (<>
+              <div style={{ color: "#ef4444", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "10px 0 4px" }}>Risks</div>
+              <ul style={{ color: "var(--text-dim)", fontSize: 13, paddingLeft: 18, lineHeight: 1.6 }}>{r.analysis.unfavourable_moments.map((s, i) => <li key={i}>{s}</li>)}</ul>
+            </>)}
+            {r.analysis?.next_actions?.length > 0 && (<>
+              <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "10px 0 4px" }}>Next actions</div>
+              <ul style={{ color: "var(--text-dim)", fontSize: 13, paddingLeft: 18, lineHeight: 1.6 }}>{r.analysis.next_actions.map((s, i) => <li key={i}>{s}</li>)}</ul>
+            </>)}
+            <details style={{ marginTop: 14 }}>
+              <summary style={{ color: "var(--gold)", fontSize: 13, cursor: "pointer" }}>Full transcript</summary>
+              <pre style={{ background: "#0a0a0a", padding: 10, borderRadius: 8, color: "var(--text-dim)", fontSize: 12, whiteSpace: "pre-wrap", marginTop: 8 }}>{r.transcript}</pre>
+            </details>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -3165,6 +3474,37 @@ function LetterReaderModal({ lang, country, onClose }) {
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Stats Wall (anonymous social proof) ----------
+function StatsWall() {
+  const [s, setS] = useState(null);
+  useEffect(() => {
+    api.get("/stats/public").then(r => setS(r.data)).catch(() => {});
+  }, []);
+  if (!s) return null;
+  const fmt = (n) => (n || 0).toLocaleString();
+  const items = [
+    { label: "People helped", value: fmt(s.users_helped_total) },
+    { label: "Cases tracked", value: fmt(s.cases_active) },
+    { label: "Letters drafted", value: fmt(s.letters_drafted) },
+    { label: "Documents analysed", value: fmt(s.documents_analysed) },
+  ];
+  return (
+    <div data-testid="stats-wall" style={{ marginTop: 20, padding: "12px 14px", background: "rgba(247,201,72,0.04)", border: "1px solid var(--line)", borderRadius: 14 }}>
+      <div style={{ color: "var(--gold)", fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8, textAlign: "center" }}>
+        AI Advocate by the numbers
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {items.map((it, i) => (
+          <div key={i} style={{ textAlign: "center" }}>
+            <div style={{ color: "var(--gold)", fontSize: 20, fontWeight: 700, fontFamily: "Cinzel, serif" }}>{it.value}</div>
+            <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{it.label}</div>
+          </div>
+        ))}
       </div>
     </div>
   );

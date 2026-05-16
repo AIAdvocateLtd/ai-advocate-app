@@ -2902,6 +2902,300 @@ No greetings, no preamble — just the tip itself."""
     return {"date": today, "tip": tip, "cached": False}
 
 
+# ==================== File Deletion ====================
+@api_router.delete("/legal-files/{file_id}")
+async def delete_legal_file(file_id: str, user: dict = Depends(get_user)):
+    """Customer-facing delete for any file in /legal-files."""
+    res = await db.legal_files.delete_one({"id": file_id, "user_id": user["id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "File not found")
+    return {"deleted": True, "id": file_id}
+
+
+# ==================== Round 2: Outcome Predictor ====================
+class OutcomePredictRequest(BaseModel):
+    case_summary: str
+    category: Optional[str] = None
+    language: str = "en-GB"
+    country: str = "GB"
+
+@api_router.post("/outcome/predict")
+async def outcome_predict(data: OutcomePredictRequest, user: dict = Depends(get_user)):
+    """Give a realistic % chance of success + similar past cases."""
+    if not data.case_summary or len(data.case_summary) < 20:
+        raise HTTPException(400, "Please provide more detail (at least 20 chars)")
+    lang_name = LANG_NAMES.get(data.language, "English")
+    sysmsg = f"""You are AI Advocate's outcome predictor. The user is in {data.country}.
+Reply in {lang_name}.
+
+Return STRICT JSON only (no markdown):
+{{
+  "success_probability_pct": <0-100 integer — realistic, conservative>,
+  "key_factors_for": ["<factor 1>", "<factor 2>", "..."],
+  "key_factors_against": ["<factor 1>", "<factor 2>", "..."],
+  "similar_cases": [
+    {{"name": "<e.g. Smith v Jones [2019]>", "outcome": "<who won + why>", "relevance": "<why this matches>"}}
+  ],
+  "recommended_strategy": "<3-4 sentence honest plan>",
+  "confidence": "<low|medium|high>"
+}}
+
+Be HONEST. If their case is weak, say so. Never inflate.
+"""
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"outcome-{uuid.uuid4()}", system_message=sysmsg)\
+        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=1500)
+    try:
+        resp = await chat.send_message(UserMessage(text=f"Case category: {data.category or 'unspecified'}\n\nCase summary:\n{data.case_summary}"))
+    except Exception as e:
+        logger.exception("outcome predict failed"); raise HTTPException(500, f"AI error: {e}")
+    import json as _json, re as _re
+    payload = _re.sub(r"^```(?:json)?\s*", "", resp.strip())
+    payload = _re.sub(r"\s*```$", "", payload).strip()
+    try:
+        return _json.loads(payload)
+    except Exception:
+        return {"success_probability_pct": 0, "key_factors_for": [], "key_factors_against": [],
+                "similar_cases": [], "recommended_strategy": payload[:400], "confidence": "low"}
+
+
+# ==================== Round 2: Lawyer Cost Estimator ====================
+class CostEstimateRequest(BaseModel):
+    case_summary: str
+    category: Optional[str] = None
+    country: str = "GB"
+    language: str = "en-GB"
+
+@api_router.post("/cost/estimate")
+async def lawyer_cost_estimate(data: CostEstimateRequest, user: dict = Depends(get_user)):
+    lang_name = LANG_NAMES.get(data.language, "English")
+    sysmsg = f"""You are AI Advocate's lawyer-cost estimator for {data.country}. Reply in {lang_name}.
+Return STRICT JSON (no markdown):
+{{
+  "low_estimate_gbp": <integer>,
+  "high_estimate_gbp": <integer>,
+  "court_fees_gbp": <integer or 0>,
+  "typical_hours": <integer>,
+  "hourly_rate_range_gbp": "<e.g. 180-350>",
+  "no_win_no_fee_available": <true|false>,
+  "explanation": "<2-3 sentences explaining what the user would actually pay a solicitor and why>",
+  "ai_advocate_saving": "<one sentence saying how AI Advocate covers the basics of this matter>"
+}}
+Be honest and realistic for UK / common-law rates if country=GB; use local market rates for other countries.
+"""
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"cost-{uuid.uuid4()}", system_message=sysmsg)\
+        .with_model("anthropic", "claude-haiku-4-5-20251001").with_params(max_tokens=600)
+    try:
+        resp = await chat.send_message(UserMessage(text=f"Category: {data.category or 'unspecified'}\n\nCase: {data.case_summary}"))
+    except Exception as e:
+        logger.exception("cost estimate failed"); raise HTTPException(500, f"AI error: {e}")
+    import json as _json, re as _re
+    payload = _re.sub(r"^```(?:json)?\s*", "", resp.strip())
+    payload = _re.sub(r"\s*```$", "", payload).strip()
+    try:
+        return _json.loads(payload)
+    except Exception:
+        return {"low_estimate_gbp": 0, "high_estimate_gbp": 0, "court_fees_gbp": 0,
+                "typical_hours": 0, "hourly_rate_range_gbp": "—",
+                "no_win_no_fee_available": False, "explanation": payload[:300], "ai_advocate_saving": ""}
+
+
+# ==================== Round 2: Hearing Recorder (full transcript) ====================
+@api_router.post("/hearing/transcribe")
+async def hearing_transcribe(
+    audio: UploadFile = File(...),
+    language: str = Form("en-GB"),
+    country: str = Form("GB"),
+    case_id: Optional[str] = Form(None),
+    title: Optional[str] = Form("Hearing recording"),
+    user: dict = Depends(get_user),
+):
+    """Upload long audio (tribunal/disciplinary/permitted hearing) → full transcript + Lex's review."""
+    raw = await audio.read()
+    if len(raw) > 50 * 1024 * 1024:
+        raise HTTPException(413, "Audio file too large (max 50MB)")
+    suffix = "." + (audio.filename.split(".")[-1].lower() if "." in audio.filename else "m4a")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix); tmp.write(raw); tmp.flush(); tmp.close()
+    try:
+        stt = OpenAISpeechToText(api_key=EMERGENT_LLM_KEY)
+        with open(tmp.name, "rb") as _audio_fh:
+            _stt_resp = await stt.transcribe(file=_audio_fh, language=(language or "en-GB").split("-")[0])
+        # Normalize to plain string regardless of response shape
+        if isinstance(_stt_resp, str):
+            transcript = _stt_resp
+        elif hasattr(_stt_resp, "text"):
+            transcript = _stt_resp.text or ""
+        elif isinstance(_stt_resp, dict):
+            transcript = _stt_resp.get("text") or ""
+        else:
+            transcript = str(_stt_resp) if _stt_resp else ""
+    except Exception as e:
+        os.unlink(tmp.name); logger.exception("hearing stt failed"); raise HTTPException(500, f"Transcription failed: {e}")
+    os.unlink(tmp.name)
+
+    # Run Lex over the transcript for an executive summary
+    lang_name = LANG_NAMES.get(language, "English")
+    sysmsg = f"""You are AI Advocate. The user uploaded a recording of a permitted hearing/disciplinary/tribunal.
+Reply in {lang_name}. Return STRICT JSON:
+{{
+  "summary": "<2-3 sentence plain-language summary>",
+  "key_points": ["<point 1>", "<point 2>", "..."],
+  "favourable_moments": ["<things said that helped the user>"],
+  "unfavourable_moments": ["<things said that hurt the user>"],
+  "next_actions": ["<action 1>", "..."],
+  "follow_up_deadlines": [{{"label": "<what>", "date_iso": "<YYYY-MM-DD>"}}]
+}}
+"""
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"hearing-{uuid.uuid4()}", system_message=sysmsg)\
+        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=1500)
+    try:
+        resp = await chat.send_message(UserMessage(text=f"Transcript:\n\n{(transcript or '')[:14000]}"))
+    except Exception as e:
+        resp = "{}"
+
+    import json as _json, re as _re
+    payload = _re.sub(r"^```(?:json)?\s*", "", resp.strip())
+    payload = _re.sub(r"\s*```$", "", payload).strip()
+    try:
+        analysis = _json.loads(payload)
+    except Exception:
+        analysis = {"summary": "(could not parse)", "key_points": [], "favourable_moments": [],
+                    "unfavourable_moments": [], "next_actions": [], "follow_up_deadlines": []}
+
+    now = datetime.now(timezone.utc)
+    doc = {
+        "id": str(uuid.uuid4()), "user_id": user["id"], "type": "hearing_transcript",
+        "filename": title or "Hearing recording", "transcript": transcript or "",
+        "analysis": _json.dumps(analysis, ensure_ascii=False), "case_id": case_id,
+        "language": language, "country": country, "created_at": now.isoformat(),
+    }
+    await db.legal_files.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return {"id": doc["id"], "transcript": transcript or "", "analysis": analysis, "created_at": doc["created_at"]}
+
+
+# ==================== Round 2: Legal Aid Finder ====================
+class LegalAidCheckRequest(BaseModel):
+    monthly_income_gbp: float
+    savings_gbp: float = 0
+    household_size: int = 1
+    case_category: str
+    country: str = "GB"
+    language: str = "en-GB"
+
+@api_router.post("/legal-aid/check")
+async def legal_aid_check(data: LegalAidCheckRequest, user: dict = Depends(get_user)):
+    """Indicative legal-aid eligibility (UK) + nearest free-help signposts. NOT a definitive decision."""
+    # Very rough thresholds based on current UK Legal Aid Agency limits
+    qualifies = False; reasons = []; signposts = []
+    if data.country == "GB":
+        # Means test rough: disposable monthly income under £2,657 + savings under £8,000 → likely eligible for civil legal aid
+        if data.monthly_income_gbp <= 2657 and data.savings_gbp <= 8000:
+            qualifies = True
+            reasons.append("Income and savings are within the civil legal-aid means-test thresholds.")
+        else:
+            reasons.append(f"Income £{int(data.monthly_income_gbp)}/mo or savings £{int(data.savings_gbp)} above current legal-aid limits (~£2,657 income, £8,000 savings).")
+        signposts = [
+            {"name": "Citizens Advice", "url": "https://www.citizensadvice.org.uk/", "free": True},
+            {"name": "Law Centres Network", "url": "https://www.lawcentres.org.uk/", "free": True},
+            {"name": "Bar Pro Bono Unit (Advocate)", "url": "https://weareadvocate.org.uk/", "free": True},
+            {"name": "Gov.uk – Check if you can get legal aid", "url": "https://www.gov.uk/check-legal-aid", "free": True},
+        ]
+        # Category-specific add-ons
+        if data.case_category in ("immigration",):
+            signposts.append({"name": "Right to Remain", "url": "https://righttoremain.org.uk/", "free": True})
+        if data.case_category in ("employment",):
+            signposts.append({"name": "ACAS", "url": "https://www.acas.org.uk/", "free": True})
+        if data.case_category in ("eviction", "property", "housing"):
+            signposts.append({"name": "Shelter", "url": "https://www.shelter.org.uk/", "free": True})
+    else:
+        reasons.append(f"AI Advocate does not yet maintain a legal-aid means-test for {data.country}. We've listed general free-help options below.")
+        signposts = [{"name": "International Bar Association — Pro Bono finder", "url": "https://www.ibanet.org/", "free": True}]
+    return {
+        "country": data.country, "qualifies": qualifies, "reasons": reasons,
+        "signposts": signposts,
+        "disclaimer": "Indicative only — final eligibility is decided by the legal-aid authority. Always confirm via the official link above."
+    }
+
+
+# ==================== Round 2: Case Sharing (read-only links) ====================
+@api_router.post("/cases/{case_id}/share")
+async def share_case(case_id: str, user: dict = Depends(get_user)):
+    """Create a public read-only share token for a case file."""
+    case = await db.cases.find_one({"id": case_id, "user_id": user["id"]}, {"_id": 0})
+    if not case:
+        raise HTTPException(404, "Case not found")
+    # Revoke any existing token for this case first (one active at a time per case)
+    token = base64.urlsafe_b64encode(uuid.uuid4().bytes).decode().rstrip("=")
+    expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+    await db.share_tokens.delete_many({"case_id": case_id})
+    await db.share_tokens.insert_one({
+        "token": token, "case_id": case_id, "user_id": user["id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": expires_at.isoformat(),
+    })
+    base = APP_PUBLIC_URL.rstrip("/")
+    return {"token": token, "url": f"{base}/share/{token}", "expires_at": expires_at.isoformat()}
+
+@api_router.delete("/cases/{case_id}/share")
+async def revoke_share(case_id: str, user: dict = Depends(get_user)):
+    res = await db.share_tokens.delete_many({"case_id": case_id, "user_id": user["id"]})
+    return {"revoked": res.deleted_count}
+
+@api_router.get("/share/{token}")
+async def public_share_view(token: str):
+    """Public, read-only — no auth — returns case + its items so anyone with the link can view."""
+    t = await db.share_tokens.find_one({"token": token}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Share link invalid or revoked")
+    try:
+        exp = datetime.fromisoformat(t["expires_at"])
+        if exp < datetime.now(timezone.utc):
+            raise HTTPException(410, "Share link expired")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+    case = await db.cases.find_one({"id": t["case_id"]}, {"_id": 0})
+    if not case:
+        raise HTTPException(404, "Case not found")
+    items = []
+    async for it in db.case_items.find({"case_id": t["case_id"]}, {"_id": 0, "user_id": 0}).sort("created_at", 1):
+        items.append(it)
+    # Strip PII fields from case if present
+    case.pop("user_id", None)
+    return {"case": case, "items": items, "shared_at": t["created_at"], "expires_at": t["expires_at"]}
+
+
+# ==================== Round 2: Anonymous Stats Wall ====================
+@api_router.get("/stats/public")
+async def public_stats():
+    """No auth — homepage / footer social proof. Aggregates only, no PII."""
+    # Cache for 5 minutes via an in-process attempt; if a Mongo doc is present, use it.
+    cached = await db.stats_cache.find_one({"key": "public"}, {"_id": 0})
+    now = datetime.now(timezone.utc)
+    if cached:
+        try:
+            if (now - datetime.fromisoformat(cached["computed_at"])).total_seconds() < 300:
+                return cached["data"]
+        except Exception:
+            pass
+    data = {
+        "users_helped_total": await db.users.count_documents({}),
+        "cases_active": await db.cases.count_documents({"status": "active"}),
+        "letters_drafted": await db.legal_files.count_documents({"type": {"$in": ["legal_letter", "letter"]}}),
+        "documents_analysed": await db.legal_files.count_documents({"type": "evidence"}),
+        "hearings_transcribed": await db.legal_files.count_documents({"type": "hearing_transcript"}),
+        "live_sessions": len(await db.live_notes.distinct("session_id")),
+    }
+    await db.stats_cache.update_one(
+        {"key": "public"},
+        {"$set": {"data": data, "computed_at": now.isoformat()}},
+        upsert=True,
+    )
+    return data
+
+
+
 # ==================== ADMIN DASHBOARD ====================
 ADMIN_EMAILS = [e.strip().lower() for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",") if e.strip()]
 

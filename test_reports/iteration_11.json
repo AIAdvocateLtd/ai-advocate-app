@@ -1,0 +1,47 @@
+{
+  "summary": "Iter11 — Round 2 features (file delete, outcome predictor, cost estimator, hearing transcriber, legal aid, case share links, stats wall). Backend pytest: 13/13 PASS after I fixed a critical bug in /api/hearing/transcribe (wrong kwarg name on OpenAISpeechToText + BSON-unserialisable response object). All 5 new dashboard tiles, Stats Wall, Outcome modal end-to-end (95% ring + Strategy + Working For You + Risks all rendered), Cases→case-detail→share-case-btn all verified live on mobile viewport 390x844 against the public URL.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/hearing/transcribe", "issue": "FIXED in this iteration. The implementation was calling OpenAISpeechToText.transcribe(file_path=...) — the actual library signature is transcribe(file=...) and the return value is a TranscriptionResponse object (not a string). Both bugs would have made the entire Hearing Recorder feature error 500 on any upload. I changed server.py to (a) pass file=open(tmp,'rb'), and (b) extract .text/.get('text') before persisting to Mongo (otherwise the BSON encoder throws InvalidDocument). Suggest the main agent code-review this fix and consider adding a unit test that mocks OpenAISpeechToText."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Outcome / Cost / Hearing / Legal Aid modals on mobile (390x844)", "issues": ["Modal content is taller than the viewport so the primary CTA (e.g. outcome-run-btn, hearing-upload-btn) sits below the fold; the user must scroll inside the modal. Works, but a sticky-footer CTA pattern (the way the Letter Reader modal already does it) would feel more polished and prevents 'where is the button?' confusion on smaller phones."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_round2_features.py",
+    "/app/test_reports/pytest/round2_results.xml"
+  ],
+  "action_items": [
+    "[VERIFY] Main agent: review the hearing-transcribe fix in /app/backend/server.py around L3019-3033 — confirm the file-handle pattern + .text extraction is acceptable (the temp file is unlinked after close).",
+    "[OPTIONAL] Make Outcome/Cost/Hearing/Legal-Aid modals match the Letter Reader pattern (sticky footer CTA) so the primary button is always visible on small phones.",
+    "[OPTIONAL] On the Outcome modal, render the recommended_strategy AFTER 'working for you' / 'risks' (currently it's above) — feels more natural to read pros/cons → plan."
+  ],
+  "critical_code_review_comments": [
+    "server.py:3019 (pre-fix) — used OpenAISpeechToText.transcribe(file_path=...) — wrong kwarg. The lib signature is transcribe(file=...). Resulting 500 swallowed by the broad try/except as 'Transcription failed: …'. **High-priority test gap** — no unit test exercised this endpoint until this iteration. Fixed.",
+    "server.py:3020-3023 (pre-fix) — the return value of stt.transcribe() is a TranscriptionResponse pydantic-ish object, NOT a string. It was being stored directly into Mongo as the 'transcript' field, which BSON cannot encode → InvalidDocument. Fixed by extracting .text. Same issue would re-surface anywhere else this lib is used; recommend a small helper `_stt_text(resp)` and re-using it.",
+    "server.py:3014 — the 50MB upload guard happens AFTER reading the entire body into memory. Consider streaming or rejecting on Content-Length first.",
+    "server.py:3082 — legal-aid means test hardcodes the £2657/£8000 thresholds. These change annually; pull from a config or env so it can be updated without a deploy.",
+    "server.py:3164-3185 — /stats/public cache is per-process via Mongo doc; works, but the in-memory variant comment is misleading. Either implement true in-process caching with a TTL dict or remove the comment.",
+    "Outcome/Cost endpoints fall back to {success_probability_pct: 0, …} when the LLM JSON parse fails — this could look like the user's case has 0% chance of success rather than a parse error. Consider returning a 502 + 'try again' instead."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (FIXED hearing/transcribe — kwarg + response extraction)",
+    "/app/backend/tests/test_round2_features.py (NEW — 13 pytest cases across the 7 Round-2 feature areas)"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13) — Outcome 2/2, Cost 1/1, LegalAid 2/2, FileDelete 2/2, Hearing 1/1, CaseShare 4/4, StatsPublic 1/1",
+    "frontend": "100% on smoke flows tested — signup → dashboard, all 5 new tiles (letter_reader/outcome/cost/hearing/legal_aid) present, stats-wall present and populated (191 users / 10 letters / 7 documents), Outcome modal opened + submitted + rendered full 95% ring + strategy + factors live, Hearing/Cost/Legal-aid modals open. Case detail view shows share-case-btn after creating a case."
+  },
+  "test_credentials": "Auto-generated per run: r2_<hex>@advocate.app / TestPass123! (signup) and ui_<ts>/ui2_<ts>/ui3_<ts>@advocate.app / TestPass123! for UI runs.",
+  "seed_data_creation": "Each run creates ~5 trial_pro users, 1-2 cases (TEST_share_case / TEST UI share), 2 hearing_transcript legal_files, a few share_tokens. No teardown. The auto-running stats/public count will accumulate.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend: run `python -m pytest /app/backend/tests/test_round2_features.py -v`. All 13 expected pass. The hearing/transcribe fix is sensitive — if it ever regresses, the symptom is HTTP 500 with detail starting with 'Transcription failed: ...'. Frontend mobile flow: signup via toggle-mode-btn → name/email/password/auth-submit-btn → dashboard; tile testids: tile-letter_reader, tile-outcome, tile-cost, tile-hearing, tile-legal_aid. Outcome modal testids: outcome-modal, outcome-summary, outcome-category, outcome-run-btn, outcome-result. Cost: cost-modal, cost-summary, cost-category, cost-run-btn, cost-result. Hearing: hearing-modal, hearing-pick-btn, hearing-file-input, hearing-upload-btn, hearing-result. StatsWall: stats-wall (no auth). To exercise share-case-btn you need to first POST /api/cases then click tile-cases → click the case card → share-case-btn shows in the detail view (uses window.alert with the URL).",
+  "rca of the issue": "BUG (hearing/transcribe 500) — RCA: emergentintegrations.llm.openai.speech_to_text.OpenAISpeechToText.transcribe() takes `file` (not file_path) and returns a `TranscriptionResponse` object whose `.text` attribute holds the transcript. server.py:3019-3020 passed file_path=… → TypeError surfaced as 'OpenAISpeechToText.transcribe() got an unexpected keyword argument file_path'. Reproduction: POST /api/hearing/transcribe with any audio multipart → 500. Fix applied (server.py L3019-3033): open(tmp.name,'rb') as fh, pass file=fh, then transcript = resp.text if hasattr(resp,'text') else (str(resp) or ''). Verified: TestHearingTranscribe + TestFileDelete (which uses hearing to create a file) all pass."
+}
