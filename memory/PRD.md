@@ -27,6 +27,15 @@ A multilingual "lawyer in your pocket" web + iOS + Android app. Core: Lex AI cha
 - ✅ **Thumbs up/down feedback** — every Lex chat reply has `fb-up-{i}` / `fb-down-{i}` buttons; persists to `feedback` collection via `POST /api/feedback`.
 - ✅ **Daily "Know Your Rights" tip** — `GET /api/tips/daily?language&country` cached per-day per-language. Renders as DailyTipCard at top of dashboard.
 
+## Round-2 New Features (2026-02-16)
+- ✅ **File deletion** — customer-facing trash icons on every legal file row and a Delete button in detail view (`DELETE /api/legal-files/{id}`).
+- ✅ **Outcome Predictor** — % chance of success with similar past cases cited by name (e.g. Superstrike v Rodrigues). `POST /api/outcome/predict`. New tile.
+- ✅ **Lawyer Cost Estimator** — likely solicitor fee range + court fees + hourly rate + no-win-no-fee flag + "AI Advocate covers this" upsell. `POST /api/cost/estimate`. New tile.
+- ✅ **Hearing Recorder** — Whisper STT transcript + structured analysis (summary / favourable / unfavourable / next actions / deadlines). `POST /api/hearing/transcribe`. New tile.
+- ✅ **Free Legal Aid Finder** — UK means-test (£2,657/mo income, £8,000 savings) + category-specific signposts (Citizens Advice / Law Centres / Shelter / ACAS / Right to Remain). `POST /api/legal-aid/check`. New tile.
+- ✅ **Case Sharing read-only links** — 30-day public token for any case. `POST /api/cases/{id}/share`, `GET /api/share/{token}` (no auth), `DELETE /api/cases/{id}/share` revokes. Share button in CaseFilesModal.
+- ✅ **Anonymous Stats Wall** — `GET /api/stats/public` (no auth, 5-min cache). Renders "AI Advocate by the numbers" card at bottom of dashboard.
+
 ## Auth
 - Email/password (custom JWT)
 - Apple Sign-In — ✅ WORKING (Services ID: `app.aiadvocate.signin`, domain `ai-law-guide-1.preview.emergentagent.com`, return URL with trailing `/`)
