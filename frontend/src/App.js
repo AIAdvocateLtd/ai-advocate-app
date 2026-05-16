@@ -2949,7 +2949,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "outcome", label: t(lang, "predictOutcome"), Icon: OutcomeIcon, req: "plus" },
     { id: "cost", label: t(lang, "lawyerCost"), Icon: CostIcon, req: "free" },
     { id: "hearing", label: t(lang, "hearingRecorder"), Icon: HearingIcon, req: "plus" },
-    { id: "legal_aid", label: t(lang, "freeLegalAid"), Icon: AidIcon, req: "free" },
+    { id: "legal_aid", label: t(lang, "freeLegalAid"), sub: t(lang, "freeLegalAidSub"), Icon: AidIcon, req: "free" },
     { id: "lawyers", label: t(lang, "findLawyer"), Icon: LawyerIcon, req: "free" },
     { id: "files", label: t(lang, "myFiles"), Icon: FilesIcon, req: "free" },
     { id: "cases", label: t(lang, "caseFiles"), Icon: FilesIcon, req: "free" },
@@ -3327,6 +3327,56 @@ function HearingRecorderModal({ lang, country, onClose }) {
   const [busy, setBusy] = useState(false);
   const [r, setR] = useState(null);
   const fileRef = useRef(null);
+
+  // ---- Live recording state ----
+  const [recording, setRecording] = useState(false);
+  const [elapsed, setElapsed] = useState(0);    // seconds
+  const mediaRecorderRef = useRef(null);
+  const recChunksRef = useRef([]);
+  const streamRef = useRef(null);
+  const timerRef = useRef(null);
+
+  const startRecording = async () => {
+    if (recording) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
+      const mr = new MediaRecorder(stream, { mimeType: mime });
+      recChunksRef.current = [];
+      mr.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) recChunksRef.current.push(ev.data); };
+      mr.onstop = () => {
+        const blob = new Blob(recChunksRef.current, { type: mime });
+        const f = new File([blob], `hearing-${Date.now()}.webm`, { type: mime });
+        setFile(f);
+        // stop the mic track so the red dot in browser goes away
+        streamRef.current?.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+      };
+      mediaRecorderRef.current = mr;
+      mr.start();
+      setRecording(true); setElapsed(0);
+      timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
+    } catch (e) {
+      alert(e?.message || "Microphone access denied");
+    }
+  };
+
+  const stopRecording = () => {
+    if (!recording) return;
+    setRecording(false);
+    clearInterval(timerRef.current);
+    try { mediaRecorderRef.current?.stop(); } catch (e) {}
+  };
+
+  // Cleanup when modal closes
+  useEffect(() => () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    streamRef.current?.getTracks().forEach(t => t.stop());
+  }, []);
+
+  const fmtTime = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
   const upload = async () => {
     if (!file) return;
     setBusy(true);
@@ -3338,6 +3388,7 @@ function HearingRecorderModal({ lang, country, onClose }) {
     } catch (e) { alert(e?.response?.data?.detail || "Transcription failed"); }
     finally { setBusy(false); }
   };
+
   return (
     <div className="modal-bg" data-testid="hearing-modal">
       <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
@@ -3347,33 +3398,76 @@ function HearingRecorderModal({ lang, country, onClose }) {
         </div>
         {!r ? (
           <>
-            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12 }}>Upload audio from a permitted hearing/tribunal/disciplinary. You'll get a full transcript + Lex's review.</p>
-            <input ref={fileRef} type="file" accept="audio/*,video/*" capture onChange={(e) => setFile(e.target.files?.[0])} style={{ display: "none" }} data-testid="hearing-file-input" />
-            <button className="btn-gold w-full" onClick={() => fileRef.current?.click()} data-testid="hearing-pick-btn" style={{ marginBottom: 10 }}>
-              <Mic size={16} style={{ display: "inline", marginRight: 6 }} />
-              {file ? `Selected: ${file.name}` : "Choose / record audio"}
-            </button>
-            {file && !busy && <button className="btn-gold w-full" onClick={upload} data-testid="hearing-upload-btn">Transcribe & analyse</button>}
-            {busy && <div style={{ textAlign: "center", padding: 16 }}><span className="spinner" /><div style={{ color: "var(--text-dim)", marginTop: 8, fontSize: 13 }}>Transcribing — this can take a minute…</div></div>}
+            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12 }}>{t(lang, "hearingIntro")}</p>
+
+            {/* LIVE RECORDING */}
+            <div style={{ background: "var(--bg-card)", border: `1px solid ${recording ? "#ef4444" : "var(--line)"}`, borderRadius: 12, padding: 14, marginBottom: 12, textAlign: "center" }}>
+              {recording ? (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 8 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#ef4444", display: "inline-block", animation: "pulse 1.5s infinite" }}></span>
+                    <span style={{ color: "#ef4444", fontWeight: 700, fontSize: 13 }}>RECORDING</span>
+                  </div>
+                  <div style={{ color: "var(--gold)", fontFamily: "Cinzel, serif", fontSize: 28, marginBottom: 8 }}>{fmtTime(elapsed)}</div>
+                  <button data-testid="hearing-rec-stop" className="btn-gold" onClick={stopRecording}
+                          style={{ background: "#ef4444", color: "#fff", width: "100%", padding: 12 }}>
+                    {t(lang, "stop") || "Stop recording"}
+                  </button>
+                </>
+              ) : file ? (
+                <>
+                  <div style={{ color: "var(--gold)", fontSize: 13, marginBottom: 8 }}>
+                    ✓ Recording ready ({(file.size / 1024 / 1024).toFixed(1)} MB)
+                  </div>
+                  <button data-testid="hearing-rec-restart" className="btn-ghost" onClick={() => { setFile(null); }} style={{ width: "100%", padding: 8, fontSize: 12 }}>
+                    Discard & record again
+                  </button>
+                </>
+              ) : (
+                <button data-testid="hearing-rec-start" className="btn-gold" onClick={startRecording}
+                        style={{ width: "100%", padding: 12 }}>
+                  <Mic size={16} style={{ display: "inline", marginRight: 6 }} />
+                  Record now
+                </button>
+              )}
+            </div>
+
+            {/* OR — upload an existing file */}
+            {!recording && !file && (
+              <>
+                <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 12, margin: "10px 0" }}>— or —</div>
+                <input ref={fileRef} type="file" accept="audio/*,video/*" onChange={(e) => setFile(e.target.files?.[0])} style={{ display: "none" }} data-testid="hearing-file-input" />
+                <button className="btn-ghost w-full" onClick={() => fileRef.current?.click()} data-testid="hearing-pick-btn">
+                  Upload existing audio file
+                </button>
+              </>
+            )}
+
+            {file && !busy && !recording && (
+              <button className="btn-gold w-full" onClick={upload} data-testid="hearing-upload-btn" style={{ marginTop: 10 }}>
+                {t(lang, "hearingUploadBtn")}
+              </button>
+            )}
+            {busy && <div style={{ textAlign: "center", padding: 16 }}><span className="spinner" /><div style={{ color: "var(--text-dim)", marginTop: 8, fontSize: 13 }}>{t(lang, "hearingBusy") || "Transcribing — this can take a minute…"}</div></div>}
           </>
         ) : (
           <div data-testid="hearing-result">
-            <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Summary</div>
+            <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{t(lang, "hearingSummary")}</div>
             <p style={{ color: "var(--text)", fontSize: 14, lineHeight: 1.6, marginBottom: 12 }}>{r.analysis?.summary}</p>
             {r.analysis?.favourable_moments?.length > 0 && (<>
-              <div style={{ color: "#22c55e", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Worked for you</div>
+              <div style={{ color: "#22c55e", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>{t(lang, "hearingWorked") || "Worked for you"}</div>
               <ul style={{ color: "var(--text-dim)", fontSize: 13, paddingLeft: 18, lineHeight: 1.6 }}>{r.analysis.favourable_moments.map((s, i) => <li key={i}>{s}</li>)}</ul>
             </>)}
             {r.analysis?.unfavourable_moments?.length > 0 && (<>
-              <div style={{ color: "#ef4444", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "10px 0 4px" }}>Risks</div>
+              <div style={{ color: "#ef4444", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "10px 0 4px" }}>{t(lang, "hearingRisks") || "Risks"}</div>
               <ul style={{ color: "var(--text-dim)", fontSize: 13, paddingLeft: 18, lineHeight: 1.6 }}>{r.analysis.unfavourable_moments.map((s, i) => <li key={i}>{s}</li>)}</ul>
             </>)}
             {r.analysis?.next_actions?.length > 0 && (<>
-              <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "10px 0 4px" }}>Next actions</div>
+              <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "10px 0 4px" }}>{t(lang, "hearingNextActions") || "Next actions"}</div>
               <ul style={{ color: "var(--text-dim)", fontSize: 13, paddingLeft: 18, lineHeight: 1.6 }}>{r.analysis.next_actions.map((s, i) => <li key={i}>{s}</li>)}</ul>
             </>)}
             <details style={{ marginTop: 14 }}>
-              <summary style={{ color: "var(--gold)", fontSize: 13, cursor: "pointer" }}>Full transcript</summary>
+              <summary style={{ color: "var(--gold)", fontSize: 13, cursor: "pointer" }}>{t(lang, "hearingFullTranscript") || "Full transcript"}</summary>
               <pre style={{ background: "#0a0a0a", padding: 10, borderRadius: 8, color: "var(--text-dim)", fontSize: 12, whiteSpace: "pre-wrap", marginTop: 8 }}>{r.transcript}</pre>
             </details>
           </div>

@@ -357,7 +357,7 @@ const EXTRA2 = {
     caseNamePlaceholder: "Case name (e.g. My Parking Ticket)",
     timestamp: "Recorded", locationLabel: "Location",
     exportCasePdf: "Export case PDF", evidenceHash: "Evidence hash",
-    reminders: "Reminders", addReminder: "Add reminder", noReminders: "No reminders yet.",
+    reminders: "Reminders", freeLegalAidSub: "Official UK services", addReminder: "Add reminder", noReminders: "No reminders yet.",
     reminderTitle: "Title", reminderDescription: "Description",
     reminderDueAt: "Due (YYYY-MM-DDTHH:MM)", reminderMarkDone: "Mark done",
     detectDeadlines: "Detect deadlines from chat", deadlineFound: "Deadline detected",
@@ -454,7 +454,7 @@ const T = {
     cloudBackup: "Copia en la nube", downloadBackup: "Descargar mis datos (JSON)",
     cloudBackupDesc: "Función Plus+. Descarga un JSON listo para tribunal con cada caso, chat, prueba, carta y recordatorio. Guárdalo en iCloud Drive o Google Drive desde el menú compartir del teléfono.",
     manageOnWeb: "Gestionar en la web",
-    reminders: "Recordatorios", addReminder: "Añadir recordatorio", noReminders: "Sin recordatorios.",
+    reminders: "Recordatorios", freeLegalAidSub: "Servicios oficiales del Reino Unido", addReminder: "Añadir recordatorio", noReminders: "Sin recordatorios.",
     reminderTitle: "Título", reminderDescription: "Descripción",
     reminderDueAt: "Vence", reminderMarkDone: "Marcar hecho",
     detectDeadlines: "Detectar plazos del chat", deadlineFound: "Plazo detectado",
@@ -1145,7 +1145,7 @@ const ROUND12 = {
     hearingTitle: "Enregistreur d'audience", hearingUploadBtn: "Transcrire et analyser", hearingSummary: "Résumé",
     letterReaderTitle: "Lecteur de courriers", letterReaderAnalyse: "Analyser avec Lex",
     deleteConfirm: "Supprimer ce fichier ? Cette action est irréversible.", shareCase: "Partager",
-    exportLiveNotes: "Exporter les notes horodatées (PDF)", reminders: "Rappels"},
+    exportLiveNotes: "Exporter les notes horodatées (PDF)", reminders: "Rappels", freeLegalAidSub: "Services officiels du R-U"},
   "ar-IQ": {
     letterReader: "قارئ الرسائل", predictOutcome: "توقع النتيجة", lawyerCost: "تكلفة المحامي",
     hearingRecorder: "مسجّل الجلسات", freeLegalAid: "مساعدة قانونية مجانية", tipOfTheDay: "نصيحة اليوم",
@@ -1159,7 +1159,7 @@ const ROUND12 = {
     hearingTitle: "مسجّل الجلسات", hearingUploadBtn: "نسخ وتحليل", hearingSummary: "ملخص",
     letterReaderTitle: "قارئ الرسائل", letterReaderAnalyse: "تحليل مع ليكس",
     deleteConfirm: "حذف هذا الملف؟ لا يمكن التراجع.", shareCase: "مشاركة",
-    exportLiveNotes: "تصدير الملاحظات الزمنية (PDF)", reminders: "تذكيرات"},
+    exportLiveNotes: "تصدير الملاحظات الزمنية (PDF)", reminders: "تذكيرات", freeLegalAidSub: "خدمات بريطانية رسمية"},
   "pl-PL": {
     letterReader: "Czytnik pism", predictOutcome: "Przewidź wynik", lawyerCost: "Koszt prawnika",
     hearingRecorder: "Rejestrator rozpraw", freeLegalAid: "Darmowa pomoc prawna", tipOfTheDay: "Porada dnia",
@@ -1173,7 +1173,7 @@ const ROUND12 = {
     hearingTitle: "Rejestrator rozpraw", hearingUploadBtn: "Transkrybuj i analizuj", hearingSummary: "Podsumowanie",
     letterReaderTitle: "Czytnik pism", letterReaderAnalyse: "Analizuj z Lex",
     deleteConfirm: "Usunąć ten plik? Tej operacji nie można cofnąć.", shareCase: "Udostępnij",
-    exportLiveNotes: "Eksport notatek z czasem (PDF)", reminders: "Przypomnienia"},
+    exportLiveNotes: "Eksport notatek z czasem (PDF)", reminders: "Przypomnienia", freeLegalAidSub: "Oficjalne usługi w UK"},
   "de-DE": {
     letterReader: "Briefleser", predictOutcome: "Ergebnis vorhersagen", lawyerCost: "Anwaltskosten",
     hearingRecorder: "Anhörungsrekorder", freeLegalAid: "Kostenlose Rechtshilfe", tipOfTheDay: "Tipp des Tages",
@@ -1187,7 +1187,7 @@ const ROUND12 = {
     hearingTitle: "Anhörungsrekorder", hearingUploadBtn: "Transkribieren & analysieren", hearingSummary: "Zusammenfassung",
     letterReaderTitle: "Briefleser", letterReaderAnalyse: "Mit Lex analysieren",
     deleteConfirm: "Diese Datei löschen? Dies kann nicht rückgängig gemacht werden.", shareCase: "Teilen",
-    exportLiveNotes: "Notizen mit Zeitstempel exportieren (PDF)", reminders: "Erinnerungen"},
+    exportLiveNotes: "Notizen mit Zeitstempel exportieren (PDF)", reminders: "Erinnerungen", freeLegalAidSub: "Offizielle UK-Dienste"},
   "hi-IN": {
     letterReader: "पत्र रीडर", predictOutcome: "परिणाम भविष्यवाणी", lawyerCost: "वकील की लागत",
     hearingRecorder: "सुनवाई रिकॉर्डर", freeLegalAid: "मुफ्त कानूनी सहायता", tipOfTheDay: "आज की सलाह",
@@ -1201,7 +1201,7 @@ const ROUND12 = {
     hearingTitle: "सुनवाई रिकॉर्डर", hearingUploadBtn: "लिखें और विश्लेषण", hearingSummary: "सारांश",
     letterReaderTitle: "पत्र रीडर", letterReaderAnalyse: "Lex के साथ विश्लेषण",
     deleteConfirm: "यह फाइल हटाएं? पूर्ववत नहीं किया जा सकता।", shareCase: "शेयर करें",
-    exportLiveNotes: "समय-मुद्रित नोट निर्यात (PDF)", reminders: "रिमाइंडर"},
+    exportLiveNotes: "समय-मुद्रित नोट निर्यात (PDF)", reminders: "रिमाइंडर", freeLegalAidSub: "ब्रिटेन की आधिकारिक सेवाएं"},
   "ur-PK": {
     letterReader: "خط ریڈر", predictOutcome: "نتیجہ کی پیشنگوئی", lawyerCost: "وکیل کی فیس",
     hearingRecorder: "سماعت ریکارڈر", freeLegalAid: "مفت قانونی مدد", tipOfTheDay: "آج کا مشورہ",
@@ -1215,7 +1215,7 @@ const ROUND12 = {
     hearingTitle: "سماعت ریکارڈر", hearingUploadBtn: "نقل اور تجزیہ", hearingSummary: "خلاصہ",
     letterReaderTitle: "خط ریڈر", letterReaderAnalyse: "Lex سے تجزیہ کریں",
     deleteConfirm: "یہ فائل حذف کریں؟ واپس نہیں ہوگا۔", shareCase: "شیئر",
-    exportLiveNotes: "وقت کے ساتھ نوٹس برآمد کریں (PDF)", reminders: "یاد دہانیاں"},
+    exportLiveNotes: "وقت کے ساتھ نوٹس برآمد کریں (PDF)", reminders: "یاد دہانیاں", freeLegalAidSub: "برطانیہ کی سرکاری خدمات"},
   "it-IT": {
     letterReader: "Lettore lettere", predictOutcome: "Prevedi esito", lawyerCost: "Costo avvocato",
     hearingRecorder: "Registratore udienze", freeLegalAid: "Assistenza legale gratuita", tipOfTheDay: "Consiglio del giorno",
@@ -1229,7 +1229,7 @@ const ROUND12 = {
     hearingTitle: "Registratore udienze", hearingUploadBtn: "Trascrivi e analizza", hearingSummary: "Riepilogo",
     letterReaderTitle: "Lettore lettere", letterReaderAnalyse: "Analizza con Lex",
     deleteConfirm: "Eliminare questo file? Non può essere annullato.", shareCase: "Condividi",
-    exportLiveNotes: "Esporta note con timestamp (PDF)", reminders: "Promemoria"},
+    exportLiveNotes: "Esporta note con timestamp (PDF)", reminders: "Promemoria", freeLegalAidSub: "Servizi ufficiali UK"},
   "pt-PT": {
     letterReader: "Leitor de cartas", predictOutcome: "Prever resultado", lawyerCost: "Custo do advogado",
     hearingRecorder: "Gravador de audiências", freeLegalAid: "Apoio jurídico gratuito", tipOfTheDay: "Dica do dia",
@@ -1243,7 +1243,7 @@ const ROUND12 = {
     hearingTitle: "Gravador de audiências", hearingUploadBtn: "Transcrever e analisar", hearingSummary: "Resumo",
     letterReaderTitle: "Leitor de cartas", letterReaderAnalyse: "Analisar com Lex",
     deleteConfirm: "Eliminar este ficheiro? Não pode ser revertido.", shareCase: "Partilhar",
-    exportLiveNotes: "Exportar notas com data/hora (PDF)", reminders: "Lembretes"},
+    exportLiveNotes: "Exportar notas com data/hora (PDF)", reminders: "Lembretes", freeLegalAidSub: "Serviços oficiais do RU"},
   "zh-CN": {
     letterReader: "信件阅读器", predictOutcome: "预测结果", lawyerCost: "律师费用",
     hearingRecorder: "听证录音", freeLegalAid: "免费法律援助", tipOfTheDay: "每日提示",
@@ -1257,7 +1257,7 @@ const ROUND12 = {
     hearingTitle: "听证录音", hearingUploadBtn: "转录并分析", hearingSummary: "摘要",
     letterReaderTitle: "信件阅读器", letterReaderAnalyse: "用 Lex 分析",
     deleteConfirm: "删除此文件？无法撤销。", shareCase: "分享",
-    exportLiveNotes: "导出时间戳笔记 (PDF)", reminders: "提醒"},
+    exportLiveNotes: "导出时间戳笔记 (PDF)", reminders: "提醒", freeLegalAidSub: "英国官方服务"},
 };
 
 
