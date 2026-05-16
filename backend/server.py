@@ -312,16 +312,18 @@ TIER_QUOTAS = {
         "live_assist_session_daily": 5,
         "live_assist_session_minutes": 60,
     },
-    "trial_pro": {  # 14-day trial = full Pro with same caps
-        "lex_chat_daily": None,
-        "letters_monthly": None,
-        "evidence_monthly": None,
-        "files_total": None,
-        "history_days": None,
-        "tts_daily": None,
-        "deep_think_monthly": 30,
-        "live_assist_session_daily": 3,
-        "live_assist_session_minutes": 60,
+    "trial_pro": {  # 14-day trial — Pro features but with usage caps to protect LLM costs
+        # Generous enough that genuine users won't hit them; tight enough to block abuse.
+        "lex_chat_daily": 50,
+        "letters_generate_monthly": 5,
+        "evidence_analyze_monthly": 10,
+        "doc_analyze_monthly": 10,
+        "files_total": 20,
+        "history_days": 90,
+        "tts_daily": 30,
+        "deep_think_monthly": 5,            # tighter than paid Pro
+        "live_assist_session_daily": 1,
+        "live_assist_session_minutes": 30,
     },
 }
 
@@ -1775,8 +1777,8 @@ async def stripe_webhook(request: Request):
             if firm_plan in ("featured", "premium"):
                 set_doc["featured"] = True
                 await db.lawfirms.update_one({"firm_account_id": firm_id}, {"$set": {"featured": True}})
-            # Verified + Premium include the "verified" trust badge
-            if firm_plan in ("verified", "premium"):
+            # Premium tier also includes the verified trust badge
+            if firm_plan == "premium":
                 set_doc["verified"] = True
                 await db.lawfirms.update_one({"firm_account_id": firm_id}, {"$set": {"verified": True}})
             await db.firm_accounts.update_one({"id": firm_id}, {"$set": set_doc})
@@ -2625,9 +2627,9 @@ async def firm_update_listing(data: FirmListingUpdate, firm: dict = Depends(get_
 
 @api_router.post("/firm/subscribe")
 async def firm_subscribe(plan: str = "featured", firm: dict = Depends(get_firm)):
-    """Stripe checkout for firms — £49.99/mo Featured, £19/mo Verified, £149/mo Premium Sponsor."""
-    if plan not in ("featured", "verified", "premium"):
-        raise HTTPException(400, "plan must be 'featured', 'verified' or 'premium'")
+    """Stripe checkout for firms — £49/mo Featured, £149/mo Premium Sponsor."""
+    if plan not in ("featured", "premium"):
+        raise HTTPException(400, "plan must be 'featured' or 'premium'")
     if not STRIPE_API_KEY:
         raise HTTPException(503, "Billing not configured")
     price_id = os.environ.get(f"STRIPE_PRICE_FIRM_{plan.upper()}", "")
@@ -2644,6 +2646,260 @@ async def firm_subscribe(plan: str = "featured", firm: dict = Depends(get_firm))
         return {"checkout_url": session.url}
     except Exception as e:
         raise HTTPException(500, f"Stripe checkout failed: {str(e)}")
+
+
+# ==================== Live Mode Timestamped Notes ====================
+# When a user is in a police interview, disciplinary, tribunal, etc., every
+# utterance Lex hears is logged with a precise UTC timestamp so the user can
+# refer back to the conversation afterwards (and export to PDF).
+
+class LiveNote(BaseModel):
+    session_id: str
+    speaker: Literal["user", "other_party", "lex", "system"]
+    text: str
+    note_kind: Optional[Literal["utterance", "advice", "flag"]] = "utterance"
+
+@api_router.post("/live/notes")
+async def add_live_note(data: LiveNote, user: dict = Depends(get_user)):
+    """Append one timestamped note to a Live Assist session log."""
+    now = datetime.now(timezone.utc)
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "session_id": data.session_id,
+        "speaker": data.speaker,
+        "text": data.text[:4000],
+        "note_kind": data.note_kind or "utterance",
+        "created_at": now.isoformat(),
+        "ts_ms": int(now.timestamp() * 1000),
+    }
+    await db.live_notes.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.get("/live/notes/{session_id}")
+async def get_live_notes(session_id: str, user: dict = Depends(get_user)):
+    notes = []
+    async for n in db.live_notes.find(
+        {"user_id": user["id"], "session_id": session_id}, {"_id": 0}
+    ).sort("ts_ms", 1):
+        notes.append(n)
+    return {"session_id": session_id, "notes": notes, "count": len(notes)}
+
+@api_router.get("/live/sessions")
+async def list_live_sessions(user: dict = Depends(get_user)):
+    """Group all live notes by session for the user's history list."""
+    pipeline = [
+        {"$match": {"user_id": user["id"]}},
+        {"$group": {
+            "_id": "$session_id",
+            "first_at": {"$min": "$created_at"},
+            "last_at": {"$max": "$created_at"},
+            "count": {"$sum": 1},
+        }},
+        {"$sort": {"last_at": -1}},
+        {"$limit": 100},
+    ]
+    sessions = []
+    async for s in db.live_notes.aggregate(pipeline):
+        sessions.append({
+            "session_id": s["_id"], "first_at": s["first_at"],
+            "last_at": s["last_at"], "count": s["count"],
+        })
+    return sessions
+
+@api_router.get("/live/notes/{session_id}/export")
+async def export_live_notes_pdf(session_id: str, user: dict = Depends(get_user)):
+    """PDF export of the full timestamped transcript — court-admissible reference."""
+    notes = []
+    async for n in db.live_notes.find(
+        {"user_id": user["id"], "session_id": session_id}, {"_id": 0}
+    ).sort("ts_ms", 1):
+        notes.append(n)
+    if not notes:
+        raise HTTPException(404, "No notes found for this session")
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18*mm, rightMargin=18*mm,
+                            topMargin=18*mm, bottomMargin=18*mm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("title", parent=styles["Title"], textColor=HexColor("#b8860b"))
+    meta_style = ParagraphStyle("meta", parent=styles["Normal"], fontSize=9, textColor=HexColor("#6b6b6b"))
+    speaker_styles = {
+        "user":         ParagraphStyle("u", parent=styles["Normal"], fontSize=10, textColor=HexColor("#0a4d8c"), spaceBefore=6),
+        "other_party":  ParagraphStyle("o", parent=styles["Normal"], fontSize=10, textColor=HexColor("#8c0a0a"), spaceBefore=6),
+        "lex":          ParagraphStyle("l", parent=styles["Normal"], fontSize=10, textColor=HexColor("#b8860b"), spaceBefore=6),
+        "system":       ParagraphStyle("s", parent=styles["Normal"], fontSize=9,  textColor=HexColor("#666"),    spaceBefore=4),
+    }
+    story = [Paragraph("AI Advocate — Live Session Transcript", title_style),
+             Spacer(1, 4),
+             Paragraph(f"Session: {session_id}", meta_style),
+             Paragraph(f"From {notes[0]['created_at']} to {notes[-1]['created_at']}", meta_style),
+             Paragraph(f"Total entries: {len(notes)}", meta_style),
+             Spacer(1, 8),
+             HRFlowable(width="100%", color=HexColor("#b8860b"), thickness=0.6),
+             Spacer(1, 8)]
+    speaker_label = {"user": "Me", "other_party": "Other party", "lex": "Lex (AI)", "system": "Note"}
+    for n in notes:
+        try:
+            t = datetime.fromisoformat(n["created_at"].replace("Z", "+00:00"))
+            ts = t.strftime("%H:%M:%S")
+        except Exception:
+            ts = "--:--:--"
+        line = f"<b>[{ts}] {speaker_label.get(n['speaker'], n['speaker'])}:</b> {n['text']}"
+        story.append(Paragraph(line, speaker_styles.get(n["speaker"], styles["Normal"])))
+    story.append(Spacer(1, 14))
+    story.append(HRFlowable(width="100%", color=HexColor("#cccccc"), thickness=0.4))
+    story.append(Paragraph("Generated by AI Advocate. Each line is timestamped in UTC at the moment it was recorded. "
+                           "Use as a personal record only — not a certified court transcript.", meta_style))
+    doc.build(story)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="ai-advocate-session-{session_id[:8]}.pdf"'})
+
+
+# ==================== Document / Letter Auto-Responder ====================
+# Snap a photo of any letter (parking ticket, eviction notice, debt collector,
+# council tax demand, employment letter, etc.) — Lex categorises it and drafts
+# an appropriate response in one call.
+
+class DocAnalyzeResponse(BaseModel):
+    category: str
+    summary: str
+    deadlines: List[dict] = []      # [{label, date_iso}]
+    suggested_response: str
+    next_steps: List[str] = []
+    severity: Literal["low", "medium", "high", "urgent"] = "medium"
+    case_id: Optional[str] = None
+
+@api_router.post("/document/analyze")
+async def document_analyze(
+    file: UploadFile = File(...),
+    language: str = Form("en-GB"),
+    country: str = Form("GB"),
+    case_id: Optional[str] = Form(None),
+    user: dict = Depends(get_user),
+):
+    """Analyse a photographed/scanned letter and return category + draft response + deadlines."""
+    pub = user_to_public(user)
+    ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "doc_analyze", "monthly")
+    if not ok:
+        raise HTTPException(429, f"Document analysis monthly limit reached ({used}/{limit}). Upgrade to Plus for unlimited.")
+
+    raw = await file.read()
+    if len(raw) > 12 * 1024 * 1024:
+        raise HTTPException(413, "File too large (max 12MB)")
+    suffix = "." + (file.filename.split(".")[-1].lower() if "." in file.filename else "jpg")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(raw); tmp.flush(); tmp.close()
+    lang_name = LANG_NAMES.get(language, "English")
+
+    sysmsg = f"""You are AI Advocate's document-analyser. The user uploaded a photo or scan of a letter or legal document.
+Jurisdiction: {country}. Reply in {lang_name}.
+
+Return STRICT JSON with this exact schema (no markdown, no commentary):
+{{
+  "category": "<one of: parking_ticket, council_tax, debt_collection, eviction, employment, tax, court_summons, police_letter, immigration, contract, insurance, medical, other>",
+  "summary": "<2-3 sentence plain-language explanation of what this letter says>",
+  "deadlines": [{{"label": "<what>", "date_iso": "<YYYY-MM-DD>"}}],
+  "suggested_response": "<full draft of the user's response letter — sender, date, recipient, body, sign-off — ready to send. Polite, firm, references the relevant law where applicable.>",
+  "next_steps": ["<short action 1>", "<short action 2>", "..."],
+  "severity": "<low|medium|high|urgent>"
+}}
+
+If the document is NOT a legal/official letter, set category=\"other\", severity=\"low\", and suggested_response=\"This does not appear to be a legal document.\"
+"""
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"doc-{uuid.uuid4()}", system_message=sysmsg)\
+        .with_model("gemini", "gemini-2.5-flash")
+    try:
+        resp = await chat.send_message(UserMessage(
+            text="Analyse the attached document.",
+            file_contents=[FileContentWithMimeType(file_path=tmp.name, mime_type=file.content_type or "image/jpeg")],
+        ))
+    except Exception as e:
+        os.unlink(tmp.name)
+        logger.exception("doc analyze failed")
+        raise HTTPException(500, f"AI error: {e}")
+    os.unlink(tmp.name)
+
+    import json as _json, re as _re
+    payload = resp.strip()
+    # Strip markdown fences if model added them
+    payload = _re.sub(r"^```(?:json)?\s*", "", payload)
+    payload = _re.sub(r"\s*```$", "", payload).strip()
+    try:
+        parsed = _json.loads(payload)
+    except Exception:
+        parsed = {"category": "other", "summary": payload[:600], "deadlines": [],
+                  "suggested_response": "", "next_steps": [], "severity": "low"}
+
+    # Persist in case_items if a case is linked
+    if case_id:
+        await db.case_items.insert_one({
+            "id": str(uuid.uuid4()), "case_id": case_id, "user_id": user["id"],
+            "kind": "document_analysis", "title": parsed.get("category", "document"),
+            "data": parsed, "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        # Auto-create deadline reminders for any extracted dates
+        for dl in parsed.get("deadlines", []) or []:
+            try:
+                due = datetime.fromisoformat(dl["date_iso"]).replace(tzinfo=timezone.utc)
+                await db.reminders.insert_one({
+                    "id": str(uuid.uuid4()), "user_id": user["id"], "case_id": case_id,
+                    "title": dl.get("label", "Deadline"), "due_at": due.isoformat(),
+                    "source": "doc_auto", "completed": False,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception:
+                pass
+    parsed["case_id"] = case_id
+    return parsed
+
+
+# ==================== Lex Reply Feedback ====================
+class FeedbackPayload(BaseModel):
+    conversation_id: Optional[str] = None
+    session_id: Optional[str] = None
+    rating: Literal["up", "down"]
+    comment: Optional[str] = None
+    surface: Optional[str] = "lex_chat"   # lex_chat | live_assist | letter | doc
+
+@api_router.post("/feedback")
+async def submit_feedback(data: FeedbackPayload, user: dict = Depends(get_user)):
+    await db.feedback.insert_one({
+        "id": str(uuid.uuid4()), "user_id": user["id"],
+        "conversation_id": data.conversation_id, "session_id": data.session_id,
+        "rating": data.rating, "comment": (data.comment or "")[:1000],
+        "surface": data.surface or "lex_chat",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"ok": True}
+
+
+# ==================== Daily "Know Your Rights" Tip ====================
+# Cached per-day per-language so we don't burn LLM calls every request.
+
+@api_router.get("/tips/daily")
+async def daily_tip(language: str = "en-GB", country: str = "GB", user: dict = Depends(get_user)):
+    today = datetime.now(timezone.utc).date().isoformat()
+    cache_key = f"{today}-{language}-{country}"
+    cached = await db.tips_cache.find_one({"key": cache_key}, {"_id": 0})
+    if cached:
+        return {"date": today, "tip": cached["tip"], "cached": True}
+    lang_name = LANG_NAMES.get(language, "English")
+    sysmsg = f"""You are AI Advocate writing today's "Know Your Rights" tip for users in {country}.
+Output ONE concise tip (max 35 words) in {lang_name}. Practical, useful, surprising-but-true.
+No greetings, no preamble — just the tip itself."""
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"tip-{cache_key}", system_message=sysmsg)\
+        .with_model("anthropic", "claude-haiku-4-5-20251001").with_params(max_tokens=80)
+    try:
+        tip = (await chat.send_message(UserMessage(text="Today's tip please."))).strip()
+    except Exception as e:
+        logger.exception("daily tip failed"); tip = "Always ask for an officer's badge number — you have the right to record it."
+    await db.tips_cache.insert_one({"key": cache_key, "tip": tip,
+                                     "created_at": datetime.now(timezone.utc).isoformat()})
+    return {"date": today, "tip": tip, "cached": False}
+
 
 # ==================== ADMIN DASHBOARD ====================
 ADMIN_EMAILS = [e.strip().lower() for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",") if e.strip()]

@@ -934,6 +934,30 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                        style={{ padding: "10px 14px", borderRadius: 14, maxWidth: "82%", whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 }}>
                     {m.content}
                   </div>
+                  {m.role === "lex" && (
+                    <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                      <button data-testid={`fb-up-${i}`} title="Helpful" disabled={m._fb}
+                        onClick={async () => {
+                          try { await api.post("/feedback", { rating: "up", session_id: sessionId, surface: "lex_chat" }); } catch {}
+                          setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _fb: "up" } : mm));
+                        }}
+                        style={{ background: m._fb === "up" ? "rgba(34,197,94,0.2)" : "transparent",
+                                 border: "1px solid var(--line)", color: m._fb === "up" ? "#22c55e" : "var(--text-muted)",
+                                 borderRadius: 8, padding: "2px 8px", fontSize: 11, cursor: m._fb ? "default" : "pointer" }}>
+                        👍
+                      </button>
+                      <button data-testid={`fb-down-${i}`} title="Not helpful" disabled={m._fb}
+                        onClick={async () => {
+                          try { await api.post("/feedback", { rating: "down", session_id: sessionId, surface: "lex_chat" }); } catch {}
+                          setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _fb: "down" } : mm));
+                        }}
+                        style={{ background: m._fb === "down" ? "rgba(239,68,68,0.2)" : "transparent",
+                                 border: "1px solid var(--line)", color: m._fb === "down" ? "#ef4444" : "var(--text-muted)",
+                                 borderRadius: 8, padding: "2px 8px", fontSize: 11, cursor: m._fb ? "default" : "pointer" }}>
+                        👎
+                      </button>
+                    </div>
+                  )}
                   {m.at && (
                     <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2, padding: "0 6px" }} data-testid={`ts-${i}`}>
                       {new Date(m.at).toLocaleString()}
@@ -1221,6 +1245,9 @@ function CourtroomModal({ lang, country, onClose }) {
             });
             lSessionRef.current = data.session_id;
             setAdvice(a => [{ at: new Date().toLocaleTimeString(), said: chunk, advice: data.response }, ...a].slice(0, 30));
+            // Persist timestamped notes — for later PDF export & playback reference
+            api.post("/live/notes", { session_id: data.session_id, speaker: "other_party", text: chunk }).catch(() => {});
+            api.post("/live/notes", { session_id: data.session_id, speaker: "lex", text: data.response, note_kind: "advice" }).catch(() => {});
           } catch (e) { /* swallow */ }
         }
       }
@@ -1331,6 +1358,24 @@ function CourtroomModal({ lang, country, onClose }) {
                   {liveActive ? "STOP listening" : "START listening"}
                 </button>
                 {liveActive && <div style={{ textAlign: "center", color: "var(--gold)", fontSize: 12, marginTop: 6 }}>🎙 Listening — Lex will whisper advice as the other side speaks</div>}
+                {!liveActive && lSessionRef.current && advice.length > 0 && (
+                  <button data-testid="export-live-pdf" onClick={async () => {
+                    try {
+                      const r = await fetch(`${API}/live/notes/${lSessionRef.current}/export`, {
+                        headers: { Authorization: `Bearer ${localStorage.getItem("aa_token")}` },
+                      });
+                      const blob = await r.blob();
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url; a.download = `ai-advocate-session-${lSessionRef.current.slice(0,8)}.pdf`;
+                      document.body.appendChild(a); a.click(); a.remove();
+                      URL.revokeObjectURL(url);
+                    } catch (e) { alert("Export failed"); }
+                  }} className="btn-ghost w-full" style={{ marginTop: 8, fontSize: 13 }}>
+                    <Download size={14} style={{ display: "inline", marginRight: 6 }} />
+                    Export timestamped notes (PDF)
+                  </button>
+                )}
                 <div style={{ flex: 1, overflowY: "auto", marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
                   {advice.length === 0 && liveActive && <div style={{ color: "var(--text-muted)", textAlign: "center", padding: 20, fontSize: 13 }}>{t(lang, "waitingForOtherSide")}</div>}
                   {advice.map((a, i) => (
@@ -2273,6 +2318,19 @@ function AdvertiseModal({ lang, onClose }) {
         ) : (
           <div style={{ overflowY: "auto" }}>
             <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12 }}>{t(lang, "advertiseSubtitle")}</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+              <div style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 10, textAlign: "center" }}>
+                <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>Featured</div>
+                <div style={{ color: "var(--text)", fontSize: 18, fontWeight: 700, marginTop: 4 }}>£49<span style={{ fontSize: 11, color: "var(--text-muted)" }}>/mo</span></div>
+                <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4, lineHeight: 1.4 }}>Top of search · Sponsored badge · Direct enquiries</div>
+              </div>
+              <div style={{ background: "linear-gradient(135deg, rgba(247,201,72,0.12), rgba(247,201,72,0.02))", border: "1px solid var(--gold)", borderRadius: 12, padding: 10, textAlign: "center", position: "relative" }}>
+                <div style={{ position: "absolute", top: -8, left: "50%", transform: "translateX(-50%)", background: "var(--gold)", color: "#1a1300", fontSize: 9, padding: "2px 8px", borderRadius: 6, fontWeight: 700, letterSpacing: "0.05em" }}>BEST VALUE</div>
+                <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>Premium Sponsor</div>
+                <div style={{ color: "var(--text)", fontSize: 18, fontWeight: 700, marginTop: 4 }}>£149<span style={{ fontSize: 11, color: "var(--text-muted)" }}>/mo</span></div>
+                <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4, lineHeight: 1.4 }}>Hero card · Verified ✓ · Logo · Direct call CTA</div>
+              </div>
+            </div>
             <input className="input" data-testid="adv-firm" placeholder={t(lang, "firmName")} value={form.firm_name} onChange={(e) => setForm({ ...form, firm_name: e.target.value })} style={{ marginBottom: 8 }} />
             <input className="input" data-testid="adv-contact" placeholder={t(lang, "contactName")} value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} style={{ marginBottom: 8 }} />
             <input className="input" data-testid="adv-email" type="email" placeholder={t(lang, "email")} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} style={{ marginBottom: 8 }} />
@@ -2825,6 +2883,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "courtroom", label: t(lang, "courtroomTrainer"), Icon: CourtIcon, req: "plus" },
     { id: "record", label: t(lang, "recordLegal"), Icon: RecordIcon, cat: "record", req: "plus" },
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
+    { id: "letter_reader", label: "Letter Reader", Icon: LetterIcon, req: "free" },
     { id: "lawyers", label: t(lang, "findLawyer"), Icon: LawyerIcon, req: "free" },
     { id: "files", label: t(lang, "myFiles"), Icon: FilesIcon, req: "free" },
     { id: "cases", label: t(lang, "caseFiles"), Icon: FilesIcon, req: "free" },
@@ -2848,6 +2907,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     else if (tile.id === "letter") setModal({ type: "letter_lib" });
     else if (tile.id === "record") setModal({ type: "record" });
     else if (tile.id === "snap") setModal({ type: "snap" });
+    else if (tile.id === "letter_reader") setModal({ type: "letter_reader" });
     else if (tile.id === "lawyers") setModal({ type: "lawyers" });
     else if (tile.id === "courtroom") setModal({ type: "courtroom" });
     else if (tile.id === "ask_lex") setModal({ type: "chat", title: t(lang, "askLex"), category: tile.cat });
@@ -2879,6 +2939,8 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 6, marginBottom: 14 }}>
         <Logo />
       </div>
+
+      <DailyTipCard lang={lang} country={country} />
 
       <button data-testid="emergency-btn" onClick={() => setShowEmergency(true)}
         style={{ width: "100%", padding: "12px 16px", marginBottom: 14, borderRadius: 14,
@@ -2970,6 +3032,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "letter" && <LegalLetterModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "record" && <RecordModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "snap" && <SnapEvidenceModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "letter_reader" && <LetterReaderModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "lawyers" && <LawyersModal lang={lang} country={country} user={user} onClose={() => setModal(null)} openAdvertise={() => { setModal(null); setShowAdvertise(true); }} />}
       {showEmergency && <EmergencyModal lang={lang} country={country} user={user} onClose={() => setShowEmergency(false)} />}
       {voiceMode && <VoiceModeOverlay lang={lang} country={country} category="ask_lex" initialText={voiceMode.initialText} onClose={() => setVoiceMode(null)} />}
@@ -2978,6 +3041,156 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {showSettings && <SettingsModal lang={lang} country={country} user={user} onClose={() => setShowSettings(false)} onUpdate={(u) => refreshUser(u)} setLang={setLang} setCountry={setCountry} />}
       {showAdvertise && <AdvertiseModal lang={lang} onClose={() => setShowAdvertise(false)} />}
       {reviewPrompt && <ReviewPrompt lang={lang} daysLeft={reviewPrompt.daysLeft} onClose={() => setReviewPrompt(null)} />}
+    </div>
+  );
+}
+
+// ---------- Letter Reader (Document Auto-Responder) ----------
+function LetterReaderModal({ lang, country, onClose }) {
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [err, setErr] = useState("");
+  const inputRef = useRef(null);
+
+  const choose = (e) => {
+    const f = e.target.files?.[0]; e.target.value = "";
+    if (!f) return;
+    if (preview) URL.revokeObjectURL(preview);
+    setFile(f); setPreview(URL.createObjectURL(f)); setResult(null); setErr("");
+  };
+
+  const analyze = async () => {
+    if (!file) return;
+    setBusy(true); setErr("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("language", lang);
+      fd.append("country", country);
+      const { data } = await api.post("/document/analyze", fd);
+      setResult(data);
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Analysis failed");
+    } finally { setBusy(false); }
+  };
+
+  const copyResponse = () => {
+    if (!result?.suggested_response) return;
+    navigator.clipboard.writeText(result.suggested_response);
+    alert("Response copied to clipboard");
+  };
+
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+
+  const SEV_COLOR = { low: "#22c55e", medium: "#f7c948", high: "#fb923c", urgent: "#ef4444" };
+
+  return (
+    <div className="modal-bg" data-testid="letter-reader-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>Letter Reader</h2>
+          <button onClick={onClose} data-testid="letter-reader-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
+        </div>
+        <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 14 }}>
+          Snap or upload any letter — parking tickets, eviction, debt, employment, council tax. Lex categorises it, extracts deadlines, and drafts your response.
+        </p>
+
+        {!result && (
+          <>
+            <input ref={inputRef} type="file" accept="image/*,application/pdf" capture="environment"
+                   onChange={choose} style={{ display: "none" }} data-testid="letter-file-input" />
+            <button className="btn-gold w-full" data-testid="letter-pick-btn" onClick={() => inputRef.current?.click()} style={{ marginBottom: 10 }}>
+              <Camera size={16} style={{ display: "inline", marginRight: 6 }} />
+              {file ? "Change photo" : "Take / choose photo of letter"}
+            </button>
+            {preview && (
+              <div style={{ marginBottom: 10, borderRadius: 12, overflow: "hidden", border: "1px solid var(--line)" }}>
+                <img src={preview} alt="Letter" style={{ width: "100%", display: "block", maxHeight: 280, objectFit: "contain", background: "#000" }} />
+              </div>
+            )}
+            {file && !busy && (
+              <button className="btn-gold w-full" data-testid="letter-analyze-btn" onClick={analyze} style={{ marginBottom: 8 }}>
+                Analyse with Lex
+              </button>
+            )}
+            {busy && <div style={{ textAlign: "center", padding: 16 }}><span className="spinner" /><div style={{ color: "var(--text-dim)", marginTop: 8, fontSize: 13 }}>Lex is reading your letter…</div></div>}
+            {err && <div style={{ background: "#2a0a0a", border: "1px solid #7f1d1d", color: "#fca5a5", padding: 10, borderRadius: 10, fontSize: 13 }}>{err}</div>}
+          </>
+        )}
+
+        {result && (
+          <div data-testid="letter-result">
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <span style={{ background: SEV_COLOR[result.severity] || "#888", color: "#000", padding: "3px 10px", borderRadius: 12, fontSize: 11, fontWeight: 700, textTransform: "uppercase" }}>
+                {result.severity}
+              </span>
+              <span style={{ color: "var(--gold)", fontSize: 13, textTransform: "capitalize" }}>{result.category?.replace(/_/g, " ")}</span>
+            </div>
+            <div style={{ color: "var(--text)", fontSize: 14, lineHeight: 1.6, marginBottom: 14 }}>{result.summary}</div>
+
+            {result.deadlines?.length > 0 && (
+              <>
+                <h4 style={{ color: "var(--gold)", fontSize: 13, margin: "8px 0", letterSpacing: "0.05em", textTransform: "uppercase" }}>Deadlines</h4>
+                {result.deadlines.map((d, i) => (
+                  <div key={i} style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 10, marginBottom: 6, fontSize: 13 }}>
+                    <strong style={{ color: "var(--gold)" }}>{d.date_iso}</strong> — {d.label}
+                  </div>
+                ))}
+              </>
+            )}
+
+            {result.next_steps?.length > 0 && (
+              <>
+                <h4 style={{ color: "var(--gold)", fontSize: 13, margin: "14px 0 8px", letterSpacing: "0.05em", textTransform: "uppercase" }}>Next steps</h4>
+                <ul style={{ paddingLeft: 18, color: "var(--text-dim)", fontSize: 13, lineHeight: 1.7 }}>
+                  {result.next_steps.map((s, i) => <li key={i}>{s}</li>)}
+                </ul>
+              </>
+            )}
+
+            {result.suggested_response && (
+              <>
+                <h4 style={{ color: "var(--gold)", fontSize: 13, margin: "14px 0 8px", letterSpacing: "0.05em", textTransform: "uppercase" }}>Drafted response</h4>
+                <textarea className="input" rows={10} value={result.suggested_response}
+                  onChange={(e) => setResult({ ...result, suggested_response: e.target.value })}
+                  data-testid="letter-response-textarea"
+                  style={{ fontSize: 13, lineHeight: 1.5, fontFamily: "inherit" }} />
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button className="btn-gold" data-testid="letter-copy-btn" onClick={copyResponse} style={{ flex: 1 }}>Copy response</button>
+                  <button className="btn-ghost" data-testid="letter-new-btn" onClick={() => { setResult(null); setFile(null); if (preview) URL.revokeObjectURL(preview); setPreview(null); }} style={{ flex: 1 }}>Analyse another</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Daily Tip Card (lives at top of dashboard) ----------
+function DailyTipCard({ lang, country }) {
+  const [tip, setTip] = useState(null);
+  useEffect(() => {
+    api.get("/tips/daily", { params: { language: lang, country } })
+       .then(r => setTip(r.data?.tip))
+       .catch(() => {});
+  }, [lang, country]);
+  if (!tip) return null;
+  return (
+    <div data-testid="daily-tip-card"
+         style={{ background: "linear-gradient(135deg, rgba(247,201,72,0.08) 0%, rgba(247,201,72,0.02) 100%)",
+                  border: "1px solid var(--gold-deep)", borderRadius: 14, padding: "10px 14px",
+                  marginBottom: 12, display: "flex", alignItems: "flex-start", gap: 10 }}>
+      <div style={{ color: "var(--gold)", fontSize: 18, lineHeight: 1 }}>💡</div>
+      <div>
+        <div style={{ color: "var(--gold)", fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 2 }}>
+          Tip of the day
+        </div>
+        <div style={{ color: "var(--text)", fontSize: 13, lineHeight: 1.5 }}>{tip}</div>
+      </div>
     </div>
   );
 }
