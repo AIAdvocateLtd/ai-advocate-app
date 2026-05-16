@@ -131,26 +131,35 @@ export const MedicalIcon = ({ size = 44 }) => (
 
 // ---------- Round 2 icons ----------
 
-// OutcomeIcon — crystal-ball / forecast (Predict Outcome)
+// OutcomeIcon — scales of justice + percent (Predict Outcome)
 export const OutcomeIcon = ({ size = 44 }) => (
   <svg width={size} height={size} viewBox="0 0 64 64" {...base}>
-    <circle cx="32" cy="30" r="16"/>
-    <path d="M20 46 H44 L40 54 H24 Z"/>
-    <path d="M25 26 Q32 20 39 26"/>
-    <circle cx="27" cy="22" r="0.8" fill="currentColor"/>
-    <circle cx="37" cy="22" r="0.8" fill="currentColor"/>
-    <path d="M28 34 Q32 38 36 34"/>
+    <circle cx="32" cy="32" r="20"/>
+    <path d="M22 38 L28 32 L34 36 L44 24"/>
+    <path d="M40 24 H44 V28"/>
+    <text x="32" y="20" textAnchor="middle" fontSize="10" fontWeight="700"
+          stroke="none" fill="currentColor" fontFamily="sans-serif">%</text>
   </svg>
 );
 
-// CostIcon — coin stack with £ (Lawyer Cost)
+// CostIcon — wallet with £ (Lawyer Cost)
 export const CostIcon = ({ size = 44 }) => (
   <svg width={size} height={size} viewBox="0 0 64 64" {...base}>
-    <ellipse cx="32" cy="20" rx="14" ry="5"/>
-    <path d="M18 20 V32 Q18 36 32 36 Q46 36 46 32 V20"/>
-    <path d="M18 32 V44 Q18 48 32 48 Q46 48 46 44 V32"/>
-    <text x="32" y="42" textAnchor="middle" fontSize="13" fontWeight="700"
+    <path d="M12 22 H52 V48 H12 Z"/>
+    <path d="M12 22 L18 16 H44 L52 22"/>
+    <circle cx="44" cy="35" r="2.5" fill="currentColor"/>
+    <text x="26" y="40" textAnchor="middle" fontSize="14" fontWeight="700"
           stroke="none" fill="currentColor" fontFamily="serif">£</text>
+  </svg>
+);
+
+// ReminderIcon — bell with notch (Reminders) — visually distinct from FilesIcon
+export const ReminderIcon = ({ size = 44 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" {...base}>
+    <path d="M32 12 V8"/>
+    <path d="M18 42 V32 Q18 18 32 18 Q46 18 46 32 V42"/>
+    <path d="M14 42 H50 L46 46 H18 Z"/>
+    <path d="M28 50 Q32 54 36 50"/>
   </svg>
 );
 

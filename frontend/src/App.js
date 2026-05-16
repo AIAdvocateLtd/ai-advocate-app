@@ -16,7 +16,7 @@ const IS_NATIVE = typeof window !== "undefined" && !!(window.Capacitor && window
 import {
   AskLexIcon, RecordIcon, CameraIcon, LawyerIcon, FilesIcon, LetterIcon,
   CourtIcon, ImmigrationIcon, EmploymentIcon, PropertyIcon, MedicalIcon,
-  OutcomeIcon, CostIcon, HearingIcon, AidIcon
+  OutcomeIcon, CostIcon, HearingIcon, AidIcon, ReminderIcon
 } from "@/icons";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -86,14 +86,21 @@ const pdfForFile = async (fileId, filename) => {
 };
 
 // ---------- Logo / Lex visuals ----------
-const Logo = ({ size = "lg" }) => {
+const Logo = ({ size = "lg", lang = "en-GB" }) => {
   const w = size === "lg" ? 220 : size === "md" ? 140 : 80;
+  const showTagline = size === "lg";
   return (
     <div className="flex flex-col items-center" data-testid="app-logo">
       <div className="aa-logo-shimmer" style={{ width: w, display: "inline-block" }}>
-        <img src="/assets/logo-transparent.png" alt="AI Advocate"
+        <img src="/assets/logo-notag.png" alt="AI Advocate"
              style={{ width: w, height: "auto", display: "block" }} />
       </div>
+      {showTagline && (
+        <div style={{ color: "var(--gold)", fontSize: 11, letterSpacing: "0.08em",
+                      marginTop: 6, opacity: 0.85, textAlign: "center" }}>
+          {t(lang, "tagline")}
+        </div>
+      )}
     </div>
   );
 };
@@ -329,7 +336,7 @@ function AuthScreen({ lang, country, onAuth }) {
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }} data-testid="auth-screen">
-      <Logo />
+      <Logo lang={lang} />
       <form onSubmit={submit} style={{ width: "100%", maxWidth: 380, marginTop: 30 }}>
         {mode === "signup" && (
           <input className="input" data-testid="name-input" placeholder={t(lang, "fullName")} value={name} onChange={(e) => setName(e.target.value)} style={{ marginBottom: 10 }} />
@@ -2938,15 +2945,15 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "courtroom", label: t(lang, "courtroomTrainer"), Icon: CourtIcon, req: "plus" },
     { id: "record", label: t(lang, "recordLegal"), Icon: RecordIcon, cat: "record", req: "plus" },
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
-    { id: "letter_reader", label: "Letter Reader", Icon: LetterIcon, req: "free" },
-    { id: "outcome", label: "Predict Outcome", Icon: OutcomeIcon, req: "plus" },
-    { id: "cost", label: "Lawyer Cost", Icon: CostIcon, req: "free" },
-    { id: "hearing", label: "Hearing Recorder", Icon: HearingIcon, req: "plus" },
-    { id: "legal_aid", label: "Free Legal Aid", Icon: AidIcon, req: "free" },
+    { id: "letter_reader", label: t(lang, "letterReader"), Icon: LetterIcon, req: "free" },
+    { id: "outcome", label: t(lang, "predictOutcome"), Icon: OutcomeIcon, req: "plus" },
+    { id: "cost", label: t(lang, "lawyerCost"), Icon: CostIcon, req: "free" },
+    { id: "hearing", label: t(lang, "hearingRecorder"), Icon: HearingIcon, req: "plus" },
+    { id: "legal_aid", label: t(lang, "freeLegalAid"), Icon: AidIcon, req: "free" },
     { id: "lawyers", label: t(lang, "findLawyer"), Icon: LawyerIcon, req: "free" },
     { id: "files", label: t(lang, "myFiles"), Icon: FilesIcon, req: "free" },
     { id: "cases", label: t(lang, "caseFiles"), Icon: FilesIcon, req: "free" },
-    { id: "reminders", label: t(lang, "reminders"), Icon: FilesIcon, req: "free" },
+    { id: "reminders", label: t(lang, "reminders"), Icon: ReminderIcon, req: "free" },
     { id: "letter", label: t(lang, "letterLibrary"), Icon: LetterIcon, req: "free" },
     { id: "immigration", label: t(lang, "immigration"), Icon: ImmigrationIcon, cat: "immigration", req: "plus" },
     { id: "employment", label: t(lang, "employment"), Icon: EmploymentIcon, cat: "employment", req: "plus" },
@@ -3001,7 +3008,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 6, marginBottom: 14 }}>
-        <Logo />
+        <Logo lang={lang} />
       </div>
 
       <DailyTipCard lang={lang} country={country} />
@@ -3075,7 +3082,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
         })}
       </div>
 
-      <StatsWall />
+      <StatsWall lang={lang} />
 
       <BottomNav lang={lang} active="home"
         onNav={(k) => {
@@ -3136,7 +3143,7 @@ function OutcomeModal({ lang, country, onClose }) {
     <div className="modal-bg" data-testid="outcome-modal">
       <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="brand-font gold" style={{ fontSize: 20 }}>Outcome Predictor</h2>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "outcomeTitle")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
         </div>
         {!r ? (
@@ -3206,7 +3213,7 @@ function CostEstimateModal({ lang, country, onClose }) {
     <div className="modal-bg" data-testid="cost-modal">
       <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="brand-font gold" style={{ fontSize: 20 }}>Lawyer Cost Estimator</h2>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "costTitle")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
         </div>
         {!r ? (
@@ -3275,7 +3282,7 @@ function LegalAidModal({ lang, country, onClose }) {
     <div className="modal-bg" data-testid="legal-aid-modal">
       <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="brand-font gold" style={{ fontSize: 20 }}>Free Legal Aid Finder</h2>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "legalAidTitle")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
         </div>
         {!r ? (
@@ -3335,7 +3342,7 @@ function HearingRecorderModal({ lang, country, onClose }) {
     <div className="modal-bg" data-testid="hearing-modal">
       <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="brand-font gold" style={{ fontSize: 20 }}>Hearing Recorder</h2>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "hearingTitle")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
         </div>
         {!r ? (
@@ -3421,7 +3428,7 @@ function LetterReaderModal({ lang, country, onClose }) {
     <div className="modal-bg" data-testid="letter-reader-modal">
       <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="brand-font gold" style={{ fontSize: 20 }}>Letter Reader</h2>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "letterReaderTitle")}</h2>
           <button onClick={onClose} data-testid="letter-reader-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
         </div>
         <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 14 }}>
@@ -3502,7 +3509,7 @@ function LetterReaderModal({ lang, country, onClose }) {
 }
 
 // ---------- Stats Wall (anonymous social proof) ----------
-function StatsWall() {
+function StatsWall({ lang }) {
   const [s, setS] = useState(null);
   useEffect(() => {
     api.get("/stats/public").then(r => setS(r.data)).catch(() => {});
@@ -3510,15 +3517,15 @@ function StatsWall() {
   if (!s) return null;
   const fmt = (n) => (n || 0).toLocaleString();
   const items = [
-    { label: "People helped", value: fmt(s.users_helped_total) },
-    { label: "Cases tracked", value: fmt(s.cases_active) },
-    { label: "Letters drafted", value: fmt(s.letters_drafted) },
-    { label: "Documents analysed", value: fmt(s.documents_analysed) },
+    { label: t(lang, "statsPeopleHelped"), value: fmt(s.users_helped_total) },
+    { label: t(lang, "statsCasesTracked"), value: fmt(s.cases_active) },
+    { label: t(lang, "statsLettersDrafted"), value: fmt(s.letters_drafted) },
+    { label: t(lang, "statsDocsAnalysed"), value: fmt(s.documents_analysed) },
   ];
   return (
     <div data-testid="stats-wall" style={{ marginTop: 20, padding: "12px 14px", background: "rgba(247,201,72,0.04)", border: "1px solid var(--line)", borderRadius: 14 }}>
       <div style={{ color: "var(--gold)", fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8, textAlign: "center" }}>
-        AI Advocate by the numbers
+        {t(lang, "statsTitle")}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         {items.map((it, i) => (
@@ -3549,7 +3556,7 @@ function DailyTipCard({ lang, country }) {
       <div style={{ color: "var(--gold)", fontSize: 18, lineHeight: 1 }}>💡</div>
       <div>
         <div style={{ color: "var(--gold)", fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 2 }}>
-          Tip of the day
+          {t(lang, "tipOfTheDay")}
         </div>
         <div style={{ color: "var(--text)", fontSize: 13, lineHeight: 1.5 }}>{tip}</div>
       </div>
