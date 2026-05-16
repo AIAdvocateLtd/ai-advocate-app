@@ -137,103 +137,140 @@
   .badge-text { color: var(--gold); font-size: 10px; font-weight: 700; letter-spacing: 0.8px; }
 
   /* ====================================================== */
-  /* LOGO OPTION A — Static logo with moving gold shimmer    */
+  /*  Shared demo card                                       */
   /* ====================================================== */
   .logo-demo {
     display: flex; flex-direction: column; align-items: center;
-    padding: 28px 18px;
-    background: var(--bg-card); border: 1px solid var(--line);
+    padding: 38px 18px 24px;
+    background: radial-gradient(ellipse at center top, rgba(247,201,72,0.04) 0%, transparent 70%), var(--bg-card);
+    border: 1px solid var(--line);
     border-radius: 14px;
+    overflow: hidden;
   }
-  .logo-demo h3 { color: var(--gold); margin: 14px 0 6px; font-family: 'Cinzel', serif; font-size: 17px; }
-  .logo-demo p { color: var(--text-muted); font-size: 12px; text-align: center; margin: 0 0 14px; max-width: 260px; line-height: 1.5; }
+  .logo-demo h3 { color: var(--gold); margin: 26px 0 6px; font-family: 'Cinzel', serif; font-size: 17px; }
+  .logo-demo p { color: var(--text-muted); font-size: 12px; text-align: center; margin: 0 0 4px; max-width: 260px; line-height: 1.5; }
 
-  .logo-wrap-shimmer {
-    width: 140px; height: 140px;
+  /* The float-stage gives each logo its own "sky" so the
+     drop-shadow / glow under it has room to breathe.       */
+  .float-stage {
+    width: 180px; height: 180px;
+    display: flex; align-items: center; justify-content: center;
     position: relative;
-    border-radius: 16px; overflow: hidden;
-    background: #000;
   }
-  .logo-wrap-shimmer img {
-    width: 100%; height: 100%; object-fit: cover;
+
+  /* The logo is now a transparent PNG — no blend trick needed,
+     it just floats freely in space.                         */
+  .logo-img {
+    width: 130px; height: 130px;
+    object-fit: contain;
+    filter: drop-shadow(0 6px 18px rgba(247,201,72,0.45));
     display: block;
   }
-  .logo-wrap-shimmer::after {
-    content: "";
-    position: absolute; inset: 0;
-    background: linear-gradient(115deg,
-      transparent 30%,
-      rgba(255,245,184,0.0) 42%,
-      rgba(255,245,184,0.75) 50%,
-      rgba(255,245,184,0.0) 58%,
-      transparent 70%);
-    transform: translateX(-100%);
-    animation: logo-shimmer 3s ease-in-out infinite;
-    mix-blend-mode: screen;
+
+  /* Soft elliptical glow that lives BEHIND the logo to
+     reinforce the "floating above ground" feel.            */
+  .ground-glow {
+    position: absolute;
+    bottom: 14px; left: 50%;
+    width: 110px; height: 16px;
+    background: radial-gradient(ellipse, rgba(247,201,72,0.55) 0%, transparent 70%);
+    transform: translateX(-50%);
+    filter: blur(6px);
     pointer-events: none;
   }
-  @keyframes logo-shimmer {
-    0%   { transform: translateX(-100%); }
-    70%  { transform: translateX(100%); }
-    100% { transform: translateX(100%); }
+
+  /* ====================================================== */
+  /* OPTION A — Gentle hover float (subtle 3D bob)          */
+  /* ====================================================== */
+  .opt-a .logo-img {
+    animation: float-bob 4s ease-in-out infinite;
+  }
+  .opt-a .ground-glow {
+    animation: shadow-bob 4s ease-in-out infinite;
+  }
+  @keyframes float-bob {
+    0%, 100% { transform: translateY(-4px); }
+    50%      { transform: translateY(-18px); }
+  }
+  @keyframes shadow-bob {
+    0%, 100% { transform: translateX(-50%) scaleX(1);    opacity: 0.55; }
+    50%      { transform: translateX(-50%) scaleX(0.65); opacity: 0.25; }
   }
 
   /* ====================================================== */
-  /* LOGO OPTION B — 3D spinning logo                       */
+  /* OPTION B — 3D Tilt sway (pendulum, no full spin)       */
   /* ====================================================== */
-  .logo-3d-stage {
-    width: 140px; height: 140px;
-    perspective: 700px;
+  .opt-b .float-stage { perspective: 800px; }
+  .opt-b .logo-img {
+    animation: tilt-sway 5s ease-in-out infinite;
+    transform-origin: center;
   }
-  .logo-3d {
-    width: 100%; height: 100%;
-    border-radius: 16px;
-    transform-style: preserve-3d;
-    animation: logo-spin 5s linear infinite;
-    box-shadow: 0 8px 28px rgba(247,201,72,0.25);
-  }
-  .logo-3d img {
-    width: 100%; height: 100%;
-    border-radius: 16px;
-    object-fit: cover;
-    display: block;
-    backface-visibility: hidden;
-  }
-  @keyframes logo-spin {
-    0%   { transform: rotateY(0deg); }
-    100% { transform: rotateY(360deg); }
+  @keyframes tilt-sway {
+    0%, 100% { transform: rotateY(-22deg) rotateX(4deg)  translateY(-6px); }
+    50%      { transform: rotateY( 22deg) rotateX(-4deg) translateY(-14px); }
   }
 
   /* ====================================================== */
-  /* LOGO OPTION C — Sparkle particles + gentle pulse glow  */
+  /* OPTION C — Float + gold shimmer sweep                  */
   /* ====================================================== */
-  .logo-wrap-sparkle {
-    width: 140px; height: 140px; position: relative;
-    border-radius: 16px; overflow: visible;
+  .opt-c .float-stage { isolation: isolate; }
+  .opt-c .logo-img {
+    animation: float-bob 4.5s ease-in-out infinite;
   }
-  .logo-wrap-sparkle img {
-    width: 100%; height: 100%; object-fit: cover;
-    border-radius: 16px;
-    animation: pulse-glow 2.5s ease-in-out infinite;
+  /* Shimmer ribbon clipped to the logo's diamond/shield shape
+     using a slightly tighter mask to keep it on the artwork. */
+  .opt-c .shimmer-overlay {
+    position: absolute;
+    width: 130px; height: 130px;
+    pointer-events: none;
+    overflow: hidden;
+    animation: float-bob 4.5s ease-in-out infinite;
+    border-radius: 18px;
   }
-  @keyframes pulse-glow {
-    0%, 100% { box-shadow: 0 0 18px rgba(247,201,72,0.4); }
-    50%      { box-shadow: 0 0 36px rgba(247,201,72,0.85), 0 0 60px rgba(247,201,72,0.4); }
+  .opt-c .shimmer-overlay::after {
+    content: "";
+    position: absolute; inset: -20%;
+    background: linear-gradient(115deg,
+      transparent 35%,
+      rgba(255,245,184,0.85) 50%,
+      transparent 65%);
+    transform: translateX(-110%);
+    animation: shimmer-sweep 3.2s ease-in-out infinite;
+    mix-blend-mode: screen;
   }
-  .sparkle {
-    position: absolute; width: 8px; height: 8px;
-    background: white; border-radius: 50%;
-    box-shadow: 0 0 6px white, 0 0 12px rgba(255,245,184,0.8);
+  @keyframes shimmer-sweep {
+    0%   { transform: translateX(-110%); }
+    65%  { transform: translateX(110%); }
+    100% { transform: translateX(110%); }
+  }
+
+  /* ====================================================== */
+  /* OPTION D — Floating crown of sparkles                  */
+  /* ====================================================== */
+  .opt-d .float-stage { overflow: visible; }
+  .opt-d .logo-img {
+    animation: float-bob 4s ease-in-out infinite, halo-pulse 2.6s ease-in-out infinite;
+  }
+  @keyframes halo-pulse {
+    0%, 100% { filter: drop-shadow(0 6px 18px rgba(247,201,72,0.45)); }
+    50%      { filter: drop-shadow(0 10px 28px rgba(247,201,72,0.85))
+                       drop-shadow(0 0 16px rgba(255,245,184,0.5)); }
+  }
+  .opt-d .sparkle {
+    position: absolute; width: 7px; height: 7px;
+    background: #fffbe6; border-radius: 50%;
+    box-shadow: 0 0 6px #fff, 0 0 14px rgba(255,245,184,0.9);
     opacity: 0;
-    animation: sparkle-pop 2.5s ease-in-out infinite;
+    animation: sparkle-pop 2.4s ease-in-out infinite;
   }
-  .sparkle.s1 { top: 6%; left: 12%;  animation-delay: 0s; }
-  .sparkle.s2 { top: 22%; right: 8%; animation-delay: 0.6s; }
-  .sparkle.s3 { bottom: 14%; left: 18%; animation-delay: 1.2s; }
-  .sparkle.s4 { bottom: 6%; right: 22%; animation-delay: 1.8s; }
-  .sparkle.s5 { top: 50%; left: -4%;  animation-delay: 0.9s; }
+  .opt-d .sparkle.s1 { top: 18%; left: 24%; animation-delay: 0s; }
+  .opt-d .sparkle.s2 { top: 12%; right: 22%; animation-delay: 0.6s; }
+  .opt-d .sparkle.s3 { top: 50%; right: 10%; animation-delay: 1.2s; }
+  .opt-d .sparkle.s4 { bottom: 28%; left: 16%; animation-delay: 1.7s; }
+  .opt-d .sparkle.s5 { top: 36%; left: 8%;   animation-delay: 0.9s; width: 5px; height: 5px; }
+  .opt-d .sparkle.s6 { bottom: 38%; right: 18%; animation-delay: 1.4s; width: 5px; height: 5px; }
   @keyframes sparkle-pop {
-    0%, 100% { opacity: 0; transform: scale(0.4); }
+    0%, 100% { opacity: 0; transform: scale(0.3); }
     50%      { opacity: 1; transform: scale(1.2); }
   }
 
@@ -313,43 +350,56 @@
 <!-- =============================================== -->
 <!-- PART 2: PREMIUM LOGO TREATMENT OPTIONS         -->
 <!-- =============================================== -->
-<h2>Part 2 · "Special" AI Advocate Logo Treatments</h2>
-<p class="sub" style="margin-bottom: 22px;">Three options for the top-tier visual signature. Pick one (or mix).</p>
+<h2>Part 2 · Floating Logo Treatments (v2)</h2>
+<p class="sub" style="margin-bottom: 22px;">No box behind the logo — it floats freely in space. Four options below.</p>
 
 <div class="grid">
 
-  <!-- OPTION A -->
-  <div class="logo-demo">
-    <div class="logo-wrap-shimmer">
-      <img src="/assets/logo.jpg" alt="AI Advocate" />
+  <!-- OPTION A — Gentle hover float -->
+  <div class="logo-demo opt-a">
+    <div class="float-stage">
+      <span class="ground-glow"></span>
+      <img class="logo-img" src="/assets/logo-transparent.png" alt="AI Advocate" />
     </div>
-    <h3>Option A · Moving Shimmer</h3>
-    <p>Static logo. A subtle gold "shine" sweeps across diagonally every few seconds — like polished gold catching the light. Tasteful, premium, never distracting.</p>
+    <h3>Option A · Hover Float</h3>
+    <p>Logo gently rises and falls. The gold pool of light beneath it tightens and dims as the logo lifts — like a coin levitating. Subtle, classy, never distracting.</p>
   </div>
 
-  <!-- OPTION B -->
-  <div class="logo-demo">
-    <div class="logo-3d-stage">
-      <div class="logo-3d">
-        <img src="/assets/logo.jpg" alt="AI Advocate" />
-      </div>
+  <!-- OPTION B — 3D tilt sway -->
+  <div class="logo-demo opt-b">
+    <div class="float-stage">
+      <span class="ground-glow"></span>
+      <img class="logo-img" src="/assets/logo-transparent.png" alt="AI Advocate" />
     </div>
-    <h3>Option B · 3D Spin</h3>
-    <p>The logo gently rotates on its Y-axis. High-impact, eye-catching, but can feel busy if it runs constantly. Best used as an entrance animation that stops after 1-2 spins.</p>
+    <h3>Option B · 3D Tilt Sway</h3>
+    <p>Logo tilts left ↔ right on its vertical axis (max ~22°) with a tiny lift — like a hovering medallion catching the light from different angles. Strong 3D feel, no full spin.</p>
   </div>
 
-  <!-- OPTION C -->
-  <div class="logo-demo">
-    <div class="logo-wrap-sparkle">
+  <!-- OPTION C — Float + shimmer sweep -->
+  <div class="logo-demo opt-c">
+    <div class="float-stage">
+      <span class="ground-glow"></span>
+      <img class="logo-img" src="/assets/logo-transparent.png" alt="AI Advocate" />
+      <span class="shimmer-overlay"></span>
+    </div>
+    <h3>Option C · Float + Shimmer</h3>
+    <p>Logo floats up &amp; down while a diagonal gold shine sweeps across it every ~3s — like polished gold catching the sun. Premium &amp; refined; works great as an always-on signature.</p>
+  </div>
+
+  <!-- OPTION D — Sparkles + glow -->
+  <div class="logo-demo opt-d">
+    <div class="float-stage">
+      <span class="ground-glow"></span>
+      <img class="logo-img" src="/assets/logo-transparent.png" alt="AI Advocate" />
       <span class="sparkle s1"></span>
       <span class="sparkle s2"></span>
       <span class="sparkle s3"></span>
       <span class="sparkle s4"></span>
       <span class="sparkle s5"></span>
-      <img src="/assets/logo.jpg" alt="AI Advocate" />
+      <span class="sparkle s6"></span>
     </div>
-    <h3>Option C · Sparkle + Glow</h3>
-    <p>Pulsing gold halo around the logo with small white sparkle particles popping at random points. Most "magical" — strongest premium feel, perfect for the Premium Partner badge.</p>
+    <h3>Option D · Floating Sparkles</h3>
+    <p>Logo floats with a pulsing gold halo and small white sparkles popping at random points around it. Most "magical" — best for the Premium Partner badge and celebration moments.</p>
   </div>
 
 </div>
