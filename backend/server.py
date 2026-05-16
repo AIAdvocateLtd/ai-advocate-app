@@ -89,8 +89,10 @@ class UserLogin(BaseModel):
     password: str
 
 class GoogleLogin(BaseModel):
-    # Real flow: send Google ID token (credential)
+    # Real flow A: send Google ID token (credential) — from One Tap / renderButton
     credential: Optional[str] = None
+    # Real flow B: send OAuth2 access token — from initTokenClient popup
+    access_token: Optional[str] = None
     # Demo fallback (kept for backwards compatibility)
     email: Optional[EmailStr] = None
     name: Optional[str] = ""
@@ -573,7 +575,7 @@ async def google_login(data: GoogleLogin):
     google_sub = None; email = None; name = ""
 
     if data.credential and GOOGLE_CLIENT_ID:
-        # Real verification path
+        # Real verification path A: ID token (from One Tap / renderButton)
         try:
             from google.oauth2 import id_token as gid
             from google.auth.transport import requests as g_req
@@ -586,10 +588,36 @@ async def google_login(data: GoogleLogin):
         except Exception as e:
             logger.exception("Google token verification failed")
             raise HTTPException(401, f"Invalid Google token: {str(e)}")
+    elif data.access_token:
+        # Real verification path B: OAuth2 access token (from popup flow).
+        # Verified server-side via Google's userinfo endpoint — Google
+        # rejects invalid/expired tokens, so a 200 response is trustworthy.
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(
+                    "https://www.googleapis.com/oauth2/v3/userinfo",
+                    headers={"Authorization": f"Bearer {data.access_token}"},
+                )
+            if r.status_code != 200:
+                raise HTTPException(401, f"Google rejected access token: {r.text[:200]}")
+            info = r.json()
+            google_sub = info.get("sub")
+            email = info.get("email")
+            name = info.get("name", "")
+            if not google_sub or not email:
+                raise HTTPException(401, "Google userinfo missing sub/email")
+            if info.get("email_verified") is False:
+                raise HTTPException(401, "Email not verified by Google")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception("Google userinfo verification failed")
+            raise HTTPException(401, f"Google verification failed: {str(e)}")
     else:
         # Demo fallback (used while GOOGLE_CLIENT_ID is not set)
         if not data.email or not data.google_id:
-            raise HTTPException(400, "Provide either 'credential' or {email, google_id}")
+            raise HTTPException(400, "Provide 'credential', 'access_token', or {email, google_id}")
         google_sub = data.google_id
         email = data.email
         name = data.name or ""

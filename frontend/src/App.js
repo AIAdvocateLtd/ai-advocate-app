@@ -244,17 +244,27 @@ function AuthScreen({ lang, country, onAuth }) {
   };
 
   const googleReal = () => {
-    if (!window.google?.accounts?.id) { alert(t(lang, "googleNotLoaded")); return; }
-    window.google.accounts.id.initialize({
-      client_id: providers.google_client_id,
-      callback: async (resp) => {
-        try {
-          const { data } = await api.post("/auth/google", { credential: resp.credential });
-          onAuth(data);
-        } catch (e) { setErr(e?.response?.data?.detail || "Google sign-in failed"); }
-      },
-    });
-    window.google.accounts.id.prompt();
+    if (!window.google?.accounts?.oauth2) { alert(t(lang, "googleNotLoaded")); return; }
+    try {
+      const client = window.google.accounts.oauth2.initTokenClient({
+        client_id: providers.google_client_id,
+        scope: "openid email profile",
+        callback: async (resp) => {
+          if (resp.error) { setErr(`Google sign-in failed: ${resp.error}`); return; }
+          if (!resp.access_token) { setErr("Google sign-in failed: no access token returned"); return; }
+          try {
+            const { data } = await api.post("/auth/google", { access_token: resp.access_token });
+            onAuth(data);
+          } catch (e) { setErr(e?.response?.data?.detail || "Google sign-in failed"); }
+        },
+        error_callback: (err) => {
+          setErr(`Google sign-in failed: ${err?.type || "popup_closed"}`);
+        },
+      });
+      client.requestAccessToken({ prompt: "consent" });
+    } catch (e) {
+      setErr("Google sign-in failed to initialize");
+    }
   };
 
   const googleDemo = async () => {
