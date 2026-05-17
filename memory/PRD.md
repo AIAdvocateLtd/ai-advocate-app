@@ -271,3 +271,14 @@ England & Wales + ICC arbitration + GDPR + CCPA. 22-section Terms + 10-section P
 - DNS cutover: aiadvocate.co.uk → preview backend
 - Live Stripe webhook: replay test via Stripe CLI before launch
 - Split `/app/backend/server.py` (~2137 lines) into routers (auth/lex/letters/subscription/voice/webhook)
+
+
+## Contract Tools merge (2026-02-17)
+- ✅ Merged separate **Contract Reader** and **Contract Drafter** tiles into a single `Contract Tools` tile (id: `contracts`, free access).
+- ✅ New `ContractsHubModal` with tabbed UI (`Read` | `Draft`). Draft tab is Plus-gated; tap by Free users triggers Plus upsell.
+- ✅ Read tab now exposes **two distinct CTAs**: `Take photo` (capture=environment opens device camera) and `Upload file` (no capture, opens gallery/file picker; accepts images, PDFs, docx/txt).
+- ✅ Selected file preview chip + image thumbnail before analysis.
+- ✅ Fixed previous wiring bug — `contract_read`/`contract_draft` tiles had no router entry and fell through to chat (modal renderers never fired). New `contracts` route wired up correctly.
+- ✅ Verified `POST /api/contract/draft` returns valid contract text (NDA test passed via curl — LLM budget healthy).
+- New i18n keys (en-GB): `contractTools`, `contractTabRead`, `contractTabDraft`, `contractTakePhoto`, `contractUploadFile`. Other languages fall back to English via existing `t()` helper.
+- Files touched: `/app/frontend/src/App.js`, `/app/frontend/src/i18n.js`.

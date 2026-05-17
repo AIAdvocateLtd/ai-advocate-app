@@ -2947,8 +2947,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "record", label: t(lang, "recordLegal"), Icon: RecordIcon, cat: "record", req: "plus" },
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
     { id: "letter_reader", label: t(lang, "letterReader"), Icon: LetterIcon, req: "free" },
-    { id: "contract_read", label: t(lang, "contractReader"), Icon: ContractIcon, req: "free" },
-    { id: "contract_draft", label: t(lang, "contractDrafter"), Icon: DraftIcon, req: "plus" },
+    { id: "contracts", label: t(lang, "contractTools"), Icon: ContractIcon, req: "free" },
     { id: "outcome", label: t(lang, "predictOutcome"), Icon: OutcomeIcon, req: "plus" },
     { id: "cost", label: t(lang, "lawyerCost"), Icon: CostIcon, req: "free" },
     { id: "hearing", label: t(lang, "hearingRecorder"), Icon: HearingIcon, req: "plus" },
@@ -2977,6 +2976,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     else if (tile.id === "record") setModal({ type: "record" });
     else if (tile.id === "snap") setModal({ type: "snap" });
     else if (tile.id === "letter_reader") setModal({ type: "letter_reader" });
+    else if (tile.id === "contracts") setModal({ type: "contracts" });
     else if (tile.id === "outcome") setModal({ type: "outcome" });
     else if (tile.id === "cost") setModal({ type: "cost" });
     else if (tile.id === "hearing") setModal({ type: "hearing" });
@@ -3110,8 +3110,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "record" && <RecordModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "snap" && <SnapEvidenceModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "letter_reader" && <LetterReaderModal lang={lang} country={country} onClose={() => setModal(null)} />}
-      {modal?.type === "contract_read" && <ContractReaderModal lang={lang} country={country} onClose={() => setModal(null)} />}
-      {modal?.type === "contract_draft" && <ContractDrafterModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "contracts" && <ContractsHubModal lang={lang} country={country} hasTier={hasTier} onUpsell={() => { setSubPreset("plus"); setShowSub(true); }} onClose={() => setModal(null)} />}
       {modal?.type === "outcome" && <OutcomeModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "cost" && <CostEstimateModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "hearing" && <HearingRecorderModal lang={lang} country={country} onClose={() => setModal(null)} />}
@@ -3484,13 +3483,14 @@ function HearingRecorderModal({ lang, country, onClose }) {
 }
 
 // ---------- Contract Reader ----------
-function ContractReaderModal({ lang, country, onClose }) {
+function ContractReaderBody({ lang, country }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
   const [r, setR] = useState(null);
   const [err, setErr] = useState("");
-  const inputRef = useRef(null);
+  const cameraRef = useRef(null);
+  const uploadRef = useRef(null);
 
   const choose = (e) => {
     const f = e.target.files?.[0]; e.target.value = "";
@@ -3523,106 +3523,129 @@ function ContractReaderModal({ lang, country, onClose }) {
   const RISK_DOT = { low: "#22c55e", medium: "#f7c948", high: "#ef4444" };
 
   return (
-    <div className="modal-bg" data-testid="contract-reader-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "contractReaderTitle")}</h2>
-          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
-        </div>
-        {!r ? (
-          <>
-            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 14 }}>
-              {t(lang, "contractReaderIntro")}
-            </p>
-            <input ref={inputRef} type="file" accept="image/*,application/pdf" capture="environment"
-                   onChange={choose} style={{ display: "none" }} data-testid="contract-file-input" />
-            <button className="btn-gold w-full" data-testid="contract-pick-btn" onClick={() => inputRef.current?.click()} style={{ marginBottom: 10 }}>
-              <Camera size={16} style={{ display: "inline", marginRight: 6 }} />
-              {file ? t(lang, "letterReaderChange") : t(lang, "contractReaderPick")}
-            </button>
-            {preview && file?.type?.startsWith("image/") && (
-              <div style={{ marginBottom: 10, borderRadius: 12, overflow: "hidden", border: "1px solid var(--line)" }}>
-                <img src={preview} alt="Contract" style={{ width: "100%", display: "block", maxHeight: 280, objectFit: "contain", background: "#000" }} />
-              </div>
-            )}
-            {file && !busy && (
-              <button className="btn-gold w-full" data-testid="contract-analyze-btn" onClick={analyze} style={{ marginBottom: 8 }}>
-                {t(lang, "contractReaderRead")}
-              </button>
-            )}
-            {busy && <div style={{ textAlign: "center", padding: 16 }}><span className="spinner" /><div style={{ color: "var(--text-dim)", marginTop: 8, fontSize: 13 }}>{t(lang, "contractReaderBusy")}</div></div>}
-            {err && <div style={{ background: "#2a0a0a", border: "1px solid #7f1d1d", color: "#fca5a5", padding: 10, borderRadius: 10, fontSize: 13 }}>{err}</div>}
-          </>
-        ) : (
-          <div data-testid="contract-result">
-            {(() => {
-              const v = VERDICT_STYLE[r.overall_verdict] || VERDICT_STYLE.amber;
-              return (
-                <div style={{ background: v.bg, border: `1px solid ${v.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
-                  <div style={{ color: v.text, fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>{v.label}</div>
-                  <div style={{ color: "var(--text)", fontSize: 14, lineHeight: 1.5 }}>{r.verdict_one_liner}</div>
-                </div>
-              );
-            })()}
-            <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t(lang, "contractReaderType")}</div>
-            <div style={{ color: "var(--text)", fontSize: 14, textTransform: "capitalize", marginBottom: 10 }}>{r.contract_type?.replace(/_/g, " ")}</div>
-            <p style={{ color: "var(--text-dim)", fontSize: 13, lineHeight: 1.6, marginBottom: 14 }}>{r.plain_english_summary}</p>
+    <>
+      {!r ? (
+        <>
+          <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 14 }}>
+            {t(lang, "contractReaderIntro")}
+          </p>
 
-            {r.red_flags?.length > 0 && (
-              <>
-                <div style={{ color: "#ef4444", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{t(lang, "contractRedFlags")}</div>
-                {r.red_flags.map((f, i) => (
-                  <div key={i} style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: 8, marginBottom: 6, fontSize: 13, color: "var(--text)" }}>🔴 {f}</div>
-                ))}
-              </>
-            )}
-            {r.amber_flags?.length > 0 && (
-              <>
-                <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "10px 0 6px" }}>{t(lang, "contractAmberFlags")}</div>
-                {r.amber_flags.map((f, i) => (
-                  <div key={i} style={{ background: "rgba(247,201,72,0.1)", border: "1px solid var(--gold-deep)", borderRadius: 8, padding: 8, marginBottom: 6, fontSize: 13, color: "var(--text)" }}>🟡 {f}</div>
-                ))}
-              </>
-            )}
-            {r.clauses?.length > 0 && (
-              <details style={{ marginTop: 14 }}>
-                <summary style={{ color: "var(--gold)", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>{t(lang, "contractClauseBreakdown")} ({r.clauses.length})</summary>
-                <div style={{ marginTop: 10 }}>
-                  {r.clauses.map((c, i) => (
-                    <div key={i} style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, marginBottom: 6 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: RISK_DOT[c.risk_level] || "#888" }}></span>
-                        <span style={{ color: "var(--gold)", fontSize: 13, fontWeight: 600 }}>{c.title}</span>
-                      </div>
-                      <div style={{ color: "var(--text-dim)", fontSize: 12, lineHeight: 1.5 }}>{c.plain_english}</div>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            )}
-            {r.questions_to_ask?.length > 0 && (
-              <>
-                <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "14px 0 6px" }}>{t(lang, "contractQuestionsToAsk")}</div>
-                <ul style={{ color: "var(--text-dim)", fontSize: 13, paddingLeft: 18, lineHeight: 1.6 }}>{r.questions_to_ask.map((q, i) => <li key={i}>{q}</li>)}</ul>
-              </>
-            )}
-            {r.solicitor_review_recommended && (
-              <div style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 10, marginTop: 14, fontSize: 13, color: "var(--text)" }}>
-                ⚖️ {t(lang, "contractSolicitorRecommended")}
-              </div>
-            )}
-            <button className="btn-ghost w-full" onClick={() => { setR(null); setFile(null); if (preview) URL.revokeObjectURL(preview); setPreview(null); }} style={{ marginTop: 14 }}>
-              {t(lang, "contractAnother")}
+          {/* Hidden inputs */}
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment"
+                 onChange={choose} style={{ display: "none" }} data-testid="contract-camera-input" />
+          <input ref={uploadRef} type="file" accept="image/*,application/pdf,.doc,.docx,.txt"
+                 onChange={choose} style={{ display: "none" }} data-testid="contract-upload-input" />
+
+          {/* Dual choice: Camera + Upload */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <button className="btn-gold" data-testid="contract-camera-btn" onClick={() => cameraRef.current?.click()}
+                    style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: "18px 8px" }}>
+              <Camera size={22} />
+              <span style={{ fontSize: 13 }}>{t(lang, "contractTakePhoto")}</span>
+            </button>
+            <button className="btn-ghost" data-testid="contract-upload-btn" onClick={() => uploadRef.current?.click()}
+                    style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: "18px 8px", border: "1px solid var(--gold-deep)" }}>
+              <Upload size={22} />
+              <span style={{ fontSize: 13 }}>{t(lang, "contractUploadFile")}</span>
             </button>
           </div>
-        )}
-      </div>
-    </div>
+
+          {file && (
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
+              <FileText size={18} style={{ color: "var(--gold)" }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: "var(--text)", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</div>
+                <div style={{ color: "var(--text-dim)", fontSize: 11 }}>{(file.size / 1024).toFixed(1)} KB</div>
+              </div>
+              <button onClick={() => { if (preview) URL.revokeObjectURL(preview); setFile(null); setPreview(null); }}
+                      style={{ background: "transparent", border: "none", color: "var(--text-dim)", cursor: "pointer" }}>
+                <X size={16} />
+              </button>
+            </div>
+          )}
+
+          {preview && file?.type?.startsWith("image/") && (
+            <div style={{ marginBottom: 10, borderRadius: 12, overflow: "hidden", border: "1px solid var(--line)" }}>
+              <img src={preview} alt="Contract" style={{ width: "100%", display: "block", maxHeight: 280, objectFit: "contain", background: "#000" }} />
+            </div>
+          )}
+          {file && !busy && (
+            <button className="btn-gold w-full" data-testid="contract-analyze-btn" onClick={analyze} style={{ marginBottom: 8 }}>
+              {t(lang, "contractReaderRead")}
+            </button>
+          )}
+          {busy && <div style={{ textAlign: "center", padding: 16 }}><span className="spinner" /><div style={{ color: "var(--text-dim)", marginTop: 8, fontSize: 13 }}>{t(lang, "contractReaderBusy")}</div></div>}
+          {err && <div style={{ background: "#2a0a0a", border: "1px solid #7f1d1d", color: "#fca5a5", padding: 10, borderRadius: 10, fontSize: 13 }}>{err}</div>}
+        </>
+      ) : (
+        <div data-testid="contract-result">
+          {(() => {
+            const v = VERDICT_STYLE[r.overall_verdict] || VERDICT_STYLE.amber;
+            return (
+              <div style={{ background: v.bg, border: `1px solid ${v.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                <div style={{ color: v.text, fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>{v.label}</div>
+                <div style={{ color: "var(--text)", fontSize: 14, lineHeight: 1.5 }}>{r.verdict_one_liner}</div>
+              </div>
+            );
+          })()}
+          <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t(lang, "contractReaderType")}</div>
+          <div style={{ color: "var(--text)", fontSize: 14, textTransform: "capitalize", marginBottom: 10 }}>{r.contract_type?.replace(/_/g, " ")}</div>
+          <p style={{ color: "var(--text-dim)", fontSize: 13, lineHeight: 1.6, marginBottom: 14 }}>{r.plain_english_summary}</p>
+
+          {r.red_flags?.length > 0 && (
+            <>
+              <div style={{ color: "#ef4444", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{t(lang, "contractRedFlags")}</div>
+              {r.red_flags.map((f, i) => (
+                <div key={i} style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: 8, marginBottom: 6, fontSize: 13, color: "var(--text)" }}>🔴 {f}</div>
+              ))}
+            </>
+          )}
+          {r.amber_flags?.length > 0 && (
+            <>
+              <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "10px 0 6px" }}>{t(lang, "contractAmberFlags")}</div>
+              {r.amber_flags.map((f, i) => (
+                <div key={i} style={{ background: "rgba(247,201,72,0.1)", border: "1px solid var(--gold-deep)", borderRadius: 8, padding: 8, marginBottom: 6, fontSize: 13, color: "var(--text)" }}>🟡 {f}</div>
+              ))}
+            </>
+          )}
+          {r.clauses?.length > 0 && (
+            <details style={{ marginTop: 14 }}>
+              <summary style={{ color: "var(--gold)", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>{t(lang, "contractClauseBreakdown")} ({r.clauses.length})</summary>
+              <div style={{ marginTop: 10 }}>
+                {r.clauses.map((c, i) => (
+                  <div key={i} style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: RISK_DOT[c.risk_level] || "#888" }}></span>
+                      <span style={{ color: "var(--gold)", fontSize: 13, fontWeight: 600 }}>{c.title}</span>
+                    </div>
+                    <div style={{ color: "var(--text-dim)", fontSize: 12, lineHeight: 1.5 }}>{c.plain_english}</div>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+          {r.questions_to_ask?.length > 0 && (
+            <>
+              <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "14px 0 6px" }}>{t(lang, "contractQuestionsToAsk")}</div>
+              <ul style={{ color: "var(--text-dim)", fontSize: 13, paddingLeft: 18, lineHeight: 1.6 }}>{r.questions_to_ask.map((q, i) => <li key={i}>{q}</li>)}</ul>
+            </>
+          )}
+          {r.solicitor_review_recommended && (
+            <div style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 10, marginTop: 14, fontSize: 13, color: "var(--text)" }}>
+              ⚖️ {t(lang, "contractSolicitorRecommended")}
+            </div>
+          )}
+          <button className="btn-ghost w-full" onClick={() => { setR(null); setFile(null); if (preview) URL.revokeObjectURL(preview); setPreview(null); }} style={{ marginTop: 14 }}>
+            {t(lang, "contractAnother")}
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 
 // ---------- Contract Drafter ----------
-function ContractDrafterModal({ lang, country, onClose }) {
+function ContractDrafterBody({ lang, country }) {
   const [step, setStep] = useState(1);   // 1: type, 2: party A, 3: party B, 4: terms, 5: result
   const [contractType, setContractType] = useState("employment");
   const [partyA, setPartyA] = useState({ name: "", address: "", registration_no: "", sector: "" });
@@ -3670,14 +3693,8 @@ function ContractDrafterModal({ lang, country, onClose }) {
   );
 
   return (
-    <div className="modal-bg" data-testid="contract-drafter-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "contractDrafterTitle")}</h2>
-          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
-        </div>
-
-        {step <= 4 && <StepHeader />}
+    <>
+      {step <= 4 && <StepHeader />}
 
         {step === 1 && (
           <>
@@ -3802,6 +3819,61 @@ function ContractDrafterModal({ lang, country, onClose }) {
             </div>
           </div>
         )}
+    </>
+  );
+}
+
+// ---------- Contracts Hub (Read + Draft in tabbed modal) ----------
+function ContractsHubModal({ lang, country, hasTier, onUpsell, onClose }) {
+  const [tab, setTab] = useState("read"); // "read" | "draft"
+  const canDraft = hasTier("plus");
+
+  const switchTab = (next) => {
+    if (next === "draft" && !canDraft) {
+      onUpsell();
+      return;
+    }
+    setTab(next);
+  };
+
+  return (
+    <div className="modal-bg" data-testid="contracts-hub-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "contractTools")}</h2>
+          <button onClick={onClose} data-testid="contracts-hub-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 6, padding: 4, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 12, marginBottom: 16 }}>
+          <button data-testid="contracts-tab-read" onClick={() => switchTab("read")}
+                  style={{
+                    flex: 1, padding: "10px 8px", borderRadius: 9, cursor: "pointer", fontSize: 13, fontWeight: 600,
+                    background: tab === "read" ? "var(--gold)" : "transparent",
+                    color: tab === "read" ? "#1a1300" : "var(--text-dim)",
+                    border: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6
+                  }}>
+            <FileText size={14} /> {t(lang, "contractTabRead")}
+          </button>
+          <button data-testid="contracts-tab-draft" onClick={() => switchTab("draft")}
+                  style={{
+                    flex: 1, padding: "10px 8px", borderRadius: 9, cursor: "pointer", fontSize: 13, fontWeight: 600,
+                    background: tab === "draft" ? "var(--gold)" : "transparent",
+                    color: tab === "draft" ? "#1a1300" : "var(--text-dim)",
+                    border: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    position: "relative",
+                  }}>
+            <Gavel size={14} /> {t(lang, "contractTabDraft")}
+            {!canDraft && (
+              <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 5, background: "var(--gold)", color: "#1a1300", marginLeft: 4 }}>
+                PLUS
+              </span>
+            )}
+          </button>
+        </div>
+
+        {tab === "read" && <ContractReaderBody lang={lang} country={country} />}
+        {tab === "draft" && canDraft && <ContractDrafterBody lang={lang} country={country} />}
       </div>
     </div>
   );
