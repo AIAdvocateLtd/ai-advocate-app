@@ -3483,7 +3483,7 @@ function HearingRecorderModal({ lang, country, onClose }) {
 }
 
 // ---------- Contract Reader ----------
-function ContractReaderBody({ lang, country }) {
+function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -3634,6 +3634,31 @@ function ContractReaderBody({ lang, country }) {
             <div style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 10, marginTop: 14, fontSize: 13, color: "var(--text)" }}>
               ⚖️ {t(lang, "contractSolicitorRecommended")}
             </div>
+          )}
+          {/* Negotiate upsell — appears when there are clauses worth pushing back on */}
+          {((r.red_flags?.length > 0) || (r.amber_flags?.length > 0)) && onSwitchToNegotiate && (
+            <button data-testid="read-to-negotiate-upsell" onClick={onSwitchToNegotiate}
+                    style={{
+                      width: "100%", marginTop: 14, padding: 14, borderRadius: 12,
+                      background: "linear-gradient(135deg, rgba(247,201,72,0.18), rgba(247,201,72,0.06))",
+                      border: "1px solid var(--gold)", color: "var(--text)",
+                      cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+                    }}>
+              <div style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(247,201,72,0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Scale size={20} style={{ color: "var(--gold)" }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: "var(--gold)", fontSize: 13, fontWeight: 700, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                  {t(lang, "readUpsellTitle")}
+                  <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 5, background: "linear-gradient(135deg,#7f1d1d,#dc2626)", color: "#fff", letterSpacing: "0.05em" }}>
+                    PRO
+                  </span>
+                </div>
+                <div style={{ color: "var(--text-dim)", fontSize: 12, lineHeight: 1.4 }}>
+                  {t(lang, "readUpsellSub")}
+                </div>
+              </div>
+            </button>
           )}
           <button className="btn-ghost w-full" onClick={() => { setR(null); setFile(null); if (preview) URL.revokeObjectURL(preview); setPreview(null); }} style={{ marginTop: 14 }}>
             {t(lang, "contractAnother")}
@@ -3871,7 +3896,7 @@ function ContractsHubModal({ lang, country, hasTier, onUpsell, onClose }) {
           <TabBtn id="negotiate" icon={Scale} label={t(lang, "contractTabNegotiate")} locked={!canNegotiate} />
         </div>
 
-        {tab === "read" && <ContractReaderBody lang={lang} country={country} />}
+        {tab === "read" && <ContractReaderBody lang={lang} country={country} onSwitchToNegotiate={() => switchTab("negotiate")} />}
         {tab === "draft" && canDraft && <ContractDrafterBody lang={lang} country={country} />}
         {tab === "negotiate" && canNegotiate && <ContractNegotiateBody lang={lang} country={country} />}
       </div>
@@ -3885,6 +3910,7 @@ function ContractNegotiateBody({ lang, country }) {
   const [preview, setPreview] = useState(null);
   const [priorities, setPriorities] = useState("");
   const [userRole, setUserRole] = useState("recipient");
+  const [recipientEmail, setRecipientEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [r, setR] = useState(null);
   const [err, setErr] = useState("");
@@ -3918,6 +3944,35 @@ function ContractNegotiateBody({ lang, country }) {
     if (!r?.ready_to_send_email) return;
     navigator.clipboard.writeText(r.ready_to_send_email);
     alert(t(lang, "copiedToClipboard"));
+  };
+
+  // Parse "Subject: ..." from the first line and return { subject, body }
+  const parseEmailParts = (raw) => {
+    if (!raw) return { subject: "", body: "" };
+    const lines = raw.split(/\r?\n/);
+    let subject = "";
+    let bodyStart = 0;
+    const first = (lines[0] || "").trim();
+    const m = first.match(/^subject:\s*(.+)$/i);
+    if (m) {
+      subject = m[1].trim();
+      bodyStart = 1;
+      // Skip a blank line directly after subject if present
+      if ((lines[1] || "").trim() === "") bodyStart = 2;
+    }
+    return { subject, body: lines.slice(bodyStart).join("\n") };
+  };
+
+  const sendEmail = () => {
+    if (!r?.ready_to_send_email) return;
+    const { subject, body } = parseEmailParts(r.ready_to_send_email);
+    const to = (recipientEmail || "").trim();
+    const qs = new URLSearchParams();
+    if (subject) qs.set("subject", subject);
+    if (body) qs.set("body", body);
+    const url = `mailto:${encodeURIComponent(to)}?${qs.toString()}`;
+    // mailto: links may be blocked in some webviews — open in a way that works on iOS Safari + native wrappers
+    window.location.href = url;
   };
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
@@ -4129,7 +4184,28 @@ function ContractNegotiateBody({ lang, country }) {
               <textarea className="input" rows={10} value={r.ready_to_send_email}
                         onChange={(e) => setR({ ...r, ready_to_send_email: e.target.value })}
                         style={{ fontSize: 12, lineHeight: 1.6, fontFamily: "monospace" }} data-testid="neg-email-textarea" />
-              <button className="btn-gold w-full" onClick={copyEmail} style={{ marginTop: 8 }} data-testid="neg-copy-email-btn">
+
+              {/* Recipient + Send */}
+              <div style={{ marginTop: 10, padding: 12, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10 }}>
+                <label style={{ color: "var(--text-dim)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>
+                  {t(lang, "negRecipientEmail")}
+                </label>
+                <input type="email" className="input" value={recipientEmail}
+                       onChange={(e) => setRecipientEmail(e.target.value)}
+                       placeholder={t(lang, "negRecipientPlaceholder")}
+                       data-testid="neg-recipient-input"
+                       style={{ marginBottom: 8 }} />
+                <button className="btn-gold w-full" onClick={sendEmail} data-testid="neg-send-email-btn"
+                        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <Send size={16} />
+                  {t(lang, "negSendEmail")}
+                </button>
+                <div style={{ color: "var(--text-dim)", fontSize: 11, marginTop: 6, textAlign: "center" }}>
+                  {t(lang, "negSendEmailHint")}
+                </div>
+              </div>
+
+              <button className="btn-ghost w-full" onClick={copyEmail} style={{ marginTop: 8 }} data-testid="neg-copy-email-btn">
                 {t(lang, "negCopyEmail")}
               </button>
             </div>

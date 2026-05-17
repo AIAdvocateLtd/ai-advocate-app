@@ -299,3 +299,14 @@ England & Wales + ICC arbitration + GDPR + CCPA. 22-section Terms + 10-section P
 - **Free** — Triage: Snap Evidence, Letter Reader, Contract Read, Find Lawyer, Legal Aid, Cost Estimator, Files/Cases/Reminders, Letter Library, Emergency Mode.
 - **Plus £14.99** — Daily AI lawyer: Ask Lex, all category chats (immigration/employment/property/medical), Courtroom Trainer, Record Legal Interaction.
 - **Pro £29.99** — Pro outcomes: Outcome Predictor (Opus), Contract Drafter, **Contract Negotiate**, Hearing Recorder, Opus Deep Think, "Hey Lex" wake-word.
+
+
+## Email-this-draft + Pro upsell hooks (2026-02-17)
+- ✅ **"Email this draft" button** added to Contract Negotiate result. Parses the `Subject:` first line of Lex's email automatically, then opens a `mailto:` link with subject + body pre-filled. Optional recipient field; works on iOS Safari and Capacitor wrapper.
+- ✅ **Read → Negotiate upsell card** appears at the bottom of Contract Read result whenever red_flags or amber_flags are present. One-tap card with PRO badge that switches to Negotiate tab (and triggers Pro paywall for non-Pro users). Highest-converting moment in the contract flow.
+- New i18n keys: `negSendEmail`, `negSendEmailHint`, `negRecipientEmail`, `negRecipientPlaceholder`, `readUpsellTitle`, `readUpsellSub`.
+
+## Tier-locking strategy (decided 2026-02-17)
+After review: deliberately NOT locking more features behind Pro. Current ladder is the right balance:
+- Locking safety/triage tools (Snap Evidence, Letter Reader, Legal Aid, Find Lawyer) would risk App Store rejection in regulated category AND kill the conversion funnel.
+- Instead, monetisation moves to **inline upsell hooks at aha moments** — Contract Read → Negotiate (Pro) is the first. Follow-ups planned: Letter Read → "Draft a reply with Lex" (Plus), Snap Evidence → "Predict your outcome" (Pro).
