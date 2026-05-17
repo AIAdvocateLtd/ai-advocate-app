@@ -2912,6 +2912,176 @@ async def delete_legal_file(file_id: str, user: dict = Depends(get_user)):
     return {"deleted": True, "id": file_id}
 
 
+# ==================== Contract Reader & Drafter ====================
+
+@api_router.post("/contract/analyze")
+async def contract_analyze(
+    file: UploadFile = File(...),
+    language: str = Form("en-GB"),
+    country: str = Form("GB"),
+    user: dict = Depends(get_user),
+):
+    """Read a contract, break it down clause-by-clause, flag risks, give a verdict."""
+    pub = user_to_public(user)
+    ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "doc_analyze", "monthly")
+    if not ok:
+        raise HTTPException(429, f"Document analysis monthly limit reached ({used}/{limit}). Upgrade to Plus for unlimited.")
+
+    raw = await file.read()
+    if len(raw) > 12 * 1024 * 1024:
+        raise HTTPException(413, "File too large (max 12MB)")
+    suffix = "." + (file.filename.split(".")[-1].lower() if "." in file.filename else "jpg")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(raw); tmp.flush(); tmp.close()
+    lang_name = LANG_NAMES.get(language, "English")
+
+    sysmsg = f"""You are AI Advocate's contract-reading expert. The user has uploaded a contract and wants you to read it like an experienced solicitor would.
+Jurisdiction: {country}. Reply in {lang_name}.
+
+Return STRICT JSON only (no markdown):
+{{
+  "contract_type": "<employment | contractor | nda | lease | sale | service | loan | partnership | shareholder | settlement | other>",
+  "plain_english_summary": "<2-3 sentence plain-language summary of what this contract does>",
+  "overall_verdict": "<green | amber | red>",
+  "verdict_one_liner": "<single sentence verdict like 'Safe to sign' / 'Negotiate these points first' / 'Do NOT sign without solicitor advice'>",
+  "clauses": [
+    {{"title": "<short label>", "plain_english": "<what this clause actually means>", "risk_level": "<low | medium | high>"}}
+  ],
+  "red_flags": ["<specific concerning thing 1>", "<thing 2>"],
+  "amber_flags": ["<negotiable thing 1>", "<negotiable thing 2>"],
+  "questions_to_ask": ["<question to raise with the other party before signing 1>", "..."],
+  "solicitor_review_recommended": <true | false>,
+  "missing_protections": ["<protection the user would normally expect that's absent>"]
+}}
+
+Be honest, plain, and protective of the user. Flag auto-renewing clauses, one-sided variation rights, broad indemnities, overlong restrictive covenants, hidden fees, foreign-jurisdiction clauses, anything below statutory minimums (e.g. UK minimum wage / holiday).
+If the document is NOT a contract, set contract_type=\"other\" and verdict_one_liner=\"This does not appear to be a contract.\"
+"""
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"contract-{uuid.uuid4()}", system_message=sysmsg)\
+        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=4000)
+    try:
+        resp = await chat.send_message(UserMessage(
+            text="Analyse the attached contract.",
+            file_contents=[FileContentWithMimeType(file_path=tmp.name, mime_type=file.content_type or "application/pdf")],
+        ))
+    except Exception as e:
+        os.unlink(tmp.name); logger.exception("contract analyze failed")
+        raise HTTPException(500, f"AI error: {e}")
+    os.unlink(tmp.name)
+
+    import json as _json, re as _re
+    payload = _re.sub(r"^```(?:json)?\s*", "", resp.strip())
+    payload = _re.sub(r"\s*```$", "", payload).strip()
+    try:
+        return _json.loads(payload)
+    except Exception:
+        return {
+            "contract_type": "other", "plain_english_summary": payload[:600],
+            "overall_verdict": "amber", "verdict_one_liner": "Could not fully parse this contract.",
+            "clauses": [], "red_flags": [], "amber_flags": [], "questions_to_ask": [],
+            "solicitor_review_recommended": True, "missing_protections": [],
+        }
+
+
+class ContractDraftRequest(BaseModel):
+    contract_type: Literal["employment", "contractor", "nda", "lease", "sale", "service", "consultancy", "partnership"]
+    party_a: dict   # business / employer side: name, address, registration_no, sector, signatory
+    party_b: dict   # employee / contractor / other side: name, address, role, ni_no_or_company_no, email
+    terms: dict     # type-specific terms: salary, hours, notice_period, start_date, etc. (free-form)
+    additional_notes: str = ""
+    language: str = "en-GB"
+    country: str = "GB"
+
+@api_router.post("/contract/draft")
+async def contract_draft(data: ContractDraftRequest, user: dict = Depends(get_user)):
+    """Generate a UK-compliant contract from structured inputs."""
+    pub = user_to_public(user)
+    ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "letters_generate", "monthly")
+    if not ok:
+        raise HTTPException(429, f"Document generation monthly limit reached ({used}/{limit}). Upgrade to Plus for unlimited.")
+
+    lang_name = LANG_NAMES.get(data.language, "English")
+    sysmsg = f"""You are AI Advocate's contract-drafting expert. You draft contracts that are legally enforceable under {data.country} law.
+Reply in {lang_name}.
+
+CRITICAL — for UK ({data.country}=GB) contracts you MUST include where applicable:
+ - Employment Rights Act 1996 written statement of particulars (s.1)
+ - Working Time Regulations 1998 holiday clause
+ - National Minimum Wage Act compliance check
+ - Pension auto-enrolment notice (Pensions Act 2008) for employment contracts over 22 with qualifying earnings
+ - GDPR / Data Protection Act 2018 personal-data clause
+ - Equality Act 2010 anti-discrimination clause
+ - Place of work + remote-working clause
+ - Standard restrictive covenants where applicable (proportionate, max 6-12 months)
+
+Return STRICT JSON (no markdown):
+{{
+  "contract_title": "<e.g. 'Contract of Employment between X and Y'>",
+  "full_contract_text": "<the complete contract — proper structure with numbered clauses, parties block, signature block, date block — ready to copy into a Word doc or print. Use \\n for line breaks. Include 'Signed for [employer]' and 'Signed by [employee]' sections.>",
+  "statutory_clauses_included": ["<clause type 1>", "<clause type 2>"],
+  "risk_level": "<low | medium | high>",
+  "solicitor_review_recommended": <true | false — true if value > £50k, IP transfer involved, regulated industry, or overseas elements>,
+  "next_steps_for_user": ["<step 1 e.g. 'Both parties sign and date'>", "<step 2 e.g. 'Email signed copy to employee within X days'>"],
+  "warnings": ["<any specific concern about the inputs the user gave>"]
+}}
+"""
+    user_input = f"""Contract type: {data.contract_type}
+
+Party A (business / employer / first party):
+{_safe_json(data.party_a)}
+
+Party B (employee / contractor / second party):
+{_safe_json(data.party_b)}
+
+Terms:
+{_safe_json(data.terms)}
+
+Additional notes from user: {data.additional_notes or '(none)'}
+"""
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"draft-{uuid.uuid4()}", system_message=sysmsg)\
+        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=4500)
+    try:
+        resp = await chat.send_message(UserMessage(text=user_input))
+    except Exception as e:
+        logger.exception("contract draft failed"); raise HTTPException(500, f"AI error: {e}")
+
+    import json as _json, re as _re
+    payload = _re.sub(r"^```(?:json)?\s*", "", resp.strip())
+    payload = _re.sub(r"\s*```$", "", payload).strip()
+    try:
+        result = _json.loads(payload)
+    except Exception:
+        result = {
+            "contract_title": f"{data.contract_type.title()} Contract",
+            "full_contract_text": payload, "statutory_clauses_included": [],
+            "risk_level": "medium", "solicitor_review_recommended": True,
+            "next_steps_for_user": ["Both parties sign and date", "Each party keeps a signed copy"],
+            "warnings": [],
+        }
+
+    # Persist as a legal-file so the user can find it later
+    now = datetime.now(timezone.utc)
+    doc = {
+        "id": str(uuid.uuid4()), "user_id": user["id"], "type": "contract",
+        "filename": result.get("contract_title", "Contract"),
+        "content": result.get("full_contract_text", ""),
+        "analysis": _json.dumps({k: v for k, v in result.items() if k != "full_contract_text"}, ensure_ascii=False),
+        "contract_type": data.contract_type, "language": data.language, "country": data.country,
+        "created_at": now.isoformat(),
+    }
+    await db.legal_files.insert_one(doc.copy())
+    doc.pop("_id", None)
+    result["file_id"] = doc["id"]
+    return result
+
+
+def _safe_json(obj):
+    import json
+    try: return json.dumps(obj or {}, ensure_ascii=False, indent=2)
+    except Exception: return str(obj)
+
+
+
 # ==================== Round 2: Outcome Predictor ====================
 class OutcomePredictRequest(BaseModel):
     case_summary: str

@@ -153,7 +153,30 @@ export const CostIcon = ({ size = 44 }) => (
   </svg>
 );
 
-// ReminderIcon — calendar with a small bell badge (Reminders) — DEFINED ABOVE
+// ContractIcon — document with checkmark seal (Contract Reader)
+export const ContractIcon = ({ size = 44 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" {...base}>
+    <path d="M16 10 H38 L48 20 V54 H16 Z"/>
+    <path d="M38 10 V20 H48"/>
+    <line x1="22" y1="30" x2="42" y2="30"/>
+    <line x1="22" y1="36" x2="42" y2="36"/>
+    <line x1="22" y1="42" x2="34" y2="42"/>
+    <circle cx="46" cy="46" r="7"/>
+    <path d="M43 46 L45.5 48.5 L49 44"/>
+  </svg>
+);
+
+// DraftIcon — quill writing on paper (Contract Drafter)
+export const DraftIcon = ({ size = 44 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" {...base}>
+    <path d="M14 14 H40 V46 H14 Z"/>
+    <line x1="20" y1="22" x2="34" y2="22"/>
+    <line x1="20" y1="28" x2="34" y2="28"/>
+    <line x1="20" y1="34" x2="28" y2="34"/>
+    <path d="M44 18 L52 26 L36 42 L28 44 L30 36 Z"/>
+    <line x1="44" y1="18" x2="50" y2="12"/>
+  </svg>
+);
 
 // HearingIcon — podium / lectern mic (Hearing Recorder)
 export const HearingIcon = ({ size = 44 }) => (

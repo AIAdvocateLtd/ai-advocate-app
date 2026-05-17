@@ -16,7 +16,8 @@ const IS_NATIVE = typeof window !== "undefined" && !!(window.Capacitor && window
 import {
   AskLexIcon, RecordIcon, CameraIcon, LawyerIcon, FilesIcon, LetterIcon,
   CourtIcon, ImmigrationIcon, EmploymentIcon, PropertyIcon, MedicalIcon,
-  OutcomeIcon, CostIcon, HearingIcon, AidIcon, ReminderIcon
+  OutcomeIcon, CostIcon, HearingIcon, AidIcon, ReminderIcon,
+  ContractIcon, DraftIcon
 } from "@/icons";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -2946,6 +2947,8 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "record", label: t(lang, "recordLegal"), Icon: RecordIcon, cat: "record", req: "plus" },
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
     { id: "letter_reader", label: t(lang, "letterReader"), Icon: LetterIcon, req: "free" },
+    { id: "contract_read", label: t(lang, "contractReader"), Icon: ContractIcon, req: "free" },
+    { id: "contract_draft", label: t(lang, "contractDrafter"), Icon: DraftIcon, req: "plus" },
     { id: "outcome", label: t(lang, "predictOutcome"), Icon: OutcomeIcon, req: "plus" },
     { id: "cost", label: t(lang, "lawyerCost"), Icon: CostIcon, req: "free" },
     { id: "hearing", label: t(lang, "hearingRecorder"), Icon: HearingIcon, req: "plus" },
@@ -3107,6 +3110,8 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "record" && <RecordModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "snap" && <SnapEvidenceModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "letter_reader" && <LetterReaderModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "contract_read" && <ContractReaderModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "contract_draft" && <ContractDrafterModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "outcome" && <OutcomeModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "cost" && <CostEstimateModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "hearing" && <HearingRecorderModal lang={lang} country={country} onClose={() => setModal(null)} />}
@@ -3471,6 +3476,330 @@ function HearingRecorderModal({ lang, country, onClose }) {
               <summary style={{ color: "var(--gold)", fontSize: 13, cursor: "pointer" }}>{t(lang, "hearingFullTranscript") || "Full transcript"}</summary>
               <pre style={{ background: "#0a0a0a", padding: 10, borderRadius: 8, color: "var(--text-dim)", fontSize: 12, whiteSpace: "pre-wrap", marginTop: 8 }}>{r.transcript}</pre>
             </details>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Contract Reader ----------
+function ContractReaderModal({ lang, country, onClose }) {
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [r, setR] = useState(null);
+  const [err, setErr] = useState("");
+  const inputRef = useRef(null);
+
+  const choose = (e) => {
+    const f = e.target.files?.[0]; e.target.value = "";
+    if (!f) return;
+    if (preview) URL.revokeObjectURL(preview);
+    setFile(f); setPreview(URL.createObjectURL(f)); setR(null); setErr("");
+  };
+
+  const analyze = async () => {
+    if (!file) return;
+    setBusy(true); setErr("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("language", lang);
+      fd.append("country", country);
+      const { data } = await api.post("/contract/analyze", fd);
+      setR(data);
+    } catch (e) { setErr(e?.response?.data?.detail || "Analysis failed"); }
+    finally { setBusy(false); }
+  };
+
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+
+  const VERDICT_STYLE = {
+    green: { bg: "rgba(34,197,94,0.1)", border: "#22c55e", text: "#86efac", label: "SAFE TO SIGN" },
+    amber: { bg: "rgba(247,201,72,0.1)", border: "var(--gold)", text: "var(--gold)", label: "PROCEED WITH CARE" },
+    red: { bg: "rgba(239,68,68,0.1)", border: "#ef4444", text: "#fca5a5", label: "DO NOT SIGN YET" },
+  };
+  const RISK_DOT = { low: "#22c55e", medium: "#f7c948", high: "#ef4444" };
+
+  return (
+    <div className="modal-bg" data-testid="contract-reader-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "contractReaderTitle")}</h2>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
+        </div>
+        {!r ? (
+          <>
+            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 14 }}>
+              {t(lang, "contractReaderIntro")}
+            </p>
+            <input ref={inputRef} type="file" accept="image/*,application/pdf" capture="environment"
+                   onChange={choose} style={{ display: "none" }} data-testid="contract-file-input" />
+            <button className="btn-gold w-full" data-testid="contract-pick-btn" onClick={() => inputRef.current?.click()} style={{ marginBottom: 10 }}>
+              <Camera size={16} style={{ display: "inline", marginRight: 6 }} />
+              {file ? t(lang, "letterReaderChange") : t(lang, "contractReaderPick")}
+            </button>
+            {preview && file?.type?.startsWith("image/") && (
+              <div style={{ marginBottom: 10, borderRadius: 12, overflow: "hidden", border: "1px solid var(--line)" }}>
+                <img src={preview} alt="Contract" style={{ width: "100%", display: "block", maxHeight: 280, objectFit: "contain", background: "#000" }} />
+              </div>
+            )}
+            {file && !busy && (
+              <button className="btn-gold w-full" data-testid="contract-analyze-btn" onClick={analyze} style={{ marginBottom: 8 }}>
+                {t(lang, "contractReaderRead")}
+              </button>
+            )}
+            {busy && <div style={{ textAlign: "center", padding: 16 }}><span className="spinner" /><div style={{ color: "var(--text-dim)", marginTop: 8, fontSize: 13 }}>{t(lang, "contractReaderBusy")}</div></div>}
+            {err && <div style={{ background: "#2a0a0a", border: "1px solid #7f1d1d", color: "#fca5a5", padding: 10, borderRadius: 10, fontSize: 13 }}>{err}</div>}
+          </>
+        ) : (
+          <div data-testid="contract-result">
+            {(() => {
+              const v = VERDICT_STYLE[r.overall_verdict] || VERDICT_STYLE.amber;
+              return (
+                <div style={{ background: v.bg, border: `1px solid ${v.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                  <div style={{ color: v.text, fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>{v.label}</div>
+                  <div style={{ color: "var(--text)", fontSize: 14, lineHeight: 1.5 }}>{r.verdict_one_liner}</div>
+                </div>
+              );
+            })()}
+            <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t(lang, "contractReaderType")}</div>
+            <div style={{ color: "var(--text)", fontSize: 14, textTransform: "capitalize", marginBottom: 10 }}>{r.contract_type?.replace(/_/g, " ")}</div>
+            <p style={{ color: "var(--text-dim)", fontSize: 13, lineHeight: 1.6, marginBottom: 14 }}>{r.plain_english_summary}</p>
+
+            {r.red_flags?.length > 0 && (
+              <>
+                <div style={{ color: "#ef4444", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{t(lang, "contractRedFlags")}</div>
+                {r.red_flags.map((f, i) => (
+                  <div key={i} style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: 8, marginBottom: 6, fontSize: 13, color: "var(--text)" }}>🔴 {f}</div>
+                ))}
+              </>
+            )}
+            {r.amber_flags?.length > 0 && (
+              <>
+                <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "10px 0 6px" }}>{t(lang, "contractAmberFlags")}</div>
+                {r.amber_flags.map((f, i) => (
+                  <div key={i} style={{ background: "rgba(247,201,72,0.1)", border: "1px solid var(--gold-deep)", borderRadius: 8, padding: 8, marginBottom: 6, fontSize: 13, color: "var(--text)" }}>🟡 {f}</div>
+                ))}
+              </>
+            )}
+            {r.clauses?.length > 0 && (
+              <details style={{ marginTop: 14 }}>
+                <summary style={{ color: "var(--gold)", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>{t(lang, "contractClauseBreakdown")} ({r.clauses.length})</summary>
+                <div style={{ marginTop: 10 }}>
+                  {r.clauses.map((c, i) => (
+                    <div key={i} style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, marginBottom: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: RISK_DOT[c.risk_level] || "#888" }}></span>
+                        <span style={{ color: "var(--gold)", fontSize: 13, fontWeight: 600 }}>{c.title}</span>
+                      </div>
+                      <div style={{ color: "var(--text-dim)", fontSize: 12, lineHeight: 1.5 }}>{c.plain_english}</div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+            {r.questions_to_ask?.length > 0 && (
+              <>
+                <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "14px 0 6px" }}>{t(lang, "contractQuestionsToAsk")}</div>
+                <ul style={{ color: "var(--text-dim)", fontSize: 13, paddingLeft: 18, lineHeight: 1.6 }}>{r.questions_to_ask.map((q, i) => <li key={i}>{q}</li>)}</ul>
+              </>
+            )}
+            {r.solicitor_review_recommended && (
+              <div style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 10, marginTop: 14, fontSize: 13, color: "var(--text)" }}>
+                ⚖️ {t(lang, "contractSolicitorRecommended")}
+              </div>
+            )}
+            <button className="btn-ghost w-full" onClick={() => { setR(null); setFile(null); if (preview) URL.revokeObjectURL(preview); setPreview(null); }} style={{ marginTop: 14 }}>
+              {t(lang, "contractAnother")}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Contract Drafter ----------
+function ContractDrafterModal({ lang, country, onClose }) {
+  const [step, setStep] = useState(1);   // 1: type, 2: party A, 3: party B, 4: terms, 5: result
+  const [contractType, setContractType] = useState("employment");
+  const [partyA, setPartyA] = useState({ name: "", address: "", registration_no: "", sector: "" });
+  const [partyB, setPartyB] = useState({ name: "", address: "", role: "", email: "" });
+  const [terms, setTerms] = useState({});
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [r, setR] = useState(null);
+
+  const TYPES = [
+    { v: "employment", label: t(lang, "ctEmployment") },
+    { v: "contractor", label: t(lang, "ctContractor") },
+    { v: "nda", label: t(lang, "ctNda") },
+    { v: "lease", label: t(lang, "ctLease") },
+    { v: "service", label: t(lang, "ctService") },
+    { v: "consultancy", label: t(lang, "ctConsultancy") },
+    { v: "sale", label: t(lang, "ctSale") },
+    { v: "partnership", label: t(lang, "ctPartnership") },
+  ];
+
+  const generate = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post("/contract/draft", {
+        contract_type: contractType, party_a: partyA, party_b: partyB,
+        terms, additional_notes: notes, language: lang, country,
+      });
+      setR(data); setStep(5);
+    } catch (e) { alert(e?.response?.data?.detail || "Generation failed"); }
+    finally { setBusy(false); }
+  };
+
+  const copyText = () => {
+    if (!r?.full_contract_text) return;
+    navigator.clipboard.writeText(r.full_contract_text);
+    alert(t(lang, "copiedToClipboard"));
+  };
+
+  const StepHeader = () => (
+    <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+      {[1, 2, 3, 4].map(n => (
+        <div key={n} style={{ flex: 1, height: 4, borderRadius: 2, background: step >= n ? "var(--gold)" : "var(--line)" }}></div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="modal-bg" data-testid="contract-drafter-modal">
+      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "contractDrafterTitle")}</h2>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
+        </div>
+
+        {step <= 4 && <StepHeader />}
+
+        {step === 1 && (
+          <>
+            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12 }}>{t(lang, "contractDrafterStep1")}</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+              {TYPES.map(ty => (
+                <button key={ty.v} data-testid={`ct-type-${ty.v}`}
+                        onClick={() => setContractType(ty.v)}
+                        style={{ padding: 12, borderRadius: 10, fontSize: 13,
+                                 background: contractType === ty.v ? "rgba(247,201,72,0.15)" : "var(--bg-card)",
+                                 border: contractType === ty.v ? "1px solid var(--gold)" : "1px solid var(--line)",
+                                 color: contractType === ty.v ? "var(--gold)" : "var(--text)", cursor: "pointer" }}>
+                  {ty.label}
+                </button>
+              ))}
+            </div>
+            <button className="btn-gold w-full" onClick={() => setStep(2)} data-testid="ct-next-1">{t(lang, "next")}</button>
+          </>
+        )}
+
+        {step === 2 && (
+          <>
+            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 10 }}>{t(lang, "contractDrafterStep2")}</p>
+            <input className="input" placeholder={t(lang, "ctBusinessName")} value={partyA.name} onChange={(e) => setPartyA({ ...partyA, name: e.target.value })} data-testid="ct-pa-name" style={{ marginBottom: 8 }} />
+            <input className="input" placeholder={t(lang, "ctAddress")} value={partyA.address} onChange={(e) => setPartyA({ ...partyA, address: e.target.value })} data-testid="ct-pa-addr" style={{ marginBottom: 8 }} />
+            <input className="input" placeholder={t(lang, "ctRegistration")} value={partyA.registration_no} onChange={(e) => setPartyA({ ...partyA, registration_no: e.target.value })} data-testid="ct-pa-reg" style={{ marginBottom: 8 }} />
+            <input className="input" placeholder={t(lang, "ctSector")} value={partyA.sector} onChange={(e) => setPartyA({ ...partyA, sector: e.target.value })} data-testid="ct-pa-sector" style={{ marginBottom: 8 }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn-ghost" style={{ flex: 1 }} onClick={() => setStep(1)}>{t(lang, "back")}</button>
+              <button className="btn-gold" style={{ flex: 2 }} onClick={() => setStep(3)} disabled={!partyA.name} data-testid="ct-next-2">{t(lang, "next")}</button>
+            </div>
+          </>
+        )}
+
+        {step === 3 && (
+          <>
+            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 10 }}>{t(lang, "contractDrafterStep3")}</p>
+            <input className="input" placeholder={t(lang, "ctFullName")} value={partyB.name} onChange={(e) => setPartyB({ ...partyB, name: e.target.value })} data-testid="ct-pb-name" style={{ marginBottom: 8 }} />
+            <input className="input" placeholder={t(lang, "ctAddress")} value={partyB.address} onChange={(e) => setPartyB({ ...partyB, address: e.target.value })} data-testid="ct-pb-addr" style={{ marginBottom: 8 }} />
+            {contractType === "employment" || contractType === "contractor" || contractType === "consultancy" ? (
+              <input className="input" placeholder={t(lang, "ctRole")} value={partyB.role} onChange={(e) => setPartyB({ ...partyB, role: e.target.value })} data-testid="ct-pb-role" style={{ marginBottom: 8 }} />
+            ) : null}
+            <input className="input" placeholder="Email" value={partyB.email} onChange={(e) => setPartyB({ ...partyB, email: e.target.value })} data-testid="ct-pb-email" style={{ marginBottom: 8 }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn-ghost" style={{ flex: 1 }} onClick={() => setStep(2)}>{t(lang, "back")}</button>
+              <button className="btn-gold" style={{ flex: 2 }} onClick={() => setStep(4)} disabled={!partyB.name} data-testid="ct-next-3">{t(lang, "next")}</button>
+            </div>
+          </>
+        )}
+
+        {step === 4 && (
+          <>
+            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 10 }}>{t(lang, "contractDrafterStep4")}</p>
+            {/* type-specific term fields */}
+            {(contractType === "employment" || contractType === "contractor" || contractType === "consultancy") && (
+              <>
+                <input className="input" type="number" placeholder={contractType === "employment" ? t(lang, "ctSalary") : t(lang, "ctDayRate")} value={terms.salary_gbp || ""} onChange={(e) => setTerms({ ...terms, salary_gbp: e.target.value })} data-testid="ct-salary" style={{ marginBottom: 8 }} />
+                <input className="input" type="date" placeholder={t(lang, "ctStartDate")} value={terms.start_date || ""} onChange={(e) => setTerms({ ...terms, start_date: e.target.value })} data-testid="ct-start-date" style={{ marginBottom: 8 }} />
+                <input className="input" type="number" placeholder={t(lang, "ctHoursPerWeek")} value={terms.hours_per_week || ""} onChange={(e) => setTerms({ ...terms, hours_per_week: e.target.value })} style={{ marginBottom: 8 }} />
+                <input className="input" type="number" placeholder={t(lang, "ctNoticeWeeks")} value={terms.notice_period_weeks || ""} onChange={(e) => setTerms({ ...terms, notice_period_weeks: e.target.value })} style={{ marginBottom: 8 }} />
+              </>
+            )}
+            {contractType === "lease" && (
+              <>
+                <input className="input" type="number" placeholder={t(lang, "ctRentMonthly")} value={terms.rent_gbp || ""} onChange={(e) => setTerms({ ...terms, rent_gbp: e.target.value })} style={{ marginBottom: 8 }} />
+                <input className="input" type="date" placeholder={t(lang, "ctStartDate")} value={terms.start_date || ""} onChange={(e) => setTerms({ ...terms, start_date: e.target.value })} style={{ marginBottom: 8 }} />
+                <input className="input" type="number" placeholder={t(lang, "ctTermMonths")} value={terms.term_months || ""} onChange={(e) => setTerms({ ...terms, term_months: e.target.value })} style={{ marginBottom: 8 }} />
+                <input className="input" placeholder={t(lang, "ctPropertyAddr")} value={terms.property_address || ""} onChange={(e) => setTerms({ ...terms, property_address: e.target.value })} style={{ marginBottom: 8 }} />
+              </>
+            )}
+            {contractType === "nda" && (
+              <>
+                <input className="input" type="number" placeholder={t(lang, "ctDurationMonths")} value={terms.duration_months || ""} onChange={(e) => setTerms({ ...terms, duration_months: e.target.value })} style={{ marginBottom: 8 }} />
+                <input className="input" placeholder={t(lang, "ctPurpose")} value={terms.purpose || ""} onChange={(e) => setTerms({ ...terms, purpose: e.target.value })} style={{ marginBottom: 8 }} />
+              </>
+            )}
+            {(contractType === "service" || contractType === "sale" || contractType === "partnership") && (
+              <>
+                <textarea className="input" rows={3} placeholder={t(lang, "ctKeyTerms")} value={terms.summary || ""} onChange={(e) => setTerms({ ...terms, summary: e.target.value })} style={{ marginBottom: 8 }} />
+                <input className="input" type="number" placeholder={t(lang, "ctValueGbp")} value={terms.value_gbp || ""} onChange={(e) => setTerms({ ...terms, value_gbp: e.target.value })} style={{ marginBottom: 8 }} />
+              </>
+            )}
+            <textarea className="input" rows={2} placeholder={t(lang, "ctAnythingElse")} value={notes} onChange={(e) => setNotes(e.target.value)} data-testid="ct-notes" style={{ marginBottom: 8 }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn-ghost" style={{ flex: 1 }} onClick={() => setStep(3)}>{t(lang, "back")}</button>
+              <button className="btn-gold" style={{ flex: 2 }} onClick={generate} disabled={busy} data-testid="ct-generate-btn">
+                {busy ? <span className="spinner" /> : t(lang, "contractDrafterGenerate")}
+              </button>
+            </div>
+            {busy && <div style={{ textAlign: "center", color: "var(--text-dim)", fontSize: 12, marginTop: 10 }}>{t(lang, "contractDrafterBusy")}</div>}
+          </>
+        )}
+
+        {step === 5 && r && (
+          <div data-testid="contract-result">
+            <div style={{ background: r.risk_level === "low" ? "rgba(34,197,94,0.1)" : r.risk_level === "high" ? "rgba(239,68,68,0.1)" : "rgba(247,201,72,0.1)",
+                          border: `1px solid ${r.risk_level === "low" ? "#22c55e" : r.risk_level === "high" ? "#ef4444" : "var(--gold)"}`,
+                          borderRadius: 12, padding: 12, marginBottom: 14, fontSize: 13, color: "var(--text)" }}>
+              <strong>{r.contract_title}</strong>
+              <div style={{ color: "var(--text-dim)", fontSize: 12, marginTop: 4 }}>
+                {t(lang, "ctRiskLevel")}: <span style={{ textTransform: "uppercase" }}>{r.risk_level}</span>
+                {r.statutory_clauses_included?.length > 0 && <span> · {r.statutory_clauses_included.length} {t(lang, "ctStatutoryClauses")}</span>}
+              </div>
+            </div>
+            {r.solicitor_review_recommended && (
+              <div style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 10, marginBottom: 10, fontSize: 13, color: "var(--text)" }}>
+                ⚖️ {t(lang, "contractSolicitorRecommended")}
+              </div>
+            )}
+            <textarea className="input" rows={14} value={r.full_contract_text}
+                      onChange={(e) => setR({ ...r, full_contract_text: e.target.value })}
+                      style={{ fontSize: 12, lineHeight: 1.5, fontFamily: "monospace" }} data-testid="contract-text-area" />
+            {r.next_steps_for_user?.length > 0 && (
+              <>
+                <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "10px 0 4px" }}>{t(lang, "ctNextSteps")}</div>
+                <ul style={{ color: "var(--text-dim)", fontSize: 13, paddingLeft: 18, lineHeight: 1.6 }}>{r.next_steps_for_user.map((s, i) => <li key={i}>{s}</li>)}</ul>
+              </>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button className="btn-gold" onClick={copyText} style={{ flex: 1 }} data-testid="ct-copy-btn">{t(lang, "contractCopy")}</button>
+              <button className="btn-ghost" onClick={() => { setStep(1); setR(null); setTerms({}); }} style={{ flex: 1 }}>{t(lang, "contractAnother")}</button>
+            </div>
           </div>
         )}
       </div>
