@@ -2962,7 +2962,7 @@ Be honest, plain, and protective of the user. Flag auto-renewing clauses, one-si
 If the document is NOT a contract, set contract_type=\"other\" and verdict_one_liner=\"This does not appear to be a contract.\"
 """
     chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"contract-{uuid.uuid4()}", system_message=sysmsg)\
-        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=4000)
+        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2800)
     try:
         # Stage 1: extract text via Gemini (Claude doesn't accept file attachments here)
         extracted_text = await _extract_contract_text(tmp.name, file.content_type or "application/pdf")
@@ -3115,7 +3115,7 @@ async def _extract_contract_text(tmp_path: str, mime_type: str) -> str:
         api_key=EMERGENT_LLM_KEY,
         session_id=f"extract-{uuid.uuid4()}",
         system_message="You are an OCR + document-text extractor. Return the COMPLETE verbatim text of the document, preserving clause numbering and structure. No analysis, no commentary — JUST the raw text.",
-    ).with_model("gemini", "gemini-2.5-flash").with_params(max_tokens=8000)
+    ).with_model("gemini", "gemini-2.5-flash").with_params(max_tokens=4000)
 
     file_ref = FileContentWithMimeType(file_path=tmp_path, mime_type=mime_type or "application/pdf")
     try:
@@ -3189,7 +3189,7 @@ CRITICAL: If the document is NOT a contract, return contract_type='other' and wo
 Stay in jurisdiction {country}. For UK, reference Employment Rights Act 1996 / Equality Act 2010 / Consumer Rights Act 2015 / Late Payment of Commercial Debts Act 1998 where directly relevant — never cite law you're unsure about.
 """
     chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"negotiate-{uuid.uuid4()}", system_message=sysmsg)\
-        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=4500)
+        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=3000)
     try:
         extracted_text = await _extract_contract_text(tmp.name, file.content_type or "application/pdf")
         if not extracted_text or len(extracted_text) < 30:

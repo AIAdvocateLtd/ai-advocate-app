@@ -282,3 +282,20 @@ England & Wales + ICC arbitration + GDPR + CCPA. 22-section Terms + 10-section P
 - ✅ Verified `POST /api/contract/draft` returns valid contract text (NDA test passed via curl — LLM budget healthy).
 - New i18n keys (en-GB): `contractTools`, `contractTabRead`, `contractTabDraft`, `contractTakePhoto`, `contractUploadFile`. Other languages fall back to English via existing `t()` helper.
 - Files touched: `/app/frontend/src/App.js`, `/app/frontend/src/i18n.js`.
+
+
+## Contract Negotiate (Pro flagship) + tier re-map (2026-02-17)
+- ✅ **New `Negotiate` tab** inside Contract Tools — Pro-only flagship feature.
+- ✅ Backend: `POST /api/contract/negotiate` returns worst_clauses[] with verbatim quotes + suggested_redline + fallback_position + priority, plus missing_protections, do_not_compromise_on, walk_away_signals, negotiation_strategy, ready_to_send_email (full professional email), estimated_negotiation_difficulty.
+- ✅ Frontend `ContractNegotiateBody` — dual Camera/Upload buttons, user-role selector (recipient/offerer), priorities textarea, rich result UI with priority-coloured clause cards + copyable email.
+- ✅ **Tier re-map (Plus → Pro):** Outcome Predictor, Hearing Recorder, Contract Drafter, Contract Negotiate now all require Pro tier. Backend `FEATURE_MIN_TIER` enforces; frontend tiles display PRO lock badges for Plus/Free users; Contract Tools hub Read tab stays free, Draft + Negotiate tabs show inline PRO badge and trigger Pro upsell on tap.
+- ✅ **Bug fix:** `/contract/analyze` (Read tab) was silently broken — Claude doesn't accept file attachments via emergentintegrations. Refactored to 2-stage pipeline: Gemini Flash extracts verbatim text → Claude Sonnet does the legal analysis. Same pipeline applied to `/contract/negotiate`.
+- ✅ **Latency tuning:** Reduced max_tokens (extract 8000→4000, analyze 4000→2800, negotiate 4500→3000) so external-ingress round-trip fits comfortably under the 60s nginx proxy_read_timeout. Verified ~57s end-to-end via public URL.
+- New i18n keys (en-GB): `contractTabNegotiate`, `neg*` (15 keys).
+- Tests: `/app/backend/tests/test_iter12_contracts.py` — 9/9 passing.
+- Files touched: `/app/backend/server.py`, `/app/frontend/src/App.js`, `/app/frontend/src/i18n.js`.
+
+### Pricing ladder (current)
+- **Free** — Triage: Snap Evidence, Letter Reader, Contract Read, Find Lawyer, Legal Aid, Cost Estimator, Files/Cases/Reminders, Letter Library, Emergency Mode.
+- **Plus £14.99** — Daily AI lawyer: Ask Lex, all category chats (immigration/employment/property/medical), Courtroom Trainer, Record Legal Interaction.
+- **Pro £29.99** — Pro outcomes: Outcome Predictor (Opus), Contract Drafter, **Contract Negotiate**, Hearing Recorder, Opus Deep Think, "Hey Lex" wake-word.
