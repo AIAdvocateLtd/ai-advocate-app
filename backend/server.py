@@ -312,7 +312,7 @@ TIER_QUOTAS = {
         "live_assist_session_daily": 5,
         "live_assist_session_minutes": 60,
     },
-    "trial_pro": {  # 14-day trial — Pro features but with usage caps to protect LLM costs
+    "trial_pro": {  # 7-day trial — Pro features but with usage caps to protect LLM costs
         # Generous enough that genuine users won't hit them; tight enough to block abuse.
         "lex_chat_daily": 50,
         "letters_generate_monthly": 5,
@@ -558,7 +558,7 @@ async def signup(data: UserSignup):
         "auth_provider": "email",
         "created_at": now.isoformat(),
         "trial_start_date": now.isoformat(),
-        "trial_end_date": (now + timedelta(days=14)).isoformat(),
+        "trial_end_date": (now + timedelta(days=7)).isoformat(),
         "subscription_status": "trial",
         "stripe_customer_id": None,
         "stripe_subscription_id": None,
@@ -637,7 +637,7 @@ async def google_login(data: GoogleLogin):
             "auth_provider": "google", "google_id": google_sub,
             "created_at": now.isoformat(),
             "trial_start_date": now.isoformat(),
-            "trial_end_date": (now + timedelta(days=14)).isoformat(),
+            "trial_end_date": (now + timedelta(days=7)).isoformat(),
             "subscription_status": "trial",
             "stripe_customer_id": None, "stripe_subscription_id": None,
             "terms_accepted": True,
@@ -701,7 +701,7 @@ async def apple_login(data: AppleLogin):
             "auth_provider": "apple", "apple_id": apple_sub,
             "created_at": now.isoformat(),
             "trial_start_date": now.isoformat(),
-            "trial_end_date": (now + timedelta(days=14)).isoformat(),
+            "trial_end_date": (now + timedelta(days=7)).isoformat(),
             "subscription_status": "trial",
             "stripe_customer_id": None, "stripe_subscription_id": None,
             "terms_accepted": True,
@@ -1096,7 +1096,7 @@ TERMS_BODY_EN = """TERMS OF SERVICE
 
 5. Eligibility. You must be at least 18 years old (or the age of legal majority in your jurisdiction, whichever is higher) and legally capable of entering into a binding contract.
 
-6. Subscription, Free Trial, Auto-Renewal & Refunds. The App offers a 14-day free trial followed by an auto-renewing subscription. By subscribing through Apple App Store, Google Play, or our web payment processor (Stripe), you authorise recurring charges to your selected payment method until you cancel. Cancel any time at least 24 hours before the next renewal. Refunds are governed by the rules of the store/processor that processed your payment.
+6. Subscription, Free Trial, Auto-Renewal & Refunds. The App offers a 7-day free trial followed by an auto-renewing subscription. By subscribing through Apple App Store, Google Play, or our web payment processor (Stripe), you authorise recurring charges to your selected payment method until you cancel. Cancel any time at least 24 hours before the next renewal. Refunds are governed by the rules of the store/processor that processed your payment.
 
 7. Acceptable Use. You agree not to (a) use the App for any unlawful purpose; (b) submit content that is illegal, defamatory, infringing, or contains malware; (c) attempt to reverse-engineer, scrape, or circumvent technical protections; (d) use the App to draft or send threats, harassment, fraud, or content designed to evade the law; (e) impersonate a lawyer or hold yourself out as receiving legal advice from the App.
 
@@ -1685,7 +1685,8 @@ async def analyze_recording(
 @api_router.post("/subscription/checkout")
 async def create_checkout(data: CheckoutRequest, request: Request, user: dict = Depends(get_user)):
     """Create a Stripe Checkout session for the chosen tier.
-    data.plan in {'plus','pro','yearly'} → maps to STRIPE_PRICE_*."""
+    data.plan in {'plus','pro','yearly'} → maps to STRIPE_PRICE_*.
+    Note: free 7-day trial is granted automatically on signup, not at Stripe checkout — so this is a direct subscribe."""
     plan = (data.plan or "").lower()
     price_id = {
         "plus": STRIPE_PRICE_PLUS,
@@ -1870,16 +1871,17 @@ async def get_tiers():
                             "Unlimited letters", "Contract Review", "Court Prep modes",
                             "Voice in/out", "Practice Mode", "50 files", "Hey Lex wake word",
                             "Claude Sonnet 4.5 brain"]},
-            {"id": "pro", "name": "Pro", "price_gbp": 29.99, "period": "month",
-             "highlights": ["Everything in Plus", "Live Legal Assist (3 sessions/day)",
+            {"id": "pro", "name": "Pro", "price_gbp": 34.99, "period": "month",
+             "highlights": ["Everything in Plus", "Outcome Predictor + Contract Drafter + Negotiate",
+                            "Live Hearing Recorder", "Live Legal Assist (3 sessions/day)",
                             "🧠 Deep Think — 30 / month (King's Counsel-grade reasoning)",
                             "Priority AI processing", "Premium court templates",
                             "Advanced document review", "Unlimited files", "Priority email support"]},
-            {"id": "yearly", "name": "Yearly Pro", "price_gbp": 299.99, "period": "year",
-             "best_value": True, "savings_pct": 17,
+            {"id": "yearly", "name": "Yearly Pro", "price_gbp": 319.99, "period": "year",
+             "best_value": True, "savings_pct": 24,
              "highlights": ["Everything in Pro", "🧠 Deep Think — 50 / month (bigger cap)",
-                            "Live Assist — 5 sessions/day", "Get ~2 months free vs monthly",
-                            "12 months full access"]},
+                            "Live Assist — 5 sessions/day", "Save £100 vs paying monthly",
+                            "12 months full access — no monthly faff"]},
         ],
         "currency": "GBP",
     }
@@ -3620,7 +3622,7 @@ async def review_should_prompt(user: dict = Depends(get_user)):
     import math as _math
     # Trial — prompt during the final 2 days. Use ceil so users in last-24h (days=0) still get prompted.
     if pub["tier"] == "trial_pro":
-        days_left = pub.get("trial_days_remaining", 14)
+        days_left = pub.get("trial_days_remaining", 7)
         # If we have the raw trial_end_date, recompute with ceil so a 12h-left user counts as "1 day"
         if user.get("trial_end_date"):
             try:

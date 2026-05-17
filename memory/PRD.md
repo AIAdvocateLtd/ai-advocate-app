@@ -310,3 +310,22 @@ England & Wales + ICC arbitration + GDPR + CCPA. 22-section Terms + 10-section P
 After review: deliberately NOT locking more features behind Pro. Current ladder is the right balance:
 - Locking safety/triage tools (Snap Evidence, Letter Reader, Legal Aid, Find Lawyer) would risk App Store rejection in regulated category AND kill the conversion funnel.
 - Instead, monetisation moves to **inline upsell hooks at aha moments** — Contract Read → Negotiate (Pro) is the first. Follow-ups planned: Letter Read → "Draft a reply with Lex" (Plus), Snap Evidence → "Predict your outcome" (Pro).
+
+
+## Pricing v3 + Mic permission fix (2026-02-17)
+### Pricing changes
+- Pro tier price: £29.99 → **£34.99** (justified by exclusive flagship Pro features: Outcome Predictor, Contract Drafter + Negotiate, Hearing Recorder, Opus Deep Think).
+- Yearly Pro: £299.99 → **£319.99** (24% off vs monthly Pro — saves user £100/year).
+- Free trial: 14 days → **7 days** (across all 3 signup paths: email, Google, Apple). LLM cost per trial user drops from ~£1.70 to ~£0.85 average.
+- ToS text updated: "14-day free trial" → "7-day free trial".
+- `subscription/tiers` API response updated with new prices + new highlights (Pro now mentions Outcome Predictor, Contract Drafter + Negotiate, Hearing Recorder).
+- ⚠️ **MANUAL STEP REQUIRED:** The actual amounts charged are controlled by Stripe Price IDs in `.env` (`STRIPE_PRICE_PLUS`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_YEARLY_PRO`). User must create new prices in Stripe Dashboard at £14.99/£34.99/£319.99 and update `.env` before launch.
+
+### Mic-permission popup bug fix
+- **Root cause:** On cold-open with a stored auth token, the Dashboard mounted while the splash video was still playing → `useHeyLex` started SpeechRecognition → iOS Safari showed the mic permission prompt over the splash. Made worse by Hey Lex defaulting to ON.
+- **Fix 1:** Dashboard now only renders after `showSplash === false` (App.js line 4500). Eliminates the race condition.
+- **Fix 2:** `wakeOn` (Hey Lex wake-word) default changed from ON → **OFF** (opt-in via Settings). No mic prompt fires automatically — only when user explicitly enables the toggle.
+- iOS Safari security note: when the prompt does fire, iOS forces it to display the domain ("ai-law-guide-1.preview...") as a security feature — we cannot suppress that in a webapp context. Will be replaced with "AI Advocate" once we ship the Capacitor wrapper, or `aiadvocate.co.uk` once you swap to your real domain.
+
+### Tier-locking decision (final)
+After review: NOT locking more tabs. Free → Plus → Pro ladder stays. Auto-trial gives every new user 7 days of full Pro access; tier locks only apply after trial ends without subscription. App Store compliance + funnel velocity preserved.

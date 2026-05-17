@@ -2422,7 +2422,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
   const [busy, setBusy] = useState(false);
   const [locOn, setLocOn] = useState(!!user.location_enabled);
   // Proper React state for each Settings toggle — fixes stale-localStorage render bug
-  const [wakeOn, setWakeOn] = useState(localStorage.getItem("aa_wake") !== "0");
+  const [wakeOn, setWakeOn] = useState(localStorage.getItem("aa_wake") === "1");
   const [autoDetectOn, setAutoDetectOn] = useState(localStorage.getItem("aa_autodetect") !== "0");
   const [locStampOn, setLocStampOn] = useState(localStorage.getItem("aa_locstamp") === "1");
 
@@ -2903,7 +2903,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
   const [showSettings, setShowSettings] = useState(false);
   const [showAdvertise, setShowAdvertise] = useState(false);
   const [showEmergency, setShowEmergency] = useState(false);
-  const [wakeOn, setWakeOn] = useState(() => localStorage.getItem("aa_wake") !== "0");
+  const [wakeOn, setWakeOn] = useState(() => localStorage.getItem("aa_wake") === "1");
 
   const tier = user.tier || "free";
   const TIER_RANK = { free: 0, plus: 1, pro: 2, yearly: 2, trial_pro: 2 };
@@ -4497,7 +4497,7 @@ function App() {
       {step === "lang" && <LanguagePicker lang={lang} initial={lang} onConfirm={(l) => { setLang(l); setStep("terms"); }} />}
       {step === "terms" && <TermsScreen lang={lang} onAccept={() => { localStorage.setItem("aa_terms", "1"); setStep("auth"); }} onDecline={() => setStep("lang")} onChangeLang={() => setStep("lang")} />}
       {step === "auth" && <AuthScreen lang={lang} country={country} onAuth={onAuth} />}
-      {step === "app" && user && <Dashboard user={user} lang={lang} country={country} setLang={setLang} setCountry={setCountry} onLogout={onLogout} refreshUser={(u) => setUser(u)} />}
+      {step === "app" && user && !showSplash && <Dashboard user={user} lang={lang} country={country} setLang={setLang} setCountry={setCountry} onLogout={onLogout} refreshUser={(u) => setUser(u)} />}
     </div>
   );
 }
