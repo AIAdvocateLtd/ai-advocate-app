@@ -1,0 +1,42 @@
+{
+  "summary": "Iter12 — Contract Tools merger (Read/Draft/Negotiate tabs) + new flagship Pro feature Contract Negotiate + tier re-tiering (outcome/hearing/draft → pro). Backend pytest 9/9 PASS (negotiate 200 in ~85s on internal URL, analyze 200 via fixed 2-stage Gemini-extract + Claude-analyze, all 402 gates fire correctly for free users). Frontend mobile 390x844: pro user sees merged 'Contract Tools' tile, modal opens with all 3 tabs, no PRO badge on Draft/Negotiate, 2 read buttons (camera + upload) with correct accept/capture attrs, Negotiate tab fully wired (role selector, priorities textarea, analyze button appears only after file pick). Free user sees lock badges on outcome+hearing tiles, PRO badge on Draft+Negotiate tabs, tapping a locked tab opens the subscribe modal without switching tabs. No console errors. Old tile-contract_read/tile-contract_draft confirmed removed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/contract/negotiate & /api/contract/analyze (external ingress)", "issue": "Public-URL requests >60s consistently return 502 'preview environment not responding' from the Kubernetes ingress proxy, even though backend logs show HTTP 200 OK. Backend itself works correctly (verified via http://localhost:8001 in tests). Real users on negotiate (~90s) may hit this 502 in production. Suggest either (a) reducing LLM tokens to fit in ~50s, (b) increasing ingress proxy_read_timeout, or (c) switching to a 202+polling/SSE pattern for long-running endpoints."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter12_contracts.py",
+    "/app/test_reports/pytest/iter12_results.xml"
+  ],
+  "action_items": [
+    "[OPTIONAL] Ingress proxy returns 502 on /api/contract/negotiate and /api/contract/analyze when external request exceeds ~60s — investigate ingress timeout config or move long endpoints to async polling pattern (see RCA). Backend internally returns 200 OK fine.",
+    "[INFO] tile testids on dashboard for regression reference: tile-ask_lex (Ask Lex), tile-snap (Snap Evidence), tile-letter_reader, tile-letter, tile-contracts, tile-outcome (locked on free), tile-cost, tile-hearing (locked on free), tile-legal_aid, tile-lawyers, tile-files, tile-cases, tile-reminders, tile-record, tile-courtroom, tile-immigration, tile-employment, tile-property, tile-medical. No tile-evidence / tile-lex / tile-emergency (Emergency is a top-bar button, not a tile)."
+  ],
+  "critical_code_review_comments": [
+    "server.py grew to 3673 lines — consider splitting into routers per domain (contracts.py, hearing.py, outcome.py) before adding the next feature.",
+    "_extract_contract_text + the 2-stage Gemini→Claude pipeline is now duplicated between /contract/analyze and /contract/negotiate (and could expand further). Extract a single helper `analyze_contract_with_extraction(payload_text, sysmsg, max_tokens) -> dict` to keep them in sync.",
+    "Doc-analyze monthly quota of 10 on trial_pro is shared across analyze/negotiate/evidence. A new pro user who tests the new Negotiate feature 10 times in one month will lock themselves out of Evidence/Analyze too. Consider separate `contract_negotiate_monthly` quota or raising trial_pro doc_analyze_monthly to 30.",
+    "ContractDraftRequest accepts dict for party_a/party_b/terms — no schema validation. Consider TypedDict / nested Pydantic models so OpenAPI docs and frontend get a contract.",
+    "Lock-badge approach in the tab UI (showing 'PRO' inside the tab button) is good UX, but the visual size is small on mobile — recommend a slightly more prominent badge (gold pill) to match the dashboard tile lock style for consistency."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter12_contracts.py (NEW — 9 pytest cases covering negotiate auth/tier/success, analyze success, draft tier+success, outcome tier+success, hearing gate)"
+  ],
+  "success_rate": {
+    "backend": "100% (9/9) — Negotiate 3/3, Analyze 1/1, Draft 2/2, Outcome 2/2, Hearing-gate 1/1",
+    "frontend": "100% on flows tested — pro user contract hub with 3 tabs + read buttons accept/capture attrs + neg analyze-button visibility after file pick + free user lock badges + subscribe modal trigger on locked tab. No console errors."
+  },
+  "test_credentials": "Pro: test@advocate.app / Test12345!. Free: auto-generated TEST_uifree_<8hex>@advocate.app + TEST_free_<8hex>@advocate.app / TestPass123! (signup→downgrade via mongo).",
+  "seed_data_creation": "Each run creates 1-2 free-tier users (TEST_free_*, TEST_uifree_*) whose trial_end_date is forcibly expired via pymongo. No cleanup. Also resets /usage/doc_analyze counter for test@advocate.app at start of every pro-token fixture.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Re-run: `REACT_APP_BACKEND_URL=https://ai-law-guide-1.preview.emergentagent.com MONGO_URL=mongodb://localhost:27017 DB_NAME=ai_advocate_db python -m pytest /app/backend/tests/test_iter12_contracts.py -v` (~3 min). Negotiate + Analyze tests intentionally hit http://localhost:8001 (INTERNAL_API) to bypass the ingress 60s timeout — if you change that, expect 502s. The pro_token fixture wipes test@advocate.app's doc_analyze usage rows on each session. Frontend testids worth pinning: tile-contracts (merged), contracts-hub-modal, contracts-tab-read|draft|negotiate, contract-camera-btn/-input, contract-upload-btn/-input, neg-camera-btn, neg-upload-btn, neg-upload-input, neg-role-recipient (default), neg-role-offerer, neg-priorities-input, neg-analyze-btn (only after file), neg-result, ct-type-employment/nda/lease/sale/service/consultancy/partnership/contractor, lock-outcome, lock-hearing, subscribe-modal. To force a user to free tier: pymongo update users {email:..} set {trial_end_date:'2020-01-01...', tier:'free', subscription_status:'inactive'}.",
+  "rca of the issue": "ISSUE (external ingress 502 on long endpoints) — RCA: Kubernetes ingress (nginx) has a default proxy_read_timeout of ~60s. /api/contract/negotiate consistently takes ~80-90s and /api/contract/analyze takes ~50-75s on the trial_pro user with the test_contract.txt input due to Gemini-extract + Claude-analyze 2-stage pipeline. Backend uvicorn returns 200 OK with full body to nginx but nginx has already given up and returned 502 to the client. Repro: `time curl -sw '%{http_code}' -X POST <public>/api/contract/negotiate -H 'Authorization: Bearer <pro>' -F file=@/tmp/test_contract.txt -F priorities=... -F user_role=recipient -F language=en-GB -F country=GB` → 502 in ~60s. Workaround applied in tests: hit http://localhost:8001 directly. Long-term mitigations: (a) raise ingress proxy_read_timeout (in emergent k8s ingress config) to 180s, (b) reduce Claude max_tokens to fit under 60s, or (c) refactor to async-job + polling. Functional correctness is verified — only the proxy timeout is the bottleneck."
+}

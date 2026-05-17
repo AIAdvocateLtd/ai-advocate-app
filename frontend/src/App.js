@@ -2948,9 +2948,9 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
     { id: "letter_reader", label: t(lang, "letterReader"), Icon: LetterIcon, req: "free" },
     { id: "contracts", label: t(lang, "contractTools"), Icon: ContractIcon, req: "free" },
-    { id: "outcome", label: t(lang, "predictOutcome"), Icon: OutcomeIcon, req: "plus" },
+    { id: "outcome", label: t(lang, "predictOutcome"), Icon: OutcomeIcon, req: "pro" },
     { id: "cost", label: t(lang, "lawyerCost"), Icon: CostIcon, req: "free" },
-    { id: "hearing", label: t(lang, "hearingRecorder"), Icon: HearingIcon, req: "plus" },
+    { id: "hearing", label: t(lang, "hearingRecorder"), Icon: HearingIcon, req: "pro" },
     { id: "legal_aid", label: t(lang, "freeLegalAid"), sub: t(lang, "freeLegalAidSub"), Icon: AidIcon, req: "free" },
     { id: "lawyers", label: t(lang, "findLawyer"), Icon: LawyerIcon, req: "free" },
     { id: "files", label: t(lang, "myFiles"), Icon: FilesIcon, req: "free" },
@@ -3110,7 +3110,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "record" && <RecordModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "snap" && <SnapEvidenceModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "letter_reader" && <LetterReaderModal lang={lang} country={country} onClose={() => setModal(null)} />}
-      {modal?.type === "contracts" && <ContractsHubModal lang={lang} country={country} hasTier={hasTier} onUpsell={() => { setSubPreset("plus"); setShowSub(true); }} onClose={() => setModal(null)} />}
+      {modal?.type === "contracts" && <ContractsHubModal lang={lang} country={country} hasTier={hasTier} onUpsell={() => { setSubPreset("pro"); setShowSub(true); }} onClose={() => setModal(null)} />}
       {modal?.type === "outcome" && <OutcomeModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "cost" && <CostEstimateModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "hearing" && <HearingRecorderModal lang={lang} country={country} onClose={() => setModal(null)} />}
@@ -3823,18 +3823,38 @@ function ContractDrafterBody({ lang, country }) {
   );
 }
 
-// ---------- Contracts Hub (Read + Draft in tabbed modal) ----------
+// ---------- Contracts Hub (Read + Draft + Negotiate in tabbed modal) ----------
 function ContractsHubModal({ lang, country, hasTier, onUpsell, onClose }) {
-  const [tab, setTab] = useState("read"); // "read" | "draft"
-  const canDraft = hasTier("plus");
+  const [tab, setTab] = useState("read"); // "read" | "draft" | "negotiate"
+  const canDraft = hasTier("pro");
+  const canNegotiate = hasTier("pro");
 
   const switchTab = (next) => {
-    if (next === "draft" && !canDraft) {
+    if ((next === "draft" && !canDraft) || (next === "negotiate" && !canNegotiate)) {
       onUpsell();
       return;
     }
     setTab(next);
   };
+
+  const TabBtn = ({ id, icon: Icon, label, locked }) => (
+    <button data-testid={`contracts-tab-${id}`} onClick={() => switchTab(id)}
+            style={{
+              flex: 1, padding: "10px 6px", borderRadius: 9, cursor: "pointer", fontSize: 12, fontWeight: 600,
+              background: tab === id ? "var(--gold)" : "transparent",
+              color: tab === id ? "#1a1300" : "var(--text-dim)",
+              border: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5,
+              position: "relative",
+              whiteSpace: "nowrap",
+            }}>
+      <Icon size={13} /> {label}
+      {locked && (
+        <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 4px", borderRadius: 4, background: "linear-gradient(135deg,#7f1d1d,#dc2626)", color: "#fff", marginLeft: 2, letterSpacing: "0.05em" }}>
+          PRO
+        </span>
+      )}
+    </button>
+  );
 
   return (
     <div className="modal-bg" data-testid="contracts-hub-modal">
@@ -3845,37 +3865,282 @@ function ContractsHubModal({ lang, country, hasTier, onUpsell, onClose }) {
         </div>
 
         {/* Tabs */}
-        <div style={{ display: "flex", gap: 6, padding: 4, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 12, marginBottom: 16 }}>
-          <button data-testid="contracts-tab-read" onClick={() => switchTab("read")}
-                  style={{
-                    flex: 1, padding: "10px 8px", borderRadius: 9, cursor: "pointer", fontSize: 13, fontWeight: 600,
-                    background: tab === "read" ? "var(--gold)" : "transparent",
-                    color: tab === "read" ? "#1a1300" : "var(--text-dim)",
-                    border: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6
-                  }}>
-            <FileText size={14} /> {t(lang, "contractTabRead")}
-          </button>
-          <button data-testid="contracts-tab-draft" onClick={() => switchTab("draft")}
-                  style={{
-                    flex: 1, padding: "10px 8px", borderRadius: 9, cursor: "pointer", fontSize: 13, fontWeight: 600,
-                    background: tab === "draft" ? "var(--gold)" : "transparent",
-                    color: tab === "draft" ? "#1a1300" : "var(--text-dim)",
-                    border: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-                    position: "relative",
-                  }}>
-            <Gavel size={14} /> {t(lang, "contractTabDraft")}
-            {!canDraft && (
-              <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 5, background: "var(--gold)", color: "#1a1300", marginLeft: 4 }}>
-                PLUS
-              </span>
-            )}
-          </button>
+        <div style={{ display: "flex", gap: 4, padding: 4, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 12, marginBottom: 16 }}>
+          <TabBtn id="read" icon={FileText} label={t(lang, "contractTabRead")} locked={false} />
+          <TabBtn id="draft" icon={Gavel} label={t(lang, "contractTabDraft")} locked={!canDraft} />
+          <TabBtn id="negotiate" icon={Scale} label={t(lang, "contractTabNegotiate")} locked={!canNegotiate} />
         </div>
 
         {tab === "read" && <ContractReaderBody lang={lang} country={country} />}
         {tab === "draft" && canDraft && <ContractDrafterBody lang={lang} country={country} />}
+        {tab === "negotiate" && canNegotiate && <ContractNegotiateBody lang={lang} country={country} />}
       </div>
     </div>
+  );
+}
+
+// ---------- Contract Negotiate (Pro) ----------
+function ContractNegotiateBody({ lang, country }) {
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [priorities, setPriorities] = useState("");
+  const [userRole, setUserRole] = useState("recipient");
+  const [busy, setBusy] = useState(false);
+  const [r, setR] = useState(null);
+  const [err, setErr] = useState("");
+  const cameraRef = useRef(null);
+  const uploadRef = useRef(null);
+
+  const choose = (e) => {
+    const f = e.target.files?.[0]; e.target.value = "";
+    if (!f) return;
+    if (preview) URL.revokeObjectURL(preview);
+    setFile(f); setPreview(URL.createObjectURL(f)); setR(null); setErr("");
+  };
+
+  const analyze = async () => {
+    if (!file) return;
+    setBusy(true); setErr("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("priorities", priorities);
+      fd.append("user_role", userRole);
+      fd.append("language", lang);
+      fd.append("country", country);
+      const { data } = await api.post("/contract/negotiate", fd);
+      setR(data);
+    } catch (e) { setErr(e?.response?.data?.detail || "Negotiation analysis failed"); }
+    finally { setBusy(false); }
+  };
+
+  const copyEmail = () => {
+    if (!r?.ready_to_send_email) return;
+    navigator.clipboard.writeText(r.ready_to_send_email);
+    alert(t(lang, "copiedToClipboard"));
+  };
+
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+
+  const PRIORITY_STYLE = {
+    "must-fix": { bg: "rgba(239,68,68,0.12)", border: "#ef4444", text: "#fca5a5", label: t(lang, "negMustFix") },
+    "should-fix": { bg: "rgba(247,201,72,0.12)", border: "var(--gold)", text: "var(--gold)", label: t(lang, "negShouldFix") },
+    "nice-to-have": { bg: "rgba(255,255,255,0.05)", border: "var(--line)", text: "var(--text-dim)", label: t(lang, "negNiceToHave") },
+  };
+  const DIFFICULTY = {
+    easy: { color: "#86efac", label: t(lang, "negDifficultyEasy") },
+    moderate: { color: "var(--gold)", label: t(lang, "negDifficultyModerate") },
+    hard: { color: "#fca5a5", label: t(lang, "negDifficultyHard") },
+  };
+
+  return (
+    <>
+      {!r ? (
+        <>
+          <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 14 }}>
+            {t(lang, "negIntro")}
+          </p>
+
+          {/* Hidden inputs */}
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment"
+                 onChange={choose} style={{ display: "none" }} data-testid="neg-camera-input" />
+          <input ref={uploadRef} type="file" accept="image/*,application/pdf,.doc,.docx,.txt"
+                 onChange={choose} style={{ display: "none" }} data-testid="neg-upload-input" />
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <button className="btn-gold" data-testid="neg-camera-btn" onClick={() => cameraRef.current?.click()}
+                    style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: "18px 8px" }}>
+              <Camera size={22} />
+              <span style={{ fontSize: 13 }}>{t(lang, "contractTakePhoto")}</span>
+            </button>
+            <button className="btn-ghost" data-testid="neg-upload-btn" onClick={() => uploadRef.current?.click()}
+                    style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: "18px 8px", border: "1px solid var(--gold-deep)" }}>
+              <Upload size={22} />
+              <span style={{ fontSize: 13 }}>{t(lang, "contractUploadFile")}</span>
+            </button>
+          </div>
+
+          {file && (
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
+              <FileText size={18} style={{ color: "var(--gold)" }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: "var(--text)", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</div>
+                <div style={{ color: "var(--text-dim)", fontSize: 11 }}>{(file.size / 1024).toFixed(1)} KB</div>
+              </div>
+              <button onClick={() => { if (preview) URL.revokeObjectURL(preview); setFile(null); setPreview(null); }}
+                      style={{ background: "transparent", border: "none", color: "var(--text-dim)", cursor: "pointer" }}>
+                <X size={16} />
+              </button>
+            </div>
+          )}
+
+          {/* Role selector */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ color: "var(--gold)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+              {t(lang, "negYourRole")}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <button data-testid="neg-role-recipient" onClick={() => setUserRole("recipient")}
+                      style={{ padding: 10, borderRadius: 10, fontSize: 12,
+                               background: userRole === "recipient" ? "rgba(247,201,72,0.15)" : "var(--bg-card)",
+                               border: userRole === "recipient" ? "1px solid var(--gold)" : "1px solid var(--line)",
+                               color: userRole === "recipient" ? "var(--gold)" : "var(--text)", cursor: "pointer" }}>
+                {t(lang, "negRoleRecipient")}
+              </button>
+              <button data-testid="neg-role-offerer" onClick={() => setUserRole("offerer")}
+                      style={{ padding: 10, borderRadius: 10, fontSize: 12,
+                               background: userRole === "offerer" ? "rgba(247,201,72,0.15)" : "var(--bg-card)",
+                               border: userRole === "offerer" ? "1px solid var(--gold)" : "1px solid var(--line)",
+                               color: userRole === "offerer" ? "var(--gold)" : "var(--text)", cursor: "pointer" }}>
+                {t(lang, "negRoleOfferer")}
+              </button>
+            </div>
+          </div>
+
+          {/* Priorities */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ color: "var(--gold)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+              {t(lang, "negPriorities")}
+            </div>
+            <textarea className="input" rows={3} value={priorities} onChange={(e) => setPriorities(e.target.value)}
+                      placeholder={t(lang, "negPrioritiesPlaceholder")} data-testid="neg-priorities-input" />
+          </div>
+
+          {file && !busy && (
+            <button className="btn-gold w-full" data-testid="neg-analyze-btn" onClick={analyze} style={{ marginBottom: 8 }}>
+              <Scale size={16} style={{ display: "inline", marginRight: 6 }} />
+              {t(lang, "negAnalyzeBtn")}
+            </button>
+          )}
+          {busy && <div style={{ textAlign: "center", padding: 16 }}><span className="spinner" /><div style={{ color: "var(--text-dim)", marginTop: 8, fontSize: 13 }}>{t(lang, "negBusy")}</div></div>}
+          {err && <div style={{ background: "#2a0a0a", border: "1px solid #7f1d1d", color: "#fca5a5", padding: 10, borderRadius: 10, fontSize: 13 }}>{err}</div>}
+        </>
+      ) : (
+        <div data-testid="neg-result">
+          {/* Leverage banner */}
+          <div style={{ background: "rgba(247,201,72,0.1)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 12, marginBottom: 14 }}>
+            <div style={{ color: "var(--gold)", fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", marginBottom: 4, textTransform: "uppercase" }}>
+              {t(lang, "negLeverage")}
+            </div>
+            <div style={{ color: "var(--text)", fontSize: 14, lineHeight: 1.5 }}>{r.leverage_assessment}</div>
+            {r.estimated_negotiation_difficulty && DIFFICULTY[r.estimated_negotiation_difficulty] && (
+              <div style={{ marginTop: 6, fontSize: 11, color: DIFFICULTY[r.estimated_negotiation_difficulty].color }}>
+                {t(lang, "negDifficulty")}: <strong>{DIFFICULTY[r.estimated_negotiation_difficulty].label}</strong>
+              </div>
+            )}
+          </div>
+
+          {/* Worst clauses */}
+          {r.worst_clauses?.length > 0 && (
+            <>
+              <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
+                {t(lang, "negWorstClauses")} ({r.worst_clauses.length})
+              </div>
+              {r.worst_clauses.map((c, i) => {
+                const ps = PRIORITY_STYLE[c.priority] || PRIORITY_STYLE["should-fix"];
+                return (
+                  <div key={i} data-testid={`neg-clause-${i}`}
+                       style={{ background: ps.bg, border: `1px solid ${ps.border}`, borderRadius: 10, padding: 12, marginBottom: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <div style={{ color: "var(--gold)", fontSize: 13, fontWeight: 700 }}>{c.clause_title}</div>
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: ps.border, color: "#000", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        {ps.label}
+                      </span>
+                    </div>
+                    {c.current_text_quote && (
+                      <div style={{ fontSize: 12, color: "var(--text-dim)", fontStyle: "italic", borderLeft: "2px solid var(--line)", paddingLeft: 8, marginBottom: 8 }}>
+                        "{c.current_text_quote}"
+                      </div>
+                    )}
+                    <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8, lineHeight: 1.5 }}>
+                      <strong style={{ color: "#fca5a5" }}>{t(lang, "negWhyBad")}:</strong> {c.why_its_bad_for_user}
+                    </div>
+                    {c.suggested_redline && (
+                      <div style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: 8, padding: 8, marginBottom: 6 }}>
+                        <div style={{ fontSize: 11, color: "#86efac", fontWeight: 700, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                          {t(lang, "negSuggestedRedline")}
+                        </div>
+                        <div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.5, fontFamily: "monospace" }}>{c.suggested_redline}</div>
+                      </div>
+                    )}
+                    {c.fallback_position && (
+                      <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 6 }}>
+                        <strong style={{ color: "var(--gold)" }}>{t(lang, "negFallback")}:</strong> {c.fallback_position}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {/* Missing protections */}
+          {r.missing_protections?.length > 0 && (
+            <>
+              <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", margin: "14px 0 6px" }}>
+                {t(lang, "negMissingProtections")}
+              </div>
+              <ul style={{ color: "var(--text-dim)", fontSize: 13, paddingLeft: 18, lineHeight: 1.7 }}>
+                {r.missing_protections.map((p, i) => <li key={i}>{p}</li>)}
+              </ul>
+            </>
+          )}
+
+          {/* Bottom line */}
+          {r.do_not_compromise_on?.length > 0 && (
+            <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: 12, marginTop: 14 }}>
+              <div style={{ color: "#fca5a5", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                ⚠ {t(lang, "negDoNotCompromise")}
+              </div>
+              <ul style={{ color: "var(--text)", fontSize: 13, paddingLeft: 18, lineHeight: 1.7, margin: 0 }}>
+                {r.do_not_compromise_on.map((p, i) => <li key={i}>{p}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {/* Walk away signals */}
+          {r.walk_away_signals?.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ color: "#ef4444", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>
+                🚪 {t(lang, "negWalkAway")}
+              </div>
+              <ul style={{ color: "var(--text-dim)", fontSize: 13, paddingLeft: 18, lineHeight: 1.7 }}>
+                {r.walk_away_signals.map((p, i) => <li key={i}>{p}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {/* Strategy */}
+          {r.negotiation_strategy && (
+            <div style={{ marginTop: 14, padding: 12, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10 }}>
+              <div style={{ color: "var(--gold)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                {t(lang, "negStrategy")}
+              </div>
+              <div style={{ color: "var(--text)", fontSize: 13, lineHeight: 1.6 }}>{r.negotiation_strategy}</div>
+            </div>
+          )}
+
+          {/* Ready-to-send email */}
+          {r.ready_to_send_email && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                <Send size={13} /> {t(lang, "negReadyEmail")}
+              </div>
+              <textarea className="input" rows={10} value={r.ready_to_send_email}
+                        onChange={(e) => setR({ ...r, ready_to_send_email: e.target.value })}
+                        style={{ fontSize: 12, lineHeight: 1.6, fontFamily: "monospace" }} data-testid="neg-email-textarea" />
+              <button className="btn-gold w-full" onClick={copyEmail} style={{ marginTop: 8 }} data-testid="neg-copy-email-btn">
+                {t(lang, "negCopyEmail")}
+              </button>
+            </div>
+          )}
+
+          <button className="btn-ghost w-full" onClick={() => { setR(null); setFile(null); if (preview) URL.revokeObjectURL(preview); setPreview(null); setPriorities(""); }} style={{ marginTop: 14 }}>
+            {t(lang, "negAnother")}
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 

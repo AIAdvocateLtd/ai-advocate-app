@@ -335,6 +335,10 @@ FEATURE_MIN_TIER = {
     "letters_generate": "free",  # gated by monthly quota
     "evidence_analyze": "free",  # gated by monthly quota
     "contracts_analyze": "plus",
+    "contract_draft": "pro",
+    "contract_negotiate": "pro",
+    "outcome_predict": "pro",
+    "hearing_transcribe": "pro",
     "practice": "plus",
     "live_assist": "pro",
     "voice": "plus",
@@ -2960,14 +2964,26 @@ If the document is NOT a contract, set contract_type=\"other\" and verdict_one_l
     chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"contract-{uuid.uuid4()}", system_message=sysmsg)\
         .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=4000)
     try:
+        # Stage 1: extract text via Gemini (Claude doesn't accept file attachments here)
+        extracted_text = await _extract_contract_text(tmp.name, file.content_type or "application/pdf")
+        if not extracted_text or len(extracted_text) < 30:
+            os.unlink(tmp.name)
+            raise HTTPException(400, "Could not read enough text from the contract. Try a clearer photo or PDF.")
+        # Stage 2: analyse the text with Claude
         resp = await chat.send_message(UserMessage(
-            text="Analyse the attached contract.",
-            file_contents=[FileContentWithMimeType(file_path=tmp.name, mime_type=file.content_type or "application/pdf")],
+            text=f"Analyse the following contract text:\n\n{extracted_text[:30000]}",
         ))
+    except HTTPException:
+        try: os.unlink(tmp.name)
+        except Exception: pass
+        raise
     except Exception as e:
-        os.unlink(tmp.name); logger.exception("contract analyze failed")
+        try: os.unlink(tmp.name)
+        except Exception: pass
+        logger.exception("contract analyze failed")
         raise HTTPException(500, f"AI error: {e}")
-    os.unlink(tmp.name)
+    try: os.unlink(tmp.name)
+    except Exception: pass
 
     import json as _json, re as _re
     payload = _re.sub(r"^```(?:json)?\s*", "", resp.strip())
@@ -2996,6 +3012,8 @@ class ContractDraftRequest(BaseModel):
 async def contract_draft(data: ContractDraftRequest, user: dict = Depends(get_user)):
     """Generate a UK-compliant contract from structured inputs."""
     pub = user_to_public(user)
+    if not tier_has_access(pub["tier"], "contract_draft"):
+        raise HTTPException(402, "Contract drafting requires Pro. Upgrade to unlock.")
     ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "letters_generate", "monthly")
     if not ok:
         raise HTTPException(429, f"Document generation monthly limit reached ({used}/{limit}). Upgrade to Plus for unlimited.")
@@ -3081,6 +3099,137 @@ def _safe_json(obj):
     except Exception: return str(obj)
 
 
+async def _extract_contract_text(tmp_path: str, mime_type: str) -> str:
+    """Use Gemini Flash to extract the full verbatim text of a contract from any image/PDF/doc.
+    Returns the raw text (may be long). Falls back to plain-text read for .txt files.
+    """
+    # Cheap fast path for plain text
+    if mime_type and ("text" in mime_type or tmp_path.endswith(".txt")):
+        try:
+            with open(tmp_path, "r", errors="ignore") as f:
+                return f.read()
+        except Exception:
+            pass
+
+    extract_chat = LlmChat(
+        api_key=EMERGENT_LLM_KEY,
+        session_id=f"extract-{uuid.uuid4()}",
+        system_message="You are an OCR + document-text extractor. Return the COMPLETE verbatim text of the document, preserving clause numbering and structure. No analysis, no commentary — JUST the raw text.",
+    ).with_model("gemini", "gemini-2.5-flash").with_params(max_tokens=8000)
+
+    file_ref = FileContentWithMimeType(file_path=tmp_path, mime_type=mime_type or "application/pdf")
+    try:
+        text = await extract_chat.send_message(UserMessage(
+            text="Extract the complete text of this document, exactly as written. Preserve clause numbers and line breaks.",
+            file_contents=[file_ref],
+        ))
+        return (text or "").strip()
+    except Exception as ex:
+        logger.exception("contract text extract failed")
+        raise HTTPException(500, f"Could not extract contract text: {ex}")
+
+
+# ==================== Contract Negotiate (Pro flagship) ====================
+@api_router.post("/contract/negotiate")
+async def contract_negotiate(
+    file: UploadFile = File(...),
+    priorities: str = Form(""),   # free-form: "I care most about salary and remote work"
+    user_role: str = Form("recipient"),  # recipient | offerer
+    language: str = Form("en-GB"),
+    country: str = Form("GB"),
+    user: dict = Depends(get_user),
+):
+    """Pro-only: Review a contract and produce a redline negotiation strategy + ready-to-send email."""
+    pub = user_to_public(user)
+    if not tier_has_access(pub["tier"], "contract_negotiate"):
+        raise HTTPException(402, "Contract Negotiate is Pro-only. Upgrade to unlock Lex's redline strategy.")
+    ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "doc_analyze", "monthly")
+    if not ok:
+        raise HTTPException(429, f"Document analysis monthly limit reached ({used}/{limit}).")
+
+    raw = await file.read()
+    if len(raw) > 12 * 1024 * 1024:
+        raise HTTPException(413, "File too large (max 12MB)")
+    suffix = "." + (file.filename.split(".")[-1].lower() if "." in file.filename else "jpg")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(raw); tmp.flush(); tmp.close()
+    lang_name = LANG_NAMES.get(language, "English")
+
+    sysmsg = f"""You are AI Advocate's contract NEGOTIATOR — an experienced commercial solicitor advising the user before they sign.
+Jurisdiction: {country}. Reply in {lang_name}.
+
+The user's role is: {user_role} (recipient = receiving / being asked to sign; offerer = the side proposing the contract).
+The user's stated priorities: {priorities or '(none specified — assume reasonable defaults)'}.
+
+Your job: pick the 3-5 WORST or most lopsided clauses and produce a real negotiation play. Be concrete. Quote the actual contract wording when you can. Never invent law.
+
+Return STRICT JSON only (no markdown):
+{{
+  "contract_type": "<employment | nda | lease | sale | service | partnership | other>",
+  "leverage_assessment": "<one-line read of who has the leverage — 'You have strong leverage', 'They have leverage but you can push X', etc.>",
+  "worst_clauses": [
+    {{
+      "clause_title": "<short label e.g. 'Restrictive Covenant (Clause 14)'>",
+      "current_text_quote": "<short verbatim quote from the contract — max ~30 words. If you cannot see the exact wording, paraphrase tightly>",
+      "why_its_bad_for_user": "<plain-English explanation of the risk to the user, 1-2 sentences>",
+      "suggested_redline": "<exact replacement wording the user should propose — drafted as a finished clause they can paste in>",
+      "fallback_position": "<if the other side rejects your redline, what's a reasonable middle ground>",
+      "priority": "<must-fix | should-fix | nice-to-have>"
+    }}
+  ],
+  "missing_protections": ["<protection the user should INSERT into the contract — e.g. 'IP carve-out for pre-existing work', 'Mutual termination clause'>"],
+  "do_not_compromise_on": ["<bottom-line items the user must NOT give up on, even to close the deal>"],
+  "walk_away_signals": ["<conditions that should make the user walk away entirely>"],
+  "negotiation_strategy": "<3-4 sentence honest plan for HOW to negotiate — tone, sequence, what to lead with>",
+  "ready_to_send_email": "<a professional, polite, ready-to-send email (NOT a letter — email format, no addresses) the user can send TODAY to open negotiations. Use the user's actual situation. Include subject line as first line e.g. 'Subject: Proposed amendments to the [contract name]'. End with 'Kind regards,' on its own line (user signs their own name). Keep it firm but collaborative. Use \\n for line breaks.>",
+  "estimated_negotiation_difficulty": "<easy | moderate | hard>"
+}}
+
+CRITICAL: If the document is NOT a contract, return contract_type='other' and worst_clauses=[] with leverage_assessment='This does not appear to be a contract.'
+Stay in jurisdiction {country}. For UK, reference Employment Rights Act 1996 / Equality Act 2010 / Consumer Rights Act 2015 / Late Payment of Commercial Debts Act 1998 where directly relevant — never cite law you're unsure about.
+"""
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"negotiate-{uuid.uuid4()}", system_message=sysmsg)\
+        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=4500)
+    try:
+        extracted_text = await _extract_contract_text(tmp.name, file.content_type or "application/pdf")
+        if not extracted_text or len(extracted_text) < 30:
+            os.unlink(tmp.name)
+            raise HTTPException(400, "Could not read enough text from the contract. Try a clearer photo or PDF.")
+        resp = await chat.send_message(UserMessage(
+            text=f"Negotiate this contract on my behalf. My priorities: {priorities or '(none specified)'}.\n\nFull contract text:\n\n{extracted_text[:30000]}",
+        ))
+    except HTTPException:
+        try: os.unlink(tmp.name)
+        except Exception: pass
+        raise
+    except Exception as e:
+        try: os.unlink(tmp.name)
+        except Exception: pass
+        logger.exception("contract negotiate failed")
+        raise HTTPException(500, f"AI error: {e}")
+    try: os.unlink(tmp.name)
+    except Exception: pass
+
+    import json as _json, re as _re
+    payload = _re.sub(r"^```(?:json)?\s*", "", resp.strip())
+    payload = _re.sub(r"\s*```$", "", payload).strip()
+    try:
+        result = _json.loads(payload)
+    except Exception:
+        result = {
+            "contract_type": "other",
+            "leverage_assessment": "Could not fully parse this contract.",
+            "worst_clauses": [],
+            "missing_protections": [],
+            "do_not_compromise_on": [],
+            "walk_away_signals": [],
+            "negotiation_strategy": payload[:600],
+            "ready_to_send_email": "",
+            "estimated_negotiation_difficulty": "moderate",
+        }
+    return result
+
+
 
 # ==================== Round 2: Outcome Predictor ====================
 class OutcomePredictRequest(BaseModel):
@@ -3092,6 +3241,9 @@ class OutcomePredictRequest(BaseModel):
 @api_router.post("/outcome/predict")
 async def outcome_predict(data: OutcomePredictRequest, user: dict = Depends(get_user)):
     """Give a realistic % chance of success + similar past cases."""
+    pub = user_to_public(user)
+    if not tier_has_access(pub["tier"], "outcome_predict"):
+        raise HTTPException(402, "Outcome Predictor requires Pro. Upgrade to unlock Opus deep-think.")
     if not data.case_summary or len(data.case_summary) < 20:
         raise HTTPException(400, "Please provide more detail (at least 20 chars)")
     lang_name = LANG_NAMES.get(data.language, "English")
@@ -3180,6 +3332,9 @@ async def hearing_transcribe(
     user: dict = Depends(get_user),
 ):
     """Upload long audio (tribunal/disciplinary/permitted hearing) → full transcript + Lex's review."""
+    pub = user_to_public(user)
+    if not tier_has_access(pub["tier"], "hearing_transcribe"):
+        raise HTTPException(402, "Hearing Recorder requires Pro. Upgrade to unlock long-audio transcription.")
     raw = await audio.read()
     if len(raw) > 50 * 1024 * 1024:
         raise HTTPException(413, "Audio file too large (max 50MB)")
