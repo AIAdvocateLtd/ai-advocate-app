@@ -1121,7 +1121,7 @@ function EmergencyModal({ lang, country, user, onClose }) {
 
   return (
     <div className="modal-bg" data-testid="emergency-modal" style={{ background: "rgba(60,0,0,0.85)" }}>
-      <div className="modal-card" style={{ padding: 18, maxHeight: "95vh", border: "2px solid #dc2626" }}>
+      <div className="modal-card" style={{ padding: 18, border: "2px solid #dc2626" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
           <h2 style={{ fontSize: 20, color: "#fca5a5", fontFamily: "Cinzel, serif", letterSpacing: "0.04em" }}>{t(lang, "emergencyTitle")}</h2>
           <button onClick={onClose} data-testid="emergency-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}>
@@ -1452,16 +1452,21 @@ function LetterLibraryModal({ lang, country, onClose }) {
 
   return (
     <div className="modal-bg" data-testid="letter-lib-modal">
-      <div className="modal-card" style={{ padding: 18, maxHeight: "94vh" }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 12 }}>
+      <div className="modal-card" style={{ padding: 18 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 12, flexShrink: 0 }}>
           <h2 className="brand-font gold" style={{ fontSize: 18 }}>{sel ? sel.title : "Letter Library"}</h2>
           <button onClick={onClose} data-testid="letter-lib-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
         </div>
 
         {!sel && (
           <>
-            <input className="input" data-testid="letter-search" placeholder={t(lang, "searchTemplates")} value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 12 }} />
-            <div style={{ overflowY: "auto", maxHeight: "70vh" }}>
+            <input className="input" data-testid="letter-search" placeholder={t(lang, "searchTemplates")} value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 12, flexShrink: 0 }} />
+            <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
+              {filtered.length === 0 && search && (
+                <div style={{ color: "var(--text-dim)", fontSize: 13, textAlign: "center", padding: 20 }}>
+                  No templates found for "{search}". Try a different keyword.
+                </div>
+              )}
               {Object.entries(grouped).map(([cat, items]) => (
                 <div key={cat} style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 11, color: "var(--gold)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{cat}</div>
@@ -1480,7 +1485,7 @@ function LetterLibraryModal({ lang, country, onClose }) {
         )}
 
         {sel && !letter && (
-          <div style={{ overflowY: "auto", maxHeight: "78vh" }}>
+          <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
             <button className="btn-ghost" onClick={() => setSel(null)} style={{ marginBottom: 10, padding: "6px 12px" }}>
               <ArrowLeft size={14} style={{ display: "inline", marginRight: 4 }} />Back
             </button>
@@ -1494,7 +1499,7 @@ function LetterLibraryModal({ lang, country, onClose }) {
         )}
 
         {letter && (
-          <div style={{ overflowY: "auto", maxHeight: "78vh" }}>
+          <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
             <div data-testid="letter-output" style={{ whiteSpace: "pre-wrap", fontSize: 13.5, color: "var(--text-dim)", lineHeight: 1.6,
                           background: "#0a0a0a", border: "1px solid var(--line)", borderRadius: 10, padding: 14 }}>{letter}</div>
             <div className="flex gap-2" style={{ marginTop: 12 }}>
@@ -1530,7 +1535,7 @@ function ContractUploader({ lang, country, onClose }) {
 
   return (
     <div className="modal-bg" data-testid="contract-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "92vh" }}>
+      <div className="modal-card" style={{ padding: 20 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "contractReview")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={24} /></button>
@@ -1577,7 +1582,7 @@ function LegalLetterModal({ lang, country, onClose }) {
 
   return (
     <div className="modal-bg" data-testid="letter-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "92vh" }}>
+      <div className="modal-card" style={{ padding: 20 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "legalLetterTitle")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={24} /></button>
@@ -1631,7 +1636,7 @@ function RecordModal({ lang, country, onClose }) {
 
   return (
     <div className="modal-bg" data-testid="record-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "92vh" }}>
+      <div className="modal-card" style={{ padding: 20 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "recordLegal")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={24} /></button>
@@ -1688,7 +1693,7 @@ function FilesModal({ lang, onClose }) {
   };
   return (
     <div className="modal-bg" data-testid="files-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "92vh" }}>
+      <div className="modal-card" style={{ padding: 20 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "myFiles")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={24} /></button>
@@ -1800,7 +1805,7 @@ function CaseFilesModal({ lang, onClose }) {
 
   return (
     <div className="modal-bg" data-testid="cases-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "92vh" }}>
+      <div className="modal-card" style={{ padding: 20 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "caseFiles")}</h2>
           <button onClick={onClose} data-testid="cases-close" style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={24} /></button>
@@ -1890,7 +1895,7 @@ function RemindersModal({ lang, onClose }) {
 
   return (
     <div className="modal-bg" data-testid="reminders-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "92vh" }}>
+      <div className="modal-card" style={{ padding: 20 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "reminders")}</h2>
           <button onClick={onClose} data-testid="reminders-close" style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={24} /></button>
@@ -2089,13 +2094,13 @@ function SnapEvidenceModal({ lang, country, onClose }) {
 
   return (
     <div className="modal-bg" data-testid="evidence-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh" }}>
+      <div className="modal-card" style={{ padding: 20 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "snapEvidence")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
         </div>
         {results.length === 0 && !videoResult && !recordedUrl ? (
-          <div style={{ overflowY: "auto", maxHeight: "80vh" }}>
+          <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
               <button data-testid="evidence-camera-btn" onClick={() => cameraRef.current?.click()}
                 style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 18, color: "var(--gold)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
@@ -2160,7 +2165,7 @@ function SnapEvidenceModal({ lang, country, onClose }) {
             )}
           </div>
         ) : recordedUrl && !videoResult ? (
-          <div data-testid="video-preview" style={{ overflowY: "auto", maxHeight: "80vh" }}>
+          <div data-testid="video-preview" style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
             <video src={recordedUrl} controls playsInline data-testid="video-preview-player"
                    style={{ width: "100%", borderRadius: 12, marginBottom: 12, maxHeight: "40vh", background: "#000" }} />
             <div className="flex gap-2" style={{ marginBottom: 10 }}>
@@ -2176,7 +2181,7 @@ function SnapEvidenceModal({ lang, country, onClose }) {
             </div>
           </div>
         ) : videoResult ? (
-          <div data-testid="video-result" style={{ overflowY: "auto", maxHeight: "80vh" }}>
+          <div data-testid="video-result" style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
             <h3 className="gold" style={{ fontSize: 16, marginBottom: 10 }}>🎥 {t(lang, "videoEvidenceTitle")}</h3>
             <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10 }}>
               {t(lang, "evidenceHash")}: <code style={{ background: "#0a0a0a", padding: "2px 6px", borderRadius: 4 }}>{(videoResult.evidence_hash || "").slice(0, 24)}…</code>
@@ -2192,7 +2197,7 @@ function SnapEvidenceModal({ lang, country, onClose }) {
             <button className="btn-gold w-full" data-testid="record-another-video-btn" onClick={resetVideo}>{t(lang, "recordAnother")}</button>
           </div>
         ) : (
-          <div style={{ overflowY: "auto", maxHeight: "80vh" }}>
+          <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
             {results.map((r, i) => (
               <div key={i} data-testid={`result-${i}`} style={{ marginBottom: 18, paddingBottom: 14, borderBottom: i < results.length - 1 ? "1px solid var(--line)" : "none" }}>
                 <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6, fontSize: 13 }}>{r.filename || `File ${i + 1}`}</div>
@@ -2249,7 +2254,7 @@ function LawyersModal({ lang, country, user, onClose, openAdvertise }) {
 
   return (
     <div className="modal-bg" data-testid="lawyers-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh" }}>
+      <div className="modal-card" style={{ padding: 20 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "findLawyer")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
@@ -2368,7 +2373,7 @@ function AdvertiseModal({ lang, onClose }) {
   };
   return (
     <div className="modal-bg" data-testid="advertise-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh" }}>
+      <div className="modal-card" style={{ padding: 20 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "advertiseTitle")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
@@ -2464,7 +2469,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
 
   return (
     <div className="modal-bg" data-testid="settings-modal">
-      <div className="modal-card" style={{ padding: 22, maxHeight: "92vh", display: "flex", flexDirection: "column" }}>
+      <div className="modal-card" style={{ padding: 22, display: "flex", flexDirection: "column" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 18, flexShrink: 0 }}>
           <h2 className="brand-font gold" style={{ fontSize: 22 }}>{t(lang, "settings")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
@@ -3146,7 +3151,7 @@ function OutcomeModal({ lang, country, onClose }) {
   const ringColor = pct >= 70 ? "#22c55e" : pct >= 40 ? "#f7c948" : "#ef4444";
   return (
     <div className="modal-bg" data-testid="outcome-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
+      <div className="modal-card" style={{ padding: 20, overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "outcomeTitle")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
@@ -3216,7 +3221,7 @@ function CostEstimateModal({ lang, country, onClose }) {
   };
   return (
     <div className="modal-bg" data-testid="cost-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
+      <div className="modal-card" style={{ padding: 20, overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "costTitle")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
@@ -3285,7 +3290,7 @@ function LegalAidModal({ lang, country, onClose }) {
   };
   return (
     <div className="modal-bg" data-testid="legal-aid-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
+      <div className="modal-card" style={{ padding: 20, overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "legalAidTitle")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
@@ -3396,7 +3401,7 @@ function HearingRecorderModal({ lang, country, onClose }) {
 
   return (
     <div className="modal-bg" data-testid="hearing-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
+      <div className="modal-card" style={{ padding: 20, overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "hearingTitle")}</h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
@@ -3883,7 +3888,7 @@ function ContractsHubModal({ lang, country, hasTier, onUpsell, onClose }) {
 
   return (
     <div className="modal-bg" data-testid="contracts-hub-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
+      <div className="modal-card" style={{ padding: 20, overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "contractTools")}</h2>
           <button onClick={onClose} data-testid="contracts-hub-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
@@ -4228,6 +4233,7 @@ function LetterReaderModal({ lang, country, onClose }) {
   const [result, setResult] = useState(null);
   const [err, setErr] = useState("");
   const inputRef = useRef(null);
+  const uploadRef = useRef(null);
 
   const choose = (e) => {
     const f = e.target.files?.[0]; e.target.value = "";
@@ -4263,7 +4269,7 @@ function LetterReaderModal({ lang, country, onClose }) {
 
   return (
     <div className="modal-bg" data-testid="letter-reader-modal">
-      <div className="modal-card" style={{ padding: 20, maxHeight: "94vh", overflowY: "auto" }}>
+      <div className="modal-card" style={{ padding: 20, overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "letterReaderTitle")}</h2>
           <button onClick={onClose} data-testid="letter-reader-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
@@ -4274,13 +4280,39 @@ function LetterReaderModal({ lang, country, onClose }) {
 
         {!result && (
           <>
-            <input ref={inputRef} type="file" accept="image/*,application/pdf" capture="environment"
-                   onChange={choose} style={{ display: "none" }} data-testid="letter-file-input" />
-            <button className="btn-gold w-full" data-testid="letter-pick-btn" onClick={() => inputRef.current?.click()} style={{ marginBottom: 10 }}>
-              <Camera size={16} style={{ display: "inline", marginRight: 6 }} />
-              {file ? "Change photo" : "Take / choose photo of letter"}
-            </button>
-            {preview && (
+            <input ref={inputRef} type="file" accept="image/*" capture="environment"
+                   onChange={choose} style={{ display: "none" }} data-testid="letter-camera-input" />
+            <input ref={uploadRef} type="file" accept="image/*,application/pdf,.doc,.docx,.txt"
+                   onChange={choose} style={{ display: "none" }} data-testid="letter-upload-input" />
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+              <button className="btn-gold" data-testid="letter-camera-btn" onClick={() => inputRef.current?.click()}
+                      style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: "18px 8px" }}>
+                <Camera size={22} />
+                <span style={{ fontSize: 13 }}>{t(lang, "contractTakePhoto")}</span>
+              </button>
+              <button className="btn-ghost" data-testid="letter-upload-btn" onClick={() => uploadRef.current?.click()}
+                      style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: "18px 8px", border: "1px solid var(--gold-deep)" }}>
+                <Upload size={22} />
+                <span style={{ fontSize: 13 }}>{t(lang, "contractUploadFile")}</span>
+              </button>
+            </div>
+
+            {file && (
+              <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
+                <FileText size={18} style={{ color: "var(--gold)" }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: "var(--text)", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</div>
+                  <div style={{ color: "var(--text-dim)", fontSize: 11 }}>{(file.size / 1024).toFixed(1)} KB</div>
+                </div>
+                <button onClick={() => { if (preview) URL.revokeObjectURL(preview); setFile(null); setPreview(null); }}
+                        style={{ background: "transparent", border: "none", color: "var(--text-dim)", cursor: "pointer" }}>
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+
+            {preview && file?.type?.startsWith("image/") && (
               <div style={{ marginBottom: 10, borderRadius: 12, overflow: "hidden", border: "1px solid var(--line)" }}>
                 <img src={preview} alt="Letter" style={{ width: "100%", display: "block", maxHeight: 280, objectFit: "contain", background: "#000" }} />
               </div>
