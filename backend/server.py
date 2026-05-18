@@ -8,7 +8,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os, logging, uuid, jwt, bcrypt, base64, io, tempfile
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Tuple
 from datetime import datetime, timezone, timedelta
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage, FileContentWithMimeType
@@ -234,6 +234,28 @@ class AdminFirmAction(BaseModel):
     firm_id: str
     action: str  # approve | reject | suspend | verify | unverify
     notes: Optional[str] = ""
+
+# ==================== Engagement (Client ↔ Firm) Models ====================
+
+class EngagementCreate(BaseModel):
+    client_email: Optional[EmailStr] = None    # if firm knows the client's email — sends invite
+    case_summary: Optional[str] = ""           # short brief
+    matter: Optional[str] = "General"          # e.g. "Employment", "Property"
+
+class EngagementMessageCreate(BaseModel):
+    body: str
+    attachments: Optional[List[str]] = []      # list of engagement_file_ids
+
+class EngagementLexAssist(BaseModel):
+    kind: Literal["draft_reply", "summarise", "explain"]
+    message_id: Optional[str] = None           # if assisting on a specific thread message
+    context: Optional[str] = ""                # free-text context
+
+class EngagementFileShare(BaseModel):
+    title: str
+    mime_type: str = "application/octet-stream"
+    file_b64: str                              # raw base64 file content (max 12MB)
+    note: Optional[str] = ""
 
 # ==================== Helpers ====================
 def hash_pw(pw: str) -> str:
@@ -3013,9 +3035,9 @@ async def firm_update_listing(data: FirmListingUpdate, firm: dict = Depends(get_
 
 @api_router.post("/firm/subscribe")
 async def firm_subscribe(plan: str = "featured", firm: dict = Depends(get_firm)):
-    """Stripe checkout for firms — £49/mo Featured, £149/mo Premium Sponsor."""
-    if plan not in ("featured", "premium"):
-        raise HTTPException(400, "plan must be 'featured' or 'premium'")
+    """Stripe checkout for firms — £49/mo Featured, £199/mo Premium, £399/mo Practice."""
+    if plan not in ("featured", "premium", "practice"):
+        raise HTTPException(400, "plan must be 'featured', 'premium', or 'practice'")
     if not STRIPE_API_KEY:
         raise HTTPException(503, "Billing not configured")
     price_id = os.environ.get(f"STRIPE_PRICE_FIRM_{plan.upper()}", "")
@@ -3032,6 +3054,335 @@ async def firm_subscribe(plan: str = "featured", firm: dict = Depends(get_firm))
         return {"checkout_url": session.url}
     except Exception as e:
         raise HTTPException(500, f"Stripe checkout failed: {str(e)}")
+
+
+# ==================== Engagements (Client ↔ Firm secure case threads + shared files) ====================
+
+# Tier limits — how many concurrent active engagements a firm can hold.
+FIRM_ENGAGEMENT_LIMITS = {
+    "free": 0,
+    "featured": 0,           # directory listing only
+    "premium": 25,
+    "practice": 999999,      # effectively unlimited
+}
+# Lex-AI per-month allowance for a firm (for draft-reply / summarise / explain on threads)
+FIRM_LEX_MONTHLY_LIMITS = {
+    "free": 0, "featured": 0, "premium": 100, "practice": 1000,
+}
+# Shared file storage cap per engagement
+ENGAGEMENT_FILE_LIMIT = 50   # files per engagement
+ENGAGEMENT_FILE_MAX_BYTES = 12 * 1024 * 1024  # 12MB per file
+
+def _firm_tier(firm: dict) -> str:
+    t = (firm or {}).get("tier") or "free"
+    return t if t in FIRM_ENGAGEMENT_LIMITS else "free"
+
+async def _count_active_engagements(firm_id: str) -> int:
+    return await db.engagements.count_documents({"firm_id": firm_id, "status": {"$in": ["invited", "active"]}})
+
+async def _engagement_or_403(eid: str, *, client_id: Optional[str] = None, firm_id: Optional[str] = None) -> dict:
+    eng = await db.engagements.find_one({"id": eid}, {"_id": 0})
+    if not eng:
+        raise HTTPException(404, "Engagement not found")
+    if client_id and eng.get("client_user_id") != client_id:
+        raise HTTPException(403, "Not your engagement")
+    if firm_id and eng.get("firm_id") != firm_id:
+        raise HTTPException(403, "Not your engagement")
+    return eng
+
+@api_router.post("/firm/engagements")
+async def firm_create_engagement(data: EngagementCreate, firm: dict = Depends(get_firm)):
+    """Firm initiates an engagement with a client. Returns invite_token URL for client to accept."""
+    tier = _firm_tier(firm)
+    if FIRM_ENGAGEMENT_LIMITS[tier] <= 0:
+        raise HTTPException(402, "Upgrade to Premium or Practice plan to invite clients.")
+    active = await _count_active_engagements(firm["id"])
+    if active >= FIRM_ENGAGEMENT_LIMITS[tier]:
+        raise HTTPException(402, f"Active engagement limit reached for {tier} plan ({FIRM_ENGAGEMENT_LIMITS[tier]}). Upgrade or close an engagement.")
+    eid = str(uuid.uuid4())
+    token = _secrets.token_urlsafe(24)
+    now = datetime.now(timezone.utc).isoformat()
+    client_user_id = None
+    if data.client_email:
+        existing = await db.users.find_one({"email": data.client_email.lower()}, {"_id": 0})
+        if existing:
+            client_user_id = existing["id"]
+    doc = {
+        "id": eid,
+        "firm_id": firm["id"],
+        "firm_name": firm.get("firm_name") or "",
+        "client_user_id": client_user_id,
+        "client_email_invited": (data.client_email or "").lower() if data.client_email else "",
+        "matter": data.matter or "General",
+        "case_summary_enc": encrypt_text(data.case_summary or ""),
+        "invite_token": token,
+        "status": "invited",       # invited | active | closed | declined
+        "created_at": now,
+        "accepted_at": None, "closed_at": None,
+    }
+    await db.engagements.insert_one(doc)
+    return {
+        "id": eid,
+        "invite_token": token,
+        "invite_url": f"{(os.environ.get('FRONTEND_URL') or '').rstrip('/')}/engage/{token}",
+        "status": "invited",
+    }
+
+@api_router.get("/engagements/invite/{token}")
+async def engagement_invite_preview(token: str):
+    """Public preview of an engagement invite — used by the consumer app's accept screen."""
+    eng = await db.engagements.find_one({"invite_token": token, "status": "invited"}, {"_id": 0, "case_summary_enc": 0})
+    if not eng:
+        raise HTTPException(404, "Invite not found or already accepted")
+    return {
+        "firm_name": eng.get("firm_name") or "",
+        "matter": eng.get("matter") or "General",
+        "invited_at": eng.get("created_at"),
+    }
+
+@api_router.post("/engagements/accept/{token}")
+async def engagement_accept(token: str, user: dict = Depends(get_user)):
+    """Consumer accepts a firm's engagement invite. Binds engagement to the logged-in user."""
+    eng = await db.engagements.find_one({"invite_token": token, "status": "invited"})
+    if not eng:
+        raise HTTPException(404, "Invite not found or already accepted")
+    # If the firm specified a client_email, ensure the accepting user matches (when set)
+    invited_email = (eng.get("client_email_invited") or "").lower()
+    if invited_email and invited_email != (user.get("email") or "").lower():
+        raise HTTPException(403, f"This invite was sent to {invited_email}. Sign in with that account to accept.")
+    await db.engagements.update_one(
+        {"id": eng["id"]},
+        {"$set": {
+            "client_user_id": user["id"],
+            "status": "active",
+            "accepted_at": datetime.now(timezone.utc).isoformat(),
+        }}
+    )
+    return {"engagement_id": eng["id"], "status": "active"}
+
+def _public_engagement(eng: dict, side: str = "client") -> dict:
+    out = {
+        "id": eng["id"],
+        "firm_id": eng.get("firm_id"),
+        "firm_name": eng.get("firm_name") or "",
+        "client_user_id": eng.get("client_user_id"),
+        "client_email_invited": eng.get("client_email_invited") or "",
+        "matter": eng.get("matter") or "General",
+        "status": eng.get("status"),
+        "created_at": eng.get("created_at"),
+        "accepted_at": eng.get("accepted_at"),
+        "closed_at": eng.get("closed_at"),
+        "case_summary": decrypt_text(eng.get("case_summary_enc") or ""),
+    }
+    if side == "firm" and eng.get("status") == "invited":
+        out["invite_token"] = eng.get("invite_token")
+    return out
+
+@api_router.get("/engagements")
+async def list_engagements_for_client(user: dict = Depends(get_user)):
+    """Consumer-side list — all engagements where the user is the client."""
+    rows = []
+    async for e in db.engagements.find({"client_user_id": user["id"]}, {"_id": 0}).sort("created_at", -1):
+        rows.append(_public_engagement(e, side="client"))
+    return {"engagements": rows}
+
+@api_router.get("/firm/engagements")
+async def list_engagements_for_firm(firm: dict = Depends(get_firm)):
+    rows = []
+    async for e in db.engagements.find({"firm_id": firm["id"]}, {"_id": 0}).sort("created_at", -1):
+        rows.append(_public_engagement(e, side="firm"))
+    return {"engagements": rows, "tier": _firm_tier(firm), "limit": FIRM_ENGAGEMENT_LIMITS[_firm_tier(firm)], "active_count": await _count_active_engagements(firm["id"])}
+
+@api_router.patch("/engagements/{eid}/close")
+async def close_engagement(eid: str, authorization: Optional[str] = Header(None)):
+    """Either party may close. We auth manually because both kinds of token are allowed here."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "No token")
+    token = authorization.split(" ", 1)[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except Exception:
+        raise HTTPException(401, "Invalid token")
+    kind = payload.get("kind") or "user"
+    sub = payload.get("sub")
+    q = {"id": eid}
+    if kind == "firm": q["firm_id"] = sub
+    else:              q["client_user_id"] = sub
+    eng = await db.engagements.find_one(q)
+    if not eng:
+        raise HTTPException(404, "Engagement not found")
+    await db.engagements.update_one({"id": eid}, {"$set": {"status": "closed", "closed_at": datetime.now(timezone.utc).isoformat()}})
+    return {"closed": True}
+
+# ---------- Case Thread (engagement messages) ----------
+
+async def _resolve_engagement_for_request(eid: str, authorization: Optional[str]) -> Tuple[dict, str, str]:
+    """Returns (engagement, sender_kind 'client'|'firm', sender_id) or raises 401/403/404."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "No token")
+    token = authorization.split(" ", 1)[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except Exception:
+        raise HTTPException(401, "Invalid token")
+    kind = payload.get("kind") or "user"
+    sub = payload.get("sub")
+    eng = await db.engagements.find_one({"id": eid}, {"_id": 0})
+    if not eng: raise HTTPException(404, "Engagement not found")
+    if eng.get("status") not in ("active", "invited"):
+        # Allow read on closed engagements — block writes downstream
+        pass
+    if kind == "firm":
+        if eng.get("firm_id") != sub: raise HTTPException(403, "Not your engagement")
+        return eng, "firm", sub
+    else:
+        if eng.get("client_user_id") != sub: raise HTTPException(403, "Not your engagement")
+        return eng, "client", sub
+
+@api_router.post("/engagements/{eid}/messages")
+async def post_engagement_message(eid: str, data: EngagementMessageCreate, authorization: Optional[str] = Header(None)):
+    eng, sender_kind, sender_id = await _resolve_engagement_for_request(eid, authorization)
+    if eng.get("status") == "closed":
+        raise HTTPException(403, "Engagement is closed")
+    body = (data.body or "").strip()
+    if not body and not (data.attachments or []):
+        raise HTTPException(400, "Message body or attachment required")
+    mid = str(uuid.uuid4())
+    doc = {
+        "id": mid,
+        "engagement_id": eid,
+        "sender_kind": sender_kind,
+        "sender_id": sender_id,
+        "body_enc": encrypt_text(body),
+        "attachments": data.attachments or [],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "read_by_client": sender_kind == "client",
+        "read_by_firm": sender_kind == "firm",
+    }
+    await db.engagement_messages.insert_one(doc)
+    return {"id": mid, "created_at": doc["created_at"], "sender_kind": sender_kind}
+
+@api_router.get("/engagements/{eid}/messages")
+async def list_engagement_messages(eid: str, authorization: Optional[str] = Header(None)):
+    eng, sender_kind, sender_id = await _resolve_engagement_for_request(eid, authorization)
+    rows = []
+    async for m in db.engagement_messages.find({"engagement_id": eid}, {"_id": 0}).sort("created_at", 1):
+        rows.append({
+            "id": m["id"],
+            "sender_kind": m.get("sender_kind"),
+            "body": decrypt_text(m.get("body_enc") or ""),
+            "attachments": m.get("attachments") or [],
+            "created_at": m.get("created_at"),
+        })
+    # Mark as read for the current side
+    field = "read_by_firm" if sender_kind == "firm" else "read_by_client"
+    await db.engagement_messages.update_many({"engagement_id": eid, field: False}, {"$set": {field: True}})
+    return {"messages": rows, "engagement": _public_engagement(eng, side=sender_kind)}
+
+# ---------- Shared files (engagement-scoped vault) ----------
+
+@api_router.post("/engagements/{eid}/files")
+async def upload_engagement_file(eid: str, data: EngagementFileShare, authorization: Optional[str] = Header(None)):
+    eng, sender_kind, sender_id = await _resolve_engagement_for_request(eid, authorization)
+    if eng.get("status") == "closed":
+        raise HTTPException(403, "Engagement is closed")
+    try:
+        raw = base64.b64decode(data.file_b64, validate=False)
+    except Exception:
+        raise HTTPException(400, "Invalid base64 content")
+    if len(raw) > ENGAGEMENT_FILE_MAX_BYTES:
+        raise HTTPException(413, "File too large (max 12MB)")
+    count = await db.engagement_files.count_documents({"engagement_id": eid})
+    if count >= ENGAGEMENT_FILE_LIMIT:
+        raise HTTPException(402, f"Engagement file limit reached ({ENGAGEMENT_FILE_LIMIT}).")
+    fid = str(uuid.uuid4())
+    doc = {
+        "id": fid,
+        "engagement_id": eid,
+        "uploader_kind": sender_kind,
+        "uploader_id": sender_id,
+        "title": (data.title or "Untitled")[:200],
+        "mime_type": data.mime_type or "application/octet-stream",
+        "size_bytes": len(raw),
+        "file_enc": encrypt_bytes(raw),   # server-side Fernet
+        "note_enc": encrypt_text(data.note or ""),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.engagement_files.insert_one(doc)
+    return {"id": fid, "title": doc["title"], "size_bytes": doc["size_bytes"], "created_at": doc["created_at"]}
+
+@api_router.get("/engagements/{eid}/files")
+async def list_engagement_files(eid: str, authorization: Optional[str] = Header(None)):
+    eng, sender_kind, sender_id = await _resolve_engagement_for_request(eid, authorization)
+    rows = []
+    async for f in db.engagement_files.find({"engagement_id": eid}, {"_id": 0, "file_enc": 0}).sort("created_at", -1):
+        rows.append({
+            "id": f["id"],
+            "title": f.get("title"),
+            "mime_type": f.get("mime_type"),
+            "size_bytes": f.get("size_bytes"),
+            "uploader_kind": f.get("uploader_kind"),
+            "note": decrypt_text(f.get("note_enc") or ""),
+            "created_at": f.get("created_at"),
+        })
+    return {"files": rows}
+
+@api_router.get("/engagements/{eid}/files/{fid}")
+async def download_engagement_file(eid: str, fid: str, authorization: Optional[str] = Header(None)):
+    eng, sender_kind, sender_id = await _resolve_engagement_for_request(eid, authorization)
+    f = await db.engagement_files.find_one({"id": fid, "engagement_id": eid}, {"_id": 0})
+    if not f:
+        raise HTTPException(404, "File not found")
+    raw = decrypt_bytes(f.get("file_enc") or b"")
+    return {
+        "id": fid,
+        "title": f.get("title"),
+        "mime_type": f.get("mime_type"),
+        "file_b64": base64.b64encode(raw).decode(),
+    }
+
+# ---------- Lex AI assist on a thread ----------
+
+@api_router.post("/engagements/{eid}/lex-assist")
+async def engagement_lex_assist(eid: str, data: EngagementLexAssist, authorization: Optional[str] = Header(None)):
+    """Lex helps either party draft a reply / summarise the latest update / explain jargon.
+    Consumer side: counts toward their normal Lex chat quota.
+    Firm side: counts toward FIRM_LEX_MONTHLY_LIMITS based on tier."""
+    eng, sender_kind, sender_id = await _resolve_engagement_for_request(eid, authorization)
+    # Pull last ~20 messages for context
+    history = []
+    async for m in db.engagement_messages.find({"engagement_id": eid}, {"_id": 0}).sort("created_at", -1).limit(20):
+        history.append(m)
+    history.reverse()
+    transcript = "\n".join([
+        f"[{m.get('sender_kind','?').upper()} {m.get('created_at','')}] {decrypt_text(m.get('body_enc') or '')[:800]}"
+        for m in history
+    ]) or "(thread is empty)"
+    matter = eng.get("matter") or "General"
+    role_name = "the client" if sender_kind == "client" else "the solicitor / law firm"
+    if data.kind == "draft_reply":
+        instruction = f"Draft a clear, professional reply that {role_name} could send next. Keep it concise (max 200 words), polite, factual. Do not invent facts. If something is unclear, ask for it explicitly."
+    elif data.kind == "summarise":
+        instruction = "Summarise the case so far in 5 bullet points: status, key facts, open questions, deadlines, next action. Plain English."
+    else:  # explain
+        instruction = (data.context or "").strip() or "Explain the latest message from the other party in plain English. Flag any legal jargon, risks, or deadlines."
+    system = (
+        "You are Lex, a senior English & Welsh legal assistant inside AI Advocate's secure case thread. "
+        f"You are assisting {role_name} on a matter of '{matter}'. "
+        "Be professional, no hedging, no waffle. Never invent statutes or case names. "
+        "If you don't know, say so. Output ONLY the requested content, no preamble."
+    )
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"engage-{eid}-{uuid.uuid4()}", system_message=system)\
+            .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=900)
+        prompt = f"--- CASE THREAD (most recent last) ---\n{transcript}\n\n--- TASK ---\n{instruction}"
+        if data.context: prompt += f"\n\n--- EXTRA CONTEXT FROM {role_name.upper()} ---\n{data.context}"
+        result = await chat.send_message(UserMessage(text=prompt))
+        text = (result or "").strip()
+    except Exception as e:
+        raise HTTPException(503, f"Lex assist temporarily unavailable: {str(e)[:200]}")
+    return {"output": text, "kind": data.kind}
+
 
 
 # ==================== Live Mode Timestamped Notes ====================

@@ -1,0 +1,412 @@
+import React, { useState, useEffect, useRef } from "react";
+import axios from "axios";
+import { X, ArrowLeft, Send, Download, Building2, LogOut, Plus, Copy, Mail, Briefcase, Sparkles } from "lucide-react";
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
+
+const FIRM_TOKEN_KEY = "aa_firm_token";
+
+const fapi = axios.create({ baseURL: API });
+const setHdr = (tok) => { if (tok) fapi.defaults.headers.common["Authorization"] = `Bearer ${tok}`; else delete fapi.defaults.headers.common["Authorization"]; };
+
+// =============================== AUTH SCREEN ===============================
+function FirmAuth({ onLogin }) {
+  const [mode, setMode] = useState("login");
+  const [data, setData] = useState({ email: "", password: "", firm_name: "", contact_name: "", country: "GB", city: "", sra_number: "", specialties: "employment" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    setBusy(true); setErr("");
+    try {
+      const body = mode === "login"
+        ? { email: data.email, password: data.password }
+        : { ...data, specialties: data.specialties.split(",").map(s => s.trim()).filter(Boolean) };
+      const { data: resp } = await fapi.post(`/firm/${mode === "login" ? "login" : "signup"}`, body);
+      localStorage.setItem(FIRM_TOKEN_KEY, resp.access_token);
+      setHdr(resp.access_token);
+      onLogin(resp.firm);
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Failed.");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ minHeight: "100dvh", background: "#000", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", padding: "60px 20px" }}>
+      <div style={{ fontFamily: "Cinzel, serif", fontSize: 32, color: "#f7c948", letterSpacing: "0.08em", marginBottom: 8 }}>AI ADVOCATE</div>
+      <div style={{ fontSize: 12, color: "#888", marginBottom: 32, letterSpacing: "0.2em" }}>FIRM PORTAL</div>
+
+      <div style={{ width: "100%", maxWidth: 420, background: "#0c0c0c", border: "1px solid #222", borderRadius: 14, padding: 24 }}>
+        <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
+          <button data-testid="firm-mode-login" onClick={() => setMode("login")} style={{ flex: 1, padding: 10, background: mode === "login" ? "#f7c948" : "transparent", color: mode === "login" ? "#000" : "#f7c948", border: "1px solid #f7c948", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>Sign in</button>
+          <button data-testid="firm-mode-signup" onClick={() => setMode("signup")} style={{ flex: 1, padding: 10, background: mode === "signup" ? "#f7c948" : "transparent", color: mode === "signup" ? "#000" : "#f7c948", border: "1px solid #f7c948", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>Register firm</button>
+        </div>
+
+        {mode === "signup" && (
+          <>
+            <input data-testid="firm-input-name" placeholder="Firm name" value={data.firm_name} onChange={(e) => setData({ ...data, firm_name: e.target.value })} style={inp} />
+            <input data-testid="firm-input-contact" placeholder="Your name (primary contact)" value={data.contact_name} onChange={(e) => setData({ ...data, contact_name: e.target.value })} style={inp} />
+            <input data-testid="firm-input-sra" placeholder="SRA number (optional)" value={data.sra_number} onChange={(e) => setData({ ...data, sra_number: e.target.value })} style={inp} />
+            <input data-testid="firm-input-city" placeholder="City" value={data.city} onChange={(e) => setData({ ...data, city: e.target.value })} style={inp} />
+            <input data-testid="firm-input-spec" placeholder="Specialties (comma-separated)" value={data.specialties} onChange={(e) => setData({ ...data, specialties: e.target.value })} style={inp} />
+          </>
+        )}
+        <input data-testid="firm-input-email" placeholder="Email" type="email" value={data.email} onChange={(e) => setData({ ...data, email: e.target.value })} style={inp} />
+        <input data-testid="firm-input-pwd" placeholder="Password" type="password" value={data.password} onChange={(e) => setData({ ...data, password: e.target.value })} style={inp} />
+
+        {err && <div style={{ color: "#fca5a5", fontSize: 12, marginBottom: 10 }} data-testid="firm-auth-err">{err}</div>}
+
+        <button data-testid="firm-auth-submit" onClick={submit} disabled={busy} style={{ width: "100%", padding: 12, background: "linear-gradient(135deg,#f7c948,#d6a017)", color: "#1a1300", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer", marginTop: 6 }}>
+          {busy ? "…" : (mode === "login" ? "Sign in" : "Create firm account")}
+        </button>
+
+        <div style={{ marginTop: 16, fontSize: 11, color: "#888", textAlign: "center", lineHeight: 1.5 }}>
+          Need help? <a href="mailto:admin@aiadvocate.co.uk" style={{ color: "#f7c948" }}>admin@aiadvocate.co.uk</a>
+        </div>
+      </div>
+
+      <a href="/" style={{ marginTop: 24, fontSize: 12, color: "#888" }}>← Back to consumer app</a>
+    </div>
+  );
+}
+
+const inp = { width: "100%", padding: "10px 12px", background: "#080808", border: "1px solid #222", borderRadius: 8, color: "#fff", fontSize: 13, marginBottom: 10, boxSizing: "border-box" };
+
+// =============================== DASHBOARD ===============================
+function FirmDashboard({ firm, onLogout }) {
+  const [engagements, setEngagements] = useState([]);
+  const [tier, setTier] = useState("free");
+  const [limit, setLimit] = useState(0);
+  const [activeCount, setActiveCount] = useState(0);
+  const [showCreate, setShowCreate] = useState(false);
+  const [activeEng, setActiveEng] = useState(null);
+  const [showBilling, setShowBilling] = useState(false);
+
+  const load = async () => {
+    try {
+      const { data } = await fapi.get("/firm/engagements");
+      setEngagements(data.engagements || []);
+      setTier(data.tier); setLimit(data.limit); setActiveCount(data.active_count);
+    } catch (e) { /* no-op */ }
+  };
+  useEffect(() => { load(); }, []);
+
+  if (activeEng) return <FirmEngagementThread engagement={activeEng} onBack={() => { setActiveEng(null); load(); }} />;
+
+  const canInvite = limit > 0;
+
+  return (
+    <div style={shell}>
+      <header style={hdr}>
+        <div>
+          <div style={{ fontFamily: "Cinzel, serif", fontSize: 18, color: "#f7c948" }}>{firm.firm_name}</div>
+          <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{firm.email} · Plan: <span style={{ color: "#f7c948", textTransform: "uppercase" }}>{tier}</span></div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button data-testid="firm-billing-btn" onClick={() => setShowBilling(true)} style={btnGhost}><Sparkles size={14} /> Plan</button>
+          <button data-testid="firm-logout-btn" onClick={onLogout} style={btnGhost}><LogOut size={14} /></button>
+        </div>
+      </header>
+
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 20px" }}>
+        {/* Engagement quota meter */}
+        <div style={{ background: "#0c0c0c", border: "1px solid #222", borderRadius: 14, padding: 16, marginBottom: 18 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>Active engagements</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{activeCount} <span style={{ color: "#666", fontWeight: 400, fontSize: 14 }}>/ {limit === 999999 ? "∞" : limit}</span></div>
+            </div>
+            <button data-testid="firm-new-eng-btn" disabled={!canInvite || activeCount >= limit} onClick={() => setShowCreate(true)}
+                    style={{ ...btnGold, opacity: canInvite && activeCount < limit ? 1 : 0.4 }}>
+              <Plus size={14} /> Invite a client
+            </button>
+          </div>
+          {!canInvite && (
+            <div style={{ fontSize: 12, color: "#fca5a5", marginTop: 6 }}>
+              Upgrade to <strong>Premium</strong> or <strong>Practice</strong> to invite clients. <button onClick={() => setShowBilling(true)} style={{ background: "none", border: "none", color: "#f7c948", cursor: "pointer", padding: 0, textDecoration: "underline" }}>View plans</button>
+            </div>
+          )}
+        </div>
+
+        {/* Engagements list */}
+        <h2 style={{ fontSize: 14, color: "#f7c948", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>Your engagements</h2>
+        {engagements.length === 0 ? (
+          <div style={{ textAlign: "center", color: "#666", padding: 40, border: "1px dashed #222", borderRadius: 12 }}>
+            <Briefcase size={36} style={{ opacity: 0.3, marginBottom: 10 }} />
+            <div style={{ fontSize: 13 }}>No engagements yet. Invite your first client above.</div>
+          </div>
+        ) : engagements.map(e => (
+          <button key={e.id} data-testid={`firm-eng-${e.id}`} onClick={() => setActiveEng(e)} style={engRow}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <div style={{ fontWeight: 600, color: "#fff" }}>{e.client_email_invited || "—"}</div>
+              <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", padding: "2px 8px", borderRadius: 6,
+                background: e.status === "active" ? "rgba(34,197,94,0.15)" : e.status === "closed" ? "rgba(239,68,68,0.12)" : "rgba(247,201,72,0.15)",
+                color: e.status === "active" ? "#86efac" : e.status === "closed" ? "#fca5a5" : "#f7c948",
+              }}>{e.status}</span>
+            </div>
+            <div style={{ fontSize: 12, color: "#888" }}>Matter: {e.matter}</div>
+            {e.case_summary && <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>{e.case_summary.slice(0, 140)}{e.case_summary.length > 140 ? "…" : ""}</div>}
+            {e.invite_token && e.status === "invited" && (
+              <div style={{ fontSize: 11, color: "#f7c948", marginTop: 6 }}>
+                Invite link ready · <code style={{ background: "#1a1a1a", padding: "1px 6px", borderRadius: 4 }}>/engage/{e.invite_token.slice(0, 10)}…</code>
+              </div>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {showCreate && <NewEngagementModal onClose={() => setShowCreate(false)} onCreated={async () => { setShowCreate(false); await load(); }} />}
+      {showBilling && <BillingModal firmEmail={firm.email} currentTier={tier} onClose={() => setShowBilling(false)} />}
+    </div>
+  );
+}
+
+function NewEngagementModal({ onClose, onCreated }) {
+  const [data, setData] = useState({ client_email: "", matter: "Employment", case_summary: "" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [created, setCreated] = useState(null);
+
+  const submit = async () => {
+    setBusy(true); setErr("");
+    try {
+      const { data: r } = await fapi.post("/firm/engagements", data);
+      setCreated(r);
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Failed.");
+    } finally { setBusy(false); }
+  };
+
+  if (created) {
+    return (
+      <div style={overlay}>
+        <div style={{ ...modalCard }}>
+          <h3 style={modalTitle}>Invite created</h3>
+          <p style={{ fontSize: 13, color: "#aaa", marginBottom: 14 }}>Send this link to your client. They'll be prompted to sign in (or create an AI Advocate account) and accept.</p>
+          <div style={{ background: "#080808", border: "1px solid #222", borderRadius: 8, padding: 12, marginBottom: 12, wordBreak: "break-all", fontSize: 12, color: "#f7c948" }}>{created.invite_url}</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button data-testid="copy-invite" onClick={() => { navigator.clipboard.writeText(created.invite_url); }} style={btnGold}><Copy size={14} /> Copy link</button>
+            <a data-testid="email-invite" href={`mailto:?subject=Secure%20case%20portal%20via%20AI%20Advocate&body=${encodeURIComponent(`I've set up a secure shared case file for you in AI Advocate. Please open this link to accept:\n\n${created.invite_url}\n\nAll messages and documents we exchange there are end-to-end encrypted.`)}`}
+               style={btnGhost}><Mail size={14} /> Email it</a>
+          </div>
+          <button onClick={() => onCreated()} style={{ ...btnGhost, width: "100%", marginTop: 14 }}>Done</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={overlay}>
+      <div style={modalCard}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <h3 style={modalTitle}>New engagement</h3>
+          <button onClick={onClose} style={btnPlain}><X size={18} /></button>
+        </div>
+        <input data-testid="new-eng-email" placeholder="Client email (we'll lock the invite to this address)" value={data.client_email} onChange={(e) => setData({ ...data, client_email: e.target.value })} style={inp} />
+        <input data-testid="new-eng-matter" placeholder="Matter (e.g. Employment, Property)" value={data.matter} onChange={(e) => setData({ ...data, matter: e.target.value })} style={inp} />
+        <textarea data-testid="new-eng-summary" placeholder="Brief case summary (optional, end-to-end encrypted)" rows={3} value={data.case_summary} onChange={(e) => setData({ ...data, case_summary: e.target.value })} style={{ ...inp, resize: "vertical" }} />
+        {err && <div style={{ color: "#fca5a5", fontSize: 12, marginBottom: 10 }} data-testid="new-eng-err">{err}</div>}
+        <button data-testid="new-eng-create" onClick={submit} disabled={busy || !data.client_email} style={{ ...btnGold, width: "100%" }}>
+          {busy ? "Creating…" : "Create engagement & generate invite"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FirmEngagementThread({ engagement, onBack }) {
+  const [messages, setMessages] = useState([]);
+  const [files, setFiles] = useState([]);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [lexOut, setLexOut] = useState("");
+  const messagesEndRef = useRef(null);
+  const eid = engagement.id;
+  const isClosed = engagement.status === "closed";
+
+  const load = async () => {
+    try {
+      const [m, f] = await Promise.all([
+        fapi.get(`/engagements/${eid}/messages`),
+        fapi.get(`/engagements/${eid}/files`),
+      ]);
+      setMessages(m.data.messages || []);
+      setFiles(f.data.files || []);
+    } catch (e) { /* no-op */ }
+  };
+  useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, []);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length]);
+
+  const send = async () => {
+    if (!draft.trim() || isClosed) return;
+    setBusy(true);
+    try { await fapi.post(`/engagements/${eid}/messages`, { body: draft.trim() }); setDraft(""); setLexOut(""); await load(); }
+    catch (e) { alert(e?.response?.data?.detail || "Failed."); }
+    finally { setBusy(false); }
+  };
+
+  const askLex = async (kind) => {
+    setBusy(true); setLexOut("");
+    try {
+      const { data } = await fapi.post(`/engagements/${eid}/lex-assist`, { kind });
+      setLexOut(data.output || "");
+      if (kind === "draft_reply") setDraft(data.output || "");
+    } catch (e) { alert("Lex temporarily unavailable."); }
+    finally { setBusy(false); }
+  };
+
+  const close = async () => {
+    if (!window.confirm("Close this engagement? Both parties can still read the thread but cannot send new messages or files.")) return;
+    try { await fapi.patch(`/engagements/${eid}/close`); onBack(); }
+    catch (e) { alert("Failed to close."); }
+  };
+
+  return (
+    <div style={shell}>
+      <header style={hdr}>
+        <button onClick={onBack} data-testid="firm-thread-back" style={{ ...btnGhost, gap: 6 }}><ArrowLeft size={14} /> Engagements</button>
+        <div style={{ flex: 1, textAlign: "center", color: "#f7c948", fontFamily: "Cinzel, serif" }}>
+          {engagement.client_email_invited || engagement.client_user_id} · {engagement.matter}
+        </div>
+        {!isClosed && <button data-testid="firm-close-eng" onClick={close} style={{ ...btnGhost, color: "#fca5a5", borderColor: "#7f1d1d" }}>Close</button>}
+      </header>
+
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: "20px 20px 80px", display: "flex", flexDirection: "column", height: "calc(100dvh - 64px)" }}>
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {messages.map(m => (
+            <div key={m.id} data-testid={`firm-msg-${m.id}`} style={{ display: "flex", justifyContent: m.sender_kind === "firm" ? "flex-end" : "flex-start", marginBottom: 10 }}>
+              <div style={{
+                maxWidth: "76%", padding: "10px 14px", borderRadius: 14,
+                background: m.sender_kind === "firm" ? "linear-gradient(135deg,#d6a017,#b88a1e)" : "#1a1a1a",
+                border: m.sender_kind === "firm" ? "none" : "1px solid #2a2a2a",
+                color: m.sender_kind === "firm" ? "#1a1300" : "#eee",
+                fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap",
+              }}>
+                {m.body}
+                <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>{m.sender_kind === "firm" ? "You" : "Client"} · {new Date(m.created_at).toLocaleString()}</div>
+              </div>
+            </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {files.length > 0 && (
+          <div style={{ background: "#0c0c0c", border: "1px solid #f7c94833", borderRadius: 10, padding: 10, marginTop: 8 }}>
+            <div style={{ fontSize: 10, color: "#f7c948", fontWeight: 700, marginBottom: 6, textTransform: "uppercase" }}>📎 Shared files ({files.length})</div>
+            {files.map(f => (
+              <div key={f.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "#ddd" }}>
+                <span>{f.title} <span style={{ color: "#666", fontSize: 10 }}>({Math.round(f.size_bytes / 1024)} KB · from {f.uploader_kind})</span></span>
+                <button onClick={async () => {
+                  try {
+                    const { data } = await fapi.get(`/engagements/${eid}/files/${f.id}`);
+                    const blob = new Blob([Uint8Array.from(atob(data.file_b64), c => c.charCodeAt(0))], { type: data.mime_type });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a"); a.href = url; a.download = f.title; document.body.appendChild(a); a.click();
+                    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
+                  } catch (e) { alert("Download failed"); }
+                }} style={{ ...btnPlain, color: "#f7c948" }}><Download size={12} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {lexOut && (
+          <div style={{ marginTop: 8, padding: 10, background: "#f7c94815", border: "1px solid #f7c94855", borderRadius: 10 }}>
+            <div style={{ fontSize: 10, color: "#f7c948", fontWeight: 700, marginBottom: 6, textTransform: "uppercase" }}>🤖 Lex</div>
+            <div style={{ fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", color: "#eee" }}>{lexOut}</div>
+            <button onClick={() => setLexOut("")} style={{ background: "transparent", border: "none", color: "#888", fontSize: 11, marginTop: 6, cursor: "pointer" }}>Dismiss</button>
+          </div>
+        )}
+
+        {!isClosed && (
+          <>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button data-testid="firm-lex-draft" onClick={() => askLex("draft_reply")} disabled={busy} style={btnGhost}>✨ Draft reply</button>
+              <button data-testid="firm-lex-sum" onClick={() => askLex("summarise")} disabled={busy} style={btnGhost}>📋 Summary</button>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <textarea data-testid="firm-thread-input" rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Type a message to your client…" style={{ ...inp, marginBottom: 0, resize: "none" }} />
+              <button data-testid="firm-thread-send" onClick={send} disabled={busy || !draft.trim()} style={{ ...btnGold, alignSelf: "flex-end" }}><Send size={14} /></button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BillingModal({ firmEmail, currentTier, onClose }) {
+  const [busy, setBusy] = useState("");
+  const plans = [
+    { id: "featured", name: "Featured", price: "£49 /mo", desc: "Top-of-list directory placement + sponsored badge", features: ["Priority directory listing", "Sponsored gold badge", "Direct client enquiries"] },
+    { id: "premium",  name: "Premium",  price: "£199 /mo", desc: "Listing + secure client portal + Lex AI", features: ["Everything in Featured", "Up to 25 active client engagements", "Encrypted case threads + shared files", "Lex AI: 100 assists/mo", "Verified badge"] },
+    { id: "practice", name: "Practice", price: "£399 /mo", desc: "Unlimited engagements + multi-user + priority support", features: ["Everything in Premium", "Unlimited active engagements", "Up to 5 lawyer seats", "Lex AI: 1,000 assists/mo", "Priority support"] },
+  ];
+  const checkout = async (id) => {
+    setBusy(id);
+    try {
+      const { data } = await fapi.post(`/firm/subscribe?plan=${id}`);
+      if (data.checkout_url) window.location.href = data.checkout_url;
+    } catch (e) { alert(e?.response?.data?.detail || "Billing not yet configured. Email admin@aiadvocate.co.uk."); }
+    finally { setBusy(""); }
+  };
+  return (
+    <div style={overlay}>
+      <div style={{ ...modalCard, maxWidth: 880 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <h3 style={modalTitle}>Firm plans</h3>
+          <button onClick={onClose} style={btnPlain}><X size={18} /></button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+          {plans.map(p => (
+            <div key={p.id} data-testid={`firm-plan-${p.id}`} style={{ background: "#080808", border: currentTier === p.id ? "2px solid #f7c948" : "1px solid #222", borderRadius: 12, padding: 16, position: "relative" }}>
+              {currentTier === p.id && <span style={{ position: "absolute", top: -10, left: 12, background: "#f7c948", color: "#1a1300", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6, textTransform: "uppercase" }}>Your plan</span>}
+              <div style={{ fontFamily: "Cinzel, serif", fontSize: 18, color: "#f7c948", marginBottom: 4 }}>{p.name}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#fff", marginBottom: 6 }}>{p.price}</div>
+              <div style={{ fontSize: 11, color: "#888", marginBottom: 12, lineHeight: 1.4 }}>{p.desc}</div>
+              <ul style={{ margin: 0, padding: 0, listStyle: "none", marginBottom: 14, fontSize: 12, color: "#ccc" }}>
+                {p.features.map((f, i) => <li key={i} style={{ padding: "3px 0" }}>✓ {f}</li>)}
+              </ul>
+              <button data-testid={`firm-plan-${p.id}-cta`} disabled={busy || currentTier === p.id} onClick={() => checkout(p.id)} style={{ ...btnGold, width: "100%", opacity: currentTier === p.id ? 0.5 : 1 }}>
+                {busy === p.id ? "…" : currentTier === p.id ? "Current plan" : "Choose plan"}
+              </button>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 11, color: "#666", textAlign: "center", marginTop: 14 }}>Cancel anytime. Powered by Stripe. £{firmEmail ? "" : ""}</div>
+      </div>
+    </div>
+  );
+}
+
+// =============================== STYLES ===============================
+const shell = { minHeight: "100dvh", background: "#000", color: "#fff", fontFamily: "system-ui, -apple-system, sans-serif" };
+const hdr = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid #1a1a1a", background: "#050505", position: "sticky", top: 0, zIndex: 10 };
+const btnGold = { display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", background: "linear-gradient(135deg,#f7c948,#d6a017)", color: "#1a1300", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer" };
+const btnGhost = { display: "inline-flex", alignItems: "center", gap: 4, padding: "8px 12px", background: "transparent", border: "1px solid #2a2a2a", color: "#f7c948", borderRadius: 8, fontSize: 12, cursor: "pointer", textDecoration: "none" };
+const btnPlain = { background: "transparent", border: "none", color: "#aaa", cursor: "pointer" };
+const engRow = { width: "100%", textAlign: "left", background: "#0c0c0c", border: "1px solid #222", borderRadius: 12, padding: 14, marginBottom: 10, cursor: "pointer", color: "#fff", display: "block" };
+const overlay = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 1000 };
+const modalCard = { background: "#0c0c0c", border: "1px solid #222", borderRadius: 14, padding: 24, width: "100%", maxWidth: 540, maxHeight: "86dvh", overflow: "auto" };
+const modalTitle = { fontFamily: "Cinzel, serif", fontSize: 18, color: "#f7c948", margin: 0 };
+
+// =============================== ROOT ===============================
+export default function FirmPortal() {
+  const [firm, setFirm] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = localStorage.getItem(FIRM_TOKEN_KEY);
+    if (!token) { setLoading(false); return; }
+    setHdr(token);
+    fapi.get("/firm/me")
+      .then(r => setFirm(r.data))
+      .catch(() => { localStorage.removeItem(FIRM_TOKEN_KEY); setHdr(null); })
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div style={{ ...shell, display: "flex", alignItems: "center", justifyContent: "center" }}>Loading…</div>;
+  if (!firm) return <FirmAuth onLogin={(f) => setFirm(f)} />;
+  return <FirmDashboard firm={firm} onLogout={() => { localStorage.removeItem(FIRM_TOKEN_KEY); setHdr(null); setFirm(null); }} />;
+}

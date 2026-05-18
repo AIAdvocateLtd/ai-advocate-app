@@ -5,7 +5,7 @@ import {
   MessageCircle, Mic, Folder, FileText, Gavel, Globe, Briefcase, Home as HomeIcon,
   Stethoscope, Scale, X, Send, Upload, Languages, LogOut, Check, ArrowLeft, Square, Play,
   Camera, MapPin, Phone, ExternalLink, Settings as SettingsIcon, Star, Building2, Image as ImageIcon,
-  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint
+  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint, Handshake
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
 import { setAppIconBadge } from "@/appBadge";
@@ -3044,6 +3044,13 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     const tick = setInterval(fetchBadge, 5 * 60 * 1000); // re-poll every 5 min
     return () => { cancelled = true; document.removeEventListener("visibilitychange", onVis); clearInterval(tick); };
   }, []);
+
+  // If the user arrived via /engage/<token> deep-link, auto-open the Engagements modal
+  useEffect(() => {
+    if (sessionStorage.getItem("aa_pending_invite")) {
+      setModal({ type: "engagements" });
+    }
+  }, []);
   // "Hey Lex" wake word — opens Siri-style Voice Mode (Plus+ only)
   const handleWake = useCallback((trailing) => {
     if (modal || voiceMode) return;
@@ -3060,6 +3067,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
     { id: "letter_reader", label: t(lang, "letterReader"), Icon: LetterIcon, req: "free" },
     { id: "contracts", label: t(lang, "contractTools"), Icon: ContractIcon, req: "free" },
+    { id: "engagements", label: t(lang, "mySolicitor"), sub: t(lang, "mySolicitorSub"), Icon: Handshake, req: "free" },
     { id: "vault", label: t(lang, "vaultTitle"), Icon: VaultIcon, req: "free" },
     { id: "outcome", label: t(lang, "predictOutcome"), Icon: OutcomeIcon, req: "pro" },
     { id: "cost", label: t(lang, "lawyerCost"), Icon: CostIcon, req: "free" },
@@ -3090,6 +3098,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     else if (tile.id === "snap") setModal({ type: "snap" });
     else if (tile.id === "letter_reader") setModal({ type: "letter_reader" });
     else if (tile.id === "contracts") setModal({ type: "contracts" });
+    else if (tile.id === "engagements") setModal({ type: "engagements" });
     else if (tile.id === "vault") setModal({ type: "vault" });
     else if (tile.id === "outcome") setModal({ type: "outcome" });
     else if (tile.id === "cost") setModal({ type: "cost" });
@@ -3241,6 +3250,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "letter_reader" && <LetterReaderModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "contracts" && <ContractsHubModal lang={lang} country={country} hasTier={hasTier} onUpsell={() => { setSubPreset("pro"); setShowSub(true); }} onClose={() => setModal(null)} />}
       {modal?.type === "vault" && <VaultModal lang={lang} hasTier={hasTier} onUpsell={() => { setSubPreset("pro"); setShowSub(true); }} onClose={() => setModal(null)} />}
+      {modal?.type === "engagements" && <EngagementsModal lang={lang} country={country} user={user} onClose={() => setModal(null)} />}
       {modal?.type === "outcome" && <OutcomeModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "cost" && <CostEstimateModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "hearing" && <HearingRecorderModal lang={lang} country={country} onClose={() => setModal(null)} />}
@@ -5439,6 +5449,16 @@ function App() {
   // eslint-disable-next-line
   }, []);
 
+  // Deep-link: /engage/<token> — store the invite token so EngagementsModal can auto-accept it after login
+  useEffect(() => {
+    const m = (window.location.pathname || "").match(/^\/engage\/([A-Za-z0-9_-]+)/);
+    if (m && m[1]) {
+      sessionStorage.setItem("aa_pending_invite", m[1]);
+      // Replace the URL so the token is no longer visible in the address bar
+      try { window.history.replaceState({}, "", "/"); } catch (e) { /* no-op */ }
+    }
+  }, []);
+
   // Unlock audio playback on the very first user gesture (any tap anywhere). This is iOS Safari's
   // requirement to allow programmatic audio.play() later (when the wake word triggers TTS).
   useEffect(() => {
@@ -5470,6 +5490,309 @@ function App() {
       {step === "terms" && <TermsScreen lang={lang} onAccept={() => { localStorage.setItem("aa_terms", "1"); setStep("auth"); }} onDecline={() => setStep("lang")} onChangeLang={() => setStep("lang")} />}
       {step === "auth" && <AuthScreen lang={lang} country={country} onAuth={onAuth} />}
       {step === "app" && user && !showSplash && <Dashboard user={user} lang={lang} country={country} setLang={setLang} setCountry={setCountry} onLogout={onLogout} refreshUser={(u) => setUser(u)} />}
+    </div>
+  );
+}
+
+// ============================== ENGAGEMENTS MODAL (My Solicitor) ==============================
+function EngagementsModal({ lang, country, user, onClose }) {
+  const [view, setView] = useState("list");          // "list" | "thread"
+  const [engagements, setEngagements] = useState([]);
+  const [active, setActive] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [inviteInput, setInviteInput] = useState("");
+  const [err, setErr] = useState("");
+
+  const load = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.get("/engagements");
+      setEngagements(data.engagements || []);
+    } catch (e) { setErr("Failed to load."); }
+    finally { setBusy(false); }
+  };
+  useEffect(() => {
+    load();
+    // Auto-consume any pending invite from a /engage/<token> deep-link
+    const pending = sessionStorage.getItem("aa_pending_invite");
+    if (pending) {
+      sessionStorage.removeItem("aa_pending_invite");
+      setInviteInput(pending);
+    }
+  }, []);
+
+  const extractToken = (s) => {
+    s = (s || "").trim();
+    const m = s.match(/\/engage\/([A-Za-z0-9_-]+)/);
+    return m ? m[1] : s;
+  };
+
+  const acceptInvite = async () => {
+    const tok = extractToken(inviteInput);
+    if (!tok) return;
+    setBusy(true); setErr("");
+    try {
+      await api.post(`/engagements/accept/${tok}`);
+      setInviteInput("");
+      await load();
+    } catch (e) {
+      setErr(e?.response?.data?.detail || t(lang, "engInviteInvalid"));
+    } finally { setBusy(false); }
+  };
+
+  if (view === "thread" && active) {
+    return <EngagementThread lang={lang} engagement={active} onBack={() => { setView("list"); setActive(null); load(); }} onClose={onClose} />;
+  }
+
+  return (
+    <div className="modal-bg" data-testid="engagements-modal">
+      <div className="modal-card" style={{ padding: 22, display: "flex", flexDirection: "column" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 16, flexShrink: 0 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 22 }}>{t(lang, "mySolicitor")}</h2>
+          <button onClick={onClose} data-testid="engagements-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {/* Invite paste box */}
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: "var(--gold)", fontWeight: 700, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              {t(lang, "engInviteCode")}
+            </div>
+            <input data-testid="invite-input" value={inviteInput} onChange={(e) => setInviteInput(e.target.value)}
+                   placeholder={t(lang, "engPasteCode")}
+                   style={{ width: "100%", padding: "10px 12px", background: "#0a0a0a", border: "1px solid var(--line)", borderRadius: 8, color: "var(--text)", fontSize: 13, marginBottom: 8 }} />
+            <button data-testid="invite-accept-btn" className="btn-gold" onClick={acceptInvite} disabled={busy || !inviteInput.trim()}
+                    style={{ width: "100%", padding: 10, fontSize: 13 }}>
+              {t(lang, "engAcceptBtn")}
+            </button>
+            {err && <div style={{ color: "#fca5a5", fontSize: 12, marginTop: 8 }} data-testid="invite-err">{err}</div>}
+          </div>
+
+          {/* Engagements list */}
+          {busy && engagements.length === 0 ? (
+            <div style={{ textAlign: "center", color: "var(--text-dim)", fontSize: 13, padding: 30 }}>Loading…</div>
+          ) : engagements.length === 0 ? (
+            <div data-testid="no-engagements" style={{ textAlign: "center", padding: 30, color: "var(--text-dim)" }}>
+              <Handshake size={48} style={{ color: "var(--gold)", opacity: 0.5, marginBottom: 12 }} />
+              <div style={{ color: "var(--text)", fontWeight: 600, marginBottom: 8 }}>{t(lang, "noEngagementsTitle")}</div>
+              <div style={{ fontSize: 12, lineHeight: 1.5 }}>{t(lang, "noEngagementsSub")}</div>
+            </div>
+          ) : (
+            engagements.map(e => (
+              <button key={e.id} data-testid={`engagement-${e.id}`} onClick={() => { setActive(e); setView("thread"); }}
+                      style={{ display: "block", width: "100%", textAlign: "left", background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 12, padding: 14, marginBottom: 10, cursor: "pointer", color: "var(--text)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <div style={{ fontWeight: 700, color: "var(--gold)", fontSize: 14 }}>{e.firm_name || t(lang, "engInviteSent")}</div>
+                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", padding: "2px 8px", borderRadius: 6,
+                    background: e.status === "active" ? "rgba(34,197,94,0.15)" : e.status === "closed" ? "rgba(239,68,68,0.12)" : "rgba(247,201,72,0.15)",
+                    color: e.status === "active" ? "#86efac" : e.status === "closed" ? "#fca5a5" : "var(--gold)",
+                  }}>{t(lang, e.status === "active" ? "engStatusActive" : e.status === "closed" ? "engStatusClosed" : "engStatusInvited")}</span>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-dim)" }}>{t(lang, "engCase")}: {e.matter}</div>
+                {e.case_summary && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>{e.case_summary.slice(0, 120)}{e.case_summary.length > 120 ? "…" : ""}</div>}
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EngagementThread({ lang, engagement, onBack, onClose }) {
+  const [messages, setMessages] = useState([]);
+  const [files, setFiles] = useState([]);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [lexOut, setLexOut] = useState("");
+  const [showFileShare, setShowFileShare] = useState(false);
+  const messagesEndRef = useRef(null);
+
+  const eid = engagement.id;
+  const isClosed = engagement.status === "closed";
+
+  const load = async () => {
+    try {
+      const [m, f] = await Promise.all([
+        api.get(`/engagements/${eid}/messages`),
+        api.get(`/engagements/${eid}/files`),
+      ]);
+      setMessages(m.data.messages || []);
+      setFiles(f.data.files || []);
+    } catch (e) { /* no-op */ }
+  };
+  useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, []);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length]);
+
+  const send = async () => {
+    if (!draft.trim() || isClosed) return;
+    setBusy(true);
+    try {
+      await api.post(`/engagements/${eid}/messages`, { body: draft.trim() });
+      setDraft(""); setLexOut(""); await load();
+    } catch (e) { alert(e?.response?.data?.detail || "Failed to send."); }
+    finally { setBusy(false); }
+  };
+
+  const askLex = async (kind) => {
+    setBusy(true); setLexOut("");
+    try {
+      const { data } = await api.post(`/engagements/${eid}/lex-assist`, { kind });
+      setLexOut(data.output || "");
+      if (kind === "draft_reply") setDraft(data.output || "");
+    } catch (e) { alert("Lex temporarily unavailable. Try again."); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="modal-bg" data-testid="engagement-thread">
+      <div className="modal-card" style={{ padding: 18, display: "flex", flexDirection: "column" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 12, flexShrink: 0 }}>
+          <button onClick={onBack} data-testid="thread-back" style={{ background: "transparent", border: "none", color: "var(--gold)", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            <ArrowLeft size={18} /> Back
+          </button>
+          <div style={{ flex: 1, textAlign: "center", color: "var(--gold)", fontFamily: "Cinzel, serif", fontSize: 14 }}>{engagement.firm_name}</div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={20} /></button>
+        </div>
+
+        <div style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", marginBottom: 12, padding: "0 8px" }}>
+          🔒 End-to-end encrypted · {engagement.matter} · <span style={{ color: isClosed ? "#fca5a5" : "#86efac" }}>{t(lang, isClosed ? "engStatusClosed" : "engStatusActive")}</span>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "4px 2px" }}>
+          {messages.length === 0 ? (
+            <div style={{ textAlign: "center", color: "var(--text-dim)", fontSize: 12, padding: 30 }}>{t(lang, "engThreadEmpty")}</div>
+          ) : (
+            messages.map(m => (
+              <div key={m.id} data-testid={`msg-${m.id}`} style={{ display: "flex", justifyContent: m.sender_kind === "client" ? "flex-end" : "flex-start", marginBottom: 10 }}>
+                <div style={{
+                  maxWidth: "82%", padding: "8px 12px", borderRadius: 14,
+                  background: m.sender_kind === "client" ? "linear-gradient(135deg,#d6a017,#b88a1e)" : "var(--bg-card)",
+                  border: m.sender_kind === "client" ? "none" : "1px solid var(--line)",
+                  color: m.sender_kind === "client" ? "#1a1300" : "var(--text)",
+                  fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap",
+                }}>
+                  {m.body}
+                  <div style={{ fontSize: 9, opacity: 0.7, marginTop: 4 }}>
+                    {m.sender_kind === "client" ? t(lang, "engSentByYou") : t(lang, "engSentByFirm")} · {new Date(m.created_at).toLocaleString(lang)}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {files.length > 0 && (
+          <div style={{ marginTop: 8, marginBottom: 6, padding: "8px 10px", background: "rgba(247,201,72,0.05)", border: "1px solid var(--gold-deep)", borderRadius: 10 }}>
+            <div style={{ fontSize: 10, color: "var(--gold)", fontWeight: 700, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              📎 Shared files ({files.length})
+            </div>
+            {files.slice(0, 3).map(f => (
+              <div key={f.id} data-testid={`file-${f.id}`} style={{ fontSize: 12, color: "var(--text)", padding: "3px 0", display: "flex", justifyContent: "space-between" }}>
+                <span>{f.title} <span style={{ color: "var(--text-muted)", fontSize: 10 }}>({Math.round(f.size_bytes / 1024)} KB)</span></span>
+                <button data-testid={`dl-${f.id}`} onClick={async () => {
+                  try {
+                    const { data } = await api.get(`/engagements/${eid}/files/${f.id}`);
+                    const blob = new Blob([Uint8Array.from(atob(data.file_b64), c => c.charCodeAt(0))], { type: data.mime_type });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a"); a.href = url; a.download = f.title; document.body.appendChild(a); a.click();
+                    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
+                  } catch (e) { alert("Failed to download."); }
+                }} style={{ background: "transparent", border: "none", color: "var(--gold)", cursor: "pointer", fontSize: 11 }}>
+                  <Download size={12} /> Download
+                </button>
+              </div>
+            ))}
+            {files.length > 3 && <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>+ {files.length - 3} more</div>}
+          </div>
+        )}
+
+        {lexOut && (
+          <div style={{ marginTop: 6, padding: 10, background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)", borderRadius: 10 }}>
+            <div style={{ fontSize: 10, color: "var(--gold)", fontWeight: 700, marginBottom: 6, textTransform: "uppercase" }}>🤖 Lex</div>
+            <div style={{ fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", color: "var(--text)" }}>{lexOut}</div>
+            <button onClick={() => setLexOut("")} style={{ background: "transparent", border: "none", color: "var(--text-dim)", fontSize: 11, marginTop: 6, cursor: "pointer" }}>Dismiss</button>
+          </div>
+        )}
+
+        {!isClosed && (
+          <>
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexShrink: 0 }}>
+              <button data-testid="lex-draft-btn" onClick={() => askLex("draft_reply")} disabled={busy}
+                      style={{ flex: 1, padding: 8, background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 8, fontSize: 11, cursor: "pointer" }}>
+                ✨ {t(lang, "engLexDraft")}
+              </button>
+              <button data-testid="lex-summary-btn" onClick={() => askLex("summarise")} disabled={busy}
+                      style={{ flex: 1, padding: 8, background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 8, fontSize: 11, cursor: "pointer" }}>
+                📋 {t(lang, "engLexSummary")}
+              </button>
+              <button data-testid="share-file-btn" onClick={() => setShowFileShare(true)} disabled={busy}
+                      style={{ padding: 8, background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 8, fontSize: 11, cursor: "pointer" }}>
+                📎
+              </button>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexShrink: 0, alignItems: "flex-end" }}>
+              <textarea data-testid="thread-input" value={draft} onChange={(e) => setDraft(e.target.value)} rows={2}
+                        placeholder={t(lang, "engTypeMsg")}
+                        style={{ flex: 1, padding: 10, background: "#0a0a0a", border: "1px solid var(--line)", borderRadius: 10, color: "var(--text)", fontSize: 13, resize: "none" }} />
+              <button data-testid="thread-send-btn" className="btn-gold" onClick={send} disabled={busy || !draft.trim()} style={{ padding: "10px 14px", fontSize: 13 }}>
+                <Send size={14} />
+              </button>
+            </div>
+          </>
+        )}
+        {isClosed && (
+          <div style={{ textAlign: "center", padding: 12, color: "var(--text-dim)", fontSize: 12, borderTop: "1px solid var(--line)", marginTop: 10 }}>
+            This engagement is closed. No new messages can be sent.
+          </div>
+        )}
+      </div>
+
+      {showFileShare && <EngagementFileShare lang={lang} eid={eid} onClose={() => setShowFileShare(false)} onUploaded={async () => { setShowFileShare(false); await load(); }} />}
+    </div>
+  );
+}
+
+function EngagementFileShare({ lang, eid, onClose, onUploaded }) {
+  const [file, setFile] = useState(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const upload = async () => {
+    if (!file) return;
+    if (file.size > 12 * 1024 * 1024) { alert("Max 12MB per file."); return; }
+    setBusy(true);
+    try {
+      const b64 = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result.split(",")[1]);
+        r.onerror = rej; r.readAsDataURL(file);
+      });
+      await api.post(`/engagements/${eid}/files`, { title: file.name, mime_type: file.type || "application/octet-stream", file_b64: b64, note });
+      onUploaded();
+    } catch (e) { alert(e?.response?.data?.detail || "Upload failed."); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="modal-bg" data-testid="file-share-modal" style={{ zIndex: 10001 }}>
+      <div className="modal-card" style={{ padding: 20, maxHeight: 360 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h3 className="brand-font gold" style={{ fontSize: 17 }}>{t(lang, "engShareFile")}</h3>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={20} /></button>
+        </div>
+        <input type="file" data-testid="file-share-input" onChange={(e) => setFile(e.target.files[0])} style={{ marginBottom: 10, color: "var(--text)", fontSize: 13 }} />
+        {file && <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 10 }}>{file.name} ({Math.round(file.size / 1024)} KB)</div>}
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder={t(lang, "engFileNote")}
+                  style={{ width: "100%", padding: 10, background: "#0a0a0a", border: "1px solid var(--line)", borderRadius: 8, color: "var(--text)", fontSize: 13, marginBottom: 12 }} />
+        <button data-testid="file-share-upload" className="btn-gold w-full" onClick={upload} disabled={busy || !file} style={{ padding: 10 }}>
+          {busy ? "Uploading…" : t(lang, "engFileUpload")}
+        </button>
+        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 8, textAlign: "center" }}>
+          🔒 Encrypted at rest. Only you and your solicitor can access.
+        </div>
+      </div>
     </div>
   );
 }

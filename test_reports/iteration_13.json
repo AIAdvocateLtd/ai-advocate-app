@@ -1,0 +1,43 @@
+{
+  "summary": "Iter13 — Phase A/B/C Engagements + tier restructure + reminders badge + Settings z-index fix. Backend pytest 12/12 PASS (reminders/badge 200 with {count}, firm/subscribe rejects 'verified'/'enterprise' with 400, accepts featured/premium/practice; engagement creation gates: free=402, featured=402, premium=200 with limit=25; invite locked-to-email rejects wrong client with 403). Reference test_engagements.py 18/18 PASS end-to-end (firm signup -> tier bump -> invite -> accept -> messages encrypted -> file upload/download decrypts -> Lex draft+summary -> close-engagement blocks further messages). Frontend smoke (390x844): BottomNav renders all 5 items (Home/Vault/LEX/Lawyers/Cases); EngagementsModal opens from tile-engagements, lists 4 existing engagements, thread view opens with Lex Draft / Summary buttons + file 📎 + 'Type a message...' input; FirmPortal /firm-portal renders FirmAuth with Sign in / Register firm tabs; firm signup succeeds and FirmDashboard mounts; BillingModal via firm-billing-btn shows all 3 tiers £49/£199/£399 with correct labels. Settings z-index fix VERIFIED — legal-tos-modal, legal-privacy-modal, manage-data-modal all open on top of the Settings modal correctly (the bug from this session is fixed).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Dashboard mobile layout (390x844)", "issue": "Fixed bottom-nav (~60px) covers the last visible row of tiles. tile-engagements bounding box at y=790 height=130 — bottom of tile (920) extends below viewport AND its visible portion is partially under the fixed bottom-nav, so direct taps land on the bottom-nav buttons (home/vault/lex/lawyers/cases). Confirmed by repro: tile.click(force=true) at default scroll position did NOT open EngagementsModal; after page.evaluate('window.scrollBy(0,400)') and JS .click(), modal opens cleanly. Real users will tap-and-miss for any tile that lands at the bottom of the grid (currently 🤝 My Solicitor sits in that zone on iPhone-class viewports). Fix: add bottom padding/margin to the dashboard tile grid container equal to nav height + safe-area inset (e.g. paddingBottom: 'calc(80px + env(safe-area-inset-bottom))').", "selector": "[data-testid=\"tile-engagements\"] / .tile-clean container", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter13_engagements.py",
+    "/app/backend/tests/test_engagements.py",
+    "/app/test_reports/pytest/iter13_results.xml"
+  ],
+  "action_items": [
+    "[MEDIUM] Dashboard tile grid needs bottom padding to clear the fixed BottomNav on small viewports — currently the last row tiles (tile-engagements / tile-cases / tile-immigration) get partially obscured and their tap targets are intercepted by nav buttons. Add `paddingBottom: 'calc(80px + env(safe-area-inset-bottom))'` (or equivalent) to the tile grid container in Dashboard.",
+    "[INFO] All other features in scope verified — engagements full lifecycle (invite/accept/messages/files/Lex/close), tier 402 gates, plan validation (featured/premium/practice), reminders/badge endpoint, firm portal auth + dashboard + billing modal, legal/privacy/manage-data modals (z-index fix verified)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 4406 lines — long overdue for splitting (suggest: engagements_router.py, firm_router.py, reminders_router.py, contracts_router.py).",
+    "Engagement testids on consumer side use raw UUID suffix (engagement-<uuid>) — testable but verbose; consider adding an index-based testid alias for E2E tests (e.g. engagement-row-0).",
+    "/api/firm/engagements does not return a 'tier' field in the list response — frontend currently has to infer tier from a separate call. Adding `tier` and `engagement_limit` to GET /api/firm/engagements would let FirmDashboard render the quota meter without a second roundtrip.",
+    "EngagementCreate doesn't validate that client_email differs from the firm's own contact email — a firm could 'invite itself' creating a self-engagement. Add a guard.",
+    "FIRM_ENGAGEMENT_LIMITS['featured']=0 means a featured-tier firm appears in the directory but cannot start engagements. Make this UX-visible: on the firm dashboard show 'Engagements: not included in Featured — upgrade to Premium' instead of silently 402'ing on Invite click."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter13_engagements.py (NEW — 12 pytest cases: reminders/badge auth+shape, firm/subscribe plan rejection+acceptance, free/featured/premium tier 402-vs-200 gate, firm/engagements list limit=25, invite locked-to-email rejection, public preview 404)"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12 iter13 + 18/18 reference test_engagements.py)",
+    "frontend": "95% — all features render and integrate correctly; one UX-level click-target obstruction on mobile (BottomNav over last tile row)"
+  },
+  "test_credentials": "Consumer: test@advocate.app / Test12345!. Firm: auto-generated TEST_uifirm_<ts>@advocate.app / FirmPass123! (signup creates free-tier firm; iter13 test bumps to premium via pymongo update on db.firm_accounts).",
+  "seed_data_creation": "Each iter13 run creates ~5 throwaway firm accounts (TEST_firm_iter13_<ts>@advocate.app) used to test tier gating. They remain in db.firm_accounts post-run — no cleanup. Reference test_engagements.py also creates 1 firm + 1 engagement bound to test@advocate.app per run; old engagements accumulate (consumer now shows 4 historic engagements in 'My Solicitor').",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Re-run backend: `REACT_APP_BACKEND_URL=https://ai-law-guide-1.preview.emergentagent.com MONGO_URL=mongodb://localhost:27017 DB_NAME=ai_advocate_db python -m pytest /app/backend/tests/test_iter13_engagements.py /app/backend/tests/test_engagements.py -v` (~30s). KEY frontend testids: tile-engagements, engagements-modal, engagements-close, invite-input, invite-accept-btn, engagement-<uuid> (list rows), engagement-thread, msg-input (textarea); legal-tos-modal+legal-tos-close, legal-privacy-modal+legal-privacy-close, manage-data-modal+manage-data-close; settings-btn (NOT open-settings); nav-home/nav-vault/nav-lex/nav-lawyers/nav-cases, nav-cases-badge (hidden when count=0); firm portal: firm-billing-btn, FirmAuth Sign-in/Register toggle (no testids on the auth inputs — found by placeholder). IMPORTANT mobile flow: viewport 390x844 — the bottom nav covers ~60px at bottom; scroll the page down (~400px) before clicking the bottom-row tiles (engagements, cases, immigration, employment, property, medical) or use page.evaluate('document.querySelector(...).click()') to bypass nav-overlay. Default click(force=true) is NOT enough because the nav-button receives the event when it's on top in the stacking context.",
+  "rca of the issue": "ISSUE (tile-engagements click did not open modal on first attempt) — RCA: Mobile 390x844 viewport renders Dashboard tile grid that extends below the visible area. The BottomNav (position:fixed, bottom:0, ~60px tall) overlays the last row of tiles. The tile-engagements bounding box was {y:790, height:130}; bottom-nav z-index is higher than tile, so synthetic clicks via Playwright's `click(force=true)` at the tile centre actually land on the nav button (nav-lex/nav-lawyers — the gold avatar in the middle). Two fixes available: (1) DEV: add `paddingBottom: calc(80px + env(safe-area-inset-bottom))` to the tile grid container so all tiles clear the nav; (2) TEST workaround: scroll the page so the tile is in the upper half of the viewport (or use a JS .click() which doesn't simulate pointer geometry). Functional code is correct — setModal({type: 'engagements'}) -> EngagementsModal renders with all expected children. The reference test_engagements.py confirms the full backend round-trip works."
+}
