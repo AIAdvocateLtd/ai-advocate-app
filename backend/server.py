@@ -2899,6 +2899,21 @@ async def list_reminders(user: dict = Depends(get_user), status: Optional[str] =
         out.append(r)
     return {"reminders": out}
 
+@api_router.get("/reminders/badge")
+async def reminders_badge(user: dict = Depends(get_user)):
+    """Count pending reminders due within next 3 days — used for nav-dot + native app-icon badge."""
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(days=3)
+    cutoff_iso = cutoff.isoformat()
+    now_minus_30d = (now - timedelta(days=30)).isoformat()
+    q = {
+        "user_id": user["id"],
+        "status": "pending",
+        "due_at": {"$lte": cutoff_iso, "$gte": now_minus_30d},  # due-soon OR recently overdue
+    }
+    count = await db.reminders.count_documents(q)
+    return {"count": count}
+
 @api_router.patch("/reminders/{rid}")
 async def update_reminder(rid: str, status: Optional[str] = None, user: dict = Depends(get_user)):
     if status not in ("pending", "done", "dismissed"):

@@ -13,7 +13,7 @@ export const STRINGS = {
     effectiveDate: "Effective date: {date}. You must read and accept these Terms and the Privacy Policy below to use AI Advocate.",
     askLex: "Ask Lex", recordLegal: "Record Legal Interaction",
     askLexSub: "Any question, any topic",
-    home: "Home", lawyers: "Lawyers", files: "Files",
+    home: "Home", lawyers: "Lawyers", files: "Files", vault: "Vault", cases: "Cases",
     suggestionsTitle: "Try asking Lex:",
     sug1: "My landlord is keeping my deposit",
     sug2: "I'm going through a divorce",
@@ -78,7 +78,7 @@ const EXTRA = {
   "es-ES": {
     effectiveDate: "Fecha de entrada en vigor: {date}. Debe leer y aceptar estos Términos y la Política de Privacidad para usar AI Advocate.",
     askLexSub: "Cualquier pregunta, cualquier tema",
-    home: "Inicio", lawyers: "Abogados", files: "Archivos", settings: "Ajustes",
+    home: "Inicio", lawyers: "Abogados", files: "Archivos", vault: "Bóveda", cases: "Casos", settings: "Ajustes",
     snapEvidence: "Capturar Pruebas", findLawyer: "Buscar un Abogado",
     suggestionsTitle: "Prueba a preguntarle a Lex:",
     sug1: "Mi casero se queda con mi fianza", sug2: "Estoy pasando por un divorcio",
@@ -99,7 +99,7 @@ const EXTRA = {
   "fr-FR": {
     effectiveDate: "Date d'entrée en vigueur : {date}. Vous devez lire et accepter ces Conditions et la Politique de Confidentialité pour utiliser AI Advocate.",
     askLexSub: "Toute question, tout sujet",
-    home: "Accueil", lawyers: "Avocats", files: "Fichiers", settings: "Paramètres",
+    home: "Accueil", lawyers: "Avocats", files: "Fichiers", vault: "Coffre", cases: "Dossiers", settings: "Paramètres",
     snapEvidence: "Capturer une preuve", findLawyer: "Trouver un avocat",
     suggestionsTitle: "Essayez de demander à Lex :",
     sug1: "Mon propriétaire garde ma caution", sug2: "Je traverse un divorce",
@@ -119,7 +119,7 @@ const EXTRA = {
   "ar-IQ": {
     effectiveDate: "تاريخ السريان: {date}. يجب عليك قراءة وقبول هذه الشروط وسياسة الخصوصية أدناه لاستخدام AI Advocate.",
     askLexSub: "أي سؤال، أي موضوع",
-    home: "الرئيسية", lawyers: "المحامون", files: "الملفات", settings: "الإعدادات",
+    home: "الرئيسية", lawyers: "المحامون", files: "الملفات", vault: "الخزنة", cases: "القضايا", settings: "الإعدادات",
     snapEvidence: "التقاط دليل", findLawyer: "ابحث عن محامي",
     suggestionsTitle: "جرّب أن تسأل ليكس:",
     sug1: "مالك العقار يحتجز وديعتي", sug2: "أمر بالطلاق",
@@ -139,7 +139,7 @@ const EXTRA = {
   "pl-PL": {
     effectiveDate: "Data wejścia w życie: {date}. Aby korzystać z AI Advocate musisz przeczytać i zaakceptować poniższy Regulamin oraz Politykę Prywatności.",
     askLexSub: "Każde pytanie, każdy temat",
-    home: "Start", lawyers: "Prawnicy", files: "Pliki", settings: "Ustawienia",
+    home: "Start", lawyers: "Prawnicy", files: "Pliki", vault: "Sejf", cases: "Sprawy", settings: "Ustawienia",
     snapEvidence: "Zrób zdjęcie dowodu", findLawyer: "Znajdź prawnika",
     suggestionsTitle: "Zapytaj Lexa o:",
     sug1: "Wynajmujący zatrzymuje moją kaucję", sug2: "Przechodzę przez rozwód",
@@ -159,7 +159,7 @@ const EXTRA = {
   "de-DE": {
     effectiveDate: "Inkrafttretensdatum: {date}. Sie müssen die folgenden Nutzungsbedingungen und die Datenschutzerklärung lesen und akzeptieren, um AI Advocate zu nutzen.",
     askLexSub: "Jede Frage, jedes Thema",
-    home: "Start", lawyers: "Anwälte", files: "Dateien", settings: "Einstellungen",
+    home: "Start", lawyers: "Anwälte", files: "Dateien", vault: "Tresor", cases: "Fälle", settings: "Einstellungen",
     snapEvidence: "Beweis fotografieren", findLawyer: "Anwalt finden",
     suggestionsTitle: "Frag Lex zum Beispiel:",
     sug1: "Mein Vermieter behält meine Kaution", sug2: "Ich gehe durch eine Scheidung",
@@ -179,7 +179,7 @@ const EXTRA = {
   "hi-IN": {
     effectiveDate: "प्रभावी तिथि: {date}. AI Advocate का उपयोग करने के लिए आपको नीचे दी गई शर्तें और गोपनीयता नीति पढ़कर स्वीकार करनी होगी।",
     askLexSub: "कोई भी प्रश्न, कोई भी विषय",
-    home: "होम", lawyers: "वकील", files: "फ़ाइलें", settings: "सेटिंग्स",
+    home: "होम", lawyers: "वकील", files: "फ़ाइलें", vault: "तिजोरी", cases: "केस", settings: "सेटिंग्स",
     snapEvidence: "सबूत खींचें", findLawyer: "वकील ढूंढें",
     suggestionsTitle: "Lex से पूछें:",
     sug1: "मेरा मकान मालिक मेरी जमा राशि रख रहा है", sug2: "मैं तलाक से गुज़र रहा हूँ",
@@ -199,7 +199,7 @@ const EXTRA = {
   "ur-PK": {
     effectiveDate: "تاریخِ نفاذ: {date}۔ AI Advocate استعمال کرنے کے لیے آپ کو نیچے دی گئی شرائط اور پرائیویسی پالیسی پڑھ کر قبول کرنا ضروری ہے۔",
     askLexSub: "کوئی بھی سوال، کوئی بھی موضوع",
-    home: "ہوم", lawyers: "وکلاء", files: "فائلیں", settings: "ترتیبات",
+    home: "ہوم", lawyers: "وکلاء", files: "فائلیں", vault: "والٹ", cases: "کیسز", settings: "ترتیبات",
     snapEvidence: "ثبوت کی تصویر", findLawyer: "وکیل تلاش کریں",
     suggestionsTitle: "Lex سے پوچھیں:",
     sug1: "مالک مکان میری ضمانت رکھے ہوئے ہے", sug2: "میں طلاق سے گزر رہا ہوں",
@@ -219,7 +219,7 @@ const EXTRA = {
   "it-IT": {
     effectiveDate: "Data di entrata in vigore: {date}. Devi leggere e accettare i seguenti Termini e l'Informativa sulla Privacy per usare AI Advocate.",
     askLexSub: "Qualsiasi domanda, qualsiasi argomento",
-    home: "Home", lawyers: "Avvocati", files: "File", settings: "Impostazioni",
+    home: "Home", lawyers: "Avvocati", files: "File", vault: "Cassaforte", cases: "Casi", settings: "Impostazioni",
     snapEvidence: "Scatta una prova", findLawyer: "Trova un avvocato",
     suggestionsTitle: "Prova a chiedere a Lex:",
     sug1: "Il padrone di casa trattiene la cauzione", sug2: "Sto affrontando un divorzio",
@@ -239,7 +239,7 @@ const EXTRA = {
   "pt-PT": {
     effectiveDate: "Data de entrada em vigor: {date}. Deve ler e aceitar estes Termos e a Política de Privacidade abaixo para usar o AI Advocate.",
     askLexSub: "Qualquer pergunta, qualquer tema",
-    home: "Início", lawyers: "Advogados", files: "Ficheiros", settings: "Definições",
+    home: "Início", lawyers: "Advogados", files: "Ficheiros", vault: "Cofre", cases: "Processos", settings: "Definições",
     snapEvidence: "Capturar prova", findLawyer: "Encontrar advogado",
     suggestionsTitle: "Experimente perguntar ao Lex:",
     sug1: "O senhorio retém o meu depósito", sug2: "Estou a passar por um divórcio",
@@ -259,7 +259,7 @@ const EXTRA = {
   "zh-CN": {
     effectiveDate: "生效日期：{date}。您必须阅读并接受以下条款和隐私政策才能使用 AI Advocate。",
     askLexSub: "任何问题，任何话题",
-    home: "首页", lawyers: "律师", files: "文件", settings: "设置",
+    home: "首页", lawyers: "律师", files: "文件", vault: "保险库", cases: "案件", settings: "设置",
     snapEvidence: "拍摄证据", findLawyer: "查找律师",
     suggestionsTitle: "试试问 Lex：",
     sug1: "房东扣留我的押金", sug2: "我正在办离婚",

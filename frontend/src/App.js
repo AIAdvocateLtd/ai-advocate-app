@@ -8,6 +8,7 @@ import {
   Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
+import { setAppIconBadge } from "@/appBadge";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
 // we hide all Subscribe / Upgrade buttons (and replace them with a web-billing notice).
@@ -2926,13 +2927,13 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
 }
 
 // ---------- Bottom Navigation ----------
-function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub }) {
+function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub, badges = {} }) {
   const items = [
     { k: "home", Icon: HomeIcon, lbl: t(lang, "home") },
-    { k: "files", Icon: Folder, lbl: t(lang, "files") },
+    { k: "vault", Icon: ShieldCheck, lbl: t(lang, "vault") },
     { k: "lex", center: true },
     { k: "lawyers", Icon: Building2, lbl: t(lang, "lawyers") },
-    { k: "settings", Icon: SettingsIcon, lbl: t(lang, "settings") },
+    { k: "cases", Icon: Briefcase, lbl: t(lang, "cases") },
   ];
   const handle = (k) => {
     if (k === "home") return; // already home
@@ -2963,8 +2964,20 @@ function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub }) {
         </div>
       ) : (
         <button key={it.k} data-testid={`nav-${it.k}`} onClick={() => handle(it.k)}
-                style={{ background: "transparent", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flex: 1, cursor: "pointer", padding: 4 }}>
-          <it.Icon size={20} style={{ color: active === it.k ? "var(--gold)" : "var(--text-muted)" }} />
+                style={{ background: "transparent", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flex: 1, cursor: "pointer", padding: 4, position: "relative" }}>
+          <div style={{ position: "relative", display: "inline-flex" }}>
+            <it.Icon size={20} style={{ color: active === it.k ? "var(--gold)" : "var(--text-muted)" }} />
+            {badges[it.k] > 0 && (
+              <span data-testid={`nav-${it.k}-badge`} style={{
+                position: "absolute", top: -4, right: -6,
+                minWidth: 14, height: 14, padding: "0 4px",
+                borderRadius: 7, background: "var(--gold)", color: "#1a1300",
+                fontSize: 9, fontWeight: 800, display: "inline-flex",
+                alignItems: "center", justifyContent: "center",
+                boxShadow: "0 0 8px rgba(247,201,72,0.7)",
+              }}>{badges[it.k] > 9 ? "9+" : badges[it.k]}</span>
+            )}
+          </div>
           <span style={{ fontSize: 10, color: active === it.k ? "var(--gold)" : "var(--text-muted)" }}>{it.lbl}</span>
         </button>
       ))}
@@ -3002,6 +3015,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
 
   const [voiceMode, setVoiceMode] = useState(null); // {initialText} | null
   const [reviewPrompt, setReviewPrompt] = useState(null); // {daysLeft}
+  const [casesBadge, setCasesBadge] = useState(0); // # reminders due ≤3 days
 
   // Trustpilot pre-renewal nudge — once per session, only if backend says it's the right window
   useEffect(() => {
@@ -3010,6 +3024,25 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     api.get("/review/should-prompt").then(r => {
       if (r.data?.should_prompt) setReviewPrompt({ daysLeft: r.data.days_left });
     }).catch(() => {});
+  }, []);
+
+  // Reminders badge — count items due within 3 days, sync to nav-dot + native app-icon
+  useEffect(() => {
+    let cancelled = false;
+    const fetchBadge = async () => {
+      try {
+        const { data } = await api.get("/reminders/badge");
+        if (cancelled) return;
+        const n = Number(data?.count || 0);
+        setCasesBadge(n);
+        setAppIconBadge(n); // best-effort — silent if platform unsupported
+      } catch (e) { /* no-op */ }
+    };
+    fetchBadge();
+    const onVis = () => { if (document.visibilityState === "visible") fetchBadge(); };
+    document.addEventListener("visibilitychange", onVis);
+    const tick = setInterval(fetchBadge, 5 * 60 * 1000); // re-poll every 5 min
+    return () => { cancelled = true; document.removeEventListener("visibilitychange", onVis); clearInterval(tick); };
   }, []);
   // "Hey Lex" wake word — opens Siri-style Voice Mode (Plus+ only)
   const handleWake = useCallback((trailing) => {
@@ -3180,15 +3213,16 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {showSuggest && <SuggestFeatureModal lang={lang} onClose={() => setShowSuggest(false)} />}
 
       <BottomNav lang={lang} active="home"
+        badges={{ cases: casesBadge }}
         onNav={(k) => {
           if (k === "lex") {
             // Tapping Lex centre button → open Siri-style Voice Mode (Plus+ only)
             if (!hasTier("plus")) { setSubPreset("plus"); setShowSub(true); return; }
             setVoiceMode({ initialText: "" });
           }
-          else if (k === "files") setModal({ type: "files" });
+          else if (k === "vault") setModal({ type: "vault" });
+          else if (k === "cases") setModal({ type: "cases" });
           else if (k === "lawyers") setModal({ type: "lawyers" });
-          else if (k === "settings") setShowSettings(true);
         }} hasAccess={true} requireSub={() => setShowSub(true)} />
 
       {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} tier={tier} onClose={() => setModal(null)} onSwitchCategory={(newCat) => {
