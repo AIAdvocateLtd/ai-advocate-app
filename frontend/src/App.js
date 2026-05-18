@@ -2508,6 +2508,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
   };
 
   return (
+    <>
     <div className="modal-bg" data-testid="settings-modal">
       <div className="modal-card" style={{ padding: 22, display: "flex", flexDirection: "column" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 18, flexShrink: 0 }}>
@@ -2797,9 +2798,10 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
         </div>
         </div>
       </div>
-      {legalDoc && <LegalDocModal kind={legalDoc} lang={lang} onClose={() => setLegalDoc(null)} />}
-      {showManage && <ManageDataModal lang={lang} onClose={() => setShowManage(false)} onAccountDeleted={() => { setShowManage(false); window.location.reload(); }} />}
     </div>
+    {legalDoc && <LegalDocModal kind={legalDoc} lang={lang} onClose={() => setLegalDoc(null)} />}
+    {showManage && <ManageDataModal lang={lang} onClose={() => setShowManage(false)} onAccountDeleted={() => { setShowManage(false); window.location.reload(); }} />}
+    </>
   );
 }
 
