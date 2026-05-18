@@ -255,3 +255,15 @@ export const SuggestIcon = ({ size = 22 }) => (
   </svg>
 );
 
+// HandshakeIcon — two hands clasping (matches stroke-only heraldic style)
+export const HandshakeIcon = ({ size = 44 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" {...base}>
+    <path d="M6 30 L14 22 H26 L32 28 L26 34 L20 28"/>
+    <path d="M32 28 L38 22 H50 L58 30 V42 L50 50 H42 L36 44"/>
+    <path d="M20 28 L14 34 V42 L22 50 H30 L36 44"/>
+    <line x1="32" y1="36" x2="38" y2="42"/>
+    <line x1="28" y1="40" x2="34" y2="46"/>
+  </svg>
+);
+
+

@@ -41,6 +41,7 @@ export const STRINGS = {
     vaultWipedBody: "After 10 wrong PIN attempts, all vault items were destroyed to protect your data. Re-setup required.",
     vaultUploadBtn: "Upload to Vault",
     vaultUploadDisabled: "Upload to Vault",
+    deleteAccountSettings: "Delete my account",
     suggestionsTitle: "Try asking Lex:",
     sug1: "My landlord is keeping my deposit",
     sug2: "I'm going through a divorce",

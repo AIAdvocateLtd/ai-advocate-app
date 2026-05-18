@@ -5,7 +5,7 @@ import {
   MessageCircle, Mic, Folder, FileText, Gavel, Globe, Briefcase, Home as HomeIcon,
   Stethoscope, Scale, X, Send, Upload, Languages, LogOut, Check, ArrowLeft, Square, Play,
   Camera, MapPin, Phone, ExternalLink, Settings as SettingsIcon, Star, Building2, Image as ImageIcon,
-  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint, Handshake
+  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
 import { setAppIconBadge } from "@/appBadge";
@@ -18,7 +18,7 @@ import {
   AskLexIcon, RecordIcon, CameraIcon, LawyerIcon, FilesIcon, LetterIcon,
   CourtIcon, ImmigrationIcon, EmploymentIcon, PropertyIcon, MedicalIcon,
   OutcomeIcon, CostIcon, HearingIcon, AidIcon, ReminderIcon,
-  ContractIcon, DraftIcon, VaultIcon, SuggestIcon
+  ContractIcon, DraftIcon, VaultIcon, SuggestIcon, HandshakeIcon
 } from "@/icons";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -2424,19 +2424,34 @@ function AdvertiseModal({ lang, onClose }) {
         ) : (
           <div style={{ overflowY: "auto" }}>
             <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12 }}>{t(lang, "advertiseSubtitle")}</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-              <div style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 10, textAlign: "center" }}>
-                <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>Featured</div>
-                <div style={{ color: "var(--text)", fontSize: 18, fontWeight: 700, marginTop: 4 }}>£49<span style={{ fontSize: 11, color: "var(--text-muted)" }}>/mo</span></div>
-                <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4, lineHeight: 1.4 }}>Top of search · Sponsored badge · Direct enquiries</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 14 }}>
+              <div style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                  <span style={{ color: "var(--gold)", fontSize: 13, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>Featured</span>
+                  <span style={{ color: "var(--text)", fontSize: 18, fontWeight: 700 }}>£49<span style={{ fontSize: 11, color: "var(--text-muted)" }}>/mo</span></span>
+                </div>
+                <div style={{ color: "var(--text-muted)", fontSize: 11, lineHeight: 1.5 }}>Directory listing · Top of search · Sponsored badge · Direct client enquiries</div>
               </div>
-              <div style={{ background: "linear-gradient(135deg, rgba(247,201,72,0.12), rgba(247,201,72,0.02))", border: "1px solid var(--gold)", borderRadius: 12, padding: 10, textAlign: "center", position: "relative" }}>
-                <div style={{ position: "absolute", top: -8, left: "50%", transform: "translateX(-50%)", background: "var(--gold)", color: "#1a1300", fontSize: 9, padding: "2px 8px", borderRadius: 6, fontWeight: 700, letterSpacing: "0.05em" }}>BEST VALUE</div>
-                <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>Premium Sponsor</div>
-                <div style={{ color: "var(--text)", fontSize: 18, fontWeight: 700, marginTop: 4 }}>£149<span style={{ fontSize: 11, color: "var(--text-muted)" }}>/mo</span></div>
-                <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4, lineHeight: 1.4 }}>Hero card · Verified ✓ · Logo · Direct call CTA</div>
+              <div style={{ background: "linear-gradient(135deg, rgba(247,201,72,0.12), rgba(247,201,72,0.02))", border: "1px solid var(--gold)", borderRadius: 12, padding: 12, position: "relative" }}>
+                <div style={{ position: "absolute", top: -8, right: 12, background: "var(--gold)", color: "#1a1300", fontSize: 9, padding: "2px 8px", borderRadius: 6, fontWeight: 700, letterSpacing: "0.05em" }}>MOST POPULAR</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                  <span style={{ color: "var(--gold)", fontSize: 13, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>Premium</span>
+                  <span style={{ color: "var(--text)", fontSize: 18, fontWeight: 700 }}>£199<span style={{ fontSize: 11, color: "var(--text-muted)" }}>/mo</span></span>
+                </div>
+                <div style={{ color: "var(--text-muted)", fontSize: 11, lineHeight: 1.5 }}>Everything in Featured · Verified badge · <strong style={{ color: "var(--gold)" }}>Secure client portal (25 engagements)</strong> · 100 Lex AI assists/mo</div>
+              </div>
+              <div style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                  <span style={{ color: "var(--gold)", fontSize: 13, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>Practice</span>
+                  <span style={{ color: "var(--text)", fontSize: 18, fontWeight: 700 }}>£399<span style={{ fontSize: 11, color: "var(--text-muted)" }}>/mo</span></span>
+                </div>
+                <div style={{ color: "var(--text-muted)", fontSize: 11, lineHeight: 1.5 }}>Everything in Premium · <strong style={{ color: "var(--gold)" }}>Unlimited engagements</strong> · 5 lawyer seats · 1,000 Lex AI assists/mo · Priority support</div>
               </div>
             </div>
+            <a href="/firm-portal" data-testid="adv-firm-portal-link" target="_blank" rel="noreferrer"
+               style={{ display: "block", textAlign: "center", padding: "10px", background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 10, color: "var(--gold)", fontSize: 12, fontWeight: 600, marginBottom: 14, textDecoration: "none" }}>
+              Already a customer? Sign in to the Firm Portal →
+            </a>
             <input className="input" data-testid="adv-firm" placeholder={t(lang, "firmName")} value={form.firm_name} onChange={(e) => setForm({ ...form, firm_name: e.target.value })} style={{ marginBottom: 8 }} />
             <input className="input" data-testid="adv-contact" placeholder={t(lang, "contactName")} value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} style={{ marginBottom: 8 }} />
             <input className="input" data-testid="adv-email" type="email" placeholder={t(lang, "email")} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} style={{ marginBottom: 8 }} />
@@ -2796,6 +2811,11 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
           <button onClick={() => setShowManage(true)} data-testid="open-manage-data" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "10px 12px", background: "transparent", border: "none", color: "var(--text)", fontSize: 13, cursor: "pointer", borderRadius: 8 }}>
             <span>🗂️ {t(lang, "manageDataTitle")}</span> <ExternalLink size={14} style={{ color: "var(--text-dim)" }} />
           </button>
+          {/* App Store 5.1.1(v) — clear in-app account deletion entry */}
+          <button onClick={() => setShowManage(true)} data-testid="open-delete-account"
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "10px 12px", background: "transparent", border: "none", color: "#fca5a5", fontSize: 13, cursor: "pointer", borderRadius: 8, marginTop: 4 }}>
+            <span>🗑️ {t(lang, "deleteAccountSettings")}</span> <ExternalLink size={14} style={{ color: "#fca5a5" }} />
+          </button>
         </div>
         </div>
       </div>
@@ -3076,7 +3096,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
     { id: "letter_reader", label: t(lang, "letterReader"), Icon: LetterIcon, req: "free" },
     { id: "contracts", label: t(lang, "contractTools"), Icon: ContractIcon, req: "free" },
-    { id: "engagements", label: t(lang, "mySolicitor"), sub: t(lang, "mySolicitorSub"), Icon: Handshake, req: "free" },
+    { id: "engagements", label: t(lang, "mySolicitor"), sub: t(lang, "mySolicitorSub"), Icon: HandshakeIcon, req: "free" },
     { id: "vault", label: t(lang, "vaultTitle"), Icon: VaultIcon, req: "free" },
     { id: "outcome", label: t(lang, "predictOutcome"), Icon: OutcomeIcon, req: "pro" },
     { id: "cost", label: t(lang, "lawyerCost"), Icon: CostIcon, req: "free" },
@@ -5636,7 +5656,7 @@ function EngagementsModal({ lang, country, user, onClose }) {
             <div style={{ textAlign: "center", color: "var(--text-dim)", fontSize: 13, padding: 30 }}>Loading…</div>
           ) : engagements.length === 0 ? (
             <div data-testid="no-engagements" style={{ textAlign: "center", padding: 30, color: "var(--text-dim)" }}>
-              <Handshake size={48} style={{ color: "var(--gold)", opacity: 0.5, marginBottom: 12 }} />
+              <div style={{ color: "var(--gold)", opacity: 0.5, marginBottom: 12 }}><HandshakeIcon size={48} /></div>
               <div style={{ color: "var(--text)", fontWeight: 600, marginBottom: 8 }}>{t(lang, "noEngagementsTitle")}</div>
               <div style={{ fontSize: 12, lineHeight: 1.5 }}>{t(lang, "noEngagementsSub")}</div>
             </div>

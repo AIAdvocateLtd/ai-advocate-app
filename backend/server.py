@@ -1951,36 +1951,84 @@ async def stripe_webhook(request: Request):
     elif etype == "customer.subscription.deleted":
         customer_id = obj.get("customer")
         if customer_id:
-            await db.users.update_one({"stripe_customer_id": customer_id},
-                                      {"$set": {"subscription_status": "canceled",
-                                                "tier": "free",
-                                                "subscription_ended_at": now_iso}})
-            logger.info(f"Subscription canceled for customer {customer_id}")
+            # Downgrade consumer if matching user
+            consumer_res = await db.users.update_one(
+                {"stripe_customer_id": customer_id},
+                {"$set": {"subscription_status": "canceled", "tier": "free", "subscription_ended_at": now_iso}}
+            )
+            # Downgrade firm if matching firm_account
+            firm_res = await db.firm_accounts.update_one(
+                {"stripe_customer_id": customer_id},
+                {"$set": {"tier": "free", "billing_tier": "free", "billing_status": "canceled",
+                          "featured": False, "verified": False, "subscription_ended_at": now_iso}}
+            )
+            # Also remove firm visibility flags in the public lawfirms directory
+            firm = await db.firm_accounts.find_one({"stripe_customer_id": customer_id}, {"_id": 0, "id": 1})
+            if firm:
+                await db.lawfirms.update_one({"firm_account_id": firm["id"]},
+                                             {"$set": {"featured": False, "verified": False}})
+            logger.info(f"Subscription canceled for customer {customer_id} — consumer={consumer_res.modified_count} firm={firm_res.modified_count}")
     elif etype == "customer.subscription.updated":
         customer_id = obj.get("customer")
         status_val = obj.get("status")
-        # Re-derive tier from latest price
-        new_tier = None
+        # Derive tier from latest price (consumer)
+        new_consumer_tier = None
+        new_firm_tier = None
         for item in (obj.get("items") or {}).get("data", []):
             pid = (item.get("price") or {}).get("id")
             if pid in PRICE_TO_TIER:
-                new_tier = PRICE_TO_TIER[pid]
+                new_consumer_tier = PRICE_TO_TIER[pid]
                 break
-        update = {"subscription_updated_at": now_iso}
+            # Check firm price IDs
+            firm_prices = {
+                os.environ.get("STRIPE_PRICE_FIRM_FEATURED", ""): "featured",
+                os.environ.get("STRIPE_PRICE_FIRM_PREMIUM", ""): "premium",
+                os.environ.get("STRIPE_PRICE_FIRM_PRACTICE", ""): "practice",
+            }
+            if pid in firm_prices and firm_prices[pid]:
+                new_firm_tier = firm_prices[pid]
+                break
+        # Update consumer
+        consumer_update = {"subscription_updated_at": now_iso}
         if status_val:
-            update["subscription_status"] = status_val
+            consumer_update["subscription_status"] = status_val
             if status_val in ("canceled", "incomplete_expired", "unpaid"):
-                update["tier"] = "free"
-            elif new_tier and status_val == "active":
-                update["tier"] = new_tier
+                consumer_update["tier"] = "free"
+            elif new_consumer_tier and status_val == "active":
+                consumer_update["tier"] = new_consumer_tier
         if customer_id:
-            await db.users.update_one({"stripe_customer_id": customer_id}, {"$set": update})
+            await db.users.update_one({"stripe_customer_id": customer_id}, {"$set": consumer_update})
+            # Update firm if it matches
+            firm_update = {"subscription_updated_at": now_iso}
+            if status_val:
+                firm_update["billing_status"] = status_val
+                if status_val in ("canceled", "incomplete_expired", "unpaid"):
+                    firm_update["tier"] = "free"
+                    firm_update["billing_tier"] = "free"
+                    firm_update["featured"] = False
+                    firm_update["verified"] = False
+                elif new_firm_tier and status_val == "active":
+                    firm_update["tier"] = new_firm_tier
+                    firm_update["billing_tier"] = new_firm_tier
+                    firm_update["featured"] = (new_firm_tier in ("featured", "premium", "practice"))
+                    firm_update["verified"] = (new_firm_tier in ("premium", "practice"))
+            res = await db.firm_accounts.update_one({"stripe_customer_id": customer_id}, {"$set": firm_update})
+            # Reflect firm visibility in lawfirms directory
+            if res.modified_count > 0 and "featured" in firm_update:
+                firm = await db.firm_accounts.find_one({"stripe_customer_id": customer_id}, {"_id": 0, "id": 1})
+                if firm:
+                    await db.lawfirms.update_one({"firm_account_id": firm["id"]},
+                                                 {"$set": {"featured": firm_update["featured"], "verified": firm_update["verified"]}})
     elif etype == "invoice.payment_failed":
         customer_id = obj.get("customer")
         if customer_id:
             await db.users.update_one({"stripe_customer_id": customer_id},
                                       {"$set": {"subscription_status": "past_due",
                                                 "subscription_updated_at": now_iso}})
+            await db.firm_accounts.update_one({"stripe_customer_id": customer_id},
+                                              {"$set": {"billing_status": "past_due",
+                                                        "subscription_updated_at": now_iso}})
+            logger.warning(f"Payment failed for customer {customer_id}")
     return {"received": True}
 
 @api_router.get("/subscription/status")
@@ -2857,23 +2905,37 @@ async def gdpr_export_my_data(user: dict = Depends(get_user)):
 
 @api_router.delete("/users/me")
 async def gdpr_delete_my_account(user: dict = Depends(get_user)):
-    """GDPR Article 17 — right to erasure. Permanently deletes ALL user data.
-    NOTE: Audit/compliance retention for legal records (e.g. subscription history) may be kept
-    for the statutory minimum (UK 6 years for tax records) in anonymised form.
+    """GDPR Article 17 — right to erasure. Apple App Store 5.1.1(v) compliant.
+    Permanently deletes ALL user data AND cancels any active Stripe subscription.
+    NOTE: Some audit fields (subscription history for tax records — UK 6yr statutory) are kept anonymised.
     """
     uid = user["id"]
-    # Delete user-owned data across collections
-    await db.conversations.delete_many({"user_id": uid})
-    await db.cases.delete_many({"user_id": uid})
-    await db.case_items.delete_many({"user_id": uid})
-    await db.legal_files.delete_many({"user_id": uid})
-    await db.reminders.delete_many({"user_id": uid})
-    await db.feature_requests.delete_many({"user_id": uid})
-    await db.vault_items.delete_many({"user_id": uid})
-    await db.vault_meta.delete_many({"user_id": uid})
-    await db.vault_shares.delete_many({"user_id": uid})
-    await db.usage_counters.delete_many({"user_id": uid})
-    # Mark the user record itself as deleted (don't physically delete so trial-abuse defence remains)
+    # 1) Cancel any active Stripe subscription so the user isn't billed after deletion
+    sub_id = user.get("stripe_subscription_id")
+    if sub_id and STRIPE_API_KEY:
+        try:
+            stripe.Subscription.delete(sub_id)  # cancels immediately, prorated
+            logger.info(f"Cancelled Stripe sub {sub_id} as part of account deletion")
+        except Exception as e:
+            logger.warning(f"Failed to cancel Stripe sub during account deletion: {e}")
+    # 2) Delete user-owned data across collections
+    cols_to_wipe = [
+        "conversations", "cases", "case_items", "case_notes", "legal_files",
+        "reminders", "feature_requests", "vault_items", "vault_meta", "vault_shares",
+        "usage_counters", "lex_chats", "security_events", "engagement_files",
+    ]
+    for col in cols_to_wipe:
+        try: await db[col].delete_many({"user_id": uid})
+        except Exception: pass
+    # 3) Engagements & their messages — user is either client or invited party
+    engs = []
+    async for e in db.engagements.find({"client_user_id": uid}, {"_id": 0, "id": 1}):
+        engs.append(e["id"])
+    if engs:
+        await db.engagement_messages.delete_many({"engagement_id": {"$in": engs}})
+        await db.engagement_files.delete_many({"engagement_id": {"$in": engs}})
+        await db.engagements.delete_many({"id": {"$in": engs}})
+    # 4) Anonymise the user record (kept to prevent trial abuse but personally unidentifiable)
     await db.users.update_one(
         {"id": uid},
         {"$set": {
@@ -2883,8 +2945,11 @@ async def gdpr_delete_my_account(user: dict = Depends(get_user)):
             "name": "(deleted)",
             "hashed_password": None,
             "apple_id": None, "google_id": None,
+            "stripe_customer_id": None, "stripe_subscription_id": None,
+            "last_login_ip": None, "last_login_country": None,
         }}
     )
+    logger.info(f"Account deleted (GDPR) for user {uid}")
     return {"deleted": True, "message": "Your account and all personal data have been permanently deleted."}
 
 
