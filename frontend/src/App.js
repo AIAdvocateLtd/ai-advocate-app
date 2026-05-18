@@ -5,7 +5,7 @@ import {
   MessageCircle, Mic, Folder, FileText, Gavel, Globe, Briefcase, Home as HomeIcon,
   Stethoscope, Scale, X, Send, Upload, Languages, LogOut, Check, ArrowLeft, Square, Play,
   Camera, MapPin, Phone, ExternalLink, Settings as SettingsIcon, Star, Building2, Image as ImageIcon,
-  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound
+  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
 
@@ -3551,6 +3551,7 @@ const VAULT_CATEGORIES = [
 
 function VaultModal({ lang, hasTier, onUpsell, onClose }) {
   const VC = require("./vaultCrypto");
+  const BIO = require("./vaultBiometric");
   const [stage, setStage] = useState("loading"); // loading | setup | locked | unlocked
   const [pinSalt, setPinSalt] = useState(null);
   const [pin, setPin] = useState("");
@@ -3566,11 +3567,16 @@ function VaultModal({ lang, hasTier, onUpsell, onClose }) {
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
   const uploadRef = useRef(null);
   const [decNotes, setDecNotes] = useState({});
+  const [bioSupported, setBioSupported] = useState(false);
+  const [bioEnabled, setBioEnabled] = useState(false);
+  const [bioBusy, setBioBusy] = useState(false);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
+        const supported = await BIO.isBiometricSupported();
+        if (alive) { setBioSupported(supported); setBioEnabled(BIO.isBiometricEnabled()); }
         const { data } = await api.get("/vault/status");
         if (!alive) return;
         if (!data.setup) setStage("setup");
@@ -3583,6 +3589,45 @@ function VaultModal({ lang, hasTier, onUpsell, onClose }) {
   const refreshItems = async () => {
     const { data } = await api.get("/vault/items");
     setItems(data.items || []);
+  };
+
+  // Attempts biometric unlock — verifies the recovered PIN against the server.
+  const doBiometricUnlock = async () => {
+    setErr(""); setBioBusy(true);
+    try {
+      const recoveredPin = await BIO.unlockWithBiometric();
+      const verifier = await VC.pinVerifier(recoveredPin, pinSalt);
+      await api.post("/vault/unlock", { pin_verifier: verifier });
+      setPin(recoveredPin);
+      setStage("unlocked");
+      await refreshItems();
+    } catch (e) {
+      // If the stored PIN no longer matches the server (e.g. user wiped+re-setup), clear bio
+      if (e?.response?.status === 401) {
+        BIO.disableBiometric();
+        setBioEnabled(false);
+        setErr("Biometric data is out of date. Please unlock with your PIN and re-enable.");
+      } else {
+        setErr(e?.message || "Biometric unlock failed");
+      }
+    } finally { setBioBusy(false); }
+  };
+
+  const doEnableBiometric = async () => {
+    if (!pin) { alert("PIN unavailable — please re-unlock and try again."); return; }
+    setBioBusy(true);
+    try {
+      await BIO.enableBiometric(pin);
+      setBioEnabled(true);
+    } catch (e) {
+      alert(e?.message || "Could not enable biometric");
+    } finally { setBioBusy(false); }
+  };
+
+  const doDisableBiometric = () => {
+    if (!confirm("Disable biometric unlock? You'll need your PIN next time.")) return;
+    BIO.disableBiometric();
+    setBioEnabled(false);
   };
 
   const doSetup = async () => {
@@ -3682,6 +3727,9 @@ function VaultModal({ lang, hasTier, onUpsell, onClose }) {
     setBusy(true);
     try {
       await api.post("/vault/wipe");
+      // Clear local biometric record too — server-side PIN no longer exists
+      BIO.disableBiometric();
+      setBioEnabled(false);
       setStage("setup"); setPin(""); setPinSalt(null); setItems([]);
       setShowWipeConfirm(false);
     } finally { setBusy(false); }
@@ -3729,6 +3777,14 @@ function VaultModal({ lang, hasTier, onUpsell, onClose }) {
               <div style={{ color: "var(--text)", fontSize: 16, fontWeight: 600, marginBottom: 6 }}>{t(lang, "vaultLocked")}</div>
               <div style={{ color: "var(--text-dim)", fontSize: 13 }}>{t(lang, "vaultEnterPin")}</div>
             </div>
+
+            {bioSupported && bioEnabled && (
+              <button onClick={doBiometricUnlock} disabled={bioBusy} data-testid="vault-bio-unlock-btn"
+                      style={{ width: "100%", padding: 14, marginBottom: 14, background: "linear-gradient(135deg, rgba(247,201,72,0.18), rgba(247,201,72,0.04))", border: "1px solid var(--gold)", borderRadius: 12, color: "var(--gold)", fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                {bioBusy ? <span className="spinner" /> : (<><Fingerprint size={18} /> {t(lang, "vaultBioUnlock")}</>)}
+              </button>
+            )}
+
             <input type="password" inputMode="numeric" autoFocus className="input" placeholder={t(lang, "vaultPin")} value={pin}
                    onChange={(e) => setPin(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doUnlock()}
                    data-testid="vault-pin-input" style={{ marginBottom: 10, textAlign: "center", fontSize: 18, letterSpacing: 4 }} />
@@ -3753,6 +3809,31 @@ function VaultModal({ lang, hasTier, onUpsell, onClose }) {
                 <Lock size={14} />
               </button>
             </div>
+
+            {bioSupported && (
+              <div style={{ marginBottom: 14, padding: 10, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(247,201,72,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Fingerprint size={16} style={{ color: "var(--gold)" }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: "var(--text)", fontSize: 12, fontWeight: 600 }}>{t(lang, "vaultBioTitle")}</div>
+                  <div style={{ color: "var(--text-dim)", fontSize: 11 }}>
+                    {bioEnabled ? t(lang, "vaultBioOn") : t(lang, "vaultBioOff")}
+                  </div>
+                </div>
+                {bioEnabled ? (
+                  <button onClick={doDisableBiometric} data-testid="vault-bio-disable-btn"
+                          style={{ fontSize: 11, padding: "6px 10px", background: "transparent", color: "var(--text-dim)", border: "1px solid var(--line)", borderRadius: 6, cursor: "pointer" }}>
+                    {t(lang, "vaultBioTurnOff")}
+                  </button>
+                ) : (
+                  <button onClick={doEnableBiometric} disabled={bioBusy} data-testid="vault-bio-enable-btn"
+                          style={{ fontSize: 11, padding: "6px 10px", background: "var(--gold)", color: "#1a1300", border: "none", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>
+                    {bioBusy ? "…" : t(lang, "vaultBioTurnOn")}
+                  </button>
+                )}
+              </div>
+            )}
 
             {items.length === 0 ? (
               <div style={{ textAlign: "center", padding: "30px 10px", color: "var(--text-dim)", fontSize: 13 }}>

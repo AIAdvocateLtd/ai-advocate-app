@@ -366,3 +366,16 @@ After review: NOT locking more tabs. Free → Plus → Pro ladder stays. Auto-tr
 
 Files touched: `/app/backend/server.py`, `/app/backend/app_crypto.py` (new), `/app/backend/.env`, `/app/frontend/src/App.js`, `/app/frontend/src/icons.js`, `/app/frontend/src/i18n.js`, `/app/frontend/src/vaultCrypto.js` (new).
 
+
+
+## Biometric Vault unlock (2026-02-18)
+- ✅ New helper `/app/frontend/src/vaultBiometric.js` — WebAuthn platform-authenticator integration.
+- ✅ Detects support via `PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()`.
+- ✅ After PIN unlock, user can opt-in via gold pill: "Biometric unlock — Use Face ID / Touch ID to unlock faster" + "Turn on" button.
+- ✅ Setup flow: `navigator.credentials.create()` with `authenticatorAttachment: "platform"`, `userVerification: "required"` → registers a platform passkey (Face ID / Touch ID / Windows Hello / Android biometric).
+- ✅ PIN encrypted with AES-GCM (key derived from credential `rawId` via SHA-256), stored in localStorage.
+- ✅ Locked screen shows gold "Unlock with Face ID / Touch ID" button when bio enabled — triggers `navigator.credentials.get()` → decrypts PIN → verifies with server → unlocks silently.
+- ✅ Bio record auto-cleared if server-side PIN mismatches (e.g. after vault wipe). UX self-heals.
+- ✅ Wipe vault also clears local biometric record.
+- New i18n keys: `vaultBioTitle`, `vaultBioOn`, `vaultBioOff`, `vaultBioTurnOn`, `vaultBioTurnOff`, `vaultBioUnlock`.
+- **Production note:** When we wrap with Capacitor (P1), swap localStorage backing for iOS Keychain / Android Keystore for true device-level encryption.
