@@ -330,6 +330,58 @@ After review: deliberately NOT locking more features behind Pro. Current ladder 
 ### Tier-locking decision (final)
 After review: NOT locking more tabs. Free → Plus → Pro ladder stays. Auto-trial gives every new user 7 days of full Pro access; tier locks only apply after trial ends without subscription. App Store compliance + funnel velocity preserved.
 
+## Iter 13 — Engagements (lawyer↔client portal) + firm tier restructure + bottom-nav + reminder badge (2026-02-18 PM)
+
+### Settings legal-links bug fix
+- ✅ `LegalDocModal` and `ManageDataModal` were stuck behind Settings modal due to z-index stacking-context. Fixed by moving them to a sibling React Fragment outside Settings' `modal-bg`.
+
+### Bottom-nav refactor
+- ✅ Replaced `Files` + `Settings` (duplicates) with `Vault` (ShieldCheck) + `Cases` (Briefcase).
+- ✅ Added `vault` + `cases` short labels to all 11 i18n bundles.
+
+### Reminders badge — in-app dot + native app-icon
+- ✅ New backend endpoint `GET /api/reminders/badge` returns `{count}` of pending reminders due ≤3 days (or overdue ≤30d).
+- ✅ Frontend: gold dot with count on Cases nav icon; auto-refreshes every 5 min + on tab focus.
+- ✅ New `/app/frontend/src/appBadge.js` — calls Web App Badging API (`navigator.setAppBadge`) AND Capacitor Badge plugin (auto-active post-wrap).
+- ✅ PWA enabled: new `/manifest.json`, iOS meta tags (`apple-mobile-web-app-capable`, `apple-touch-icon`), generated icon-192/512 PNGs.
+
+### Phase A/B/C — Engagements (lawyer↔client) ⭐ NEW MOAT
+- ✅ Three new MongoDB collections: `engagements`, `engagement_messages`, `engagement_files`.
+- ✅ Server-side Fernet encryption at rest (case_summary, message body, file bytes, file note).
+- ✅ Backend endpoints (~270 LOC added):
+  - `POST /api/firm/engagements` (premium+) — creates invite token, returns `invite_url=/engage/<token>`
+  - `GET /api/engagements/invite/{token}` (public preview)
+  - `POST /api/engagements/accept/{token}` (consumer binds engagement)
+  - `GET /api/engagements` (consumer list) / `GET /api/firm/engagements` (firm list w/ tier+limit+active_count)
+  - `PATCH /api/engagements/{id}/close` (either party)
+  - `POST/GET /api/engagements/{id}/messages` — case thread, decrypted on read, both parties mark-as-read
+  - `POST/GET /api/engagements/{id}/files` + `GET /{fid}` (12MB cap, 50 per engagement)
+  - `POST /api/engagements/{id}/lex-assist` — Claude Sonnet 4.5 helps draft replies / summarise / explain (works for both sides)
+- ✅ Permission gates: closed engagements block writes (403), invite locked to specified client email, self-invite blocked (400).
+- ✅ Frontend (Consumer): new "My Solicitor" tile + `EngagementsModal` (list + invite paste) + `EngagementThread` (chat-style with Lex Draft / Summary buttons + file share + download) + `EngagementFileShare` modal.
+- ✅ Deep-link `/engage/<token>` handled in App boot: token stashed to sessionStorage, modal auto-opens on dashboard mount, invite pre-filled.
+- ✅ Frontend (Firm Portal): NEW `/firm-portal` route → `FirmPortal.js` (FirmAuth login/signup, FirmDashboard with quota meter, NewEngagementModal with copy-link + email CTAs, FirmEngagementThread with Lex AI, BillingModal showing 3 plans).
+- ✅ Backend test suite `/app/backend/tests/test_engagements.py` — 18/18 PASS (full lifecycle including encryption, Lex AI roundtrip, close-state gate).
+
+### Firm tier RESTRUCTURE (2026-02-18 — locked in)
+| Tier | Price | Engagement limit | Lex AI / mo |
+|---|---|---|---|
+| Featured | **£49/mo** (unchanged) | 0 (directory only) | 0 |
+| Premium | **£199/mo** ⬆ (was £149) | 25 active engagements | 100 |
+| **Practice** ⭐ NEW | **£399/mo** | Unlimited | 1,000 |
+
+- ✅ `/api/firm/subscribe` now accepts `featured | premium | practice`.
+- ⚠️ **USER ACTION REQUIRED:**
+  1. Stripe Dashboard → Products → create Premium £199/mo price object → set `STRIPE_PRICE_FIRM_PREMIUM` (existing key)
+  2. Stripe Dashboard → Products → create Practice £399/mo price object → set `STRIPE_PRICE_FIRM_PRACTICE` (new key, currently empty)
+  3. Backend restart.
+  - Existing Premium subscribers at £149 grandfather until they re-subscribe.
+- Consumer tiers (Plus £14.99 / Pro £34.99 / Yearly £319.99) — UNCHANGED. Decision: keep entry-level consumer pricing to maximise pre-launch trial-to-paid funnel; raise post-launch with social proof.
+
+### iter13 testing
+- Iter13 test report `/app/test_reports/iteration_13.json` — backend 100% (12/12 + 18/18 reference), frontend 95%.
+- One MEDIUM UX bug found by testing agent (BottomNav covering last tile row on small viewports). FIXED by bumping dashboard bottom-padding to `calc(150px + env(safe-area-inset-bottom))`.
+
 ## Security overhaul + Lex Vault + Smart routing + Feature suggest (2026-02-18)
 
 ### 🔐 Field-level encryption at rest

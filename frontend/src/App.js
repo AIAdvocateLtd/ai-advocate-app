@@ -3113,7 +3113,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
   const langInfo = LANGS.find(l => l.code === lang) || LANGS[0];
 
   return (
-    <div className="app-shell" style={{ padding: "20px 18px 130px", maxWidth: 760, margin: "0 auto" }} data-testid="dashboard">
+    <div className="app-shell" style={{ padding: "20px 18px calc(150px + env(safe-area-inset-bottom, 0px))", maxWidth: 760, margin: "0 auto" }} data-testid="dashboard">
       <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{t(lang, "hi")}, <span style={{ color: "var(--gold)" }}>{user.full_name || user.email.split("@")[0]}</span></div>
         <div className="flex items-center gap-2">

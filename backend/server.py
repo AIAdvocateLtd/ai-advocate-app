@@ -3095,7 +3095,10 @@ async def firm_create_engagement(data: EngagementCreate, firm: dict = Depends(ge
     """Firm initiates an engagement with a client. Returns invite_token URL for client to accept."""
     tier = _firm_tier(firm)
     if FIRM_ENGAGEMENT_LIMITS[tier] <= 0:
-        raise HTTPException(402, "Upgrade to Premium or Practice plan to invite clients.")
+        raise HTTPException(402, "Client engagements aren't included in your current plan. Upgrade to Premium (£199/mo) or Practice (£399/mo) to invite clients securely.")
+    # Block self-invite (firm contact email == client email)
+    if data.client_email and (data.client_email or "").lower() == (firm.get("email") or "").lower():
+        raise HTTPException(400, "You cannot invite your own firm email as a client.")
     active = await _count_active_engagements(firm["id"])
     if active >= FIRM_ENGAGEMENT_LIMITS[tier]:
         raise HTTPException(402, f"Active engagement limit reached for {tier} plan ({FIRM_ENGAGEMENT_LIMITS[tier]}). Upgrade or close an engagement.")
