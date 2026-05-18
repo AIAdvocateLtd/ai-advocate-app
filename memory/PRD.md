@@ -382,6 +382,41 @@ After review: NOT locking more tabs. Free → Plus → Pro ladder stays. Auto-tr
 - Iter13 test report `/app/test_reports/iteration_13.json` — backend 100% (12/12 + 18/18 reference), frontend 95%.
 - One MEDIUM UX bug found by testing agent (BottomNav covering last tile row on small viewports). FIXED by bumping dashboard bottom-padding to `calc(150px + env(safe-area-inset-bottom))`.
 
+## Iter 14 — Security hardening, i18n full coverage, Vault UX (2026-02-18 evening)
+
+### Vault security hardening
+- ✅ Vault unlock PIN now tracks failed attempts: **5 wrong → 15-min lockout**, **10 wrong → PANIC WIPE** (auto-deletes all vault items + reset).
+- ✅ Returns helpful countdown messages ("4 attempts remaining…"), enforced server-side via timing-safe compare.
+- ✅ Verified end-to-end: lockout test in `/tmp/` curl script passes.
+
+### Login geo-anomaly detection
+- ✅ New helpers `_client_ip()` + `_ip_country()` read CDN headers (`cf-ipcountry`, etc.).
+- ✅ `/api/auth/login` now records `last_login_country/ip/at` per user. Country change vs last login emits a `security_events` doc.
+- ✅ Login response includes `security_alert` payload when a country change is detected.
+- ✅ NEW endpoints: `GET /api/security/events` (list) + `POST /api/security/events/{id}/ack` (acknowledge).
+- ✅ `/api/auth/me` returns `security_alerts_unread` count.
+- ✅ Frontend banner: gold/red alert at top of dashboard with "It was me" / "Change password" CTAs. Auto-fades after ack.
+
+### Vault upload UX (user-reported)
+- ✅ "Encrypt & save" button relabelled to "Upload to Vault" (clearer intent).
+- ✅ When file picked: filename displays with checkmark + size in KB + "Ready to encrypt and upload" hint.
+- ✅ Save button now visually disabled but visible — clear "📎 Pick a file" / "✏️ Enter a title" hint when not ready. Button has gold glow shadow when ready.
+- ✅ Title auto-prefilled from filename (existing behaviour preserved).
+- ✅ Delete (trash icon) was already wired via `data-testid="vault-rm-{id}"` — confirmed visible.
+
+### Full i18n coverage — 510/510 keys across all 11 languages
+- ✅ Audit identified **240–271 keys missing per language** (causing English fallback in many places).
+- ✅ Bulk-translated ALL missing keys via Claude Sonnet 4.5 + new `/tmp/bulk_translate.py` (resumable, batches of 60, regex salvage for tricky Chinese parsing).
+- ✅ Merged into i18n.js via `/tmp/merge_translations.py` (preserves indentation, idempotent).
+- ✅ Plus 9 NEW security/vault strings translated for all langs (secAlertTitle, vaultLockedTitle, vaultWipedTitle, etc.).
+- ✅ Verified by switching to French in app — Engagements, Vault, Security banner, ALL tiles correctly translated.
+
+### Testing
+- ✅ Vault lockout test: 5 wrong PINs → 429 lockout; correct PIN during lockout still 429 (correct).
+- ✅ Geo-anomaly test (local localhost): cf-ipcountry US→RU correctly emits alert.
+- ✅ Engagements regression test: 18/18 still pass.
+- ✅ i18n integrity check: all 11 langs now report 510/510 keys.
+
 ## Security overhaul + Lex Vault + Smart routing + Feature suggest (2026-02-18)
 
 ### 🔐 Field-level encryption at rest

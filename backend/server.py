@@ -275,6 +275,53 @@ def make_token(user_id: str, email: str) -> str:
     }
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
+# ---------- Geo / sign-in anomaly detection ----------
+def _client_ip(req: Request) -> str:
+    """Best-effort client IP, honouring reverse-proxy headers."""
+    xff = req.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return (req.client.host if req.client else "") or ""
+
+def _ip_country(req: Request) -> str:
+    """Country code from common CDN/ingress headers. Returns '' if unavailable.
+    No external lookups — keeps the login path fast and private."""
+    for k in ("cf-ipcountry", "x-vercel-ip-country", "x-country-code", "x-appengine-country"):
+        c = req.headers.get(k)
+        if c and len(c) == 2 and c.upper() not in ("XX", "T1"):
+            return c.upper()
+    return ""
+
+async def _check_geo_anomaly(user: dict, req: Request) -> Optional[dict]:
+    """Compare current sign-in country to the user's last-seen country.
+    On mismatch, record a security_event and return an alert dict the client can show.
+    NOTE: country info comes from CDN headers — if absent, we silently skip (avoid false positives)."""
+    cc = _ip_country(req)
+    if not cc:
+        return None
+    last_cc = user.get("last_login_country") or ""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    # Always update last-seen
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"last_login_country": cc, "last_login_ip": _client_ip(req), "last_login_at": now_iso}}
+    )
+    if last_cc and last_cc != cc:
+        evt = {
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "kind": "login_country_change",
+            "from_country": last_cc,
+            "to_country": cc,
+            "ip": _client_ip(req),
+            "ua": (req.headers.get("user-agent") or "")[:300],
+            "created_at": now_iso,
+            "acknowledged": False,
+        }
+        await db.security_events.insert_one(evt)
+        return {"kind": "login_country_change", "from_country": last_cc, "to_country": cc, "id": evt["id"]}
+    return None
+
 async def get_user(creds: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     if not creds:
         raise HTTPException(401, "Not authenticated")
@@ -623,11 +670,15 @@ async def signup(data: UserSignup):
     return TokenResp(access_token=make_token(user_id, data.email), user=user_to_public(user_doc))
 
 @api_router.post("/auth/login", response_model=TokenResp)
-async def login(data: UserLogin):
+async def login(data: UserLogin, request: Request):
     user = await db.users.find_one({"email": data.email})
     if not user or not verify_pw(data.password, user.get("password_hash", "")):
         raise HTTPException(401, "Invalid credentials")
-    return TokenResp(access_token=make_token(user["id"], user["email"]), user=user_to_public(user))
+    alert = await _check_geo_anomaly(user, request)
+    pub = user_to_public(user)
+    if alert:
+        pub["security_alert"] = alert
+    return TokenResp(access_token=make_token(user["id"], user["email"]), user=pub)
 
 @api_router.post("/auth/google", response_model=TokenResp)
 async def google_login(data: GoogleLogin):
@@ -779,7 +830,25 @@ async def auth_providers():
 
 @api_router.get("/auth/me")
 async def me(user: dict = Depends(get_user)):
-    return user_to_public(user)
+    pub = user_to_public(user)
+    unread = await db.security_events.count_documents({"user_id": user["id"], "acknowledged": False})
+    pub["security_alerts_unread"] = unread
+    return pub
+
+@api_router.get("/security/events")
+async def list_security_events(user: dict = Depends(get_user)):
+    rows = []
+    async for e in db.security_events.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).limit(50):
+        rows.append(e)
+    return {"events": rows}
+
+@api_router.post("/security/events/{eid}/ack")
+async def ack_security_event(eid: str, user: dict = Depends(get_user)):
+    r = await db.security_events.update_one(
+        {"id": eid, "user_id": user["id"]},
+        {"$set": {"acknowledged": True, "acknowledged_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return {"acknowledged": r.matched_count > 0}
 
 @api_router.patch("/auth/preferences")
 async def update_prefs(data: dict, user: dict = Depends(get_user)):
@@ -2557,20 +2626,42 @@ async def vault_setup(data: VaultSetupRequest, user: dict = Depends(get_user)):
 
 @api_router.post("/vault/unlock")
 async def vault_unlock(data: VaultUnlockRequest, user: dict = Depends(get_user)):
-    """Verify the PIN by comparing the client-supplied SHA-256 verifier with the stored one."""
+    """Verify the PIN by comparing the client-supplied SHA-256 verifier with the stored one.
+    Security: 5 wrong attempts → 15-min cool-off. 10 wrong attempts → automatic vault wipe (panic mode)."""
     v = await db.vault_meta.find_one({"user_id": user["id"]})
     if not v:
         raise HTTPException(404, "Vault not set up yet")
+    # Check cooldown
+    failed = int(v.get("failed_attempts") or 0)
+    locked_until = v.get("locked_until")
+    now = datetime.now(timezone.utc)
+    if locked_until:
+        try:
+            lu = datetime.fromisoformat(locked_until.replace("Z", "+00:00"))
+            if lu > now:
+                remaining = int((lu - now).total_seconds())
+                raise HTTPException(429, f"Vault locked. Try again in {remaining // 60 + 1} minutes ({failed} wrong attempts).")
+        except (ValueError, AttributeError):
+            pass
+    # PIN verify
     if not _secrets.compare_digest((v.get("pin_verifier") or ""), (data.pin_verifier or "")):
-        # log attempt (lightweight brute-force defence)
-        await db.vault_meta.update_one(
-            {"user_id": user["id"]},
-            {"$inc": {"failed_attempts": 1}, "$set": {"last_failed_at": datetime.now(timezone.utc).isoformat()}}
-        )
-        raise HTTPException(401, "Incorrect PIN")
+        failed += 1
+        update = {"failed_attempts": failed, "last_failed_at": now.isoformat()}
+        if failed >= 10:
+            # PANIC WIPE — destroy all vault items, reset meta. User must set up again.
+            await db.vault_items.delete_many({"user_id": user["id"]})
+            await db.vault_meta.delete_one({"user_id": user["id"]})
+            raise HTTPException(401, "Too many wrong attempts — vault wiped for your security. All items destroyed.")
+        elif failed >= 5:
+            update["locked_until"] = (now + timedelta(minutes=15)).isoformat()
+            await db.vault_meta.update_one({"user_id": user["id"]}, {"$set": update})
+            raise HTTPException(429, f"Too many wrong attempts. Vault locked for 15 minutes. ({10 - failed} attempts remaining before auto-wipe.)")
+        await db.vault_meta.update_one({"user_id": user["id"]}, {"$set": update})
+        attempts_left = 5 - failed
+        raise HTTPException(401, f"Incorrect PIN. {attempts_left} attempt{'s' if attempts_left != 1 else ''} before 15-min lock.")
     await db.vault_meta.update_one(
         {"user_id": user["id"]},
-        {"$set": {"failed_attempts": 0, "last_unlocked_at": datetime.now(timezone.utc).isoformat()}}
+        {"$set": {"failed_attempts": 0, "locked_until": None, "last_unlocked_at": now.isoformat()}}
     )
     return {"unlocked": True}
 

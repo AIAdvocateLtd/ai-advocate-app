@@ -3015,6 +3015,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
 
   const [voiceMode, setVoiceMode] = useState(null); // {initialText} | null
   const [reviewPrompt, setReviewPrompt] = useState(null); // {daysLeft}
+  const [securityAlerts, setSecurityAlerts] = useState([]); // unread security events
   const [casesBadge, setCasesBadge] = useState(0); // # reminders due ≤3 days
 
   // Trustpilot pre-renewal nudge — once per session, only if backend says it's the right window
@@ -3050,6 +3051,14 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     if (sessionStorage.getItem("aa_pending_invite")) {
       setModal({ type: "engagements" });
     }
+  }, []);
+
+  // Fetch unread security events on mount (e.g. login-from-different-country alerts)
+  useEffect(() => {
+    api.get("/security/events").then(r => {
+      const unread = (r.data?.events || []).filter(e => !e.acknowledged);
+      setSecurityAlerts(unread);
+    }).catch(() => {});
   }, []);
   // "Hey Lex" wake word — opens Siri-style Voice Mode (Plus+ only)
   const handleWake = useCallback((trailing) => {
@@ -3114,6 +3123,39 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
 
   return (
     <div className="app-shell" style={{ padding: "20px 18px calc(150px + env(safe-area-inset-bottom, 0px))", maxWidth: 760, margin: "0 auto" }} data-testid="dashboard">
+      {securityAlerts.length > 0 && (
+        <div data-testid="security-alert-banner" style={{
+          background: "linear-gradient(135deg,#3a1410,#2a0808)", border: "1px solid #7f1d1d",
+          borderRadius: 12, padding: "12px 14px", marginBottom: 14,
+          display: "flex", alignItems: "flex-start", gap: 12,
+        }}>
+          <AlertTriangle size={20} style={{ color: "#fca5a5", flexShrink: 0, marginTop: 2 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#fca5a5", marginBottom: 4 }}>{t(lang, "secAlertTitle")}</div>
+            {securityAlerts.slice(0, 1).map(a => (
+              <div key={a.id} style={{ fontSize: 12, color: "#fecaca", lineHeight: 1.5 }}>
+                {a.kind === "login_country_change"
+                  ? t(lang, "secAlertCountryChange", { from: a.from_country, to: a.to_country })
+                  : t(lang, "secAlertGeneric")}
+              </div>
+            ))}
+            {securityAlerts.length > 1 && <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>+ {securityAlerts.length - 1} more</div>}
+            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+              <button data-testid="security-ack-btn" onClick={async () => {
+                for (const a of securityAlerts) {
+                  try { await api.post(`/security/events/${a.id}/ack`); } catch (e) { /* no-op */ }
+                }
+                setSecurityAlerts([]);
+              }} style={{ background: "#fca5a5", color: "#1a0808", border: "none", padding: "6px 12px", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                {t(lang, "secAlertItWasMe")}
+              </button>
+              <button data-testid="security-change-pwd-btn" onClick={() => setShowSettings(true)} style={{ background: "transparent", border: "1px solid #fca5a5", color: "#fca5a5", padding: "6px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                {t(lang, "secAlertChangePwd")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{t(lang, "hi")}, <span style={{ color: "var(--gold)" }}>{user.full_name || user.email.split("@")[0]}</span></div>
         <div className="flex items-center gap-2">
@@ -3984,8 +4026,13 @@ function VaultModal({ lang, hasTier, onUpsell, onClose }) {
                    accept="image/*,application/pdf,.doc,.docx,.txt,.zip" data-testid="vault-file-input" />
             <button className="btn-gold w-full" onClick={() => uploadRef.current?.click()} data-testid="vault-pick-file-btn" style={{ marginBottom: 10 }}>
               <Upload size={16} style={{ display: "inline", marginRight: 6 }} />
-              {newFile ? newFile.name : t(lang, "vaultPickFile")}
+              {newFile ? `✓ ${newFile.name}` : t(lang, "vaultPickFile")}
             </button>
+            {newFile && (
+              <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 10, paddingLeft: 4 }}>
+                {Math.round(newFile.size / 1024)} KB · {newFile.type || "file"} · Ready to encrypt and upload
+              </div>
+            )}
 
             <input className="input" placeholder={t(lang, "vaultItemTitle")} value={newTitle}
                    onChange={(e) => setNewTitle(e.target.value)} data-testid="vault-item-title" style={{ marginBottom: 10 }} />
@@ -4012,9 +4059,25 @@ function VaultModal({ lang, hasTier, onUpsell, onClose }) {
 
             {err && <div style={{ color: "#fca5a5", fontSize: 13, marginBottom: 10 }}>{err}</div>}
 
-            <button className="btn-gold w-full" onClick={addItem} disabled={busy || !newFile || !newTitle} data-testid="vault-save-item-btn">
-              {busy ? <span className="spinner" /> : (<><Lock size={14} style={{ display: "inline", marginRight: 6 }} /> {t(lang, "vaultEncryptSave")}</>)}
+            <button onClick={addItem} disabled={busy || !newFile || !newTitle} data-testid="vault-save-item-btn"
+                    style={{
+                      width: "100%", padding: "14px 16px", fontSize: 15, fontWeight: 700,
+                      background: (busy || !newFile || !newTitle) ? "var(--bg-card)" : "linear-gradient(135deg,#f7c948,#d6a017)",
+                      color: (busy || !newFile || !newTitle) ? "var(--text-dim)" : "#1a1300",
+                      border: (busy || !newFile || !newTitle) ? "1px solid var(--line)" : "none",
+                      borderRadius: 12, cursor: (busy || !newFile || !newTitle) ? "not-allowed" : "pointer",
+                      boxShadow: (busy || !newFile || !newTitle) ? "none" : "0 4px 20px rgba(247,201,72,0.35)",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    }}>
+              {busy ? <span className="spinner" /> : (<>
+                <Lock size={16} /> {newFile && newTitle ? t(lang, "vaultUploadBtn") : t(lang, "vaultUploadDisabled")}
+              </>)}
             </button>
+            {(!newFile || !newTitle) && (
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, textAlign: "center" }}>
+                {!newFile ? "📎 Pick a file above to enable upload" : "✏️ Enter a title to enable upload"}
+              </div>
+            )}
           </div>
         )}
 
