@@ -931,6 +931,8 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         </div>
 
         <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+          {/* Legal disclaimer — dismissible, shown once per session */}
+          <LexDisclaimerBanner lang={lang} />
           {messages.length === 0 && (
             <div style={{ textAlign: "center", color: "var(--text-muted)", marginTop: 24, padding: "0 6px" }}>
               <p style={{ marginTop: 6, marginBottom: 6 }}>{t(lang, "chatPlaceholder")}</p>
@@ -1653,6 +1655,7 @@ function LegalLetterModal({ lang, country, onClose }) {
 function RecordModal({ lang, country, onClose }) {
   const { recording, start, stop } = useRecorder();
   const [busy, setBusy] = useState(false); const [result, setResult] = useState(null);
+  const { ensureConsent, GateModal } = useRecordingConsent({ lang, country, surface: "record_legal", recordingTitle: "" });
 
   const onMic = async () => {
     if (recording) {
@@ -1663,6 +1666,9 @@ function RecordModal({ lang, country, onClose }) {
       finally { setBusy(false); }
     } else { start(); }
   };
+
+  // Wrap mic press in consent gate (only fires before first start, not for stop)
+  const onMicGated = recording ? onMic : ensureConsent(onMic);
 
   return (
     <div className="modal-bg" data-testid="record-modal">
@@ -1676,7 +1682,7 @@ function RecordModal({ lang, country, onClose }) {
             <p style={{ color: "var(--text-dim)", marginBottom: 20 }}>
               Record your interaction with police, court, or any legal authority. Lex will transcribe and analyse it.
             </p>
-            <button onClick={onMic} disabled={busy} data-testid="record-mic-btn"
+            <button onClick={onMicGated} disabled={busy} data-testid="record-mic-btn"
                     className={recording ? "lex-circle recording" : ""}
                     style={{ width: 100, height: 100, borderRadius: "50%", background: recording ? "var(--danger)" : "var(--bg-card)",
                              border: "2px solid var(--gold)", color: "var(--gold)", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
@@ -1701,6 +1707,7 @@ function RecordModal({ lang, country, onClose }) {
           </div>
         )}
       </div>
+      {GateModal}
     </div>
   );
 }
@@ -2460,6 +2467,9 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
   const [wakeOn, setWakeOn] = useState(localStorage.getItem("aa_wake") === "1");
   const [autoDetectOn, setAutoDetectOn] = useState(localStorage.getItem("aa_autodetect") !== "0");
   const [locStampOn, setLocStampOn] = useState(localStorage.getItem("aa_locstamp") === "1");
+  const [smartLocOn, setSmartLocOn] = useState(localStorage.getItem("aa_loc_safety") !== "0");
+  const [legalDoc, setLegalDoc] = useState(null);   // "tos" | "privacy" | null
+  const [showManage, setShowManage] = useState(false);
 
   const toggleLocation = async () => {
     if (!locOn) {
@@ -2756,8 +2766,39 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
                    textDecoration: "none", fontSize: 13, marginBottom: 12 }}>
           ⭐ {t(lang, "rateOnTrustpilot")}
         </a>
+
+        {/* Smart location safety toggle */}
+        <div data-testid="loc-safety-row" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 12, padding: 12, marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ flex: 1, paddingRight: 10 }}>
+            <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 600 }}>{t(lang, "locSafetyTitle")}</div>
+            <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 3 }}>{t(lang, "locSafetyBody")}</div>
+          </div>
+          <button onClick={() => { const next = !smartLocOn; setSmartLocOn(next); localStorage.setItem("aa_loc_safety", next ? "1" : "0"); }}
+                  data-testid="loc-safety-toggle"
+                  style={{ width: 44, height: 24, borderRadius: 12, background: smartLocOn ? "var(--gold)" : "var(--line)", border: "none", cursor: "pointer", position: "relative" }}>
+            <span style={{ position: "absolute", top: 2, left: smartLocOn ? 22 : 2, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left 0.18s ease" }}></span>
+          </button>
+        </div>
+
+        {/* Legal & data section */}
+        <div data-testid="legal-section" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 12, padding: 10, marginBottom: 12 }}>
+          <div style={{ color: "var(--gold)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8, paddingLeft: 4 }}>
+            {t(lang, "legalAndData")}
+          </div>
+          <button onClick={() => setLegalDoc("tos")} data-testid="open-tos" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "10px 12px", background: "transparent", border: "none", color: "var(--text)", fontSize: 13, cursor: "pointer", borderRadius: 8 }}>
+            <span>📜 {t(lang, "tosTitle")}</span> <ExternalLink size={14} style={{ color: "var(--text-dim)" }} />
+          </button>
+          <button onClick={() => setLegalDoc("privacy")} data-testid="open-privacy" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "10px 12px", background: "transparent", border: "none", color: "var(--text)", fontSize: 13, cursor: "pointer", borderRadius: 8 }}>
+            <span>🔒 {t(lang, "privacyTitle")}</span> <ExternalLink size={14} style={{ color: "var(--text-dim)" }} />
+          </button>
+          <button onClick={() => setShowManage(true)} data-testid="open-manage-data" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "10px 12px", background: "transparent", border: "none", color: "var(--text)", fontSize: 13, cursor: "pointer", borderRadius: 8 }}>
+            <span>🗂️ {t(lang, "manageDataTitle")}</span> <ExternalLink size={14} style={{ color: "var(--text-dim)" }} />
+          </button>
+        </div>
         </div>
       </div>
+      {legalDoc && <LegalDocModal kind={legalDoc} lang={lang} onClose={() => setLegalDoc(null)} />}
+      {showManage && <ManageDataModal lang={lang} onClose={() => setShowManage(false)} onAccountDeleted={() => { setShowManage(false); window.location.reload(); }} />}
     </div>
   );
 }
@@ -3384,7 +3425,9 @@ function HearingRecorderModal({ lang, country, onClose }) {
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [r, setR] = useState(null);
+  const [recordingTitle, setRecordingTitle] = useState("");
   const fileRef = useRef(null);
+  const { ensureConsent, GateModal } = useRecordingConsent({ lang, country, surface: "hearing", recordingTitle });
 
   // ---- Live recording state ----
   const [recording, setRecording] = useState(false);
@@ -3482,7 +3525,7 @@ function HearingRecorderModal({ lang, country, onClose }) {
                   </button>
                 </>
               ) : (
-                <button data-testid="hearing-rec-start" className="btn-gold" onClick={startRecording}
+                <button data-testid="hearing-rec-start" className="btn-gold" onClick={ensureConsent(startRecording)}
                         style={{ width: "100%", padding: 12 }}>
                   <Mic size={16} style={{ display: "inline", marginRight: 6 }} />
                   Record now
@@ -3495,7 +3538,7 @@ function HearingRecorderModal({ lang, country, onClose }) {
               <>
                 <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 12, margin: "10px 0" }}>— or —</div>
                 <input ref={fileRef} type="file" accept="audio/*,video/*" onChange={(e) => setFile(e.target.files?.[0])} style={{ display: "none" }} data-testid="hearing-file-input" />
-                <button className="btn-ghost w-full" onClick={() => fileRef.current?.click()} data-testid="hearing-pick-btn">
+                <button className="btn-ghost w-full" onClick={ensureConsent(() => fileRef.current?.click())} data-testid="hearing-pick-btn">
                   Upload existing audio file
                 </button>
               </>
@@ -3531,6 +3574,7 @@ function HearingRecorderModal({ lang, country, onClose }) {
           </div>
         )}
       </div>
+      {GateModal}
     </div>
   );
 }
@@ -3988,6 +4032,165 @@ function SuggestFeatureModal({ lang, onClose }) {
     </div>
   );
 }
+
+// ============================== RECORDING CONSENT GATE ==============================
+// Wraps every audio/video record button. Shows country-aware legal warning before
+// recording starts. Stores a one-time global consent + per-session "know your rights"
+// acknowledgement.
+
+function RecordingConsentGate({ lang, country, surface, onProceed, onCancel }) {
+  const { lawFor, tryGetLocationOnce, nearestCourtWithin } = require("./recordingLaw");
+  const law = lawFor(country || "GB");
+  const [globalConsent, setGlobalConsent] = useState(() => localStorage.getItem("aa_record_consent_v1") === "1");
+  const [proximityState, setProximityState] = useState({ checking: false, near: null, asked: false });
+  const [showAllLaw, setShowAllLaw] = useState(false);
+  const [overrideCourt, setOverrideCourt] = useState(false);
+
+  // One-shot proximity check on first render
+  useEffect(() => {
+    let alive = true;
+    const wantsLocationCheck = localStorage.getItem("aa_loc_safety") !== "0"; // default on
+    if (!wantsLocationCheck) { setProximityState((s) => ({ ...s, checking: false, asked: true })); return; }
+    setProximityState({ checking: true, near: null, asked: false });
+    (async () => {
+      const loc = await tryGetLocationOnce();
+      if (!alive) return;
+      if (!loc) { setProximityState({ checking: false, near: null, asked: true }); return; }
+      const hit = nearestCourtWithin(loc.lat, loc.lng, 150);
+      setProximityState({ checking: false, near: hit, asked: true });
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const acceptAndProceed = () => {
+    localStorage.setItem("aa_record_consent_v1", "1");
+    setGlobalConsent(true);
+    onProceed();
+  };
+
+  // BLOCK state: court proximity hit AND user hasn't overridden
+  const isCourtBlocked = proximityState.near && !overrideCourt;
+
+  return (
+    <div className="modal-bg" data-testid="recording-consent-gate"
+         style={{ alignItems: "center", zIndex: 99999, background: "rgba(0,0,0,0.92)", backdropFilter: "blur(10px)" }}>
+      <div className="modal-card" style={{ padding: 22, maxWidth: 520, borderRadius: 20, zIndex: 100000, maxHeight: "92dvh" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 18, display: "flex", alignItems: "center", gap: 8 }}>
+            <ShieldCheck size={18} /> {t(lang, "rcGateTitle")}
+          </h2>
+          <button onClick={onCancel} data-testid="rc-gate-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
+        </div>
+
+        {/* Location proximity result */}
+        {proximityState.checking && (
+          <div data-testid="rc-checking" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 12, color: "var(--text-dim)", display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="spinner" style={{ width: 12, height: 12 }} /> {t(lang, "rcCheckingLocation")}
+          </div>
+        )}
+
+        {proximityState.near && (
+          <div data-testid="rc-court-warning" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid #ef4444", borderRadius: 12, padding: 14, marginBottom: 14 }}>
+            <div style={{ color: "#fca5a5", fontWeight: 700, fontSize: 13, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+              <AlertTriangle size={14} /> {t(lang, "rcCourtNearTitle")}
+            </div>
+            <div style={{ color: "var(--text)", fontSize: 13, lineHeight: 1.5 }}>
+              {t(lang, "rcCourtNearBody").replace("{court}", proximityState.near.court.n).replace("{m}", String(proximityState.near.distance_m))}
+            </div>
+            <div style={{ color: "var(--text-dim)", fontSize: 11, marginTop: 6 }}>
+              {t(lang, "rcCourtPenalty")}
+            </div>
+            <div style={{ marginTop: 10, padding: 8, background: "rgba(0,0,0,0.3)", borderRadius: 8, display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="checkbox" id="rc-not-in-court" data-testid="rc-not-in-court" checked={overrideCourt}
+                     onChange={(e) => setOverrideCourt(e.target.checked)} style={{ accentColor: "var(--gold)" }} />
+              <label htmlFor="rc-not-in-court" style={{ fontSize: 12, color: "var(--text)", cursor: "pointer" }}>
+                {t(lang, "rcConfirmNotInCourt")}
+              </label>
+            </div>
+          </div>
+        )}
+
+        {/* Country-specific legal summary */}
+        <div style={{ background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 14, marginBottom: 12 }}>
+          <div style={{ color: "var(--gold)", fontWeight: 700, fontSize: 13, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            {law.flag} {t(lang, "rcCountryRulesFor").replace("{country}", law.countryName)}
+          </div>
+          <div style={{ color: "var(--text)", fontSize: 12, lineHeight: 1.5, marginBottom: 8 }}>
+            <strong style={{ color: "var(--gold)" }}>{t(lang, "rcConsentLabel")}:</strong> {law.consent}
+          </div>
+          <div style={{ color: "var(--text)", fontSize: 12, lineHeight: 1.5, marginBottom: 8 }}>
+            <strong style={{ color: "#fca5a5" }}>{t(lang, "rcCourtLabel")}:</strong> {law.court}
+          </div>
+          <button onClick={() => setShowAllLaw((v) => !v)} data-testid="rc-toggle-detail"
+                  style={{ background: "transparent", border: "none", color: "var(--gold)", fontSize: 11, cursor: "pointer", padding: 0, textDecoration: "underline" }}>
+            {showAllLaw ? t(lang, "rcHideDetail") : t(lang, "rcShowDetail")}
+          </button>
+          {showAllLaw && (
+            <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
+              <div style={{ marginBottom: 6 }}><strong style={{ color: "#86efac" }}>{t(lang, "rcUsuallyOk")}:</strong></div>
+              <ul style={{ paddingLeft: 18, marginBottom: 8 }}>{law.ok.map((x, i) => <li key={i}>{x}</li>)}</ul>
+              <div style={{ marginBottom: 6 }}><strong style={{ color: "#fca5a5" }}>{t(lang, "rcAvoid")}:</strong></div>
+              <ul style={{ paddingLeft: 18 }}>{law.danger.map((x, i) => <li key={i}>{x}</li>)}</ul>
+            </div>
+          )}
+        </div>
+
+        {/* First-time consent — saved forever after first acceptance */}
+        {!globalConsent && (
+          <div data-testid="rc-first-time" style={{ fontSize: 12, color: "var(--text-dim)", padding: 10, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 12, lineHeight: 1.5 }}>
+            {t(lang, "rcFirstTime")}
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onCancel} className="btn-ghost" data-testid="rc-cancel-btn" style={{ flex: 1 }}>
+            {t(lang, "cancel")}
+          </button>
+          <button onClick={acceptAndProceed} disabled={isCourtBlocked} data-testid="rc-proceed-btn"
+                  style={{
+                    flex: 2, padding: 12, borderRadius: 10, fontWeight: 700, cursor: isCourtBlocked ? "not-allowed" : "pointer",
+                    background: isCourtBlocked ? "rgba(247,201,72,0.2)" : "var(--gold)",
+                    color: "#1a1300", border: "none", opacity: isCourtBlocked ? 0.5 : 1,
+                  }}>
+            {isCourtBlocked ? t(lang, "rcMustAcknowledge") : t(lang, "rcUnderstandProceed")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Hook: wrap a recorder so that the first interaction shows the legality gate.
+// The host modal uses const { ensureConsent, GateModal } = useRecordingConsent(...).
+function useRecordingConsent({ lang, country, surface, recordingTitle }) {
+  const [showGate, setShowGate] = useState(false);
+  const [proceedFn, setProceedFn] = useState(null);
+  const { containsCourtKeyword } = require("./recordingLaw");
+
+  // Wrap a fn so that the gate fires first.
+  const ensureConsent = (fn) => () => {
+    // Keyword-based block
+    if (recordingTitle && containsCourtKeyword(recordingTitle)) {
+      if (!confirm("This recording title mentions a court. Recording in court is a criminal offence (Contempt of Court Act 1981 s.9 in the UK). Are you SURE this is not from a courtroom?")) {
+        return;
+      }
+    }
+    setProceedFn(() => fn);
+    setShowGate(true);
+  };
+
+  const GateModal = showGate ? (
+    <RecordingConsentGate
+      lang={lang} country={country} surface={surface}
+      onCancel={() => { setShowGate(false); setProceedFn(null); }}
+      onProceed={() => { setShowGate(false); if (proceedFn) proceedFn(); setProceedFn(null); }}
+    />
+  ) : null;
+
+  return { ensureConsent, GateModal };
+}
+
 
 
 // ---------- Contract Reader ----------
@@ -4974,6 +5177,204 @@ function SplashScreen({ onDone }) {
         className="aa-splash-video"
         style={{ width: "70vw", maxWidth: 480, height: "auto", objectFit: "contain" }}
       />
+    </div>
+  );
+}
+
+
+// ============================== LEX CHAT LEGAL DISCLAIMER ==============================
+function LexDisclaimerBanner({ lang }) {
+  const [dismissed, setDismissed] = useState(() => sessionStorage.getItem("aa_lex_disclaimer_seen") === "1");
+  if (dismissed) return null;
+  return (
+    <div data-testid="lex-disclaimer-banner" style={{ padding: 10, background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 10, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5, display: "flex", gap: 8 }}>
+      <ShieldCheck size={14} style={{ color: "var(--gold)", flexShrink: 0, marginTop: 1 }} />
+      <div style={{ flex: 1 }}>
+        <span style={{ color: "var(--gold)", fontWeight: 600 }}>{t(lang, "lexDisclaimerTitle")}: </span>
+        {t(lang, "lexDisclaimerBody")}
+      </div>
+      <button onClick={() => { sessionStorage.setItem("aa_lex_disclaimer_seen", "1"); setDismissed(true); }}
+              data-testid="lex-disclaimer-dismiss"
+              style={{ background: "transparent", border: "none", color: "var(--text-dim)", cursor: "pointer", padding: 0 }}>
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
+// ============================== LEGAL DOC MODAL (TOS + PRIVACY) ==============================
+const TOS_TEXT = `# Terms of Service
+
+**AI Advocate** ("we", "us", "the App") provides AI-powered general legal information. By using the App, you agree to these terms.
+
+**1. Not legal advice.** AI Advocate is an information service, NOT a regulated legal practice. The AI is not a solicitor, barrister, or qualified lawyer. Nothing in the App creates a solicitor-client relationship. For binding legal advice on your specific case, instruct a regulated solicitor (SRA in England & Wales; LSS in Scotland; LSNI in Northern Ireland; equivalent body in your country).
+
+**2. Eligibility & age.** You must be 18 or older. By signing up, you confirm you are 18+.
+
+**3. Accuracy.** We strive for accuracy but legal information can be wrong, out-of-date, or jurisdiction-specific. You bear the risk of acting on AI output. We are NOT liable for losses arising from reliance on AI responses.
+
+**4. Recording features.** The App provides audio-recording features (Hearing Recorder, Record Legal Interaction). Recording laws vary by country and setting. You — not AI Advocate — are responsible for the legality of any recording you make. Recording in a courtroom is a criminal offence in the UK (Contempt of Court Act 1981 s.9) and most countries.
+
+**5. Vault.** The Lex Vault uses end-to-end encryption with a PIN that only you know. If you lose your PIN, your vault items are PERMANENTLY UNRECOVERABLE. We do not hold a copy.
+
+**6. Subscriptions, free trial & auto-renewal.** Free 7-day trial of paid features on signup. Paid plans renew automatically at £14.99/mo (Plus), £34.99/mo (Pro), or £319.99/yr (Yearly Pro). Cancel any time 24h before renewal. Refunds via the store that processed your payment (Apple/Google/Stripe).
+
+**7. Misuse.** You may not use the App for: harassment, illegal recording, defamation, doxing, or building tools that compete with the App.
+
+**8. Termination.** We may suspend accounts that violate these terms. You may delete your account at any time via Settings → Manage My Data.
+
+**9. Limitation of liability.** To the maximum extent permitted by law, our total liability to you in any 12-month period is capped at the greater of (a) £100 or (b) the subscription fees you paid us in that period.
+
+**10. Governing law.** These terms are governed by the laws of England & Wales. Disputes are subject to the exclusive jurisdiction of the English courts, unless your local consumer-protection law provides otherwise.
+
+**11. Contact.** support@aiadvocate.app
+
+Last updated: 2026-02-18.`;
+
+const PRIVACY_TEXT = `# Privacy Policy
+
+**AI Advocate** is committed to protecting your privacy. This policy explains what data we collect, why, and your rights under UK-GDPR and EU-GDPR.
+
+## What we collect
+- **Account data**: email, name, password hash (bcrypt), country, language preference.
+- **Usage data**: which features you use, error logs, anonymous analytics (if enabled).
+- **Lex chat content**: your messages + Lex's responses. **Encrypted at rest** in our database using AES-128 + HMAC.
+- **Case files**: titles, summaries, uploaded documents. Summaries encrypted at rest.
+- **Vault items**: encrypted on YOUR device with your PIN. We cannot read them.
+- **Recording features**: audio files you record are sent to OpenAI Whisper for transcription, then DELETED from our servers. Transcript text is kept in your case files.
+- **Payment data**: handled entirely by Stripe (PCI-DSS Level 1). We never see your card number.
+
+## Why we collect it
+- To provide the legal-information service you signed up for (lawful basis: contract).
+- To improve the product (lawful basis: legitimate interest, anonymised aggregates only).
+- To comply with tax/legal record-keeping (lawful basis: legal obligation, retention 6 years).
+
+## Third parties we share with
+- **Anthropic** (Claude) — your messages are sent to Claude for processing. Anthropic does NOT train on Universal-Key API traffic.
+- **OpenAI** — Whisper for audio transcription; data deleted after processing.
+- **Google** — Gemini for vision/extraction of contracts/photos.
+- **Stripe** — payment processing.
+- **Apple / Google** — if you use their sign-in: name, email, sub identifier.
+- We do NOT sell your data to advertisers or data brokers, ever.
+
+## Your rights under GDPR / UK-GDPR
+- **Access**: request a copy of all your data (Settings → Export My Data).
+- **Erasure**: delete your account and all personal data (Settings → Delete My Account).
+- **Rectification**: edit your profile.
+- **Portability**: export as JSON.
+- **Objection / restriction**: email support@aiadvocate.app.
+- **Complaint**: lodge a complaint with the ICO at ico.org.uk.
+
+## Security
+TLS 1.3 in transit. Bcrypt for passwords. Fernet (AES-128 + HMAC) for sensitive fields at rest. Vault uses client-side AES-GCM-256 with PIN-derived keys (PBKDF2 250k iterations).
+
+## Children
+The App is not for users under 18.
+
+## Data retention
+Active accounts: indefinitely while you remain a user. Deleted accounts: personal data permanently erased within 30 days (subscription/billing records anonymised after 6 years).
+
+## International transfers
+Our servers are in the EU. LLM processing may be in the US under Standard Contractual Clauses.
+
+## Contact
+For any privacy question: privacy@aiadvocate.app
+Data Protection Officer: dpo@aiadvocate.app
+
+Last updated: 2026-02-18.`;
+
+function LegalDocModal({ kind, lang, onClose }) {
+  const text = kind === "tos" ? TOS_TEXT : PRIVACY_TEXT;
+  return (
+    <div className="modal-bg" data-testid={`legal-${kind}-modal`}>
+      <div className="modal-card" style={{ padding: 20 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 12 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 18 }}>{kind === "tos" ? t(lang, "tosTitle") : t(lang, "privacyTitle")}</h2>
+          <button onClick={onClose} data-testid={`legal-${kind}-close`} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
+        </div>
+        <div style={{ overflowY: "auto", flex: 1, minHeight: 0, fontSize: 13, lineHeight: 1.6, color: "var(--text)", whiteSpace: "pre-wrap" }}>
+          {text}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================== MANAGE MY DATA (GDPR) ==============================
+function ManageDataModal({ lang, onClose, onAccountDeleted }) {
+  const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+
+  const exportData = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.get("/users/me/export");
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `ai-advocate-export-${new Date().toISOString().slice(0,10)}.json`;
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
+    } catch (e) { alert("Export failed. Try again later."); }
+    finally { setBusy(false); }
+  };
+
+  const deleteAccount = async () => {
+    if (confirmText !== "DELETE") return;
+    setBusy(true);
+    try {
+      await api.delete("/users/me");
+      localStorage.removeItem("aa_token");
+      onAccountDeleted && onAccountDeleted();
+    } catch (e) { alert("Could not delete account. Email support@aiadvocate.app"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="modal-bg" data-testid="manage-data-modal">
+      <div className="modal-card" style={{ padding: 20 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 18 }}>{t(lang, "manageDataTitle")}</h2>
+          <button onClick={onClose} data-testid="manage-data-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
+        </div>
+
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 14, marginBottom: 12 }}>
+          <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            {t(lang, "exportTitle")}
+          </div>
+          <div style={{ color: "var(--text-dim)", fontSize: 12, lineHeight: 1.5, marginBottom: 10 }}>{t(lang, "exportBody")}</div>
+          <button className="btn-gold w-full" onClick={exportData} disabled={busy} data-testid="export-data-btn">
+            <Download size={14} style={{ display: "inline", marginRight: 6 }} /> {t(lang, "exportBtn")}
+          </button>
+        </div>
+
+        <div style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: 14 }}>
+          <div style={{ color: "#fca5a5", fontSize: 12, fontWeight: 700, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            {t(lang, "deleteTitle")}
+          </div>
+          <div style={{ color: "var(--text-dim)", fontSize: 12, lineHeight: 1.5, marginBottom: 10 }}>{t(lang, "deleteBody")}</div>
+          {!confirmDelete ? (
+            <button onClick={() => setConfirmDelete(true)} data-testid="delete-account-init"
+                    style={{ width: "100%", padding: 12, background: "transparent", border: "1px solid #ef4444", borderRadius: 10, color: "#fca5a5", cursor: "pointer", fontWeight: 600 }}>
+              <Trash2 size={14} style={{ display: "inline", marginRight: 6 }} /> {t(lang, "deleteBtn")}
+            </button>
+          ) : (
+            <>
+              <div style={{ color: "#fca5a5", fontSize: 12, marginBottom: 8 }}>{t(lang, "deleteTypeConfirm")}</div>
+              <input className="input" value={confirmText} onChange={(e) => setConfirmText(e.target.value.toUpperCase())}
+                     placeholder="DELETE" data-testid="delete-confirm-input" style={{ marginBottom: 10 }} />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => { setConfirmDelete(false); setConfirmText(""); }} className="btn-ghost" style={{ flex: 1 }}>Cancel</button>
+                <button onClick={deleteAccount} disabled={busy || confirmText !== "DELETE"} data-testid="delete-account-confirm"
+                        style={{ flex: 2, padding: 12, background: confirmText === "DELETE" ? "linear-gradient(135deg,#7f1d1d,#dc2626)" : "rgba(127,29,29,0.3)", color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, cursor: confirmText === "DELETE" ? "pointer" : "not-allowed" }}>
+                  {busy ? <span className="spinner" /> : t(lang, "deleteFinalBtn")}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

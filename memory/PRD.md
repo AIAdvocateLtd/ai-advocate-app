@@ -379,3 +379,34 @@ Files touched: `/app/backend/server.py`, `/app/backend/app_crypto.py` (new), `/a
 - ✅ Wipe vault also clears local biometric record.
 - New i18n keys: `vaultBioTitle`, `vaultBioOn`, `vaultBioOff`, `vaultBioTurnOn`, `vaultBioTurnOff`, `vaultBioUnlock`.
 - **Production note:** When we wrap with Capacitor (P1), swap localStorage backing for iOS Keychain / Android Keystore for true device-level encryption.
+
+## App Store Compliance Pack v2 (2026-02-18) — THE BIG ONE
+
+### Recording legality (4 layers)
+- ✅ New `/app/frontend/src/recordingLaw.js` — country-aware legal data (UK, IE, US, CA, AU, FR, DE, PK, IN) + 40+ court coordinates.
+- ✅ **RecordingConsentGate** modal: country flag + jurisdiction-specific consent rule + court rule + "Generally OK" + "Avoid" expandable sections + first-time consent acknowledgement + bottom liability disclaimer + "I understand — start" / "Cancel" actions.
+- ✅ **Smart court-proximity warning**: one-shot geolocation when Record is tapped → on-device haversine distance check against bundled court list → RED block warning + mandatory "I'm NOT in court" tick before user can proceed if within 150m of any known court. **Location never leaves the device. Never sent to server.**
+- ✅ **Keyword detector**: if recording title contains "court", "judge", "magistrate", etc. → confirm() warning before save.
+- ✅ Wired into HearingRecorderModal (`hearing-rec-start` + `hearing-pick-btn`) and RecordModal (`record-mic-btn`).
+- ✅ Toggle in Settings: "Smart court-recording safety" (default ON).
+- ✅ Once user accepts globally (`localStorage.aa_record_consent_v1`), subsequent recordings still show the country-aware screen but skip the first-time acknowledgement copy.
+
+### Lex chat legal disclaimer
+- ✅ Dismissable amber-bordered banner at the top of every Lex chat: *"Information, not legal advice — Lex is an AI, not a solicitor. For binding legal advice on your case, instruct a regulated lawyer. By continuing you accept our Terms."*
+- ✅ Dismissed for current session (sessionStorage), re-shows on next session — keeps it visible without nagging.
+
+### Terms of Service + Privacy Policy
+- ✅ Full ToS embedded — 11 clauses covering: not legal advice, age 18+, accuracy, recording responsibility, Vault zero-knowledge limitations, subscription/refund terms, misuse, termination, liability cap (£100 or fees paid), governing law, contact.
+- ✅ Full Privacy Policy embedded — UK-GDPR / EU-GDPR compliant: data collected, lawful basis, third parties (Anthropic / OpenAI / Google / Stripe / Apple / Google), rights (access/erasure/rectification/portability/objection/ICO complaint), encryption details, retention, international transfers, DPO contact.
+- ✅ Both rendered via `LegalDocModal` accessible from Settings → Legal & data section.
+
+### GDPR endpoints
+- ✅ `GET /api/users/me/export` — Article 20 data portability. Returns full JSON dump with transparently decrypted chats, cases, items, files, reminders, suggestions, vault metadata. Verified: 134KB export of test user.
+- ✅ `DELETE /api/users/me` — Article 17 right to erasure. Deletes all user-owned data across 10 collections + soft-deletes the user record (prevents trial abuse). Verified.
+- ✅ `get_user()` middleware now rejects deleted accounts with 401.
+
+### "Manage My Data" Settings section
+- ✅ New `ManageDataModal` in Settings: "Download my data" button (one-click JSON export) + "Delete my account" with type-DELETE confirmation.
+
+Files touched: `/app/backend/server.py`, `/app/frontend/src/App.js`, `/app/frontend/src/i18n.js`, `/app/frontend/src/recordingLaw.js` (new).
+

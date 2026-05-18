@@ -261,6 +261,8 @@ async def get_user(creds: HTTPAuthorizationCredentials = Depends(security)) -> d
         user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
         if not user:
             raise HTTPException(401, "User not found")
+        if user.get("deleted"):
+            raise HTTPException(401, "Account has been deleted")
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(401, "Token expired")
@@ -2685,6 +2687,92 @@ async def feedback_suggest(data: FeatureSuggestion, user: dict = Depends(get_use
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     return {"received": True, "thanks": "Thanks — we read every suggestion."}
+
+
+# ==================== GDPR — right to erasure + data portability ====================
+@api_router.get("/users/me/export")
+async def gdpr_export_my_data(user: dict = Depends(get_user)):
+    """GDPR Article 20 / UK-GDPR — data portability. Returns the user's full data as JSON.
+    Encrypted fields (chat content, case summaries, vault items) are TRANSPARENTLY DECRYPTED here so
+    the user gets their plaintext data back."""
+    uid = user["id"]
+    me = await db.users.find_one({"id": uid}, {"_id": 0, "hashed_password": 0})
+    if not me:
+        raise HTTPException(404, "User not found")
+    # Strip secrets and tokens that aren't user data
+    me.pop("apple_id", None); me.pop("google_id", None)
+
+    convos = []
+    async for c in db.conversations.find({"user_id": uid}, {"_id": 0}).sort("created_at", 1).limit(2000):
+        if "user_message" in c: c["user_message"] = decrypt_text(c["user_message"])
+        if "assistant_response" in c: c["assistant_response"] = decrypt_text(c["assistant_response"])
+        convos.append(c)
+
+    cases = []
+    async for k in db.cases.find({"user_id": uid}, {"_id": 0}):
+        if "summary" in k: k["summary"] = decrypt_text(k["summary"])
+        cases.append(k)
+
+    case_items = []
+    async for it in db.case_items.find({"user_id": uid}, {"_id": 0}):
+        if "description" in it: it["description"] = decrypt_text(it["description"])
+        case_items.append(it)
+
+    files = await db.legal_files.find({"user_id": uid}, {"_id": 0}).to_list(2000)
+    reminders = await db.reminders.find({"user_id": uid}, {"_id": 0}).to_list(2000)
+    feature_requests = await db.feature_requests.find({"user_id": uid}, {"_id": 0}).to_list(500)
+    # Vault metadata only — never include encrypted file blobs in plain export
+    vault_items = await db.vault_items.find(
+        {"user_id": uid, "deleted": {"$ne": True}},
+        {"_id": 0, "file_b64": 0}
+    ).to_list(500)
+
+    return {
+        "export_generated_at": datetime.now(timezone.utc).isoformat(),
+        "format_version": 1,
+        "notes": "This is your full personal data held by AI Advocate. Vault file contents are encrypted with your PIN and not exported here — open the Vault on your device to decrypt them.",
+        "user": me,
+        "conversations": convos,
+        "cases": cases,
+        "case_items": case_items,
+        "legal_files": files,
+        "reminders": reminders,
+        "feature_requests": feature_requests,
+        "vault_items_metadata": vault_items,
+    }
+
+
+@api_router.delete("/users/me")
+async def gdpr_delete_my_account(user: dict = Depends(get_user)):
+    """GDPR Article 17 — right to erasure. Permanently deletes ALL user data.
+    NOTE: Audit/compliance retention for legal records (e.g. subscription history) may be kept
+    for the statutory minimum (UK 6 years for tax records) in anonymised form.
+    """
+    uid = user["id"]
+    # Delete user-owned data across collections
+    await db.conversations.delete_many({"user_id": uid})
+    await db.cases.delete_many({"user_id": uid})
+    await db.case_items.delete_many({"user_id": uid})
+    await db.legal_files.delete_many({"user_id": uid})
+    await db.reminders.delete_many({"user_id": uid})
+    await db.feature_requests.delete_many({"user_id": uid})
+    await db.vault_items.delete_many({"user_id": uid})
+    await db.vault_meta.delete_many({"user_id": uid})
+    await db.vault_shares.delete_many({"user_id": uid})
+    await db.usage_counters.delete_many({"user_id": uid})
+    # Mark the user record itself as deleted (don't physically delete so trial-abuse defence remains)
+    await db.users.update_one(
+        {"id": uid},
+        {"$set": {
+            "deleted": True,
+            "deleted_at": datetime.now(timezone.utc).isoformat(),
+            "email": f"deleted-{uid}@ai-advocate.local",
+            "name": "(deleted)",
+            "hashed_password": None,
+            "apple_id": None, "google_id": None,
+        }}
+    )
+    return {"deleted": True, "message": "Your account and all personal data have been permanently deleted."}
 
 
 # ==================== Lex topic classifier (smart category routing) ====================
