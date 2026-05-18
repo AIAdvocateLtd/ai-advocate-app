@@ -230,3 +230,28 @@ export const ReminderIcon = ({ size = 44 }) => (
     <path d="M49 24 Q50 25 51 24"/>
   </svg>
 );
+
+// VaultIcon — heraldic shield with a keyhole (encrypted vault)
+export const VaultIcon = ({ size = 44 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" {...base}>
+    {/* shield outline */}
+    <path d="M32 6 L52 12 V32 Q52 46 32 58 Q12 46 12 32 V12 Z"/>
+    {/* inner shield band (gold inset) */}
+    <path d="M32 12 L46 16 V32 Q46 42 32 51 Q18 42 18 32 V16 Z"/>
+    {/* keyhole */}
+    <circle cx="32" cy="28" r="3.5" fill="currentColor"/>
+    <rect x="30.5" y="29" width="3" height="9" fill="currentColor"/>
+    {/* lock plate detail */}
+    <line x1="26" y1="44" x2="38" y2="44"/>
+  </svg>
+);
+
+// SuggestIcon — lightbulb (feature suggestion)
+export const SuggestIcon = ({ size = 22 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base}>
+    <path d="M9 18h6"/>
+    <path d="M10 22h4"/>
+    <path d="M8 14a5 5 0 1 1 8 0c-.6.8-1 1.5-1 3v1H9v-1c0-1.5-.4-2.2-1-3z"/>
+  </svg>
+);
+

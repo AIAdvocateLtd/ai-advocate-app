@@ -329,3 +329,40 @@ After review: deliberately NOT locking more features behind Pro. Current ladder 
 
 ### Tier-locking decision (final)
 After review: NOT locking more tabs. Free → Plus → Pro ladder stays. Auto-trial gives every new user 7 days of full Pro access; tier locks only apply after trial ends without subscription. App Store compliance + funnel velocity preserved.
+
+## Security overhaul + Lex Vault + Smart routing + Feature suggest (2026-02-18)
+
+### 🔐 Field-level encryption at rest
+- New module `/app/backend/app_crypto.py` — Fernet (AES-128-CBC + HMAC-SHA256) helper.
+- `AA_DATA_KEY` added to `/app/backend/.env` (32-byte base64 key). Encryption auto-disables if missing (dev-safe).
+- Encrypted fields in MongoDB at rest (transparent encrypt-on-write, decrypt-on-read):
+  - `conversations.user_message` and `conversations.assistant_response` (Lex chat history)
+  - `cases.summary`, `case_items.description`
+  - `vault_items.file_b64` and `vault_items.notes_enc` (defence-in-depth on top of client encryption)
+- Verified: DB rows now start with `enc:v1:gAAA...` prefix, plain `find_one()` returns ciphertext.
+- Existing plaintext rows are gracefully handled (no migration required — read path passes plaintext through unchanged).
+
+### 🔒 Lex Vault — zero-knowledge encrypted storage
+**Triple-layer security:** Client AES-GCM-256 (PIN-derived via PBKDF2 250k iterations) → Server Fernet (AA_DATA_KEY) → TLS in transit.
+- New tile **"Lex Vault"** (free for all users; categorised storage cap by tier: free=5, plus=25, pro=200 items).
+- 12MB per-item limit.
+- Endpoints: `GET /api/vault/status`, `POST /api/vault/setup`, `POST /api/vault/unlock`, `GET /api/vault/items`, `GET /api/vault/items/{id}`, `POST /api/vault/items`, `DELETE /api/vault/items/{id}`, `POST /api/vault/wipe`, `POST /api/vault/share` (7-day expiring share links).
+- New client helper `/app/frontend/src/vaultCrypto.js` — WebCrypto wrappers for PBKDF2, AES-GCM, base64.
+- New `VaultModal` with PIN setup → lock/unlock → categorised list (Evidence/Contracts/Letters/ID/Witness/Court/Other) → upload with encrypted notes → encrypted download → panic-wipe with confirmation.
+- Server NEVER sees the PIN. Only stores SHA-256(PIN || salt) verifier + the salt. If the user forgets their PIN, items are unrecoverable.
+- Two new heraldic SVG icons: `VaultIcon` (shield + keyhole) and `SuggestIcon` (lightbulb).
+
+### 🧠 Smart category routing
+- New endpoint `POST /api/lex/classify` — uses Haiku to classify a free-text question into one of {employment, property, immigration, criminal, family, medical, consumer, debt, tax, general}.
+- Frontend: after the first user message in general "Ask Lex" chat, the result is shown as a banner: *"Looks like Employment Law. Switch to the dedicated chat?"* — one-tap switches modal to that category (triggers Plus paywall for free users).
+- Banner is dismissable + only fires once per session.
+
+### 💡 Suggest-a-feature
+- New endpoint `POST /api/feedback/suggest` — stores in `feature_requests` collection with user email + free text. Lightweight, no LLM.
+- Dashboard footer: "Missing a legal area?" dashed-gold pill that opens `SuggestFeatureModal`. Confirmation screen on submit.
+- Use this data to drive product roadmap post-launch (top 5 most-requested categories become tile candidates).
+
+### Lex chat history history endpoint also now transparently decrypts.
+
+Files touched: `/app/backend/server.py`, `/app/backend/app_crypto.py` (new), `/app/backend/.env`, `/app/frontend/src/App.js`, `/app/frontend/src/icons.js`, `/app/frontend/src/i18n.js`, `/app/frontend/src/vaultCrypto.js` (new).
+

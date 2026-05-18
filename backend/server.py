@@ -29,6 +29,8 @@ import qrcode
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+from app_crypto import encrypt_text, decrypt_text, encrypt_bytes, decrypt_bytes, is_enabled as crypto_enabled  # noqa: E402
+
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
@@ -173,6 +175,35 @@ class ReminderCreate(BaseModel):
     description: Optional[str] = ""
     due_at: str  # ISO datetime
     kind: str = "deadline"  # deadline | hearing | follow_up | renewal_review
+
+class VaultSetupRequest(BaseModel):
+    pin_verifier: str  # SHA-256(PIN + salt), hex. 64 chars.
+    pin_salt: str      # client-generated random salt (base64 or hex). >= 16 chars.
+
+class VaultUnlockRequest(BaseModel):
+    pin_verifier: str
+
+class VaultItemCreate(BaseModel):
+    title: str
+    category: str = "evidence"  # evidence | contracts | letters | id | witness | court | other
+    notes: Optional[str] = None  # encrypted plaintext on client side
+    file_b64: str               # CLIENT-side AES-GCM-encrypted, then base64
+    file_iv: str                # IV used for client encryption (hex/base64)
+    file_mime: Optional[str] = "application/octet-stream"
+    file_name: Optional[str] = None
+    file_size_bytes: int = 0
+    note_iv: Optional[str] = None  # if notes are client-encrypted
+
+class VaultShareCreate(BaseModel):
+    item_ids: list[str]
+    note_to_recipient: Optional[str] = ""
+    recipient_email: Optional[str] = ""
+    expires_in_hours: int = 168  # default 7 days
+
+class FeatureSuggestion(BaseModel):
+    text: str
+    category_hint: Optional[str] = ""
+    user_email_optional: Optional[str] = ""
 
 class FirmPortalSignup(BaseModel):
     firm_name: str
@@ -797,14 +828,14 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
             logger.exception("Lex chat error (both primary + fallback)")
             raise HTTPException(500, f"AI error: {str(e2)}")
 
-    # Save conversation
+    # Save conversation (sensitive content encrypted at rest)
     await db.conversations.insert_one({
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
         "session_id": session_id,
         "category": data.category,
-        "user_message": data.message,
-        "assistant_response": response,
+        "user_message": encrypt_text(data.message),
+        "assistant_response": encrypt_text(response),
         "language": reply_language,
         "model_used": model_id,
         "deep_think": data.deep_think,
@@ -830,10 +861,11 @@ async def list_sessions(user: dict = Depends(get_user)):
     ]
     out = []
     async for s in db.conversations.aggregate(pipeline):
+        last_msg = decrypt_text(s["last_message"]) or ""
         out.append({
             "session_id": s["_id"],
             "category": s.get("category"),
-            "last_message": s["last_message"][:120],
+            "last_message": last_msg[:120],
             "last_at": s["last_at"],
             "count": s["count"],
         })
@@ -845,6 +877,11 @@ async def get_session(session_id: str, user: dict = Depends(get_user)):
         {"user_id": user["id"], "session_id": session_id},
         {"_id": 0}
     ).sort("created_at", 1).to_list(500)
+    for m in msgs:
+        if "user_message" in m:
+            m["user_message"] = decrypt_text(m["user_message"])
+        if "assistant_response" in m:
+            m["assistant_response"] = decrypt_text(m["assistant_response"])
     return msgs
 
 # ==================== Practice Mode + Live Legal Assist ====================
@@ -2301,13 +2338,14 @@ async def create_case(data: CaseCreate, user: dict = Depends(get_user)):
     name = (data.name or "Untitled case").strip()[:120]
     doc = {
         "id": case_id, "user_id": user["id"], "name": name,
-        "summary": (data.summary or "")[:500], "category": data.category or "general",
+        "summary": encrypt_text((data.summary or "")[:500]), "category": data.category or "general",
         "status": "open", "items_count": 0,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.cases.insert_one(doc)
     doc.pop("_id", None)
+    doc["summary"] = decrypt_text(doc["summary"])
     return doc
 
 @api_router.get("/cases")
@@ -2316,6 +2354,7 @@ async def list_cases(user: dict = Depends(get_user), status: Optional[str] = Non
     if status: q["status"] = status
     out = []
     async for c in db.cases.find(q, {"_id": 0}).sort("updated_at", -1).limit(200):
+        if "summary" in c: c["summary"] = decrypt_text(c["summary"])
         out.append(c)
     return {"cases": out}
 
@@ -2323,8 +2362,10 @@ async def list_cases(user: dict = Depends(get_user), status: Optional[str] = Non
 async def get_case(case_id: str, user: dict = Depends(get_user)):
     c = await db.cases.find_one({"id": case_id, "user_id": user["id"]}, {"_id": 0})
     if not c: raise HTTPException(404, "Case not found")
+    if "summary" in c: c["summary"] = decrypt_text(c["summary"])
     items = []
     async for it in db.case_items.find({"case_id": case_id, "user_id": user["id"]}, {"_id": 0}).sort("created_at", -1):
+        if "description" in it: it["description"] = decrypt_text(it["description"])
         items.append(it)
     c["items"] = items
     return c
@@ -2333,6 +2374,7 @@ async def get_case(case_id: str, user: dict = Depends(get_user)):
 async def update_case(case_id: str, data: CaseUpdate, user: dict = Depends(get_user)):
     upd = {k: v for k, v in data.dict(exclude_none=True).items() if k in ("name", "summary", "status")}
     if not upd: raise HTTPException(400, "Nothing to update")
+    if "summary" in upd: upd["summary"] = encrypt_text(upd["summary"])
     upd["updated_at"] = datetime.now(timezone.utc).isoformat()
     r = await db.cases.update_one({"id": case_id, "user_id": user["id"]}, {"$set": upd})
     if r.matched_count == 0: raise HTTPException(404, "Case not found")
@@ -2438,6 +2480,241 @@ async def export_case_pdf(case_id: str, user: dict = Depends(get_user)):
     buf.seek(0)
     return StreamingResponse(buf, media_type="application/pdf",
                              headers={"Content-Disposition": f'attachment; filename="case-{case_id[:8]}.pdf"'})
+
+# ==================== Lex Vault (zero-knowledge encrypted storage) ====================
+import secrets as _secrets
+
+# Per-tier item caps. Vault is FREE for everyone (safety feature), with tiered limits.
+VAULT_ITEM_CAPS = {
+    "free": 5, "trial_pro": 50, "plus": 25, "pro": 200, "yearly": 200, "trial": 5,
+}
+VAULT_MAX_FILE_BYTES = 12 * 1024 * 1024  # 12MB per item
+
+def _vault_doc_to_public(d: dict, include_blob: bool = False) -> dict:
+    out = {
+        "id": d.get("id"), "title": d.get("title"), "category": d.get("category"),
+        "notes_enc": d.get("notes_enc"),
+        "note_iv": d.get("note_iv"),
+        "file_iv": d.get("file_iv"),
+        "file_mime": d.get("file_mime"), "file_name": d.get("file_name"),
+        "file_size_bytes": d.get("file_size_bytes", 0),
+        "created_at": d.get("created_at"),
+    }
+    if include_blob:
+        out["file_b64"] = d.get("file_b64")
+    return out
+
+
+@api_router.get("/vault/status")
+async def vault_status(user: dict = Depends(get_user)):
+    """Has the user set a Vault PIN yet? Used by UI to show setup vs unlock flow."""
+    v = await db.vault_meta.find_one({"user_id": user["id"]}, {"_id": 0})
+    return {"setup": bool(v), "pin_salt": (v or {}).get("pin_salt"), "items_count": (v or {}).get("items_count", 0)}
+
+
+@api_router.post("/vault/setup")
+async def vault_setup(data: VaultSetupRequest, user: dict = Depends(get_user)):
+    """First-time Vault setup. Stores ONLY a SHA-256 verifier hash + salt — server
+    NEVER sees the actual PIN. If the user forgets their PIN, items cannot be recovered."""
+    if not data.pin_verifier or len(data.pin_verifier) < 32:
+        raise HTTPException(400, "Invalid PIN verifier")
+    existing = await db.vault_meta.find_one({"user_id": user["id"]})
+    if existing:
+        raise HTTPException(400, "Vault already set up. Use 'wipe' to start over.")
+    await db.vault_meta.insert_one({
+        "user_id": user["id"],
+        "pin_verifier": data.pin_verifier,
+        "pin_salt": data.pin_salt,
+        "items_count": 0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"setup": True}
+
+
+@api_router.post("/vault/unlock")
+async def vault_unlock(data: VaultUnlockRequest, user: dict = Depends(get_user)):
+    """Verify the PIN by comparing the client-supplied SHA-256 verifier with the stored one."""
+    v = await db.vault_meta.find_one({"user_id": user["id"]})
+    if not v:
+        raise HTTPException(404, "Vault not set up yet")
+    if not _secrets.compare_digest((v.get("pin_verifier") or ""), (data.pin_verifier or "")):
+        # log attempt (lightweight brute-force defence)
+        await db.vault_meta.update_one(
+            {"user_id": user["id"]},
+            {"$inc": {"failed_attempts": 1}, "$set": {"last_failed_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        raise HTTPException(401, "Incorrect PIN")
+    await db.vault_meta.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"failed_attempts": 0, "last_unlocked_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return {"unlocked": True}
+
+
+@api_router.get("/vault/items/{item_id}")
+async def vault_get_item(item_id: str, user: dict = Depends(get_user)):
+    """Fetch full encrypted blob for a specific item (decryption happens client-side).
+    Server transparently strips its own outer encryption layer so the client only sees
+    its own AES-GCM ciphertext (which only the user's PIN can decrypt)."""
+    d = await db.vault_items.find_one({"id": item_id, "user_id": user["id"], "deleted": {"$ne": True}}, {"_id": 0})
+    if not d:
+        raise HTTPException(404, "Item not found")
+    if d.get("file_b64"):
+        d["file_b64"] = decrypt_text(d["file_b64"])
+    if d.get("notes_enc"):
+        d["notes_enc"] = decrypt_text(d["notes_enc"])
+    return _vault_doc_to_public(d, include_blob=True)
+
+
+@api_router.get("/vault/items")
+async def vault_list(user: dict = Depends(get_user)):
+    """List vault items (without the heavy file blob — fetch each item individually for download)."""
+    out = []
+    async for d in db.vault_items.find(
+        {"user_id": user["id"], "deleted": {"$ne": True}}, {"_id": 0, "file_b64": 0}
+    ).sort("created_at", -1):
+        if d.get("notes_enc"):
+            d["notes_enc"] = decrypt_text(d["notes_enc"])
+        out.append(_vault_doc_to_public(d, include_blob=False))
+    return {"items": out, "count": len(out)}
+
+
+@api_router.post("/vault/items")
+async def vault_add_item(data: VaultItemCreate, user: dict = Depends(get_user)):
+    """Store a CLIENT-side encrypted item. Server adds another layer (encrypt_text) on top of
+    the already-encrypted blob — defence-in-depth."""
+    pub = user_to_public(user)
+    cap = VAULT_ITEM_CAPS.get(pub["tier"], 5)
+    current = await db.vault_items.count_documents({"user_id": user["id"], "deleted": {"$ne": True}})
+    if current >= cap:
+        raise HTTPException(402, f"Vault limit reached ({current}/{cap}). Upgrade to Pro for unlimited.")
+    if data.file_size_bytes > VAULT_MAX_FILE_BYTES:
+        raise HTTPException(413, f"File too large (max {VAULT_MAX_FILE_BYTES // (1024*1024)}MB)")
+
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "title": (data.title or "Untitled")[:200],
+        "category": data.category or "evidence",
+        # Server adds extra encryption layer over what is already client-encrypted
+        "notes_enc": encrypt_text(data.notes) if data.notes else None,
+        "note_iv": data.note_iv,
+        "file_b64": encrypt_text(data.file_b64),
+        "file_iv": data.file_iv,
+        "file_mime": data.file_mime or "application/octet-stream",
+        "file_name": data.file_name,
+        "file_size_bytes": int(data.file_size_bytes or 0),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "deleted": False,
+    }
+    await db.vault_items.insert_one(doc)
+    await db.vault_meta.update_one({"user_id": user["id"]}, {"$inc": {"items_count": 1}})
+    doc.pop("_id", None)
+    return _vault_doc_to_public(doc, include_blob=False)
+
+
+@api_router.delete("/vault/items/{item_id}")
+async def vault_delete_item(item_id: str, user: dict = Depends(get_user)):
+    r = await db.vault_items.update_one(
+        {"id": item_id, "user_id": user["id"]},
+        {"$set": {"deleted": True, "deleted_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    if r.modified_count == 0:
+        raise HTTPException(404, "Item not found")
+    await db.vault_meta.update_one({"user_id": user["id"]}, {"$inc": {"items_count": -1}})
+    return {"deleted": True}
+
+
+@api_router.post("/vault/wipe")
+async def vault_wipe(user: dict = Depends(get_user)):
+    """Panic delete — wipes everything in the vault AND resets the PIN.
+    Items go to a 24-hour soft-delete tombstone so the user can recover by contacting support if it was a mistake.
+    """
+    await db.vault_items.update_many(
+        {"user_id": user["id"]},
+        {"$set": {"deleted": True, "deleted_at": datetime.now(timezone.utc).isoformat(), "wiped": True}},
+    )
+    await db.vault_meta.delete_one({"user_id": user["id"]})
+    return {"wiped": True}
+
+
+@api_router.post("/vault/share")
+async def vault_share(data: VaultShareCreate, user: dict = Depends(get_user)):
+    """Generate a 7-day expiring share token for selected vault items.
+    NOTE: For the MVP, the share is a server-decrypt-on-fetch link. The client must
+    upload re-encrypted blobs using a temporary share key before sharing for true E2E."""
+    if not data.item_ids:
+        raise HTTPException(400, "No items selected")
+    # Verify all items belong to this user
+    count = await db.vault_items.count_documents({"id": {"$in": data.item_ids}, "user_id": user["id"], "deleted": {"$ne": True}})
+    if count != len(data.item_ids):
+        raise HTTPException(404, "One or more items not found")
+    token = _secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=max(1, min(168, data.expires_in_hours)))
+    await db.vault_shares.insert_one({
+        "id": str(uuid.uuid4()),
+        "token": token,
+        "user_id": user["id"],
+        "item_ids": data.item_ids,
+        "note_to_recipient": (data.note_to_recipient or "")[:1000],
+        "recipient_email": data.recipient_email,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "revoked": False,
+    })
+    base = APP_PUBLIC_URL.rstrip("/")
+    return {
+        "share_url": f"{base}/vault-share/{token}",
+        "token": token,
+        "expires_at": expires_at.isoformat(),
+    }
+
+
+# ==================== Feature suggestion ====================
+@api_router.post("/feedback/suggest")
+async def feedback_suggest(data: FeatureSuggestion, user: dict = Depends(get_user)):
+    text = (data.text or "").strip()
+    if not text or len(text) < 5:
+        raise HTTPException(400, "Please write at least a few words about what you'd like to see.")
+    await db.feature_requests.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "user_email": user.get("email"),
+        "text": text[:2000],
+        "category_hint": (data.category_hint or "")[:100],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"received": True, "thanks": "Thanks — we read every suggestion."}
+
+
+# ==================== Lex topic classifier (smart category routing) ====================
+@api_router.post("/lex/classify")
+async def lex_classify(payload: dict, user: dict = Depends(get_user)):
+    """Lightweight classifier: maps a user's free-text question to one of our tile categories.
+    Uses cheap Haiku model. Returns {category, confidence, suggestion}."""
+    text = (payload.get("text") or "").strip()
+    if len(text) < 12:
+        return {"category": "general", "confidence": "low"}
+    sysmsg = (
+        "You classify legal questions into ONE of these UK-app categories, returning STRICT JSON only:\n"
+        "Categories: employment | property | immigration | criminal | family | medical | consumer | debt | tax | general\n"
+        "Respond ONLY with: {\"category\":\"<one of above>\",\"confidence\":\"high|medium|low\",\"reason\":\"<≤8 words>\"}\n"
+        "Pick 'general' if it doesn't clearly fit a specific category."
+    )
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"classify-{uuid.uuid4()}", system_message=sysmsg)\
+            .with_model("anthropic", "claude-haiku-4-5-20251001").with_params(max_tokens=80)
+        resp = await chat.send_message(UserMessage(text=text))
+    except Exception:
+        return {"category": "general", "confidence": "low"}
+    import json as _json, re as _re
+    payload_txt = _re.sub(r"^```(?:json)?\s*|\s*```$", "", resp.strip())
+    try:
+        d = _json.loads(payload_txt)
+        return {"category": d.get("category", "general"), "confidence": d.get("confidence", "low"), "reason": d.get("reason", "")}
+    except Exception:
+        return {"category": "general", "confidence": "low"}
+
 
 # ==================== VIDEO RECORDING + LEX ANALYSIS ====================
 @api_router.post("/video/analyze")

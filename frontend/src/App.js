@@ -5,7 +5,7 @@ import {
   MessageCircle, Mic, Folder, FileText, Gavel, Globe, Briefcase, Home as HomeIcon,
   Stethoscope, Scale, X, Send, Upload, Languages, LogOut, Check, ArrowLeft, Square, Play,
   Camera, MapPin, Phone, ExternalLink, Settings as SettingsIcon, Star, Building2, Image as ImageIcon,
-  Download, Trash2, Video
+  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
 
@@ -17,7 +17,7 @@ import {
   AskLexIcon, RecordIcon, CameraIcon, LawyerIcon, FilesIcon, LetterIcon,
   CourtIcon, ImmigrationIcon, EmploymentIcon, PropertyIcon, MedicalIcon,
   OutcomeIcon, CostIcon, HearingIcon, AidIcon, ReminderIcon,
-  ContractIcon, DraftIcon
+  ContractIcon, DraftIcon, VaultIcon, SuggestIcon
 } from "@/icons";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -776,17 +776,19 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
 }
 
 // ---------- Lex Chat ----------
-function LexChat({ lang, country, category, title, onClose, autoMic = false, tier = "free" }) {
+function LexChat({ lang, country, category, title, onClose, autoMic = false, tier = "free", onSwitchCategory }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [deepThink, setDeepThink] = useState(false);
   const [dtUsed, setDtUsed] = useState(null); // {used, limit}
+  const [smartCat, setSmartCat] = useState(null);  // suggested category banner
   const { recording, start, stop } = useRecorder();
   const audioRef = useRef(null);
   const scrollRef = useRef(null);
   const autoStartedRef = useRef(false);
+  const classifiedRef = useRef(false);
 
   const isPro = tier === "pro" || tier === "yearly" || tier === "trial_pro";
 
@@ -823,6 +825,18 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
       });
       setSessionId(data.session_id);
       setMessages(m => [...m, { role: "lex", content: data.response, at: new Date().toISOString(), model: data.model, replyLang: data.reply_language }]);
+
+      // Smart category routing — only on first user message in general "ask_lex" chat
+      if (category === "ask_lex" && !classifiedRef.current && onSwitchCategory) {
+        classifiedRef.current = true;
+        api.post("/lex/classify", { text }).then(rc => {
+          const d = rc?.data;
+          const known = { employment: "employment", property: "property", immigration: "immigration", medical: "medical_negligence" };
+          if (d && d.confidence !== "low" && known[d.category]) {
+            setSmartCat({ category: d.category, mapped: known[d.category] });
+          }
+        }).catch(() => {});
+      }
       // Refresh Deep Think usage counter after each chat (Pro only)
       if (isPro && deepThink) {
         api.get("/subscription/usage").then(r => {
@@ -1019,6 +1033,22 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
             <Send size={18} />
           </button>
         </div>
+        {smartCat && (
+          <div data-testid="smart-cat-banner" style={{ margin: "10px 16px 0", padding: 10, background: "rgba(247,201,72,0.12)", border: "1px solid var(--gold-deep)", borderRadius: 10, display: "flex", alignItems: "center", gap: 10 }}>
+            <Scale size={16} style={{ color: "var(--gold)", flexShrink: 0 }} />
+            <div style={{ flex: 1, fontSize: 12, color: "var(--text)" }}>
+              {t(lang, "smartCatBanner").replace("{category}", smartCat.category)}
+            </div>
+            <button data-testid="smart-cat-switch" onClick={() => { onSwitchCategory && onSwitchCategory(smartCat.mapped); setSmartCat(null); }}
+                    style={{ fontSize: 11, padding: "5px 10px", background: "var(--gold)", color: "#1a1300", border: "none", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>
+              {t(lang, "smartCatSwitch")}
+            </button>
+            <button data-testid="smart-cat-dismiss" onClick={() => setSmartCat(null)}
+                    style={{ fontSize: 10, padding: "5px 8px", background: "transparent", color: "var(--text-dim)", border: "none", cursor: "pointer" }}>
+              <X size={12} />
+            </button>
+          </div>
+        )}
         <audio ref={audioRef} style={{ display: "none" }} />
       </div>
     </div>
@@ -2906,6 +2936,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
   const [showSub, setShowSub] = useState(false);
   const [subPreset, setSubPreset] = useState("plus");
   const [showSettings, setShowSettings] = useState(false);
+  const [showSuggest, setShowSuggest] = useState(false);
   const [showAdvertise, setShowAdvertise] = useState(false);
   const [showEmergency, setShowEmergency] = useState(false);
   const [wakeOn, setWakeOn] = useState(() => localStorage.getItem("aa_wake") === "1");
@@ -2953,6 +2984,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
     { id: "letter_reader", label: t(lang, "letterReader"), Icon: LetterIcon, req: "free" },
     { id: "contracts", label: t(lang, "contractTools"), Icon: ContractIcon, req: "free" },
+    { id: "vault", label: t(lang, "vaultTitle"), Icon: VaultIcon, req: "free" },
     { id: "outcome", label: t(lang, "predictOutcome"), Icon: OutcomeIcon, req: "pro" },
     { id: "cost", label: t(lang, "lawyerCost"), Icon: CostIcon, req: "free" },
     { id: "hearing", label: t(lang, "hearingRecorder"), Icon: HearingIcon, req: "pro" },
@@ -2982,6 +3014,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     else if (tile.id === "snap") setModal({ type: "snap" });
     else if (tile.id === "letter_reader") setModal({ type: "letter_reader" });
     else if (tile.id === "contracts") setModal({ type: "contracts" });
+    else if (tile.id === "vault") setModal({ type: "vault" });
     else if (tile.id === "outcome") setModal({ type: "outcome" });
     else if (tile.id === "cost") setModal({ type: "cost" });
     else if (tile.id === "hearing") setModal({ type: "hearing" });
@@ -3093,6 +3126,16 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {/* StatsWall hidden until we have real user counts post-launch */}
       {/* <StatsWall lang={lang} /> */}
 
+      {/* Suggest-a-feature inline link — captures user demand for new legal areas */}
+      <div style={{ textAlign: "center", padding: "20px 16px 90px" }}>
+        <button data-testid="suggest-feature-btn" onClick={() => setShowSuggest(true)}
+                style={{ background: "transparent", border: "1px dashed var(--gold-deep)", borderRadius: 10, padding: "10px 18px", color: "var(--gold)", fontSize: 12, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <SuggestIcon size={14} /> {t(lang, "suggestPrompt")}
+        </button>
+      </div>
+
+      {showSuggest && <SuggestFeatureModal lang={lang} onClose={() => setShowSuggest(false)} />}
+
       <BottomNav lang={lang} active="home"
         onNav={(k) => {
           if (k === "lex") {
@@ -3105,7 +3148,11 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
           else if (k === "settings") setShowSettings(true);
         }} hasAccess={true} requireSub={() => setShowSub(true)} />
 
-      {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} tier={tier} onClose={() => setModal(null)} />}
+      {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} tier={tier} onClose={() => setModal(null)} onSwitchCategory={(newCat) => {
+        const labelByCat = { employment: t(lang, "employment"), property: t(lang, "property"), immigration: t(lang, "immigration"), medical_negligence: t(lang, "medical") };
+        if (!hasTier("plus")) { setSubPreset("plus"); setShowSub(true); return; }
+        setModal({ type: "chat", category: newCat, title: labelByCat[newCat] || "Lex" });
+      }} />}
       {modal?.type === "courtroom" && <CourtroomModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "letter_lib" && <LetterLibraryModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "files" && <FilesModal lang={lang} onClose={() => setModal(null)} />}
@@ -3116,6 +3163,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "snap" && <SnapEvidenceModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "letter_reader" && <LetterReaderModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "contracts" && <ContractsHubModal lang={lang} country={country} hasTier={hasTier} onUpsell={() => { setSubPreset("pro"); setShowSub(true); }} onClose={() => setModal(null)} />}
+      {modal?.type === "vault" && <VaultModal lang={lang} hasTier={hasTier} onUpsell={() => { setSubPreset("pro"); setShowSub(true); }} onClose={() => setModal(null)} />}
       {modal?.type === "outcome" && <OutcomeModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "cost" && <CostEstimateModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "hearing" && <HearingRecorderModal lang={lang} country={country} onClose={() => setModal(null)} />}
@@ -3486,6 +3534,380 @@ function HearingRecorderModal({ lang, country, onClose }) {
     </div>
   );
 }
+
+
+// ============================== LEX VAULT ==============================
+// Zero-knowledge encrypted storage. PIN never leaves the device.
+
+const VAULT_CATEGORIES = [
+  { id: "evidence", label: "Evidence" },
+  { id: "contracts", label: "Contracts" },
+  { id: "letters", label: "Letters" },
+  { id: "id", label: "ID Docs" },
+  { id: "witness", label: "Witness" },
+  { id: "court", label: "Court" },
+  { id: "other", label: "Other" },
+];
+
+function VaultModal({ lang, hasTier, onUpsell, onClose }) {
+  const VC = require("./vaultCrypto");
+  const [stage, setStage] = useState("loading"); // loading | setup | locked | unlocked
+  const [pinSalt, setPinSalt] = useState(null);
+  const [pin, setPin] = useState("");
+  const [pinConfirm, setPinConfirm] = useState("");
+  const [err, setErr] = useState("");
+  const [items, setItems] = useState([]);
+  const [adding, setAdding] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newCategory, setNewCategory] = useState("evidence");
+  const [newNotes, setNewNotes] = useState("");
+  const [newFile, setNewFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [showWipeConfirm, setShowWipeConfirm] = useState(false);
+  const uploadRef = useRef(null);
+  const [decNotes, setDecNotes] = useState({});
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { data } = await api.get("/vault/status");
+        if (!alive) return;
+        if (!data.setup) setStage("setup");
+        else { setPinSalt(data.pin_salt); setStage("locked"); }
+      } catch (e) { setErr("Could not load vault."); }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const refreshItems = async () => {
+    const { data } = await api.get("/vault/items");
+    setItems(data.items || []);
+  };
+
+  const doSetup = async () => {
+    setErr("");
+    if (pin.length < 4) { setErr("PIN must be at least 4 characters."); return; }
+    if (pin !== pinConfirm) { setErr("PINs don't match."); return; }
+    setBusy(true);
+    try {
+      const salt = VC.generateSalt();
+      const verifier = await VC.pinVerifier(pin, salt);
+      await api.post("/vault/setup", { pin_verifier: verifier, pin_salt: salt });
+      setPinSalt(salt);
+      setStage("unlocked");
+      setPinConfirm("");
+      await refreshItems();
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Setup failed.");
+    } finally { setBusy(false); }
+  };
+
+  const doUnlock = async () => {
+    setErr("");
+    if (!pin) { setErr("Enter your PIN."); return; }
+    setBusy(true);
+    try {
+      const verifier = await VC.pinVerifier(pin, pinSalt);
+      await api.post("/vault/unlock", { pin_verifier: verifier });
+      setStage("unlocked");
+      await refreshItems();
+    } catch (e) {
+      setErr(e?.response?.status === 401 ? "Incorrect PIN." : "Unlock failed.");
+      setPin("");
+    } finally { setBusy(false); }
+  };
+
+  const handleFile = (e) => {
+    const f = e.target.files?.[0]; e.target.value = "";
+    if (!f) return;
+    if (f.size > 12 * 1024 * 1024) { alert("Max file size is 12MB."); return; }
+    setNewFile(f);
+    if (!newTitle) setNewTitle(f.name.replace(/\.[^.]+$/, ""));
+  };
+
+  const addItem = async () => {
+    if (!newFile || !newTitle) return;
+    setBusy(true); setErr("");
+    try {
+      const { file_b64, file_iv } = await VC.encryptBlob(pin, pinSalt, newFile);
+      let notesPayload = { notes: null, note_iv: null };
+      if (newNotes) {
+        const enc = await VC.encryptText(pin, pinSalt, newNotes);
+        notesPayload = { notes: enc.ct, note_iv: enc.iv };
+      }
+      await api.post("/vault/items", {
+        title: newTitle, category: newCategory, ...notesPayload,
+        file_b64, file_iv,
+        file_mime: newFile.type || "application/octet-stream",
+        file_name: newFile.name, file_size_bytes: newFile.size,
+      });
+      setAdding(false); setNewFile(null); setNewTitle(""); setNewNotes(""); setNewCategory("evidence");
+      await refreshItems();
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Add failed.");
+    } finally { setBusy(false); }
+  };
+
+  const downloadItem = async (it) => {
+    try {
+      const { data } = await api.get(`/vault/items/${it.id}`);
+      // Strip the server's outer "enc:v1:" prefix that decrypt_text removed; here the file_b64 came back already server-decrypted by the GET endpoint.
+      const blob = await VC.decryptBlob(pin, pinSalt, data.file_b64, data.file_iv, data.file_mime);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = data.file_name || it.title || "vault-item";
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
+    } catch (e) { alert("Could not decrypt file. Wrong PIN?"); }
+  };
+
+  const decryptAndShowNote = async (it) => {
+    if (!it.notes_enc) return;
+    if (decNotes[it.id]) {
+      setDecNotes((s) => { const n = { ...s }; delete n[it.id]; return n; });
+      return;
+    }
+    const plain = await VC.decryptText(pin, pinSalt, it.notes_enc, it.note_iv);
+    setDecNotes((s) => ({ ...s, [it.id]: plain }));
+  };
+
+  const removeItem = async (it) => {
+    if (!confirm(`Delete "${it.title}"? This cannot be undone.`)) return;
+    await api.delete(`/vault/items/${it.id}`);
+    await refreshItems();
+  };
+
+  const doWipe = async () => {
+    setBusy(true);
+    try {
+      await api.post("/vault/wipe");
+      setStage("setup"); setPin(""); setPinSalt(null); setItems([]);
+      setShowWipeConfirm(false);
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="modal-bg" data-testid="vault-modal">
+      <div className="modal-card" style={{ padding: 20 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20, display: "flex", alignItems: "center", gap: 8 }}>
+            <ShieldCheck size={20} /> {t(lang, "vaultTitle")}
+          </h2>
+          <button onClick={onClose} data-testid="vault-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
+        </div>
+
+        {stage === "loading" && <div style={{ textAlign: "center", padding: 30 }}><span className="spinner" /></div>}
+
+        {stage === "setup" && (
+          <div data-testid="vault-setup">
+            <div style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 12, marginBottom: 14 }}>
+              <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                <KeyRound size={13} /> {t(lang, "vaultZK")}
+              </div>
+              <div style={{ color: "var(--text-dim)", fontSize: 13, lineHeight: 1.5 }}>
+                {t(lang, "vaultZKBody")}
+              </div>
+            </div>
+            <div style={{ color: "#fca5a5", fontSize: 12, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: 10, marginBottom: 14, display: "flex", gap: 8 }}>
+              <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>{t(lang, "vaultLostPinWarning")}</span>
+            </div>
+            <input type="password" inputMode="numeric" className="input" placeholder={t(lang, "vaultPinNew")} value={pin} onChange={(e) => setPin(e.target.value)} data-testid="vault-pin-new" style={{ marginBottom: 10 }} />
+            <input type="password" inputMode="numeric" className="input" placeholder={t(lang, "vaultPinConfirm")} value={pinConfirm} onChange={(e) => setPinConfirm(e.target.value)} data-testid="vault-pin-confirm" style={{ marginBottom: 10 }} />
+            {err && <div style={{ color: "#fca5a5", fontSize: 13, marginBottom: 10 }}>{err}</div>}
+            <button className="btn-gold w-full" onClick={doSetup} disabled={busy} data-testid="vault-setup-btn">
+              {busy ? <span className="spinner" /> : (<><Lock size={14} style={{ display: "inline", marginRight: 6 }} />{t(lang, "vaultSetupCta")}</>)}
+            </button>
+          </div>
+        )}
+
+        {stage === "locked" && (
+          <div data-testid="vault-locked">
+            <div style={{ textAlign: "center", padding: "30px 20px 20px" }}>
+              <Lock size={48} style={{ color: "var(--gold)", marginBottom: 14, opacity: 0.7 }} />
+              <div style={{ color: "var(--text)", fontSize: 16, fontWeight: 600, marginBottom: 6 }}>{t(lang, "vaultLocked")}</div>
+              <div style={{ color: "var(--text-dim)", fontSize: 13 }}>{t(lang, "vaultEnterPin")}</div>
+            </div>
+            <input type="password" inputMode="numeric" autoFocus className="input" placeholder={t(lang, "vaultPin")} value={pin}
+                   onChange={(e) => setPin(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doUnlock()}
+                   data-testid="vault-pin-input" style={{ marginBottom: 10, textAlign: "center", fontSize: 18, letterSpacing: 4 }} />
+            {err && <div style={{ color: "#fca5a5", fontSize: 13, marginBottom: 10, textAlign: "center" }}>{err}</div>}
+            <button className="btn-gold w-full" onClick={doUnlock} disabled={busy} data-testid="vault-unlock-btn">
+              {busy ? <span className="spinner" /> : (<><Unlock size={14} style={{ display: "inline", marginRight: 6 }} />{t(lang, "vaultUnlock")}</>)}
+            </button>
+            <button onClick={() => setShowWipeConfirm(true)} data-testid="vault-forgot-btn"
+                    style={{ width: "100%", marginTop: 16, background: "transparent", border: "none", color: "var(--text-dim)", fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>
+              {t(lang, "vaultForgot")}
+            </button>
+          </div>
+        )}
+
+        {stage === "unlocked" && !adding && (
+          <div data-testid="vault-unlocked">
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              <button className="btn-gold" data-testid="vault-add-btn" onClick={() => setAdding(true)} style={{ flex: 1 }}>
+                <Upload size={14} style={{ display: "inline", marginRight: 6 }} /> {t(lang, "vaultAddItem")}
+              </button>
+              <button className="btn-ghost" data-testid="vault-lock-btn" onClick={() => { setPin(""); setStage("locked"); setItems([]); setDecNotes({}); }}>
+                <Lock size={14} />
+              </button>
+            </div>
+
+            {items.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "30px 10px", color: "var(--text-dim)", fontSize: 13 }}>
+                <ShieldCheck size={40} style={{ margin: "0 auto 10px", display: "block", opacity: 0.4 }} />
+                {t(lang, "vaultEmpty")}
+              </div>
+            ) : (
+              <div>
+                <div style={{ color: "var(--text-dim)", fontSize: 11, marginBottom: 8 }}>{items.length} {t(lang, "vaultItemCount")}</div>
+                {items.map(it => (
+                  <div key={it.id} data-testid={`vault-item-${it.id}`} style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginBottom: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 8, background: "rgba(247,201,72,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <Lock size={16} style={{ color: "var(--gold)" }} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.title}</div>
+                        <div style={{ color: "var(--text-dim)", fontSize: 11, textTransform: "capitalize" }}>
+                          {it.category} · {Math.round((it.file_size_bytes || 0) / 1024)} KB
+                        </div>
+                      </div>
+                      <button onClick={() => downloadItem(it)} data-testid={`vault-dl-${it.id}`}
+                              style={{ background: "transparent", border: "1px solid var(--gold-deep)", borderRadius: 8, padding: "6px 8px", color: "var(--gold)", cursor: "pointer" }}>
+                        <Download size={14} />
+                      </button>
+                      <button onClick={() => removeItem(it)} data-testid={`vault-rm-${it.id}`}
+                              style={{ background: "transparent", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 8, padding: "6px 8px", color: "#fca5a5", cursor: "pointer" }}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                    {it.notes_enc && (
+                      <>
+                        <button onClick={() => decryptAndShowNote(it)} data-testid={`vault-note-toggle-${it.id}`}
+                                style={{ marginTop: 8, fontSize: 11, background: "transparent", border: "none", color: "var(--text-dim)", cursor: "pointer", textDecoration: "underline" }}>
+                          {decNotes[it.id] ? t(lang, "vaultHideNote") : t(lang, "vaultShowNote")}
+                        </button>
+                        {decNotes[it.id] && (
+                          <div style={{ marginTop: 6, padding: 8, fontSize: 12, color: "var(--text-dim)", background: "#0a0a0a", border: "1px solid var(--line)", borderRadius: 8, whiteSpace: "pre-wrap" }}>
+                            {decNotes[it.id]}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {stage === "unlocked" && adding && (
+          <div data-testid="vault-add-form">
+            <button className="btn-ghost" onClick={() => { setAdding(false); setNewFile(null); }} style={{ marginBottom: 12, padding: "6px 12px" }}>
+              <ArrowLeft size={14} style={{ display: "inline", marginRight: 4 }} /> Back
+            </button>
+
+            <input type="file" ref={uploadRef} onChange={handleFile} style={{ display: "none" }}
+                   accept="image/*,application/pdf,.doc,.docx,.txt,.zip" data-testid="vault-file-input" />
+            <button className="btn-gold w-full" onClick={() => uploadRef.current?.click()} data-testid="vault-pick-file-btn" style={{ marginBottom: 10 }}>
+              <Upload size={16} style={{ display: "inline", marginRight: 6 }} />
+              {newFile ? newFile.name : t(lang, "vaultPickFile")}
+            </button>
+
+            <input className="input" placeholder={t(lang, "vaultItemTitle")} value={newTitle}
+                   onChange={(e) => setNewTitle(e.target.value)} data-testid="vault-item-title" style={{ marginBottom: 10 }} />
+
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ color: "var(--gold)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                {t(lang, "vaultCategory")}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6 }}>
+                {VAULT_CATEGORIES.map(c => (
+                  <button key={c.id} data-testid={`vault-cat-${c.id}`} onClick={() => setNewCategory(c.id)}
+                          style={{ padding: 8, borderRadius: 8, fontSize: 11, cursor: "pointer",
+                                   background: newCategory === c.id ? "rgba(247,201,72,0.15)" : "var(--bg-card)",
+                                   border: newCategory === c.id ? "1px solid var(--gold)" : "1px solid var(--line)",
+                                   color: newCategory === c.id ? "var(--gold)" : "var(--text)" }}>
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <textarea className="input" rows={3} placeholder={t(lang, "vaultNotesPlaceholder")} value={newNotes}
+                      onChange={(e) => setNewNotes(e.target.value)} data-testid="vault-notes" style={{ marginBottom: 12 }} />
+
+            {err && <div style={{ color: "#fca5a5", fontSize: 13, marginBottom: 10 }}>{err}</div>}
+
+            <button className="btn-gold w-full" onClick={addItem} disabled={busy || !newFile || !newTitle} data-testid="vault-save-item-btn">
+              {busy ? <span className="spinner" /> : (<><Lock size={14} style={{ display: "inline", marginRight: 6 }} /> {t(lang, "vaultEncryptSave")}</>)}
+            </button>
+          </div>
+        )}
+
+        {showWipeConfirm && (
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.92)", borderRadius: 24, padding: 24, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            <AlertTriangle size={40} style={{ color: "#ef4444", margin: "0 auto 14px", display: "block" }} />
+            <div style={{ color: "var(--text)", fontWeight: 700, fontSize: 16, textAlign: "center", marginBottom: 8 }}>
+              {t(lang, "vaultWipeTitle")}
+            </div>
+            <div style={{ color: "var(--text-dim)", fontSize: 13, textAlign: "center", lineHeight: 1.5, marginBottom: 18 }}>
+              {t(lang, "vaultWipeBody")}
+            </div>
+            <button className="btn-ghost w-full" onClick={() => setShowWipeConfirm(false)} style={{ marginBottom: 8 }} data-testid="vault-wipe-cancel">
+              {t(lang, "cancel")}
+            </button>
+            <button onClick={doWipe} data-testid="vault-wipe-confirm"
+                    style={{ width: "100%", padding: 12, background: "linear-gradient(135deg,#7f1d1d,#dc2626)", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontWeight: 700 }}>
+              {busy ? <span className="spinner" /> : t(lang, "vaultWipeConfirm")}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SuggestFeatureModal({ lang, onClose }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const submit = async () => {
+    if (text.trim().length < 5) return;
+    setBusy(true);
+    try { await api.post("/feedback/suggest", { text: text.trim() }); setSent(true); }
+    catch { alert("Could not send. Try again later."); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="modal-bg" data-testid="suggest-modal">
+      <div className="modal-card" style={{ padding: 22 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 12 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 18 }}>{t(lang, "suggestPrompt")}</h2>
+          <button onClick={onClose} data-testid="suggest-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
+        </div>
+        {sent ? (
+          <div style={{ textAlign: "center", padding: 30 }}>
+            <Check size={48} style={{ color: "#86efac", margin: "0 auto 14px", display: "block" }} />
+            <div style={{ color: "var(--text)", fontSize: 14 }}>{t(lang, "suggestThanks")}</div>
+            <button className="btn-ghost w-full" onClick={onClose} style={{ marginTop: 18 }}>Close</button>
+          </div>
+        ) : (
+          <>
+            <textarea className="input" rows={5} value={text} onChange={(e) => setText(e.target.value)}
+                      placeholder={t(lang, "suggestPlaceholder")} data-testid="suggest-input" style={{ marginBottom: 12 }} />
+            <button className="btn-gold w-full" onClick={submit} disabled={busy || text.trim().length < 5} data-testid="suggest-submit">
+              {busy ? <span className="spinner" /> : t(lang, "suggestSubmit")}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 // ---------- Contract Reader ----------
 function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
