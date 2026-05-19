@@ -5275,7 +5275,6 @@ function DailyTipCard({ lang, country }) {
 
 // ---------- Root App ----------
 function SplashScreen({ onDone }) {
-  const videoRef = useRef(null);
   const [fadeOut, setFadeOut] = useState(false);
   const calledRef = useRef(false);
 
@@ -5283,12 +5282,12 @@ function SplashScreen({ onDone }) {
     if (calledRef.current) return;
     calledRef.current = true;
     setFadeOut(true);
-    setTimeout(() => onDone(), 900);
+    setTimeout(() => onDone(), 600);
   }, [onDone]);
 
   useEffect(() => {
-    // Hard cap at 4s in case video stalls or fails to load
-    const t = setTimeout(finish, 4000);
+    // Static branded splash: visible instantly, holds for 1.8s then fades out
+    const t = setTimeout(finish, 1800);
     return () => clearTimeout(t);
   }, [finish]);
 
@@ -5298,35 +5297,30 @@ function SplashScreen({ onDone }) {
         position: "fixed", inset: 0, background: "#000",
         display: "flex", alignItems: "center", justifyContent: "center",
         zIndex: 9999, opacity: fadeOut ? 0 : 1,
-        transition: "opacity 0.9s ease-out", pointerEvents: fadeOut ? "none" : "auto",
+        transition: "opacity 0.6s ease-out", pointerEvents: fadeOut ? "none" : "auto",
         overflow: "hidden",
       }}
       onClick={finish}
     >
-      <video
-        ref={videoRef}
-        src="/assets/splash-clean.mp4"
-        autoPlay muted playsInline
-        onEnded={finish}
-        onError={finish}
-        className="aa-splash-video"
+      <img
+        src="/assets/splash-midframe.jpg"
+        alt="AI Advocate"
+        className="aa-splash-logo"
+        draggable={false}
         style={{
-          width: "100vmin",
-          height: "100vmin",
-          maxWidth: "100vw",
-          maxHeight: "100vh",
-          objectFit: "cover",
-          objectPosition: "center",
-          background: "#000",
+          width: "min(70vmin, 480px)",
+          height: "min(70vmin, 480px)",
+          objectFit: "contain",
           display: "block",
-          // 1) Crush near-black tints in the video to pure #000 so its baked-in vignette disappears
-          //    against the page background. 2) Radial mask fades the outer area to transparent
-          //    so any residual rectangular boundary blends into the surrounding black.
-          filter: "brightness(1.05) contrast(1.45) saturate(1.05)",
+          // Filter + mask handled in App.css via .aa-splash-logo + @keyframes aaSplashBreath
+          // (inline filter would override the animated filter)
           WebkitMaskImage:
             "radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%)",
           maskImage:
             "radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%)",
+          // Subtle "alive" breathing animation — handled in App.css
+          animation: "aaSplashBreath 2.4s ease-in-out infinite",
+          userSelect: "none",
         }}
       />
     </div>

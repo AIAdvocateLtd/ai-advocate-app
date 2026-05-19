@@ -15,23 +15,32 @@
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
-        <!-- Preload the splash video & poster so they start downloading in parallel with React's JS bundle.
-             Cuts perceived startup time by ~500-1000ms on 4G. -->
-        <link rel="preload" as="video" href="/assets/splash-clean.mp4" type="video/mp4" />
+        <!-- Preload the splash poster so it starts downloading in parallel with React's JS bundle. -->
         <link rel="preload" as="image" href="/assets/splash-midframe.jpg" />
-        <!-- Instant first-paint: black background + static logo poster, visible BEFORE React mounts.
-             User never sees a white flash even on slow networks. -->
+        <!-- Instant first-paint: black background + static logo, visible BEFORE React mounts.
+             Matches the React SplashScreen exactly so the handover is invisible. -->
         <style>
           html, body { background: #000; margin: 0; }
           #root:empty::before {
             content: "";
             position: fixed;
             inset: 0;
-            background: #000 url("/assets/splash-midframe.jpg") center / contain no-repeat;
-            background-size: min(70vmin, 480px);
+            background: #000;
+            z-index: 9999;
+          }
+          #root:empty::after {
+            content: "";
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            width: min(70vmin, 480px);
+            height: min(70vmin, 480px);
+            transform: translate(-50%, -50%);
+            background: url("/assets/splash-midframe.jpg") center / contain no-repeat;
             filter: brightness(1.05) contrast(1.45) saturate(1.05);
-            -webkit-mask-image: radial-gradient(ellipse 35% 35% at center, #000 60%, rgba(0,0,0,0.5) 80%, rgba(0,0,0,0) 100%);
-            mask-image: radial-gradient(ellipse 35% 35% at center, #000 60%, rgba(0,0,0,0.5) 80%, rgba(0,0,0,0) 100%);
+            -webkit-mask-image: radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%);
+            mask-image: radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%);
+            z-index: 9999;
           }
         </style>
         <!--

@@ -25,3 +25,21 @@
 .aa-splash-video {
   mix-blend-mode: screen;
 }
+
+/* Subtle "alive" breathing animation for the static splash logo.
+   Avoids the flickery fade-in of a video — logo is visible instantly. */
+@keyframes aaSplashBreath {
+  0%, 100% {
+    transform: scale(1.0);
+    filter: brightness(1.05) contrast(1.45) saturate(1.05)
+            drop-shadow(0 0 18px rgba(247,201,72,0.18));
+  }
+  50% {
+    transform: scale(1.035);
+    filter: brightness(1.15) contrast(1.5) saturate(1.15)
+            drop-shadow(0 0 32px rgba(247,201,72,0.45));
+  }
+}
+.aa-splash-logo {
+  will-change: transform, filter;
+}
