@@ -5287,8 +5287,8 @@ function SplashScreen({ onDone }) {
   }, [onDone]);
 
   useEffect(() => {
-    // Hard cap at 4.5s in case video stalls
-    const t = setTimeout(finish, 4500);
+    // New video is 3.15s — cap slightly longer in case of network buffering
+    const t = setTimeout(finish, 3600);
     return () => clearTimeout(t);
   }, [finish]);
 
@@ -5315,10 +5315,10 @@ function SplashScreen({ onDone }) {
           position: "absolute",
           top: "50%", left: "50%",
           transform: "translate(-50%, -50%)",
-          width: "min(70vmin, 480px)",
-          height: "min(70vmin, 480px)",
+          width: "min(75vmin, 520px)",
+          height: "min(75vmin, 520px)",
           objectFit: "contain",
-          filter: "saturate(1.1)",
+          filter: "brightness(1.15) saturate(1.2)",
           WebkitMaskImage:
             "radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%)",
           maskImage:
@@ -5335,14 +5335,14 @@ function SplashScreen({ onDone }) {
         className="aa-splash-video"
         style={{
           position: "relative",
-          width: "min(70vmin, 480px)",
-          height: "min(70vmin, 480px)",
+          width: "min(75vmin, 520px)",
+          height: "min(75vmin, 520px)",
           objectFit: "contain",
           background: "transparent",
           display: "block",
           // Gentle filter only — DO NOT crush mid-tones, or the spin animation
           // becomes invisible during dim rotation frames (causes "flicker").
-          filter: "saturate(1.1)",
+          filter: "brightness(1.15) saturate(1.2)",
           WebkitMaskImage:
             "radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%)",
           maskImage:
