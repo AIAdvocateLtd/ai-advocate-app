@@ -2989,7 +2989,7 @@ function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub, badges
         <button key={it.k} data-testid={`nav-${it.k}`} onClick={() => handle(it.k)}
                 style={{ background: "transparent", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flex: 1, cursor: "pointer", padding: 4, position: "relative" }}>
           <div style={{ position: "relative", display: "inline-flex" }}>
-            <it.Icon size={20} fill={active === it.k ? "var(--gold)" : "currentColor"} fillOpacity={active === it.k ? 1 : 0.85} style={{ color: active === it.k ? "var(--gold)" : "var(--text-muted)" }} />
+            <it.Icon size={20} fill={active === it.k ? "var(--gold)" : "currentColor"} fillOpacity={active === it.k ? 0.95 : 0.7} style={{ color: active === it.k ? "var(--gold)" : "var(--text-muted)" }} />
             {badges[it.k] > 0 && (
               <span data-testid={`nav-${it.k}-badge`} style={{
                 position: "absolute", top: -4, right: -6,
