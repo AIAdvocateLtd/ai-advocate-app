@@ -5319,10 +5319,13 @@ function SplashScreen({ onDone }) {
           height: "min(75vmin, 520px)",
           objectFit: "contain",
           filter: "brightness(1.15) saturate(1.2)",
+          // Tighter circular mask: fully opaque inside 38%, fully transparent by 65%.
+          // Kills the rectangular video boundary completely — only the logo + its
+          // immediate halo are visible, the surrounding dark backdrop is gone.
           WebkitMaskImage:
-            "radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%)",
+            "radial-gradient(circle at center, #000 38%, rgba(0,0,0,0.6) 52%, rgba(0,0,0,0) 65%)",
           maskImage:
-            "radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%)",
+            "radial-gradient(circle at center, #000 38%, rgba(0,0,0,0.6) 52%, rgba(0,0,0,0) 65%)",
           pointerEvents: "none",
         }}
       />
@@ -5340,13 +5343,11 @@ function SplashScreen({ onDone }) {
           objectFit: "contain",
           background: "transparent",
           display: "block",
-          // Gentle filter only — DO NOT crush mid-tones, or the spin animation
-          // becomes invisible during dim rotation frames (causes "flicker").
           filter: "brightness(1.15) saturate(1.2)",
           WebkitMaskImage:
-            "radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%)",
+            "radial-gradient(circle at center, #000 38%, rgba(0,0,0,0.6) 52%, rgba(0,0,0,0) 65%)",
           maskImage:
-            "radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%)",
+            "radial-gradient(circle at center, #000 38%, rgba(0,0,0,0.6) 52%, rgba(0,0,0,0) 65%)",
         }}
       />
     </div>
