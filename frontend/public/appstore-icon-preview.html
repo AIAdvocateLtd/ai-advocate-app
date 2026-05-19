@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<title>AI Advocate — App Store Icon Options</title>
+<style>
+  body { background: #000; color: #fff; font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 40px 20px; min-height: 100vh; }
+  h1 { font-family: 'Cinzel', serif; font-size: 26px; color: #f7c948; text-align: center; letter-spacing: 0.1em; margin: 0 0 6px; }
+  .sub { text-align: center; color: #888; font-size: 13px; margin-bottom: 36px; }
+  .container { max-width: 1100px; margin: 0 auto; }
+  .row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; margin: 24px 0; }
+  .col { background: linear-gradient(180deg,#0a0a0a,#050505); border: 1px solid #1a1a1a; border-radius: 14px; padding: 16px 12px; text-align: center; }
+  .col .label { color: #f7c948; font-family: 'Cinzel', serif; font-size: 13px; margin-bottom: 8px; letter-spacing: 0.05em; }
+  .col .desc { color: #888; font-size: 10px; margin-top: 8px; line-height: 1.4; min-height: 30px; }
+  /* iOS app icon mock — squircle (super-ellipse) clip */
+  .app-icon { width: 120px; height: 120px; margin: 0 auto; border-radius: 28px; overflow: hidden; background: #000; box-shadow: 0 6px 30px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.04); }
+  .app-icon img { width: 100%; height: 100%; object-fit: cover; }
+  /* Home-screen mockup */
+  .homescreen { background: linear-gradient(135deg,#1c0a02,#000); border-radius: 32px; padding: 28px; margin: 32px 0; box-shadow: 0 12px 60px rgba(0,0,0,0.7); border: 1px solid #2a2010; }
+  .hs-title { text-align: center; color: #f7c948; font-family: 'Cinzel', serif; font-size: 12px; letter-spacing: 0.15em; margin-bottom: 18px; }
+  .hs-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px 12px; justify-items: center; }
+  .hs-app { text-align: center; }
+  .hs-app .ico { width: 64px; height: 64px; border-radius: 16px; overflow: hidden; background: #fff; }
+  .hs-app .ico img { width: 100%; height: 100%; object-fit: cover; }
+  .hs-app .nm { color: #fff; font-size: 10px; margin-top: 5px; }
+  .pill-pick {
+    display: inline-block; padding: 6px 12px; background: rgba(247,201,72,0.1); border: 1px solid #b88a1e;
+    color: #f7c948; border-radius: 30px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; margin-top: 8px; font-weight: 700;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Potential Improvement — New App Store Icon</h1>
+  <div class="sub">Side-by-side: your CURRENT logo vs 3 new 3D-rendered options that match the Style D dashboard icons</div>
+
+  <div class="row">
+    <div class="col">
+      <div class="label">CURRENT</div>
+      <div class="app-icon"><img src="/icon_previews/current.png" /></div>
+      <div class="desc">Your existing logo<br/>(transparent / clean)</div>
+    </div>
+    <div class="col">
+      <div class="label">V1 — Shield with A</div>
+      <div class="app-icon"><img src="/icon_previews/v1_shield.png" /></div>
+      <div class="desc">Heraldic shield<br/>+ embossed 'A'</div>
+      <span class="pill-pick">RECOMMENDED</span>
+    </div>
+    <div class="col">
+      <div class="label">V2 — Royal Crest</div>
+      <div class="app-icon"><img src="/icon_previews/v2_crest.png" /></div>
+      <div class="desc">Ornate crest<br/>+ laurel wreath</div>
+    </div>
+    <div class="col">
+      <div class="label">V3 — Minimal A</div>
+      <div class="app-icon"><img src="/icon_previews/v3_minimal.png" /></div>
+      <div class="desc">Modern sculpted<br/>letter A</div>
+    </div>
+  </div>
+
+  <!-- Mock home screen comparison -->
+  <div class="homescreen">
+    <div class="hs-title">★ HOW V1 WOULD LOOK NEXT TO REAL APPS ON YOUR PHONE</div>
+    <div class="hs-grid">
+      <div class="hs-app"><div class="ico"><img src="/icon_previews/v1_shield.png" /></div><div class="nm">AI Advocate</div></div>
+      <div class="hs-app"><div class="ico" style="background:linear-gradient(135deg,#1d8cf8,#1657c1)"></div><div class="nm">Messages</div></div>
+      <div class="hs-app"><div class="ico" style="background:linear-gradient(135deg,#fdc830,#f37335)"></div><div class="nm">Mail</div></div>
+      <div class="hs-app"><div class="ico" style="background:#fff"></div><div class="nm">Wallet</div></div>
+      <div class="hs-app"><div class="ico" style="background:linear-gradient(135deg,#42b883,#159a64)"></div><div class="nm">WhatsApp</div></div>
+      <div class="hs-app"><div class="ico" style="background:#000;border:1px solid #333"></div><div class="nm">Photos</div></div>
+      <div class="hs-app"><div class="ico" style="background:linear-gradient(135deg,#feca0e,#fcb900)"></div><div class="nm">Notes</div></div>
+      <div class="hs-app"><div class="ico" style="background:#1c1c1e"></div><div class="nm">Settings</div></div>
+    </div>
+  </div>
+
+  <div style="margin-top: 32px; padding: 24px; background: #060606; border: 1px dashed #333; border-radius: 12px;">
+    <div style="color: #f7c948; font-family: 'Cinzel', serif; font-size: 14px; margin-bottom: 10px; letter-spacing: 0.1em;">★ MY HONEST PICK</div>
+    <div style="color: #ccc; font-size: 13px; line-height: 1.7;">
+      <strong style="color: #f7c948">V1 (Shield with A)</strong> — it pairs perfectly with your existing Vault shield, your splash video, and your law-firm/heraldic visual language. On the home screen mockup above, notice how V1 stands out as the only "premium gold" tile in a sea of flat/gradient app icons — that's exactly what you want from the App Store browse page.
+      <br><br>
+      V2 is gorgeous but might be too ornate / "vintage" for a modern legal-tech app.
+      <br><br>
+      V3 looks like a generic luxury brand (Armani / Bulgari) rather than a legal app.
+      <br><br>
+      Want me to ship V1 as the new App Store icon? Reply with "v1", "v2", "v3", or "stay current" and I'll wire it in.
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
