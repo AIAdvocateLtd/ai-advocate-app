@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Splash Fix Preview</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#000; color:#fff; font-family:-apple-system,system-ui,sans-serif; overflow:hidden; }
+  .stage {
+    position:fixed; inset:0; background:#000;
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+  }
+  .splash-media {
+    width: 100vmin;
+    height: 100vmin;
+    max-width: 100vw;
+    max-height: 100vh;
+    object-fit: cover;
+    object-position: center;
+    background: #000;
+    display: block;
+    -webkit-mask-image: radial-gradient(ellipse 70% 70% at center, #000 60%, rgba(0,0,0,0.6) 80%, rgba(0,0,0,0) 100%);
+    mask-image: radial-gradient(ellipse 70% 70% at center, #000 60%, rgba(0,0,0,0.6) 80%, rgba(0,0,0,0) 100%);
+  }
+  .label {
+    position:fixed; top:14px; left:50%; transform:translateX(-50%);
+    color:#f7c948; font-size:11px; letter-spacing:.15em;
+    font-family:'Cinzel',serif; z-index:10; opacity:.7;
+  }
+  .toggle {
+    position:fixed; bottom:14px; left:50%; transform:translateX(-50%);
+    color:#f7c948; font-size:10px; letter-spacing:.15em;
+    font-family:'Cinzel',serif; z-index:10; opacity:.5;
+  }
+</style>
+</head>
+<body>
+  <div class="label">SPLASH PREVIEW — feathered edges</div>
+  <div class="stage">
+    <!-- Static midframe used so static screenshot tools can render it correctly -->
+    <img class="splash-media" src="/assets/splash-midframe.jpg" alt="splash" />
+  </div>
+  <div class="toggle">(Using midframe JPG so still-image preview works. Live splash uses the MP4 video with same mask.)</div>
+</body>
+</html>

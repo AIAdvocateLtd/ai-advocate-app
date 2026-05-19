@@ -5299,6 +5299,7 @@ function SplashScreen({ onDone }) {
         display: "flex", alignItems: "center", justifyContent: "center",
         zIndex: 9999, opacity: fadeOut ? 0 : 1,
         transition: "opacity 0.9s ease-out", pointerEvents: fadeOut ? "none" : "auto",
+        overflow: "hidden",
       }}
       onClick={finish}
     >
@@ -5309,7 +5310,21 @@ function SplashScreen({ onDone }) {
         onEnded={finish}
         onError={finish}
         className="aa-splash-video"
-        style={{ width: "70vw", maxWidth: 480, height: "auto", objectFit: "contain" }}
+        style={{
+          width: "100vmin",
+          height: "100vmin",
+          maxWidth: "100vw",
+          maxHeight: "100vh",
+          objectFit: "cover",
+          objectPosition: "center",
+          background: "#000",
+          display: "block",
+          // Feather the video's slightly-tinted edges into the surrounding pure-black page
+          WebkitMaskImage:
+            "radial-gradient(ellipse 70% 70% at center, #000 60%, rgba(0,0,0,0.6) 80%, rgba(0,0,0,0) 100%)",
+          maskImage:
+            "radial-gradient(ellipse 70% 70% at center, #000 60%, rgba(0,0,0,0.6) 80%, rgba(0,0,0,0) 100%)",
+        }}
       />
     </div>
   );
