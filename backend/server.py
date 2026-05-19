@@ -29,6 +29,29 @@ import qrcode
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+# ---------- Sentry (init BEFORE FastAPI is created so middleware integrates) ----------
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+if SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.starlette import StarletteIntegration
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        send_default_pii=True,
+        environment=os.environ.get("SENTRY_ENV", "production"),
+        traces_sample_rate=0.2,  # 20% of requests traced for performance
+        integrations=[
+            StarletteIntegration(
+                transaction_style="endpoint",
+                failed_request_status_codes={403, *range(500, 599)},
+            ),
+            FastApiIntegration(
+                transaction_style="endpoint",
+                failed_request_status_codes={403, *range(500, 599)},
+            ),
+        ],
+    )
+
 from app_crypto import encrypt_text, decrypt_text, encrypt_bytes, decrypt_bytes, is_enabled as crypto_enabled  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
@@ -332,6 +355,12 @@ async def get_user(creds: HTTPAuthorizationCredentials = Depends(security)) -> d
             raise HTTPException(401, "User not found")
         if user.get("deleted"):
             raise HTTPException(401, "Account has been deleted")
+        # Tag Sentry scope with the user so errors carry context
+        if SENTRY_DSN:
+            try:
+                import sentry_sdk as _ss
+                _ss.set_user({"id": user.get("id"), "email": user.get("email"), "tier": user.get("tier")})
+            except Exception: pass
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(401, "Token expired")
