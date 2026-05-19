@@ -168,7 +168,7 @@ textarea.input { resize: vertical; min-height: 80px; font-family: 'Outfit', sans
 .tile-clean:hover svg { transform: scale(1.07); }
 .tile-clean-title {
   font-size: 12px;
-  color: var(--text);
+  color: var(--gold);
   font-weight: 500;
   line-height: 1.25;
   margin-top: 2px;
