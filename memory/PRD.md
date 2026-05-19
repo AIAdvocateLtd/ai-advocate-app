@@ -417,6 +417,37 @@ After review: NOT locking more tabs. Free → Plus → Pro ladder stays. Auto-tr
 - ✅ Engagements regression test: 18/18 still pass.
 - ✅ i18n integrity check: all 11 langs now report 510/510 keys.
 
+## Iter 15 — Pre-launch Hardening: Stripe webhooks + Account-Deletion + Sentry + PostHog (2026-02-19)
+
+### Stripe webhook hardening (revenue leak plug)
+- ✅ `customer.subscription.deleted`: now downgrades BOTH `users` AND `firm_accounts` collections (firms were ghost-paying).
+- ✅ Firm cancellation also clears `featured`/`verified` flags AND propagates to `lawfirms` public directory (firm immediately disappears from search after canceling — no free placement after refund).
+- ✅ `customer.subscription.updated`: distinguishes consumer vs firm price IDs and updates both billing tier + status accordingly.
+- ✅ `invoice.payment_failed`: marks both consumer + firm as `past_due` so frontend can show retry/dunning banners.
+
+### Account-Deletion (App Store 5.1.1(v) compliance — REQUIRED since 2022)
+- ✅ Backend `/api/users/me` DELETE now: (1) cancels active Stripe subscription via API, (2) deletes ALL new collections including `lex_chats`, `security_events`, `engagement_files`, and full engagements + threads + files where user is client, (3) anonymises user record (kept for trial-abuse defence per UK 6-yr statutory).
+- ✅ Frontend Settings: added clear top-level "🗑️ Delete my account" button in red — Apple reviewers look for this specifically.
+
+### Sentry monitoring — LIVE on both sides
+- ✅ **Frontend** `/app/frontend/src/sentry.js` — React 19 error hooks via `Sentry.reactErrorHandler()` in `index.js`, 20% trace sampling, filters extension/ResizeObserver noise. `setSentryUser` / `clearSentryUser` called on login/logout.
+- ✅ **Backend** `server.py` — `sentry_sdk.init` BEFORE FastAPI app creation, `StarletteIntegration` + `FastApiIntegration`, 20% trace sampling, tags every error with user ID/email/tier via `get_user` dependency.
+- ✅ Env: `REACT_APP_SENTRY_DSN` + `SENTRY_DSN` configured (EU region).
+- ✅ Verified: backend `/sentry-debug` triggered HTTP 500 → event sent. Frontend `throw new Error()` captured by `sentryWrapped` handler.
+
+### PostHog product analytics — LIVE on frontend
+- ✅ `/app/frontend/src/analytics.js` — autocapture (clicks, pageviews, forms), GDPR-compliant (EU host, respects DNT, no session recording), masks personal data properties.
+- ✅ `identify()` called on login with user id/email/tier/country/language. `resetAnalytics()` on logout.
+- ✅ Custom events: `user_signed_in`, `vault_unlocked` (with method: pin/biometric), `engagement_accepted`, `subscription_checkout_started` (with plan).
+- ✅ Verified: distinct_id assigned + posthog.__loaded === true on live preview.
+
+### What pre-launch items REMAIN
+- ⚠️ App Store screenshots (6.7" + 6.5" + 5.5") + listing description + keywords
+- ⚠️ Capacitor native wrap (needed for App Store acceptance)
+- ⚠️ ToS / Privacy review by a UK consumer-tech solicitor (recommended £500-1,500)
+- ⚠️ UptimeRobot for uptime monitoring (free, 5 min setup, user can do themselves)
+- ⚠️ Onboarding tour (3-4 swipeable cards)
+
 ## Security overhaul + Lex Vault + Smart routing + Feature suggest (2026-02-18)
 
 ### 🔐 Field-level encryption at rest

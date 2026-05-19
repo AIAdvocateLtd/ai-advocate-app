@@ -10,6 +10,7 @@ import {
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
 import { setAppIconBadge } from "@/appBadge";
 import { setSentryUser, clearSentryUser } from "@/sentry";
+import { identify as identifyAnalytics, resetAnalytics, track } from "@/analytics";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
 // we hide all Subscribe / Upgrade buttons (and replace them with a web-billing notice).
@@ -2840,6 +2841,7 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
     setBusy(true);
     try {
       const { data } = await api.post("/subscription/checkout", { plan });
+      track("subscription_checkout_started", { plan });
       window.location.href = data.checkout_url;
     } catch (e) { alert(e?.response?.data?.detail || "Failed"); setBusy(false); }
   };
@@ -3751,6 +3753,7 @@ function VaultModal({ lang, hasTier, onUpsell, onClose }) {
       const recoveredPin = await BIO.unlockWithBiometric();
       const verifier = await VC.pinVerifier(recoveredPin, pinSalt);
       await api.post("/vault/unlock", { pin_verifier: verifier });
+      track("vault_unlocked", { method: "biometric" });
       setPin(recoveredPin);
       setStage("unlocked");
       await refreshItems();
@@ -3808,6 +3811,7 @@ function VaultModal({ lang, hasTier, onUpsell, onClose }) {
     try {
       const verifier = await VC.pinVerifier(pin, pinSalt);
       await api.post("/vault/unlock", { pin_verifier: verifier });
+      track("vault_unlocked", { method: "pin" });
       setStage("unlocked");
       await refreshItems();
     } catch (e) {
@@ -5525,7 +5529,7 @@ function App() {
   useEffect(() => {
     if (token) {
       setAuthHeader(token);
-      api.get("/auth/me").then(r => { setUser(r.data); setSentryUser(r.data); setLang(r.data.language || lang); setCountry(r.data.country || country); setStep("app"); })
+      api.get("/auth/me").then(r => { setUser(r.data); setSentryUser(r.data); identifyAnalytics(r.data); setLang(r.data.language || lang); setCountry(r.data.country || country); setStep("app"); })
         .catch(() => { localStorage.removeItem("aa_token"); setToken(null); setStep(localStorage.getItem("aa_terms") ? "auth" : "lang"); });
     } else {
       setStep(localStorage.getItem("aa_terms") ? "auth" : "lang");
@@ -5561,9 +5565,9 @@ function App() {
 
   const onAuth = (data) => {
     localStorage.setItem("aa_token", data.access_token); setToken(data.access_token); setAuthHeader(data.access_token);
-    setUser(data.user); setSentryUser(data.user); setStep("app");
+    setUser(data.user); setSentryUser(data.user); identifyAnalytics(data.user); track("user_signed_in"); setStep("app");
   };
-  const onLogout = () => { localStorage.removeItem("aa_token"); setToken(null); setUser(null); setAuthHeader(null); clearSentryUser(); setStep("auth"); };
+  const onLogout = () => { localStorage.removeItem("aa_token"); setToken(null); setUser(null); setAuthHeader(null); clearSentryUser(); resetAnalytics(); setStep("auth"); };
 
   if (step === "loading") return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}><span className="spinner" /></div>;
 
@@ -5617,6 +5621,7 @@ function EngagementsModal({ lang, country, user, onClose }) {
     setBusy(true); setErr("");
     try {
       await api.post(`/engagements/accept/${tok}`);
+      track("engagement_accepted");
       setInviteInput("");
       await load();
     } catch (e) {
