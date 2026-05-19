@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<title>AI Advocate — Splash Video Comparison</title>
+<style>
+  body { background: #000; color: #fff; font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 32px 20px; min-height: 100vh; }
+  h1 { font-family: 'Cinzel', serif; font-size: 28px; color: #f7c948; text-align: center; letter-spacing: 0.1em; margin: 0 0 8px; }
+  .sub { text-align: center; color: #888; font-size: 13px; margin-bottom: 30px; }
+  .container { max-width: 1100px; margin: 0 auto; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .col { background: linear-gradient(180deg,#0a0a0a,#050505); border: 1px solid #1a1a1a; border-radius: 16px; padding: 20px; text-align: center; }
+  .col h2 { font-family: 'Cinzel', serif; color: #f7c948; font-size: 18px; margin: 0 0 6px; letter-spacing: 0.05em; }
+  .col .badge { display: inline-block; padding: 3px 10px; background: rgba(247,201,72,0.1); border: 1px solid #b88a1e; color: #f7c948; border-radius: 30px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700; margin-bottom: 16px; }
+  .video-wrap { background: #000; border-radius: 18px; overflow: hidden; aspect-ratio: 9/16; max-height: 540px; margin: 0 auto; }
+  video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .meta { color: #888; font-size: 11px; margin-top: 12px; line-height: 1.5; }
+  .controls { margin: 26px 0 8px; text-align: center; }
+  .btn { background: linear-gradient(135deg, #f7c948, #d6a017); color: #1a1300; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Splash Screen Comparison</h1>
+  <div class="sub">Both videos are playing simultaneously below — see which one you prefer</div>
+
+  <div class="controls">
+    <button class="btn" onclick="document.querySelectorAll('video').forEach(v => { v.currentTime = 0; v.play(); })">▶ Replay both</button>
+  </div>
+
+  <div class="row">
+    <div class="col">
+      <h2>Current</h2>
+      <span class="badge">In production now</span>
+      <div class="video-wrap">
+        <video autoplay loop muted playsinline src="/icon_previews/splash_current.mp4"></video>
+      </div>
+      <div class="meta">
+        ~5 seconds. Subtle rotation / tilt. Soft glow on shield. Slight metallic shimmer on the "AI ADVOCATE" text. Premium, understated.
+      </div>
+    </div>
+
+    <div class="col">
+      <h2>New candidate</h2>
+      <span class="badge">Your attachment</span>
+      <div class="video-wrap">
+        <video autoplay loop muted playsinline src="/icon_previews/splash_new.mp4"></video>
+      </div>
+      <div class="meta">
+        ~6 seconds. Subtle parallax / depth animation. Soft directional lighting. Polished bevelled gold finish. Slightly more cinematic feel.
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top: 36px; padding: 22px; background: #060606; border: 1px dashed #333; border-radius: 12px;">
+    <div style="color: #f7c948; font-family: 'Cinzel', serif; font-size: 14px; margin-bottom: 10px; letter-spacing: 0.1em;">★ MY HONEST READ</div>
+    <div style="color: #ccc; font-size: 13px; line-height: 1.7;">
+      Both are <em>genuinely good</em> — same premium gold/black aesthetic, both match your new App Store icon perfectly. The differences are subtle.
+      <br><br>
+      <strong style="color: #f7c948">New candidate</strong> reads slightly more "premium / cinematic" thanks to the depth animation and richer lighting. Feels a touch more like the splash of a top-tier banking app (Revolut Premium, Coutts).
+      <br><br>
+      <strong style="color: #f7c948">Current</strong> is a touch more "active" — the subtle rotation gives it momentum, which can feel more energetic.
+      <br><br>
+      For a legal app, I'd lean <strong style="color: #f7c948">slightly toward the new candidate</strong> — calm + premium beats energetic when the brand promise is "I'm reliable." But honestly either is excellent.
+      <br><br>
+      Reply "<strong style="color: #f7c948">new</strong>" or "<strong style="color: #f7c948">current</strong>" and I'll wire it in. Takes 1 minute.
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
