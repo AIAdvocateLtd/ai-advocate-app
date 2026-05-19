@@ -20,6 +20,16 @@
 
 * { box-sizing: border-box; }
 
+/* Global: kill iOS/Android tap highlight rectangle on ALL interactive elements */
+button, a, [role="button"], .tile-clean, .nav-tab, .nav-item, input, label, summary {
+  -webkit-tap-highlight-color: transparent;
+}
+/* Also strip the default focus ring on touch-driven UI (we provide our own active state) */
+button:focus, button:focus-visible,
+[role="button"]:focus, [role="button"]:focus-visible {
+  outline: none;
+}
+
 html, body, #root {
   background: var(--bg);
   color: var(--text);
@@ -129,6 +139,26 @@ textarea.input { resize: vertical; min-height: 80px; font-family: 'Outfit', sans
   text-align: center;
   color: var(--gold);
   transition: transform 200ms ease, color 200ms ease, filter 200ms ease;
+  /* Kill iOS Safari / Chrome tap highlight rectangle */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.tile-clean:focus,
+.tile-clean:focus-visible,
+.tile-clean:active {
+  outline: none;
+  background: transparent;
+  box-shadow: none;
+}
+.tile-clean:active {
+  /* Press feedback: gentle scale + glow, NO box */
+  transform: scale(0.94);
+  filter: drop-shadow(0 0 14px rgba(247,201,72,0.6));
 }
 .tile-clean:hover {
   transform: translateY(-3px);

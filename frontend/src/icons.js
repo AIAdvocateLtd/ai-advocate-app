@@ -13,6 +13,9 @@ const make = (file, label) => {
       alt={alt}
       width={size * ICON_SIZE_SCALE}
       height={size * ICON_SIZE_SCALE}
+      loading="eager"
+      decoding="async"
+      fetchpriority="high"
       style={{
         display: "inline-block",
         objectFit: "contain",
@@ -21,6 +24,8 @@ const make = (file, label) => {
         filter: "drop-shadow(0 2px 8px rgba(0,0,0,0.5))",
         userSelect: "none",
         pointerEvents: "none",
+        // Background is transparent in the optimized PNGs — never paint a box
+        background: "transparent",
       }}
       draggable={false}
     />
