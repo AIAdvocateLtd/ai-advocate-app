@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<title>AI Advocate — New App Icon Preview</title>
+<style>
+  body { background: #000; color: #fff; font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 36px 20px; min-height: 100vh; }
+  h1 { font-family: 'Cinzel', serif; font-size: 26px; color: #f7c948; text-align: center; letter-spacing: 0.1em; margin: 0 0 6px; }
+  .sub { text-align: center; color: #888; font-size: 13px; margin-bottom: 32px; }
+  .container { max-width: 1100px; margin: 0 auto; }
+  .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin: 24px 0; }
+  .col { background: linear-gradient(180deg,#0a0a0a,#050505); border: 1px solid #1a1a1a; border-radius: 14px; padding: 18px 12px; text-align: center; }
+  .col .label { color: #f7c948; font-family: 'Cinzel', serif; font-size: 13px; margin-bottom: 12px; letter-spacing: 0.08em; }
+  .col .desc { color: #888; font-size: 11px; margin-top: 12px; line-height: 1.4; }
+  .app-icon { margin: 0 auto; border-radius: 28%; overflow: hidden; background: #000; box-shadow: 0 6px 30px rgba(0,0,0,0.55); }
+  .app-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .small-row { display: flex; justify-content: center; gap: 16px; align-items: end; margin-top: 6px; }
+  .small-row .ico { background: #000; border-radius: 24%; overflow: hidden; box-shadow: 0 3px 12px rgba(0,0,0,0.5); }
+  .small-row .ico img { width: 100%; height: 100%; display: block; }
+  .small-row .cap { color: #777; font-size: 10px; margin-top: 5px; text-align: center; }
+
+  /* iPhone home-screen mock */
+  .phone-bezel { background: #1a1a1a; border-radius: 48px; padding: 14px; max-width: 360px; margin: 30px auto; box-shadow: 0 30px 80px rgba(0,0,0,0.7), 0 0 0 2px #2a2a2a inset; }
+  .phone-screen { background: linear-gradient(135deg, #1d0a1e, #061021); border-radius: 36px; padding: 32px 22px 18px; }
+  .phone-status { display: flex; justify-content: space-between; color: #fff; font-size: 11px; margin-bottom: 26px; opacity: 0.9; }
+  .hs-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px 14px; }
+  .hs-app { text-align: center; }
+  .hs-app .ico { width: 60px; height: 60px; border-radius: 24%; margin: 0 auto; overflow: hidden; }
+  .hs-app .ico img { width: 100%; height: 100%; object-fit: cover; }
+  .hs-app .nm { color: #fff; font-size: 10px; margin-top: 5px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>New App Store Icon — Preview</h1>
+  <div class="sub">Your attached logo, prepared for App Store (1024) + Home Screen (192/512) + iOS squircle corners</div>
+
+  <!-- 3 sizes -->
+  <div class="row">
+    <div class="col">
+      <div class="label">1024 × 1024 (App Store)</div>
+      <div class="app-icon" style="width:220px; height:220px;"><img src="/icon_previews/user_logo_1024.png" /></div>
+      <div class="desc">Used by Apple App Store listings + Google Play store listings</div>
+    </div>
+    <div class="col">
+      <div class="label">512 × 512 (Splash / PWA)</div>
+      <div class="app-icon" style="width:160px; height:160px;"><img src="/icon_previews/user_logo_512.png" /></div>
+      <div class="desc">Android adaptive icon + PWA install icon</div>
+    </div>
+    <div class="col">
+      <div class="label">192 × 192 (Home Screen)</div>
+      <div class="app-icon" style="width:100px; height:100px;"><img src="/icon_previews/user_logo_192.png" /></div>
+      <div class="desc">iOS / Android home-screen tile</div>
+    </div>
+  </div>
+
+  <!-- iPhone home-screen mock -->
+  <div style="text-align: center; color: #f7c948; font-family: 'Cinzel', serif; font-size: 13px; letter-spacing: 0.15em; margin-top: 36px;">
+    ★ HOW IT LOOKS ON AN iPHONE HOME SCREEN
+  </div>
+  <div class="phone-bezel">
+    <div class="phone-screen">
+      <div class="phone-status">
+        <span>9:41</span><span>5G  100%</span>
+      </div>
+      <div class="hs-grid">
+        <div class="hs-app"><div class="ico"><img src="/icon_previews/user_logo_192.png" /></div><div class="nm">AI Advocate</div></div>
+        <div class="hs-app"><div class="ico" style="background:linear-gradient(135deg,#1d8cf8,#1657c1)"></div><div class="nm">Messages</div></div>
+        <div class="hs-app"><div class="ico" style="background:linear-gradient(135deg,#fdc830,#f37335)"></div><div class="nm">Mail</div></div>
+        <div class="hs-app"><div class="ico" style="background:#000"></div><div class="nm">Wallet</div></div>
+
+        <div class="hs-app"><div class="ico" style="background:linear-gradient(135deg,#42b883,#159a64)"></div><div class="nm">WhatsApp</div></div>
+        <div class="hs-app"><div class="ico" style="background:#000;border:1px solid #333"></div><div class="nm">Photos</div></div>
+        <div class="hs-app"><div class="ico" style="background:linear-gradient(135deg,#feca0e,#fcb900)"></div><div class="nm">Notes</div></div>
+        <div class="hs-app"><div class="ico" style="background:#1c1c1e"></div><div class="nm">Settings</div></div>
+
+        <div class="hs-app"><div class="ico" style="background:linear-gradient(135deg,#7d54e3,#5b34c2)"></div><div class="nm">Calendar</div></div>
+        <div class="hs-app"><div class="ico" style="background:linear-gradient(135deg,#ff3b30,#c1212a)"></div><div class="nm">YouTube</div></div>
+        <div class="hs-app"><div class="ico" style="background:linear-gradient(135deg,#000,#1d1d1d)"></div><div class="nm">Twitter</div></div>
+        <div class="hs-app"><div class="ico" style="background:linear-gradient(135deg,#fc466b,#3f5efb)"></div><div class="nm">Instagram</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top: 32px; padding: 24px; background: #060606; border: 1px dashed #333; border-radius: 12px;">
+    <div style="color: #f7c948; font-family: 'Cinzel', serif; font-size: 14px; margin-bottom: 10px; letter-spacing: 0.1em;">★ WHAT GETS UPDATED</div>
+    <div style="color: #ccc; font-size: 13px; line-height: 1.7;">
+      If you approve this preview, I'll:
+      <ol style="margin: 8px 0 0; padding-left: 20px;">
+        <li>Replace <code style="background:#1a1a1a; padding:1px 6px; border-radius:4px; color:#f7c948">/manifest.json</code> icons (192 + 512) — your PWA install icon</li>
+        <li>Update <code style="background:#1a1a1a; padding:1px 6px; border-radius:4px; color:#f7c948">apple-touch-icon</code> in <code style="background:#1a1a1a; padding:1px 6px; border-radius:4px; color:#f7c948">index.html</code> — what iOS shows when someone "Adds to Home Screen"</li>
+        <li>Generate the 1024×1024 master file ready for App Store / TestFlight submission</li>
+      </ol>
+      <br>
+      <strong>Reply "ship it"</strong> and I'll roll all 3 changes. Or tell me what you'd like changed (different size, different cropping, etc.).
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
