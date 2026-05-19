@@ -512,7 +512,7 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
   const cancelledRef = useRef(false);
   const startTimeRef = useRef(0);
 
-  const SILENCE_MS = 2200;
+  const SILENCE_MS = 1200;
   const SPEECH_THRESH = 0.012;
   const MAX_RECORD_MS = 30000;
 

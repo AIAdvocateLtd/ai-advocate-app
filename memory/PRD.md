@@ -32,17 +32,14 @@
 ### 🆕 OPEN ASK FROM USER (saved 2026-02)
 **Speed up Lex voice flow ("Hey Lex" responsiveness)**
 - User reports: takes long to stop listening + long to answer
-- Root cause analysis:
-  - `SILENCE_MS = 2200` in `App.js:515` — Lex waits 2.2s of silence before deciding user is done talking. Industry standard (Siri/Alexa): 1.0–1.5s
-  - Sequential pipeline: silence detect → Whisper STT (1–2s) → Claude LLM (1–8s) → TTS (1–2s) → playback
-  - **Going live will NOT fix this** — LLM/STT/TTS API latency is identical in prod. Only our settings + streaming changes will help.
-- Fix plan (when prioritised):
-  1. Reduce `SILENCE_MS` 2200 → 1200 (saves ~1s, free)
-  2. Stream LLM response, start TTS on first sentence (saves ~2–3s)
-  3. Show "thinking..." indicator faster (perception fix)
-  4. Pre-warm TTS connection
-  5. Use Haiku for short queries even on Plus tier (saves ~2–4s on simple questions)
-- Estimated total improvement: **~8s → ~3s end-to-end**
+- ✅ **PART A DONE 2026-02**: Reduced `SILENCE_MS` 2200 → 1200 in `App.js:515` (saves ~1s end-of-speech detection on web)
+- 🎯 **PART B QUEUED for Capacitor iOS wrap session** — biggest wins, ~4 seconds saved total:
+  - Replace OpenAI Whisper STT → Apple `Speech Framework` (on-device, instant, free)
+  - Replace OpenAI TTS → Apple `AVSpeechSynthesizer` (on-device, instant, free)
+  - Use iOS `SFSpeechRecognizer` end-of-speech detection (smarter than fixed timer)
+  - Stream Claude LLM response and start TTS on first sentence
+  - Use Haiku for short queries even on Plus tier
+- Estimated final perceived response: web ~7s → iOS native ~3s
 
 ### P0 — Verification
 - User confirms on iPhone: icons no longer show boxes, app loads fast, splash has no visible boundary
