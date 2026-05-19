@@ -5319,11 +5319,14 @@ function SplashScreen({ onDone }) {
           objectPosition: "center",
           background: "#000",
           display: "block",
-          // Feather the video's slightly-tinted edges into the surrounding pure-black page
+          // 1) Crush near-black tints in the video to pure #000 so its baked-in vignette disappears
+          //    against the page background. 2) Radial mask fades the outer area to transparent
+          //    so any residual rectangular boundary blends into the surrounding black.
+          filter: "brightness(1.05) contrast(1.45) saturate(1.05)",
           WebkitMaskImage:
-            "radial-gradient(ellipse 70% 70% at center, #000 60%, rgba(0,0,0,0.6) 80%, rgba(0,0,0,0) 100%)",
+            "radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%)",
           maskImage:
-            "radial-gradient(ellipse 70% 70% at center, #000 60%, rgba(0,0,0,0.6) 80%, rgba(0,0,0,0) 100%)",
+            "radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%)",
         }}
       />
     </div>

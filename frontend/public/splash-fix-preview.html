@@ -20,8 +20,9 @@
     object-position: center;
     background: #000;
     display: block;
-    -webkit-mask-image: radial-gradient(ellipse 70% 70% at center, #000 60%, rgba(0,0,0,0.6) 80%, rgba(0,0,0,0) 100%);
-    mask-image: radial-gradient(ellipse 70% 70% at center, #000 60%, rgba(0,0,0,0.6) 80%, rgba(0,0,0,0) 100%);
+    filter: brightness(1.05) contrast(1.45) saturate(1.05);
+    -webkit-mask-image: radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%);
+    mask-image: radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%);
   }
   .label {
     position:fixed; top:14px; left:50%; transform:translateX(-50%);
