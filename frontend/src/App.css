@@ -19,27 +19,9 @@
   }
 }
 
-/* Splash video: blend the dark JPG-style backdrop of the video into
-   the pure-black splash container so the logo appears to float free.
-   "screen" keeps only pixels brighter than the background (the gold). */
+/* Splash video: subtle saturation boost + radial mask in component handles framing.
+   We deliberately do NOT crush midtones with a heavy contrast filter — that would
+   make the dim middle frames of the 3D rotation invisible (the "flicker" bug). */
 .aa-splash-video {
-  mix-blend-mode: screen;
-}
-
-/* Subtle "alive" breathing animation for the static splash logo.
-   Avoids the flickery fade-in of a video — logo is visible instantly. */
-@keyframes aaSplashBreath {
-  0%, 100% {
-    transform: scale(1.0);
-    filter: brightness(1.05) contrast(1.45) saturate(1.05)
-            drop-shadow(0 0 18px rgba(247,201,72,0.18));
-  }
-  50% {
-    transform: scale(1.035);
-    filter: brightness(1.15) contrast(1.5) saturate(1.15)
-            drop-shadow(0 0 32px rgba(247,201,72,0.45));
-  }
-}
-.aa-splash-logo {
-  will-change: transform, filter;
+  /* Reserved for future tweaks. Inline style on the component owns filter + mask. */
 }

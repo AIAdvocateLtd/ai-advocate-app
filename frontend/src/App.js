@@ -5275,6 +5275,7 @@ function DailyTipCard({ lang, country }) {
 
 // ---------- Root App ----------
 function SplashScreen({ onDone }) {
+  const videoRef = useRef(null);
   const [fadeOut, setFadeOut] = useState(false);
   const calledRef = useRef(false);
 
@@ -5286,8 +5287,8 @@ function SplashScreen({ onDone }) {
   }, [onDone]);
 
   useEffect(() => {
-    // Static branded splash: visible instantly, holds for 1.8s then fades out
-    const t = setTimeout(finish, 1800);
+    // Hard cap at 4.5s in case video stalls
+    const t = setTimeout(finish, 4500);
     return () => clearTimeout(t);
   }, [finish]);
 
@@ -5302,25 +5303,50 @@ function SplashScreen({ onDone }) {
       }}
       onClick={finish}
     >
+      {/* Static poster image behind the video — shows the logo INSTANTLY while the
+          MP4 is still buffering its first frame. Same size + mask as the video so the
+          handover is invisible. Removes the perceived "flicker / refreshing" feel. */}
       <img
         src="/assets/splash-midframe.jpg"
-        alt="AI Advocate"
-        className="aa-splash-logo"
+        alt=""
+        aria-hidden="true"
         draggable={false}
         style={{
+          position: "absolute",
+          top: "50%", left: "50%",
+          transform: "translate(-50%, -50%)",
           width: "min(70vmin, 480px)",
           height: "min(70vmin, 480px)",
           objectFit: "contain",
-          display: "block",
-          // Filter + mask handled in App.css via .aa-splash-logo + @keyframes aaSplashBreath
-          // (inline filter would override the animated filter)
+          filter: "saturate(1.1)",
           WebkitMaskImage:
             "radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%)",
           maskImage:
             "radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%)",
-          // Subtle "alive" breathing animation — handled in App.css
-          animation: "aaSplashBreath 2.4s ease-in-out infinite",
-          userSelect: "none",
+          pointerEvents: "none",
+        }}
+      />
+      <video
+        ref={videoRef}
+        src="/assets/splash-clean.mp4"
+        autoPlay muted playsInline
+        onEnded={finish}
+        onError={finish}
+        className="aa-splash-video"
+        style={{
+          position: "relative",
+          width: "min(70vmin, 480px)",
+          height: "min(70vmin, 480px)",
+          objectFit: "contain",
+          background: "transparent",
+          display: "block",
+          // Gentle filter only — DO NOT crush mid-tones, or the spin animation
+          // becomes invisible during dim rotation frames (causes "flicker").
+          filter: "saturate(1.1)",
+          WebkitMaskImage:
+            "radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%)",
+          maskImage:
+            "radial-gradient(ellipse 60% 60% at center, #000 55%, rgba(0,0,0,0.5) 75%, rgba(0,0,0,0) 95%)",
         }}
       />
     </div>
