@@ -10,6 +10,16 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 1e — Clickable source citations)
+- **🔗 Source chips are now clickable.** Each `[SOURCES:]` citation Lex produces is auto-routed to its official database:
+  - UK statute (any "Act YYYY" / "s.X" / "Schedule X") → **legislation.gov.uk** search
+  - UK case (pattern "X v Y") → **BAILII** search
+  - EU regulation/directive → **EUR-Lex** search
+  - Anything else → Google scoped to those 3 legal domains
+- Tested 10 representative citations (Housing Act 2004 s.213, Donoghue v Stevenson [1932], Regulation (EU) 2016/679, etc.) — 100% routed correctly.
+- Chips show external-link icon, hover state (gold border), open in new tab with `rel="noopener noreferrer"`, click-stop-propagation so tapping doesn't trigger parent message actions.
+- This is the **single biggest differentiator vs. ChatGPT for legal users**: every claim Lex makes can be verified on the official source in one tap.
+
 ### 2026-02 (Session 1d — Lex Confidence Check + Connected-to chip)
 - **🛡️ Lex Confidence + Sources visible in chat.** Every Lex answer now ends with three structured markers `[CONFIDENCE: HIGH|MED|LOW]` `[SOURCES: ...]` `[CONNECTED_TO: ...]`. Backend system-prompt enforces the format; frontend parses + strips them from the bubble and renders as colored pills below (green=HIGH, gold=MED, red=LOW) + grey source chips.
 - **✨ "Connected to: …" chip** appears above the bubble when Lex links the new question to a prior case. Powered by the cross-session memory we built in 1c.

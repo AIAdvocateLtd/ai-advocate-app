@@ -569,6 +569,33 @@ function parseLexMetadata(raw) {
   return { body, confidence, sources, connectedTo };
 }
 
+// Map a source citation string to its best-guess official-source URL.
+// UK case ("X v Y [YYYY]")              → BAILII search
+// EU regulation / directive             → EUR-Lex search
+// UK statute ("X Act YYYY")              → legislation.gov.uk search
+// fallback                              → Google site-restricted search
+function buildSourceUrl(source) {
+  if (!source || typeof source !== "string") return null;
+  const s = source.trim();
+  if (!s || s === "—" || s === "-") return null;
+  const q = encodeURIComponent(s);
+
+  // UK case law: " v " or " v. " with surrounding name parts
+  if (/\b[A-Z][\w'.-]+\s+v\.?\s+[A-Z][\w'.-]+/.test(s)) {
+    return `https://www.bailii.org/cgi-bin/sino_search_1.cgi?query=${q}`;
+  }
+  // EU regulation or directive
+  if (/regulation\s*\(eu\)/i.test(s) || /^directive\s+\d/i.test(s) || /\beu\s+\d{4}\/\d+/i.test(s)) {
+    return `https://eur-lex.europa.eu/search.html?qid=&text=${q}`;
+  }
+  // UK statute ("Housing Act 2004", "s.213 Housing Act", "Consumer Rights Act 2015 s.54")
+  if (/\bact\s+\d{4}\b/i.test(s) || /^s\.?\s*\d/i.test(s) || /\bschedule\s+\d/i.test(s)) {
+    return `https://www.legislation.gov.uk/search?text=${q}`;
+  }
+  // Fallback — Google scoped to canonical legal sources
+  return `https://www.google.com/search?q=${q}+site%3Alegislation.gov.uk+OR+site%3Abailii.org+OR+site%3Aeur-lex.europa.eu`;
+}
+
 // ---------- Voice Recording Hook ----------
 const useRecorder = () => {
   const mr = useRef(null); const chunks = useRef([]);
@@ -1207,14 +1234,31 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                                 <ShieldCheck size={10} /> {meta.confidence}
                               </span>
                             )}
-                            {meta.sources.map((src, si) => (
-                              <span key={si} title="Statute / case Lex cited" style={{
+                            {meta.sources.map((src, si) => {
+                              const url = buildSourceUrl(src);
+                              const chipStyle = {
+                                display: "inline-flex", alignItems: "center", gap: 4,
                                 background: "rgba(255,255,255,0.04)", border: "1px solid var(--line)",
-                                color: "var(--text-dim)", fontSize: 10, padding: "2px 8px", borderRadius: 999,
-                              }}>
-                                {src}
-                              </span>
-                            ))}
+                                color: "var(--gold-soft)", fontSize: 10, padding: "2px 8px",
+                                borderRadius: 999, textDecoration: "none",
+                                transition: "background 150ms, border-color 150ms",
+                              };
+                              return url ? (
+                                <a key={si} href={url} target="_blank" rel="noopener noreferrer"
+                                   title={`Open ${src} on the official source`}
+                                   data-testid={`source-link-${i}-${si}`}
+                                   onClick={(e) => e.stopPropagation()}
+                                   onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(247,201,72,0.10)"; e.currentTarget.style.borderColor = "var(--gold-deep)"; }}
+                                   onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.borderColor = "var(--line)"; }}
+                                   style={chipStyle}>
+                                  {src} <ExternalLink size={9} style={{ opacity: 0.7 }} />
+                                </a>
+                              ) : (
+                                <span key={si} title="Source Lex cited" style={{ ...chipStyle, color: "var(--text-dim)" }}>
+                                  {src}
+                                </span>
+                              );
+                            })}
                           </div>
                         )}
                       </>
