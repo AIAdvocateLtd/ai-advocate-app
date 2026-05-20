@@ -10,6 +10,13 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 1h — Sponsor Admin)
+- **🛠️ Standalone admin page** at `/admin-sponsor.html` (phone-friendly, no React build). Sign in with admin email → live preview pill → toggle sponsor on/off → save.
+- **`GET /api/admin/sponsor`** + **`POST /api/admin/sponsor`** — protected by existing `require_admin` (checks `ADMIN_EMAILS` env, default `admin@aiadvocate.co.uk`). Upserts into MongoDB `sponsor` collection.
+- Public `/api/sponsor` reflects changes instantly — `SponsorFooter` component in the app picks up the new firm name + logo on next page load.
+- Verified end-to-end: GET (admin) → POST activate → public endpoint shows "Hamilton & Co. Solicitors" → POST deactivate → public returns `{active:false}` → non-admin user gets 403 "Admin only".
+- Admin password set: `AdminLex2026!` for `admin@aiadvocate.co.uk` (stored in `/app/memory/test_credentials.md`).
+
 ### 2026-02 (Session 1g — Partner pack + Sponsor slot + Case Timeline + Progressive reveal)
 - **📄 Partner Pitch Card** (`/pitch-card.html`) — single-page A4 leave-behind PDF for law-firm sales. Print-ready, fully branded gold-on-black, includes tiers, key stats, pilot offer.
 - **📚 Partner Introduction Pack** (`/intro-pack.html`) — 8-page A4 PDF: product overview, lead funnel, tiers + Founding Partner, security & compliance, liability architecture, Firm Portal, exclusivity options + sponsorship reservation, next-steps onboarding.

@@ -4764,6 +4764,43 @@ async def admin_stats(_: dict = Depends(require_admin)):
         "leads_today": await db.inquiries.count_documents({"created_at": {"$gte": datetime.now(timezone.utc).date().isoformat()}}),
     }
 
+
+# Sponsor management — flip the "In partnership with [Firm]" footer on/off without an engineer.
+class SponsorPayload(BaseModel):
+    active: bool = True
+    name: str = ""
+    url: str = ""
+    tagline: str = "In partnership with"
+    logo_url: str = ""
+
+@api_router.get("/admin/sponsor")
+async def admin_get_sponsor(_: dict = Depends(require_admin)):
+    s = await db.sponsor.find_one({}, {"_id": 0}) or {}
+    return {
+        "active": bool(s.get("active", False)),
+        "name": s.get("name") or "",
+        "url": s.get("url") or "",
+        "tagline": s.get("tagline") or "In partnership with",
+        "logo_url": s.get("logo_url") or "",
+    }
+
+@api_router.post("/admin/sponsor")
+async def admin_set_sponsor(payload: SponsorPayload, _: dict = Depends(require_admin)):
+    name = (payload.name or "").strip()
+    if payload.active and not name:
+        raise HTTPException(400, "Sponsor name is required when activating.")
+    doc = {
+        "active": bool(payload.active),
+        "name": name,
+        "url": (payload.url or "").strip(),
+        "tagline": (payload.tagline or "In partnership with").strip(),
+        "logo_url": (payload.logo_url or "").strip(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # One sponsor doc — upsert
+    await db.sponsor.update_one({}, {"$set": doc}, upsert=True)
+    return {"ok": True, **doc}
+
 @api_router.get("/admin/firms")
 async def admin_list_firms(_: dict = Depends(require_admin), status: Optional[str] = None):
     q = {}

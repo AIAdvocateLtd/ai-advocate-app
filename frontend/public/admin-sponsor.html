@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Advocate — Sponsor Admin</title>
+<style>
+  :root {
+    --gold: #f7c948; --gold-deep: #d6a017; --gold-soft: #b3851a;
+    --bg: #0a0a0a; --bg-elev: #15110a; --text: #fefdf8; --text-dim: #c9bfa6; --text-muted: #8a8270;
+    --line: #2a2218; --danger: #ef4444; --success: #22c55e;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, system-ui, "SF Pro Text", sans-serif; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 520px; margin: 0 auto; padding: 24px 18px 60px; }
+  .brand { font-family: 'Cinzel', 'Times New Roman', serif; color: var(--gold); font-size: 18px; letter-spacing: 0.18em; text-align: center; font-weight: 700; }
+  .sub { text-align: center; color: var(--text-muted); font-size: 11px; letter-spacing: 0.14em; margin-top: 4px; text-transform: uppercase; }
+  h1 { font-family: 'Cinzel', serif; color: var(--gold); font-size: 22px; margin: 32px 0 6px; letter-spacing: 0.04em; text-align: center; }
+  .lede { color: var(--text-dim); font-size: 13px; line-height: 1.5; text-align: center; margin: 0 0 24px; }
+  .card { background: var(--bg-elev); border: 1px solid var(--line); border-radius: 14px; padding: 18px 16px; margin-bottom: 16px; }
+  .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .row:last-child { margin-bottom: 0; }
+  label { display: block; color: var(--gold-soft); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px; }
+  input[type="text"], input[type="url"], input[type="email"], input[type="password"] {
+    width: 100%; padding: 11px 14px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+    color: var(--text); font-size: 14px; font-family: inherit; outline: none;
+  }
+  input:focus { border-color: var(--gold); }
+  .field { margin-bottom: 14px; }
+  .toggle { position: relative; display: inline-block; width: 50px; height: 28px; cursor: pointer; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider { position: absolute; inset: 0; background: var(--line); border-radius: 14px; transition: 0.2s; }
+  .toggle .knob { position: absolute; height: 22px; width: 22px; left: 3px; top: 3px; background: #000; border-radius: 50%; transition: 0.2s; }
+  .toggle input:checked + .slider { background: var(--gold); }
+  .toggle input:checked + .slider .knob { transform: translateX(22px); }
+  .btn { width: 100%; padding: 13px 16px; background: var(--gold); color: #1a1300; border: none; border-radius: 12px; font-weight: 700; font-size: 14px; cursor: pointer; letterSpacing: 0.04em; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn.secondary { background: transparent; color: var(--text-dim); border: 1px solid var(--line); }
+  .msg { padding: 10px 14px; border-radius: 10px; font-size: 13px; margin-top: 12px; }
+  .msg.ok { background: rgba(34,197,94,0.1); border: 1px solid var(--success); color: var(--success); }
+  .msg.err { background: rgba(239,68,68,0.1); border: 1px solid var(--danger); color: var(--danger); }
+  .preview { background: rgba(247,201,72,0.05); border: 1px dashed var(--gold-deep); border-radius: 12px; padding: 16px; margin-top: 8px; text-align: center; }
+  .preview .pill {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 8px 14px; background: rgba(247,201,72,0.05); border: 1px solid var(--gold-deep);
+    border-radius: 999px; color: var(--gold-soft); font-size: 11px; letter-spacing: 0.04em;
+  }
+  .preview .pill strong { color: var(--gold); letter-spacing: 0.08em; }
+  .preview .pill img { height: 16px; object-fit: contain; }
+  .preview-label { color: var(--text-muted); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 10px; }
+  .step { color: var(--text-muted); font-size: 12px; margin: 12px 0 4px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">⚖ AI ADVOCATE</div>
+  <div class="sub">Sponsor Admin</div>
+
+  <h1>Founding Partner</h1>
+  <p class="lede">Configure the "In partnership with" footer that shows on the home screen of every consumer app. One firm at a time.</p>
+
+  <!-- AUTH STEP -->
+  <div id="auth-step">
+    <div class="card">
+      <div class="step">1 · Sign in as admin</div>
+      <div class="field"><label>Email</label><input id="admin-email" type="email" autocomplete="email" placeholder="you@aiadvocate.app" /></div>
+      <div class="field"><label>Password</label><input id="admin-password" type="password" autocomplete="current-password" /></div>
+      <button class="btn" id="sign-in-btn">Sign in</button>
+      <div id="auth-msg"></div>
+    </div>
+  </div>
+
+  <!-- EDITOR STEP -->
+  <div id="editor-step" class="hidden">
+    <div class="card">
+      <div class="row" style="margin-bottom: 8px;">
+        <div>
+          <div style="font-weight: 600; color: var(--text);">Sponsor active</div>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Footer shows in the app when ON</div>
+        </div>
+        <label class="toggle">
+          <input id="sponsor-active" type="checkbox" />
+          <span class="slider"><span class="knob"></span></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="field">
+        <label>Firm name *</label>
+        <input id="sponsor-name" type="text" placeholder="e.g. Hamilton & Co. Solicitors" />
+      </div>
+      <div class="field">
+        <label>Tagline</label>
+        <input id="sponsor-tagline" type="text" placeholder="In partnership with" />
+      </div>
+      <div class="field">
+        <label>Firm website (optional)</label>
+        <input id="sponsor-url" type="url" placeholder="https://example-firm.co.uk" />
+      </div>
+      <div class="field">
+        <label>Logo URL (optional, PNG/SVG, transparent bg)</label>
+        <input id="sponsor-logo" type="url" placeholder="https://example-firm.co.uk/logo.png" />
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="preview-label">Live Preview</div>
+      <div class="preview">
+        <div id="preview-pill" class="pill">
+          <span id="preview-tagline" style="opacity: 0.75;">In partnership with</span>
+          <img id="preview-logo" alt="" class="hidden" />
+          <strong id="preview-name">(set firm name above)</strong>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn" id="save-btn">Save Sponsor Settings</button>
+    <button class="btn secondary" id="signout-btn" style="margin-top: 10px;">Sign out</button>
+    <div id="save-msg"></div>
+  </div>
+</div>
+
+<script>
+const TOKEN_KEY = "aa_admin_token";
+
+function el(id) { return document.getElementById(id); }
+function show(id, on) { el(id).classList.toggle("hidden", !on); }
+function msg(target, kind, txt) {
+  const e = el(target);
+  e.innerHTML = '';
+  if (!txt) return;
+  const d = document.createElement('div');
+  d.className = "msg " + kind;
+  d.textContent = txt;
+  e.appendChild(d);
+}
+
+async function api(path, opts = {}) {
+  const tok = localStorage.getItem(TOKEN_KEY);
+  const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+  if (tok) headers["Authorization"] = "Bearer " + tok;
+  const res = await fetch(path, { ...opts, headers });
+  if (res.status === 401 || res.status === 403) {
+    localStorage.removeItem(TOKEN_KEY);
+    boot();
+    throw new Error("Auth required");
+  }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.detail || ("HTTP " + res.status));
+  return json;
+}
+
+function updatePreview() {
+  el("preview-tagline").textContent = el("sponsor-tagline").value || "In partnership with";
+  el("preview-name").textContent = el("sponsor-name").value || "(set firm name above)";
+  const logo = el("sponsor-logo").value.trim();
+  const img = el("preview-logo");
+  if (logo) { img.src = logo; img.classList.remove("hidden"); }
+  else img.classList.add("hidden");
+}
+
+async function loadSponsor() {
+  try {
+    const s = await api("/api/admin/sponsor");
+    el("sponsor-active").checked = !!s.active;
+    el("sponsor-name").value = s.name || "";
+    el("sponsor-tagline").value = s.tagline || "In partnership with";
+    el("sponsor-url").value = s.url || "";
+    el("sponsor-logo").value = s.logo_url || "";
+    updatePreview();
+  } catch (e) {
+    msg("save-msg", "err", e.message);
+  }
+}
+
+async function save() {
+  el("save-btn").disabled = true;
+  msg("save-msg", "", "");
+  try {
+    const payload = {
+      active: el("sponsor-active").checked,
+      name: el("sponsor-name").value.trim(),
+      tagline: el("sponsor-tagline").value.trim() || "In partnership with",
+      url: el("sponsor-url").value.trim(),
+      logo_url: el("sponsor-logo").value.trim(),
+    };
+    await api("/api/admin/sponsor", { method: "POST", body: JSON.stringify(payload) });
+    msg("save-msg", "ok", "Saved. Consumer app will reflect on next load.");
+  } catch (e) {
+    msg("save-msg", "err", e.message);
+  } finally {
+    el("save-btn").disabled = false;
+  }
+}
+
+async function signIn() {
+  msg("auth-msg", "", "");
+  const email = el("admin-email").value.trim();
+  const password = el("admin-password").value;
+  if (!email || !password) { msg("auth-msg", "err", "Email and password required."); return; }
+  try {
+    const res = await fetch("/api/auth/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || "Sign-in failed");
+    localStorage.setItem(TOKEN_KEY, d.access_token);
+    boot();
+  } catch (e) {
+    msg("auth-msg", "err", e.message);
+  }
+}
+
+function signOut() {
+  localStorage.removeItem(TOKEN_KEY);
+  boot();
+}
+
+async function boot() {
+  const tok = localStorage.getItem(TOKEN_KEY);
+  if (!tok) {
+    show("auth-step", true);
+    show("editor-step", false);
+    return;
+  }
+  // Try to fetch — auto-clears token if not admin
+  try {
+    const s = await fetch("/api/admin/sponsor", { headers: { Authorization: "Bearer " + tok } });
+    if (!s.ok) throw new Error("Not admin");
+    show("auth-step", false);
+    show("editor-step", true);
+    await loadSponsor();
+  } catch {
+    localStorage.removeItem(TOKEN_KEY);
+    show("auth-step", true);
+    show("editor-step", false);
+    msg("auth-msg", "err", "Your account is not an admin. Sign in with an admin email.");
+  }
+}
+
+["sponsor-name","sponsor-tagline","sponsor-logo"].forEach(id => el(id).addEventListener("input", updatePreview));
+el("sign-in-btn").addEventListener("click", signIn);
+el("save-btn").addEventListener("click", save);
+el("signout-btn").addEventListener("click", signOut);
+el("admin-password").addEventListener("keydown", e => { if (e.key === "Enter") signIn(); });
+boot();
+</script>
+</body>
+</html>
