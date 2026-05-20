@@ -1154,6 +1154,118 @@ async def lex_taster_status(req: Request, device_id: str):
     return {"available": used == 0}
 
 
+# ==================== Sponsor Slot (single firm partnership) ====================
+# Public endpoint — returns the active sponsor or null. UI shows discreet
+# "In partnership with [firm name]" footer when a sponsor is configured.
+# Edit through MongoDB directly or future admin UI. One sponsor at a time.
+@api_router.get("/sponsor")
+async def get_sponsor():
+    s = await db.sponsor.find_one({"active": True}, {"_id": 0})
+    if not s:
+        return {"active": False}
+    return {
+        "active": True,
+        "name": s.get("name") or "",
+        "url": s.get("url") or "",
+        "tagline": s.get("tagline") or "In partnership with",
+        "logo_url": s.get("logo_url") or "",
+    }
+
+
+# ==================== Case Timeline (cross-thread visual map) ====================
+# Aggregates conversations + reminders + cases + Lex sessions into a chronological list.
+# Powers the home-screen "Case Timeline" — the user's whole legal life on one screen.
+@api_router.get("/timeline")
+async def get_timeline(user: dict = Depends(get_user)):
+    user_id = user["id"]
+    items = []
+
+    # Chat sessions — group conversations by session, take first message as title
+    try:
+        cursor = db.conversations.aggregate([
+            {"$match": {"user_id": user_id}},
+            {"$sort": {"created_at": 1}},
+            {"$group": {
+                "_id": "$session_id",
+                "category": {"$first": "$category"},
+                "first_message": {"$first": "$user_message"},
+                "last_at": {"$last": "$created_at"},
+                "first_at": {"$first": "$created_at"},
+                "turns": {"$sum": 1},
+            }},
+            {"$sort": {"last_at": -1}},
+            {"$limit": 30},
+        ])
+        async for s in cursor:
+            try:
+                msg = decrypt_text(s.get("first_message")) or ""
+                title = msg[:80].replace("\n", " ").strip()
+                if len(msg) > 80:
+                    title += "…"
+                items.append({
+                    "kind": "chat",
+                    "id": s["_id"],
+                    "title": title or "(empty thread)",
+                    "category": s.get("category") or "ask_lex",
+                    "turns": s.get("turns", 1),
+                    "started_at": s.get("first_at"),
+                    "updated_at": s.get("last_at"),
+                })
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # Reminders / deadlines
+    try:
+        async for r in db.reminders.find({"user_id": user_id}, {"_id": 0}).sort("due_at", 1).limit(50):
+            items.append({
+                "kind": "deadline",
+                "id": r.get("id"),
+                "title": r.get("title") or "Deadline",
+                "category": r.get("category") or "deadline",
+                "due_at": r.get("due_at"),
+                "completed": bool(r.get("completed")),
+                "updated_at": r.get("created_at") or r.get("due_at"),
+            })
+    except Exception:
+        pass
+
+    # Vault items (count only — content is client-encrypted)
+    try:
+        vault_count = await db.vault_items.count_documents({"user_id": user_id})
+    except Exception:
+        vault_count = 0
+
+    # Cases (case files)
+    try:
+        async for c in db.cases.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(30):
+            items.append({
+                "kind": "case",
+                "id": c.get("id"),
+                "title": c.get("title") or "(untitled case)",
+                "category": c.get("category") or "case",
+                "updated_at": c.get("updated_at") or c.get("created_at"),
+            })
+    except Exception:
+        pass
+
+    # Sort chronologically (most recent first) so the timeline reads top-down
+    def _sortkey(item):
+        return item.get("updated_at") or item.get("due_at") or ""
+    items.sort(key=_sortkey, reverse=True)
+
+    return {
+        "items": items[:80],
+        "stats": {
+            "total_chats": sum(1 for i in items if i["kind"] == "chat"),
+            "open_deadlines": sum(1 for i in items if i["kind"] == "deadline" and not i.get("completed")),
+            "cases": sum(1 for i in items if i["kind"] == "case"),
+            "vault_items": vault_count,
+        },
+    }
+
+
 @api_router.get("/lex/sessions")
 async def list_sessions(user: dict = Depends(get_user)):
     pipeline = [

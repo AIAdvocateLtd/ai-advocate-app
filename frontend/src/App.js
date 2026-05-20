@@ -1048,7 +1048,25 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         auto_detect: autoDetect,
       });
       setSessionId(data.session_id);
-      setMessages(m => [...m, { role: "lex", content: data.response, at: new Date().toISOString(), model: data.model, replyLang: data.reply_language, connectedSessionId: data.connected_session_id || null }]);
+      // Progressive reveal: stash full response, animate body typing-in client-side so it feels live.
+      // (True SSE streaming will land once Emergent SDK exposes a stream API.)
+      const fullText = data.response;
+      const lexMsg = { role: "lex", content: "", _fullContent: fullText, at: new Date().toISOString(), model: data.model, replyLang: data.reply_language, connectedSessionId: data.connected_session_id || null, _typing: true };
+      setMessages(m => [...m, lexMsg]);
+      // Type out 30 chars per ~25ms (≈1200 wpm display speed — fast enough to read but visibly live)
+      let revealed = 0;
+      const step = 30;
+      const tick = () => {
+        if (revealed >= fullText.length) {
+          setMessages(ms => ms.map((mm, idx) => idx === ms.length - 1 && mm._typing ? { ...mm, content: fullText, _typing: false, _fullContent: undefined } : mm));
+          return;
+        }
+        revealed += step;
+        const slice = fullText.slice(0, revealed);
+        setMessages(ms => ms.map((mm, idx) => idx === ms.length - 1 && mm._typing ? { ...mm, content: slice } : mm));
+        setTimeout(tick, 25);
+      };
+      tick();
 
       // Smart category routing — only on first user message in general "ask_lex" chat
       if (category === "ask_lex" && !classifiedRef.current && onSwitchCategory) {
@@ -3273,6 +3291,174 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
 }
 
 // ---------- Bottom Navigation ----------
+// ---------- Case Timeline (cross-thread visual map) ----------
+function CaseTimeline({ lang, onClose, onOpenChat }) {
+  const [data, setData] = useState({ items: [], stats: { total_chats: 0, open_deadlines: 0, cases: 0, vault_items: 0 } });
+  const [busy, setBusy] = useState(true);
+
+  useEffect(() => {
+    api.get("/timeline").then(r => setData(r.data || { items: [], stats: {} })).catch(() => {}).finally(() => setBusy(false));
+  }, []);
+
+  const iconFor = (kind, cat) => {
+    if (kind === "deadline") return "/icons/reminder.png";
+    if (kind === "case") return "/icons/files.png";
+    if (kind === "chat") {
+      if (cat === "employment") return "/icons/employment.png";
+      if (cat === "property") return "/icons/property.png";
+      if (cat === "immigration") return "/icons/immigration.png";
+      if (cat === "medical_negligence" || cat === "medical") return "/icons/medical.png";
+      return "/icons/ask_lex.png";
+    }
+    return "/icons/ask_lex.png";
+  };
+
+  const fmtDate = (iso) => {
+    if (!iso) return "";
+    try {
+      const d = new Date(iso);
+      const now = new Date();
+      const diff = (now - d) / 1000;
+      if (diff < 60) return "just now";
+      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+      if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}d ago`;
+      return d.toLocaleDateString();
+    } catch { return ""; }
+  };
+
+  return (
+    <div className="modal-bg" data-testid="case-timeline" style={{ zIndex: 100 }}>
+      <div className="modal-card" style={{ padding: 0, maxWidth: 720, width: "100%", height: "92vh", display: "flex", flexDirection: "column" }}>
+        {/* Header */}
+        <div style={{ padding: 18, borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <img src="/icons/files.png" alt="" style={{ width: 36, height: 36, objectFit: "contain" }} />
+            <div>
+              <h2 style={{ fontFamily: "'Cinzel', serif", color: "var(--gold)", fontSize: 17, margin: 0, letterSpacing: "0.06em" }}>Case Timeline</h2>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>Your whole legal life in one view</div>
+            </div>
+          </div>
+          <button onClick={onClose} data-testid="timeline-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={20} /></button>
+        </div>
+
+        {/* Stat strip */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, padding: "14px 18px 0" }}>
+          {[
+            { n: data.stats?.total_chats || 0,    l: "Chats" },
+            { n: data.stats?.open_deadlines || 0, l: "Open deadlines" },
+            { n: data.stats?.cases || 0,          l: "Case files" },
+            { n: data.stats?.vault_items || 0,    l: "Vault items" },
+          ].map((s, i) => (
+            <div key={i} style={{ background: "var(--bg-elev)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
+              <div style={{ color: "var(--gold)", fontSize: 18, fontWeight: 700, lineHeight: 1 }}>{s.n}</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 9, marginTop: 4, letterSpacing: "0.06em", textTransform: "uppercase" }}>{s.l}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Timeline */}
+        <div data-testid="timeline-list" style={{ flex: 1, overflowY: "auto", padding: "14px 18px 24px" }}>
+          {busy && (
+            <div style={{ textAlign: "center", color: "var(--text-muted)", padding: 40 }}>
+              <span className="aa-typing-dots"><span/><span/><span/></span> Loading your timeline…
+            </div>
+          )}
+          {!busy && data.items.length === 0 && (
+            <div style={{ textAlign: "center", color: "var(--text-muted)", padding: 40, fontSize: 13 }}>
+              Nothing yet. Ask Lex a question, add a deadline, or open a case file — they'll all appear here.
+            </div>
+          )}
+          {data.items.map((it, idx) => (
+            <div key={it.id || idx} data-testid={`timeline-item-${idx}`}
+                 onClick={() => { if (it.kind === "chat" && onOpenChat) onOpenChat(it.id); }}
+                 style={{
+                   display: "flex", gap: 12, padding: "12px 0",
+                   borderBottom: idx < data.items.length - 1 ? "1px solid var(--line)" : "none",
+                   cursor: it.kind === "chat" ? "pointer" : "default",
+                 }}>
+              {/* Time-rail dot */}
+              <div style={{ position: "relative", width: 28, flexShrink: 0, display: "flex", justifyContent: "center" }}>
+                <div style={{
+                  position: "absolute", top: 6, width: 10, height: 10, borderRadius: "50%",
+                  background: it.kind === "deadline" && !it.completed ? "var(--gold)"
+                            : it.kind === "deadline" && it.completed ? "#22c55e"
+                            : "var(--gold-deep)",
+                  boxShadow: it.kind === "deadline" && !it.completed ? "0 0 8px rgba(247,201,72,0.6)" : "none",
+                }} />
+                {idx < data.items.length - 1 && (
+                  <div style={{ position: "absolute", top: 16, left: "50%", marginLeft: -1, width: 2, bottom: -12, background: "var(--line)" }} />
+                )}
+              </div>
+              {/* Icon */}
+              <img src={iconFor(it.kind, it.category)} alt="" style={{ width: 32, height: 32, objectFit: "contain", marginTop: 2, flexShrink: 0 }} />
+              {/* Body */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <span style={{
+                    fontSize: 9, padding: "2px 7px", borderRadius: 999, letterSpacing: "0.06em", textTransform: "uppercase",
+                    background: it.kind === "deadline" ? "rgba(247,201,72,0.15)" : it.kind === "case" ? "rgba(247,201,72,0.08)" : "rgba(255,255,255,0.05)",
+                    border: "1px solid var(--line)", color: "var(--gold-soft)",
+                  }}>{it.kind}</span>
+                  <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{fmtDate(it.updated_at || it.due_at)}</span>
+                  {it.kind === "chat" && it.turns > 1 && (
+                    <span style={{ fontSize: 10, color: "var(--text-muted)" }}>· {it.turns} turns</span>
+                  )}
+                  {it.kind === "deadline" && it.completed && (
+                    <span style={{ fontSize: 10, color: "#22c55e" }}>✓ done</span>
+                  )}
+                </div>
+                <div style={{ color: "var(--text)", fontSize: 13, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                  {it.title}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Sponsor Footer (single firm partnership, opt-out via /api/sponsor) ----------
+// Discreet "In partnership with [Firm Name]" line above the bottom nav on the home screen.
+// Renders nothing if no active sponsor is configured server-side.
+function SponsorFooter() {
+  const [sponsor, setSponsor] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/sponsor").then(r => { if (!cancelled && r.data?.active) setSponsor(r.data); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  if (!sponsor) return null;
+  const inner = (
+    <div data-testid="sponsor-footer" style={{
+      display: "inline-flex", alignItems: "center", gap: 10,
+      padding: "8px 14px",
+      background: "rgba(247,201,72,0.05)",
+      border: "1px solid var(--gold-deep)",
+      borderRadius: 999,
+      color: "var(--gold-soft)",
+      fontSize: 11,
+      letterSpacing: "0.04em",
+      textDecoration: "none",
+    }}>
+      <span style={{ opacity: 0.75 }}>{sponsor.tagline || "In partnership with"}</span>
+      {sponsor.logo_url && (
+        <img src={sponsor.logo_url} alt={sponsor.name} style={{ height: 16, objectFit: "contain", filter: "brightness(1.1)" }} />
+      )}
+      <strong style={{ color: "var(--gold)", letterSpacing: "0.08em" }}>{sponsor.name}</strong>
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", justifyContent: "center", margin: "8px 0 80px" }}>
+      {sponsor.url ? (
+        <a href={sponsor.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>{inner}</a>
+      ) : inner}
+    </div>
+  );
+}
+
 function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub, badges = {} }) {
   const items = [
     { k: "home", Icon: HomeIcon, lbl: t(lang, "home") },
@@ -3339,6 +3525,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
   const [subPreset, setSubPreset] = useState("plus");
   const [showSettings, setShowSettings] = useState(false);
   const [showSuggest, setShowSuggest] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
   const [showAdvertise, setShowAdvertise] = useState(false);
   const [showEmergency, setShowEmergency] = useState(false);
   const [wakeOn, setWakeOn] = useState(() => localStorage.getItem("aa_wake") === "1");
@@ -3600,7 +3787,11 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {/* <StatsWall lang={lang} /> */}
 
       {/* Suggest-a-feature inline link — captures user demand for new legal areas */}
-      <div style={{ textAlign: "center", padding: "20px 16px 90px" }}>
+      <div style={{ textAlign: "center", padding: "20px 16px 16px", display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
+        <button data-testid="open-timeline-btn" onClick={() => setShowTimeline(true)}
+                style={{ background: "linear-gradient(135deg, rgba(247,201,72,0.10), rgba(247,201,72,0.02))", border: "1px solid var(--gold)", borderRadius: 12, padding: "12px 22px", color: "var(--gold)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 10, letterSpacing: "0.04em" }}>
+          <img src="/icons/files.png" alt="" style={{ width: 18, height: 18, objectFit: "contain" }} /> Case Timeline
+        </button>
         <button data-testid="suggest-feature-btn" onClick={() => setShowSuggest(true)}
                 style={{ background: "transparent", border: "1px dashed var(--gold-deep)", borderRadius: 10, padding: "10px 18px", color: "var(--gold)", fontSize: 12, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8 }}>
           <SuggestIcon size={14} /> {t(lang, "suggestPrompt")}
@@ -3608,6 +3799,9 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       </div>
 
       {showSuggest && <SuggestFeatureModal lang={lang} onClose={() => setShowSuggest(false)} />}
+      {showTimeline && <CaseTimeline lang={lang} onClose={() => setShowTimeline(false)} onOpenChat={(sid) => { setShowTimeline(false); setModal({ type: "chat", category: "ask_lex", title: "Lex", _resumeSession: sid }); }} />}
+
+      <SponsorFooter />
 
       <BottomNav lang={lang} active="home"
         badges={{ cases: casesBadge }}

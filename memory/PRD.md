@@ -10,6 +10,13 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 1g — Partner pack + Sponsor slot + Case Timeline + Progressive reveal)
+- **📄 Partner Pitch Card** (`/pitch-card.html`) — single-page A4 leave-behind PDF for law-firm sales. Print-ready, fully branded gold-on-black, includes tiers, key stats, pilot offer.
+- **📚 Partner Introduction Pack** (`/intro-pack.html`) — 8-page A4 PDF: product overview, lead funnel, tiers + Founding Partner, security & compliance, liability architecture, Firm Portal, exclusivity options + sponsorship reservation, next-steps onboarding.
+- **🤝 Sponsor slot** — `/api/sponsor` endpoint + `SponsorFooter` component. Currently dormant (no sponsor configured). When MongoDB `sponsor` collection has an active doc, a discreet "In partnership with [Firm]" pill renders on the home screen above the bottom nav.
+- **🗺️ Case Timeline** — `/api/timeline` aggregates all the user's chats, deadlines, cases, and vault count into a chronological feed. `CaseTimeline` modal renders a vertical timeline with category icons, time-rail dots, time-ago labels, and stats strip. Tappable chat items resume the conversation. Designed as the App Store screenshot hero feature.
+- **⚡ Progressive client-side reveal** for Lex replies — the full answer arrives in one chunk (true SSE blocked by Emergent SDK not yet exposing streaming), then types out at 30 chars per 25ms client-side. Same perception win as real streaming.
+
 ### 2026-02 (Session 1f — Tappable Connected-to chip)
 - **🔗 "Connected to" chip is now clickable** — tap it to jump straight into that prior conversation thread (loads all its messages, switches session_id, smooth context switch).
 - Backend: cross-sessions indexed with `#N` numbering. Lex now outputs `[CONNECTED_TO: #1 short topic]`. Backend regex extracts `#1`, looks up session_id from the indexed list, returns it as `connected_session_id` in the chat response.

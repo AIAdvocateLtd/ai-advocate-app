@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>AI Advocate — Partner Pitch Card</title>
+<style>
+  @page { size: A4; margin: 0; }
+  :root {
+    --gold: #f7c948; --gold-deep: #d6a017; --gold-soft: #b3851a;
+    --bg: #0a0a0a; --text: #fefdf8; --text-dim: #c9bfa6; --line: #2a2218; --accent: #18120a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { width: 210mm; min-height: 297mm; padding: 18mm 16mm; position: relative; background: linear-gradient(180deg, #0a0a0a 0%, #050505 100%); }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+  .brand { font-family: 'Cinzel', 'Times New Roman', serif; color: var(--gold); font-size: 22pt; letter-spacing: 0.18em; font-weight: 700; }
+  .brand-sub { font-size: 9pt; color: var(--text-dim); letter-spacing: 0.1em; margin-top: 3px; }
+  .tag { background: var(--gold); color: #1a1300; font-size: 8pt; padding: 4px 10px; border-radius: 999px; font-weight: 700; letter-spacing: 0.08em; }
+  h1 { font-family: 'Cinzel', serif; color: var(--gold); font-size: 18pt; margin: 18px 0 4px; letter-spacing: 0.04em; }
+  h2 { color: var(--gold-deep); font-size: 11pt; margin: 14px 0 6px; letter-spacing: 0.05em; text-transform: uppercase; }
+  p, li { font-size: 10pt; color: var(--text); line-height: 1.55; }
+  ul { padding-left: 18px; margin: 6px 0; }
+  .lede { color: var(--text-dim); font-size: 11pt; margin: 8px 0 0; line-height: 1.55; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 18px 0; }
+  .stat { background: var(--accent); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .stat .n { color: var(--gold); font-size: 18pt; font-weight: 700; line-height: 1; }
+  .stat .l { color: var(--text-dim); font-size: 8pt; margin-top: 4px; letter-spacing: 0.05em; text-transform: uppercase; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .why { background: var(--accent); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .why h2 { margin-top: 0; }
+  .quote { background: rgba(247,201,72,0.06); border-left: 3px solid var(--gold); padding: 10px 14px; margin: 14px 0; font-style: italic; color: var(--gold); font-size: 10pt; line-height: 1.55; }
+  .cta-block { background: linear-gradient(135deg, rgba(247,201,72,0.14), rgba(247,201,72,0.02)); border: 1px solid var(--gold); border-radius: 12px; padding: 14px 16px; margin-top: 18px; }
+  .cta-block .t { color: var(--gold); font-size: 12pt; font-weight: 700; letter-spacing: 0.02em; }
+  .foot { position: absolute; bottom: 12mm; left: 16mm; right: 16mm; padding-top: 8px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; font-size: 8pt; color: var(--text-dim); }
+  .foot strong { color: var(--gold); }
+  .print-btn { position: fixed; top: 10px; right: 10px; background: var(--gold); color: #1a1300; border: none; padding: 8px 14px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 11pt; z-index: 100; }
+  @media print { .print-btn { display: none; } body { background: white; } .page { box-shadow: none; } }
+</style>
+</head>
+<body>
+<button class="print-btn" onclick="window.print()">⬇ Save / Print as PDF</button>
+<div class="page">
+  <div class="head">
+    <div>
+      <div class="brand">AI ADVOCATE</div>
+      <div class="brand-sub">AI LAWYER IN YOUR POCKET · UK · MULTILINGUAL</div>
+    </div>
+    <span class="tag">PARTNER PITCH · 2026</span>
+  </div>
+
+  <h1>Reach high-intent legal clients before they Google your competitors.</h1>
+  <p class="lede">AI Advocate is the UK's first multilingual AI-powered legal-information app for consumers. We help people understand their rights, draft letters, analyse contracts, and prepare cases — then we route the qualified ones to <strong>you</strong>.</p>
+
+  <div class="stats">
+    <div class="stat"><div class="n">11</div><div class="l">Languages</div></div>
+    <div class="stat"><div class="n">22</div><div class="l">Practice areas</div></div>
+    <div class="stat"><div class="n">£14.99–£34.99</div><div class="l">Consumer MRR</div></div>
+    <div class="stat"><div class="n">100%</div><div class="l">GDPR + SRA-aware</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="why">
+      <h2>Why Partner With Us</h2>
+      <ul>
+        <li><strong>Qualified leads only</strong> — users have already articulated their case to Lex (our AI). You receive a pre-briefed client, not a cold enquiry.</li>
+        <li><strong>Secure Case Threads</strong> — encrypted in-app messaging with clients. Beats email/WhatsApp on compliance.</li>
+        <li><strong>Lex for Lawyers</strong> — your fee-earners get the same Claude Sonnet 4.5 + Opus AI tooling for case research.</li>
+        <li><strong>Insurance-friendly</strong> — clear disclosure that AI Advocate is general legal information, NOT advice.</li>
+      </ul>
+    </div>
+    <div class="why">
+      <h2>What You Get (Featured tier)</h2>
+      <ul>
+        <li>Featured listing in your region within the consumer app.</li>
+        <li>Up to <strong>5 fee-earner seats</strong> on the Firm Portal.</li>
+        <li>Unlimited encrypted Client Engagements.</li>
+        <li>Direct push of qualifying enquiries from Lex.</li>
+        <li>Co-branded onboarding emails ("Trusted partner: [Firm]").</li>
+        <li>Cancel anytime — no long contracts.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="quote">
+    "We're not another legal aggregator. We're the first product that hands you a client who already understands their rights, their options, and what they need from a solicitor."
+  </div>
+
+  <div class="grid2">
+    <div class="why">
+      <h2>Tier &amp; Pricing</h2>
+      <p style="margin: 4px 0;"><strong>Featured</strong> £49 / month — single-fee-earner listing</p>
+      <p style="margin: 4px 0;"><strong>Premium</strong> £199 / month — 3 fee-earners + priority routing</p>
+      <p style="margin: 4px 0;"><strong>Practice</strong> £399 / month — 5 fee-earners + custom branding</p>
+      <p style="margin: 4px 0;"><strong>Founding Partner</strong> — bespoke regional / practice-area exclusivity</p>
+    </div>
+    <div class="why">
+      <h2>Built for the SRA Era</h2>
+      <ul>
+        <li>SRA Code of Conduct rule 8.6 disclosure built-in.</li>
+        <li>End-to-end encrypted Vault + Case Threads (AES-GCM + Fernet).</li>
+        <li>Independent Data Controllers (you + us, clearly partitioned).</li>
+        <li>Full account-deletion (UK-GDPR Article 17) in one tap.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="cta-block">
+    <div class="t">Pilot in 14 days — no commitment.</div>
+    <p style="margin: 6px 0 0; color: var(--text);">We'll onboard you on Featured tier free for 30 days, set up two fee-earner seats, and run one cohort of qualified referrals. If you don't love it, walk away. No retainer, no exit fee.</p>
+  </div>
+
+  <div class="foot">
+    <div><strong>AI Advocate</strong> · partners@aiadvocate.app · aiadvocate.app/firms</div>
+    <div>v1.0 · Pitch Card · 2026</div>
+  </div>
+</div>
+</body>
+</html>

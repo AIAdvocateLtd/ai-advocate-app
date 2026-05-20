@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>AI Advocate — Partner Introduction Pack</title>
+<style>
+  @page { size: A4; margin: 0; }
+  :root {
+    --gold: #f7c948; --gold-deep: #d6a017; --gold-soft: #b3851a;
+    --bg: #ffffff; --text: #111111; --text-dim: #4a4a4a; --line: #d8cda5; --accent: #fbf7e9;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, "SF Pro Text", "Helvetica Neue", Georgia, serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { width: 210mm; min-height: 297mm; padding: 22mm 20mm 28mm; page-break-after: always; position: relative; }
+  .page:last-child { page-break-after: auto; }
+  .cover { background: linear-gradient(180deg, #0a0a0a 0%, #050505 100%); color: #fefdf8; padding: 48mm 22mm 22mm; }
+  .cover h0 { font-family: 'Cinzel', serif; color: var(--gold); font-size: 42pt; letter-spacing: 0.18em; font-weight: 700; margin: 0; line-height: 1.1; }
+  .cover .sub { font-size: 11pt; color: #c9bfa6; letter-spacing: 0.18em; margin-top: 8px; text-transform: uppercase; }
+  .cover .lede { color: var(--gold); font-size: 16pt; margin-top: 80mm; line-height: 1.5; font-family: 'Cinzel', serif; max-width: 140mm; }
+  .cover .meta { position: absolute; bottom: 18mm; left: 22mm; right: 22mm; color: #c9bfa6; font-size: 9pt; letter-spacing: 0.1em; display: flex; justify-content: space-between; border-top: 1px solid #2a2218; padding-top: 10px; }
+  .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 18px; }
+  .header .brand { font-family: 'Cinzel', serif; color: var(--gold-deep); font-size: 12pt; letter-spacing: 0.16em; font-weight: 700; }
+  .header .pno { color: var(--text-dim); font-size: 9pt; }
+  h1 { font-family: 'Cinzel', serif; color: #1a1300; font-size: 22pt; margin: 0 0 6px; letter-spacing: 0.03em; }
+  .ledep { color: var(--text-dim); font-size: 11pt; margin: 0 0 18px; line-height: 1.5; }
+  h2 { color: #1a1300; font-size: 13pt; margin: 22px 0 8px; border-left: 4px solid var(--gold); padding-left: 10px; }
+  h3 { color: var(--gold-deep); font-size: 11pt; margin: 14px 0 6px; }
+  p, li { font-size: 10.5pt; line-height: 1.65; color: var(--text); }
+  ul { padding-left: 20px; }
+  strong { color: #1a1300; }
+  .box { background: var(--accent); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin: 14px 0; }
+  .box.warn { background: #fff4e0; border-color: #f0b552; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .tier { background: white; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .tier .name { color: var(--gold-deep); font-family: 'Cinzel', serif; font-size: 12pt; letter-spacing: 0.05em; }
+  .tier .price { color: #1a1300; font-size: 20pt; font-weight: 700; margin: 2px 0 6px; }
+  .tier .price small { font-size: 10pt; color: var(--text-dim); font-weight: 400; }
+  .tier ul { padding-left: 18px; margin: 4px 0 0; }
+  .tier li { font-size: 9.5pt; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 14px 0; }
+  .stat { background: white; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; text-align: center; }
+  .stat .n { color: var(--gold-deep); font-size: 18pt; font-weight: 700; line-height: 1; }
+  .stat .l { color: var(--text-dim); font-size: 8pt; margin-top: 6px; letter-spacing: 0.04em; text-transform: uppercase; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 10pt; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--accent); color: #1a1300; font-weight: 700; }
+  .footer { position: absolute; bottom: 12mm; left: 20mm; right: 20mm; padding-top: 8px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; font-size: 8.5pt; color: var(--text-dim); }
+  .footer strong { color: var(--gold-deep); }
+  .print-btn { position: fixed; top: 10px; right: 10px; background: var(--gold); color: #1a1300; border: none; padding: 8px 14px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 11pt; z-index: 100; }
+  @media print { .print-btn { display: none; } }
+</style>
+</head>
+<body>
+<button class="print-btn" onclick="window.print()">⬇ Save / Print as PDF</button>
+
+<!-- COVER -->
+<div class="page cover">
+  <div>
+    <div class="brand-mark" style="font-family:'Cinzel',serif;color:#f7c948;font-size:10pt;letter-spacing:.25em;">⚖ AI ADVOCATE</div>
+  </div>
+  <div style="margin-top: 60mm;">
+    <div class="h0" style="font-family:'Cinzel',serif;color:#f7c948;font-size:42pt;letter-spacing:.14em;font-weight:700;">Partnership<br/>Introduction</div>
+    <div class="sub">For UK law firms · Founding Partner Programme · 2026</div>
+  </div>
+  <div class="lede">"We hand you a client who already understands their rights, their options, and what they need from a solicitor."</div>
+  <div class="meta">
+    <span>aiadvocate.app/firms · partners@aiadvocate.app</span>
+    <span>Confidential · Not for circulation outside addressee firm</span>
+  </div>
+</div>
+
+<!-- PAGE 1 — WHAT IS AI ADVOCATE -->
+<div class="page">
+  <div class="header"><span class="brand">AI ADVOCATE · PARTNER PACK</span><span class="pno">1 of 8</span></div>
+  <h1>What is AI Advocate?</h1>
+  <p class="ledep">A consumer-facing iOS / Android / web app that gives ordinary people structured legal information — and then routes the ones who need real representation to partner law firms.</p>
+
+  <h2>The product, in one page</h2>
+  <ul>
+    <li><strong>Lex</strong> — our AI legal assistant (powered by Anthropic Claude Sonnet 4.5 / Opus 4.5). Answers questions, drafts letters, analyses contracts and evidence photos.</li>
+    <li><strong>Case Files</strong> — encrypted notebooks for each matter (employment, property, immigration, medical, family etc.).</li>
+    <li><strong>Lex Vault</strong> — biometric-locked storage for sensitive documents (NDAs, passports, payslips). End-to-end encrypted with the user's PIN — even we cannot read inside.</li>
+    <li><strong>Hearing Recorder</strong> — record + transcribe statements, with built-in disclosure that courtroom recording is illegal.</li>
+    <li><strong>Courtroom Practice mode</strong> — AI plays opposing counsel, judge, tribunal chair so users can rehearse.</li>
+    <li><strong>Legal Aid Finder</strong> — directs users to public funding when eligible.</li>
+    <li><strong>Firm Portal</strong> — the bit that matters to you. Encrypted Case Threads between client and your fee-earners.</li>
+  </ul>
+
+  <div class="stats">
+    <div class="stat"><div class="n">11</div><div class="l">Languages</div></div>
+    <div class="stat"><div class="n">22</div><div class="l">Practice Areas</div></div>
+    <div class="stat"><div class="n">UK · EU</div><div class="l">Jurisdictions</div></div>
+    <div class="stat"><div class="n">£14.99–£34.99</div><div class="l">Consumer MRR</div></div>
+  </div>
+
+  <h2>How users find us</h2>
+  <ul>
+    <li>App Store + Google Play (iOS, Android, Web — Capacitor native wrap)</li>
+    <li>Organic SEO ("can I get my deposit back", "do I need a solicitor for...")</li>
+    <li>Paid acquisition on Google / Meta (post-launch)</li>
+    <li>Word-of-mouth — the conversational Lex experience is highly shareable</li>
+  </ul>
+
+  <div class="footer"><span><strong>aiadvocate.app/firms</strong> · partners@aiadvocate.app</span><span>v1.0 · 2026</span></div>
+</div>
+
+<!-- PAGE 2 — THE LEAD FLOW -->
+<div class="page">
+  <div class="header"><span class="brand">AI ADVOCATE · PARTNER PACK</span><span class="pno">2 of 8</span></div>
+  <h1>How leads reach you</h1>
+  <p class="ledep">The user comes to AI Advocate with a problem. By the time they reach <em>your</em> inbox, they have already articulated it, understood the legal framework, gathered evidence, and decided they want representation.</p>
+
+  <h2>The funnel</h2>
+  <ol>
+    <li><strong>User describes their problem to Lex</strong> in plain English (or Polish, Punjabi, Arabic, etc.).</li>
+    <li><strong>Lex applies the relevant law</strong>, drafts letters, surfaces limitation periods, identifies their position.</li>
+    <li><strong>Lex flags when human counsel is needed</strong> — court representation, complex litigation, high-stakes negotiation.</li>
+    <li><strong>User taps "Find a solicitor"</strong> and is matched with a Featured firm in their region + practice area.</li>
+    <li><strong>You receive a structured brief</strong>: jurisdiction, dates, parties, prior Lex analysis, evidence already collected by the user.</li>
+    <li><strong>Engagement happens inside the app</strong> — encrypted Case Thread, file sharing, no email-attachment risk.</li>
+  </ol>
+
+  <div class="box">
+    <strong>What this means in practice:</strong> a client who would have wasted 30 minutes of your trainee's time explaining themselves arrives already organised. You spend less time intake-interviewing and more time billing chargeable work.
+  </div>
+
+  <h2>What you do not have to do</h2>
+  <ul>
+    <li>Build any technology — the Firm Portal is a web dashboard you log into.</li>
+    <li>Process payments — consumers pay us their subscription; you bill clients directly for retained work.</li>
+    <li>Worry about disclosure — AI Advocate's disclaimers are everywhere; you cannot be implicated for the AI's outputs.</li>
+  </ul>
+
+  <div class="footer"><span><strong>aiadvocate.app/firms</strong> · partners@aiadvocate.app</span><span>v1.0 · 2026</span></div>
+</div>
+
+<!-- PAGE 3 — TIERS & PRICING -->
+<div class="page">
+  <div class="header"><span class="brand">AI ADVOCATE · PARTNER PACK</span><span class="pno">3 of 8</span></div>
+  <h1>Tiers &amp; pricing</h1>
+  <p class="ledep">Three subscription tiers, plus a bespoke <strong>Founding Partner</strong> arrangement for firms who want regional or practice-area prominence.</p>
+
+  <div class="grid2">
+    <div class="tier">
+      <div class="name">FEATURED</div>
+      <div class="price">£49 <small>/ month</small></div>
+      <ul>
+        <li>1 fee-earner seat</li>
+        <li>Featured listing in your postcode area</li>
+        <li>Encrypted Client Engagements (unlimited)</li>
+        <li>Lex for Lawyers (research tooling)</li>
+        <li>Cancel anytime</li>
+      </ul>
+    </div>
+    <div class="tier">
+      <div class="name">PREMIUM</div>
+      <div class="price">£199 <small>/ month</small></div>
+      <ul>
+        <li>3 fee-earner seats</li>
+        <li>Featured listing across multiple postcodes</li>
+        <li>Priority routing for urgent matters</li>
+        <li>Co-branded onboarding emails</li>
+        <li>Quarterly performance reports</li>
+      </ul>
+    </div>
+    <div class="tier">
+      <div class="name">PRACTICE</div>
+      <div class="price">£399 <small>/ month</small></div>
+      <ul>
+        <li>5 fee-earner seats</li>
+        <li>Region-wide featured listing</li>
+        <li>Custom firm branding in user-facing flows</li>
+        <li>Roadmap input (quarterly call)</li>
+        <li>Dedicated partner success manager</li>
+      </ul>
+    </div>
+    <div class="tier" style="background: #1a1300; color: #fefdf8; border-color: var(--gold);">
+      <div class="name" style="color: var(--gold);">FOUNDING PARTNER</div>
+      <div class="price" style="color: var(--gold);">Bespoke</div>
+      <ul>
+        <li>Regional or practice-area exclusivity</li>
+        <li>Founder-quote in App Store listing</li>
+        <li>50% revenue share on direct referrals (vs. 30% standard)</li>
+        <li>Logo lockup throughout app</li>
+        <li>12-month term, renewable</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Pilot terms (recommended starting point)</h2>
+  <div class="box">
+    <strong>30-day free Featured tier.</strong> No card, no contract. Two fee-earner seats, one cohort of qualified referrals. If you don't see ROI by day 30, you walk away. If you do, you convert to a paid tier or upgrade to Founding Partner.
+  </div>
+
+  <div class="footer"><span><strong>aiadvocate.app/firms</strong> · partners@aiadvocate.app</span><span>v1.0 · 2026</span></div>
+</div>
+
+<!-- PAGE 4 — SECURITY -->
+<div class="page">
+  <div class="header"><span class="brand">AI ADVOCATE · PARTNER PACK</span><span class="pno">4 of 8</span></div>
+  <h1>Security &amp; compliance</h1>
+  <p class="ledep">Every aspect of the platform has been architected for SRA / IT-secure / GDPR compliance from day one. Most firms find our security posture stronger than their current document-management systems.</p>
+
+  <h2>Encryption</h2>
+  <table>
+    <tr><th>Layer</th><th>Algorithm</th><th>Key Holder</th></tr>
+    <tr><td>In transit</td><td>TLS 1.3</td><td>Cloud provider managed</td></tr>
+    <tr><td>Sensitive fields at rest</td><td>Fernet (AES-128-CBC + HMAC-SHA256)</td><td>AI Advocate</td></tr>
+    <tr><td>Lex Vault items</td><td>AES-GCM-256 + PBKDF2 250k</td><td>User only (we cannot read)</td></tr>
+    <tr><td>Client–Firm Case Threads</td><td>Fernet at rest + TLS in transit</td><td>AI Advocate (key-rotated quarterly)</td></tr>
+    <tr><td>Passwords</td><td>bcrypt (cost 12)</td><td>—</td></tr>
+  </table>
+
+  <h2>Compliance attestations</h2>
+  <ul>
+    <li><strong>UK-GDPR / EU-GDPR</strong> — Data Controller / Processor relationship clearly partitioned. Article 17 (Right to Erasure) implemented as one-tap account deletion.</li>
+    <li><strong>SRA Code of Conduct rule 8.6</strong> — referral-arrangement disclosure built into the user journey.</li>
+    <li><strong>Apple App Store Guideline 4.2 / 5.1.2</strong> — substantive value, no single-firm shopfront, transparent data collection.</li>
+    <li><strong>ICO complaints route</strong> — surfaced in our Privacy Policy.</li>
+    <li><strong>WCAG 2.1 AA</strong> — accessibility (font scaling, contrast, voice input).</li>
+  </ul>
+
+  <h2>Data residency</h2>
+  <p>Primary database hosted in the European Union. LLM processing (Anthropic / OpenAI) may be in the United States under EU Standard Contractual Clauses (SCCs).</p>
+
+  <h2>Audit + incident response</h2>
+  <ul>
+    <li>Sentry — real-time error tracking with PII scrubbing.</li>
+    <li>PostHog — privacy-respecting analytics (no IP storage).</li>
+    <li>72-hour breach notification to firms + ICO if a covered event occurs.</li>
+  </ul>
+
+  <div class="footer"><span><strong>aiadvocate.app/firms</strong> · partners@aiadvocate.app</span><span>v1.0 · 2026</span></div>
+</div>
+
+<!-- PAGE 5 — LIABILITY -->
+<div class="page">
+  <div class="header"><span class="brand">AI ADVOCATE · PARTNER PACK</span><span class="pno">5 of 8</span></div>
+  <h1>Liability &amp; disclaimers</h1>
+  <p class="ledep">A frequent question from prospective partner firms: <em>"What if the AI gives bad advice and the user blames us?"</em> Here is exactly how the platform protects you.</p>
+
+  <h2>The legal architecture</h2>
+  <ul>
+    <li><strong>AI Advocate provides legal INFORMATION, not legal ADVICE.</strong> This is repeated on every screen where Lex outputs content, in our Terms of Service, in every chat message, and in our App Store listing.</li>
+    <li><strong>No solicitor-client relationship is created</strong> with AI Advocate or with you until the user formally engages your firm through the Firm Portal.</li>
+    <li><strong>Each Case Thread you accept</strong> creates a normal solicitor-client retainer governed by your usual terms — AI Advocate is not a party.</li>
+    <li><strong>The user explicitly acknowledges</strong> on signup that "AI Advocate is not a substitute for a qualified lawyer". This consent is logged.</li>
+  </ul>
+
+  <div class="box">
+    <strong>In practice:</strong> if a user follows Lex's information and gets it wrong, their claim is against the AI provider (us), governed by our limitation clause. Your firm is only liable for advice you yourself give once retained. This is the same architecture that allows Citizens Advice, MoneySavingExpert, etc. to publish legal information without indemnifying every solicitor.
+  </div>
+
+  <h2>Your standard engagement letter is unchanged</h2>
+  <p>When a user converts from Lex referral to your retained client, you issue your standard engagement letter on your firm's letterhead. AI Advocate disappears from the relationship at that point. Our involvement is limited to providing the encrypted channel for client communications, and only if you wish to use it.</p>
+
+  <h2>What we hold</h2>
+  <ul>
+    <li>£2,000,000 professional indemnity insurance (Hiscox).</li>
+    <li>£1,000,000 cyber liability cover.</li>
+    <li>Quarterly external penetration test.</li>
+  </ul>
+
+  <div class="footer"><span><strong>aiadvocate.app/firms</strong> · partners@aiadvocate.app</span><span>v1.0 · 2026</span></div>
+</div>
+
+<!-- PAGE 6 — FIRM PORTAL -->
+<div class="page">
+  <div class="header"><span class="brand">AI ADVOCATE · PARTNER PACK</span><span class="pno">6 of 8</span></div>
+  <h1>The Firm Portal — what your fee-earners see</h1>
+  <p class="ledep">A web dashboard accessible from any modern browser. No installation. SSO-ready (Microsoft 365 / Google Workspace integration on Practice tier).</p>
+
+  <h2>Key features</h2>
+  <ul>
+    <li><strong>Lead inbox</strong> — qualified enquiries from Lex, with prior conversation summary, the user's draft documents, and limitation-period flags.</li>
+    <li><strong>Encrypted Case Threads</strong> — async chat with each client. File sharing up to 50 MB per item. Read receipts. Audit trail.</li>
+    <li><strong>Lex for Lawyers</strong> — Claude Sonnet 4.5 / Opus 4.5 with legal-source preference. Use it for case research, drafting, jurisdictional comparison.</li>
+    <li><strong>Engagement Acceptance</strong> — one-click accept / decline of a new referral. Auto-generates an engagement letter template you can customise.</li>
+    <li><strong>Time + Billing exports</strong> — CSV / iCal of in-app interactions if you wish to bill against them.</li>
+  </ul>
+
+  <h2>Performance reporting (Premium+)</h2>
+  <ul>
+    <li>Referrals received, accepted, converted.</li>
+    <li>Average time-to-first-response.</li>
+    <li>Conversion rate to billable retainer.</li>
+    <li>Anonymised regional demand heatmap.</li>
+  </ul>
+
+  <h2>Onboarding</h2>
+  <ol>
+    <li><strong>Day 0</strong> — Sign your 30-day pilot agreement.</li>
+    <li><strong>Day 1</strong> — Receive Firm Portal credentials + onboarding call (~30 min).</li>
+    <li><strong>Day 2–7</strong> — Configure your firm profile, regions served, practice areas.</li>
+    <li><strong>Day 7+</strong> — Start receiving qualified referrals.</li>
+  </ol>
+
+  <div class="footer"><span><strong>aiadvocate.app/firms</strong> · partners@aiadvocate.app</span><span>v1.0 · 2026</span></div>
+</div>
+
+<!-- PAGE 7 — EXCLUSIVITY OPTIONS -->
+<div class="page">
+  <div class="header"><span class="brand">AI ADVOCATE · PARTNER PACK</span><span class="pno">7 of 8</span></div>
+  <h1>The "Founding Partner" question</h1>
+  <p class="ledep">Some firms ask for app-wide exclusivity. Honest counsel: this is rarely the right structure for either side. Here are three forms of partner prominence that work in practice.</p>
+
+  <table>
+    <tr><th>Option</th><th>What it covers</th><th>Indicative monthly fee</th></tr>
+    <tr><td><strong>Geographic Lead</strong></td><td>Sole "recommended local solicitor" for a city / county / postcode cluster.</td><td>£1,500 – £5,000</td></tr>
+    <tr><td><strong>Practice-Area Lead</strong></td><td>Sole "recommended firm" for one vertical (e.g. Employment, Property) in a given region.</td><td>£2,500 – £8,000</td></tr>
+    <tr><td><strong>National Founding Partner</strong></td><td>Logo lockup in-app + App Store listing co-credit + 12-month limited exclusivity in your speciality.</td><td>By negotiation</td></tr>
+  </table>
+
+  <h2>Why we do not offer full app-wide exclusivity</h2>
+  <ul>
+    <li><strong>It harms users</strong> — and the App Store reviews us out of existence if we route every user to one firm.</li>
+    <li><strong>Apple Guideline 4.2 (Substantive Value)</strong> can be triggered for single-merchant shopfront apps.</li>
+    <li><strong>SRA Code of Conduct rule 5.1</strong> requires that exclusive referrals are disclosed in a way that becomes practically untenable.</li>
+    <li><strong>It caps our and your growth</strong> — investors will not back a one-firm-tied product.</li>
+  </ul>
+
+  <div class="box warn">
+    <strong>What we will agree to:</strong> a time-limited (6–12 month) regional or practice-area first-look arrangement, with right of first refusal on incoming leads in your defined territory. This gives a real commercial moat without the structural problems above.
+  </div>
+
+  <h2>Sponsorship slot (new for v1.x)</h2>
+  <p>We are reserving one in-app sponsorship slot — a discreet "In partnership with [Firm Name]" footer that appears across the consumer app. Pricing on application. Available to one firm only, renewable annually.</p>
+
+  <div class="footer"><span><strong>aiadvocate.app/firms</strong> · partners@aiadvocate.app</span><span>v1.0 · 2026</span></div>
+</div>
+
+<!-- PAGE 8 — NEXT STEPS -->
+<div class="page">
+  <div class="header"><span class="brand">AI ADVOCATE · PARTNER PACK</span><span class="pno">8 of 8</span></div>
+  <h1>Next steps</h1>
+  <p class="ledep">If you would like to explore a pilot, an exclusivity arrangement, or the Founding Partner programme, here is exactly how it works.</p>
+
+  <h2>1. Discovery call (30 minutes)</h2>
+  <p>We walk through the live product on a screen-share. You see Lex from the user's side, then the Firm Portal from your fee-earners' side. You ask whatever you want. We share recent referral statistics under NDA.</p>
+
+  <h2>2. Pilot agreement (1 page, e-signed)</h2>
+  <p>A short document confirming: 30 days free Featured tier, 2 fee-earner seats, no payment, no auto-renewal, mutual confidentiality.</p>
+
+  <h2>3. Onboarding (3 working days)</h2>
+  <ul>
+    <li>Firm profile setup</li>
+    <li>SRA number verification</li>
+    <li>Region + practice-area configuration</li>
+    <li>Fee-earner accounts created</li>
+    <li>First-use walkthrough call</li>
+  </ul>
+
+  <h2>4. Review at day 30</h2>
+  <p>We meet (in person or video) to discuss what worked, what didn't, and which tier (if any) makes sense ongoing.</p>
+
+  <div class="box">
+    <strong>To book your discovery call:</strong> email <a href="mailto:partners@aiadvocate.app">partners@aiadvocate.app</a> with your firm name, SRA number, and preferred two time slots in the next 10 working days. We will confirm within one business day.
+  </div>
+
+  <h2>Final word</h2>
+  <p>AI Advocate is built to be the legal-information layer between the public and the legal profession. It is not designed to replace solicitors — it is designed to make solicitors easier to find, easier to retain, and easier to work with at the moment when ordinary people need them.</p>
+  <p>We are looking for a small, deliberate cohort of forward-thinking firms to launch with us. If you would like to be one of them, we would love to hear from you.</p>
+
+  <div class="footer"><span><strong>aiadvocate.app/firms</strong> · partners@aiadvocate.app · +44 (0) 20 0000 0000</span><span>v1.0 · 2026</span></div>
+</div>
+
+</body>
+</html>
