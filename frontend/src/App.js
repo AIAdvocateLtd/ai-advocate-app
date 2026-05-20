@@ -1176,7 +1176,14 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
               )}
             </div>
           ))}
-          {busy && <div className="bubble-lex" style={{ alignSelf: "flex-start", padding: "10px 14px", borderRadius: 14 }}><span className="spinner" /> Lex thinking…</div>}
+          {busy && (
+            <div className="bubble-lex aa-lex-typing" style={{ alignSelf: "flex-start", padding: "10px 14px", borderRadius: 14, display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <span className="aa-typing-dots"><span /><span /><span /></span>
+              <span style={{ color: "var(--text-dim)", fontSize: 13 }}>
+                {messages.length > 1 ? "Lex is reading the conversation…" : "Lex is thinking…"}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2" style={{ padding: "12px 12px 56px", borderTop: "1px solid var(--line)" }}>

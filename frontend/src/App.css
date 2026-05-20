@@ -25,3 +25,21 @@
 .aa-splash-video {
   /* Reserved for future tweaks. Inline style on the component owns filter + mask. */
 }
+
+/* iMessage-style typing indicator for Lex chat — 3 bouncing dots */
+.aa-typing-dots {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 0;
+}
+.aa-typing-dots span {
+  display: inline-block;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--gold);
+  opacity: 0.4;
+  animation: aaTypingBounce 1.2s ease-in-out infinite;
+}
+.aa-typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+.aa-typing-dots span:nth-child(3) { animation-delay: 0.30s; }
+@keyframes aaTypingBounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-3px); opacity: 1.0; }
+}

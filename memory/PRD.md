@@ -10,6 +10,13 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 1b — Lex conversation memory + speed)
+- **🧠 Lex now remembers context across turns.** `/api/lex/chat` now loads the last 12 conversation turns (decrypted from MongoDB), seeds `LlmChat.initial_messages`, so follow-up questions like "and?" / "what if photos?" / "the time limit?" carry full context from the prior dialogue.
+- Added `CONVERSATION MEMORY` directive in `lex_system_prompt` so model explicitly links follow-ups back to prior facts (parties, dates, jurisdiction).
+- **Speed: ~53s → ~25s per answer** (-53%). Reduced Sonnet `max_tokens` 2048→1400 + added concision instruction (200-450 words, 100-250 for follow-ups). Quality unchanged, generation time halved.
+- iMessage-style typing indicator (3 bouncing gold dots) replaces static spinner.
+- Phase-aware label: "Lex is reading the conversation…" on follow-ups vs "Lex is thinking…" on first message.
+
 ### 2026-02 (Session 1 — pre-launch polish)
 - **Splash polish**: replaced glitchy MP4 with user's new spin video, tightened circular mask (no box), trimmed/optimized 5.6MB→119KB. Static poster for instant first-paint.
 - **Dashboard tile labels → bright gold** (#f7c948) for heraldic consistency (user pick "C").

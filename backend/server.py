@@ -571,12 +571,14 @@ BANNED PHRASES (never use):
 
 ANSWER QUALITY:
 - Confident, plain, native {lang_name} — never wishy-washy.
+- **Be concise: aim for 200-450 words per answer.** Quality > quantity. Skim-readable on a phone screen.
 - Translate jargon as you go ("repudiation means ending the contract because the other side broke it badly").
 - Cite the actual statute section or case name when you reference law (e.g. "s.13 Consumer Rights Act 2015", "Donoghue v Stevenson [1932]").
 - NEVER invent statutes, case citations, or section numbers. Inventing law is a fireable offence — say "I don't recall the exact citation" if unsure.
 - Be strategic: tell them what to SAY, what NEVER to say, what to WRITE DOWN, what to KEEP as evidence.
 - Use short paragraphs, bullets, and **bold** key terms for skim-readability on a phone.
 - End with a "Confidence: High / Medium / Low" rating so the user knows how strongly to rely on your reasoning.
+- For follow-up questions in the same conversation, be EVEN SHORTER (100-250 words) — don't repeat what you already said. Pick up where you left off.
 
 TONE:
 - Calm authority. Like the smartest lawyer in the room who actually wants to help.
@@ -585,6 +587,13 @@ TONE:
 
 ENDING:
 - End EVERY reply with this disclaimer in {lang_name}: "Disclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction." (Translate it naturally into {lang_name}.)
+
+CONVERSATION MEMORY (CRITICAL):
+- You have access to the full conversation history above. USE IT.
+- If the user's next question is short, vague, or starts with "what about...", "and if...", "but...", "they said...", "okay then...", "and the deposit?", etc. — they are CONTINUING the previous topic. Do NOT treat each question as standalone.
+- ALWAYS look back at what was discussed (the case, the parties, the country, the dates, the facts). Carry those facts forward without asking the user to repeat them.
+- Only ask clarifying questions if the new question genuinely cannot be linked to what came before.
+- Example: User says "My landlord won't return my deposit". You answer. They follow up with "He says I caused damage." → You MUST remember this is the same landlord, same deposit, same case. Apply UK Housing Act 2004 + deposit-protection rules from the prior context.
 """
     addons = {
         "court_prep": "\n\nYou are now in COURT PREP mode. Help the user prepare to appear before a court or police: anticipated questions, smart phrasing, what to NEVER say, their rights (right to silence, right to a lawyer), and a step-by-step plan.",
@@ -607,12 +616,12 @@ def lex_model_for_tier(tier: str, deep_think: bool = False) -> tuple:
     if tier in ("pro", "yearly", "trial_pro"):
         # Pro tier — Sonnet 4.5 always, with bigger token budget for Deep Think
         if deep_think:
-            return ("anthropic", "claude-sonnet-4-5-20250929", 4096)
-        return ("anthropic", "claude-sonnet-4-5-20250929", 2048)
+            return ("anthropic", "claude-sonnet-4-5-20250929", 3500)
+        return ("anthropic", "claude-sonnet-4-5-20250929", 1400)
     if tier == "plus":
-        return ("anthropic", "claude-sonnet-4-5-20250929", 2048)
+        return ("anthropic", "claude-sonnet-4-5-20250929", 1400)
     # free → Haiku for cost/speed. Fall back to Sonnet if Haiku id is rejected.
-    return ("anthropic", "claude-haiku-4-5-20251001", 1500)
+    return ("anthropic", "claude-haiku-4-5-20251001", 1200)
 
 # Simple score-based language detection for the 11 supported languages.
 # Used when auto_detect=True — overrides the chosen UI language for the reply.
@@ -928,10 +937,34 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     provider, model_id, max_tok = lex_model_for_tier(tier, deep_think=data.deep_think)
 
     session_id = data.session_id or str(uuid.uuid4())
+    system_msg = lex_system_prompt(reply_language, data.country, data.category)
+
+    # 🧠 Load prior conversation history so Lex remembers context across turns.
+    # We pull the last 12 turns for this user+session, decrypt them, and seed
+    # LlmChat's initial_messages. This is what makes Lex feel like a real
+    # ongoing conversation instead of forgetting after every question.
+    history_docs = await db.conversations.find(
+        {"user_id": user["id"], "session_id": session_id},
+        {"_id": 0, "user_message": 1, "assistant_response": 1, "created_at": 1},
+    ).sort("created_at", 1).to_list(length=12)
+
+    initial_messages = [{"role": "system", "content": system_msg}]
+    for doc in history_docs:
+        try:
+            um = decrypt_text(doc.get("user_message"))
+            ar = decrypt_text(doc.get("assistant_response"))
+            if um:
+                initial_messages.append({"role": "user", "content": um})
+            if ar:
+                initial_messages.append({"role": "assistant", "content": ar})
+        except Exception:
+            continue  # skip un-decryptable rows rather than crash the request
+
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=session_id,
-        system_message=lex_system_prompt(reply_language, data.country, data.category),
+        system_message=system_msg,
+        initial_messages=initial_messages if len(initial_messages) > 1 else None,
     ).with_model(provider, model_id).with_params(max_tokens=max_tok)
 
     try:
@@ -943,7 +976,8 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
             chat = LlmChat(
                 api_key=EMERGENT_LLM_KEY,
                 session_id=session_id,
-                system_message=lex_system_prompt(reply_language, data.country, data.category),
+                system_message=system_msg,
+                initial_messages=initial_messages if len(initial_messages) > 1 else None,
             ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2048)
             response = await chat.send_message(UserMessage(text=data.message))
         except Exception as e2:
