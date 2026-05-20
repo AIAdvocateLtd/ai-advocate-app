@@ -10,14 +10,19 @@
 
 ## Completed Implementation (rolling)
 
-### 2026-02 — current session
-- **Splash black-box fix** — Crushed video vignette to pure #000 via contrast filter + radial mask. Logo floats free on black, no rectangular boundary.
-- **Icon transparency + size optimization** — 22 dashboard icons reprocessed: 1024×1024 RGB (10.5 MB) → 256×256 RGBA (1.3 MB), 89% smaller. Originals backed up.
-- **Tap-highlight removal** — Global CSS kill of iOS/Android tap rectangle, custom press feedback on tiles (scale + glow, no box).
-- **Startup performance** — `<link rel="preload">` for splash MP4 + poster, instant CSS-only first-paint logo before React mounts.
-- **Page title** — Fixed to "AI Advocate — AI Lawyer in your Pocket"
+### 2026-02 (Session 1 — pre-launch polish)
+- **Splash polish**: replaced glitchy MP4 with user's new spin video, tightened circular mask (no box), trimmed/optimized 5.6MB→119KB. Static poster for instant first-paint.
+- **Dashboard tile labels → bright gold** (#f7c948) for heraldic consistency (user pick "C").
+- **Icon transparency** + tap-highlight kill (icons float on bg, no tap rectangles).
+- **Asset cleanup**: removed ~22MB of unused splash MP4s, icon backups, icon-preview HTML files.
+- **Lex voice speed-up**: SILENCE_MS 2200→1200 (saves ~1s on every voice question).
+- **Hide "Hey Lex" wake-word toggle** in Settings (UI hidden; code preserved for future SiriKit replacement).
+- **Strip Emergent badge + script** from `index.html` — full white-label brand.
+- **Static legal pages** (`/privacy.html`, `/terms.html`) — public URLs required for App Store submission.
+- **First-run onboarding tour** (3 swipeable cards: Meet Lex → Snap Evidence → Lex Vault) — shows once on first auth visit, localStorage flag `aa_welcomed`.
+- **🆕 Free Taster Lex** — 1 free legal question for any visitor, no signup. Rate-limited 7 days per device_id + IP (`/api/lex/taster`). Conversion hook: returns answer + 7-day-trial CTA. Uses Haiku for cost.
 
-### Earlier sessions (recap from prior handoffs)
+### Earlier sessions (recap)
 - Live Stripe subscriptions (consumer + 3 firm tiers)
 - Firm Portal / Engagements / Case Threads (B2B2C async chat + file sharing)
 - Vault hardening: 5-fail lockout, geo-alert banner
@@ -39,35 +44,41 @@
   - Use iOS `SFSpeechRecognizer` end-of-speech detection (smarter than fixed timer)
   - Stream Claude LLM response and start TTS on first sentence
   - Use Haiku for short queries even on Plus tier
+  - SiriKit Shortcuts: "Hey Siri, ask AI Advocate…" (replaces wake-word entirely)
 - Estimated final perceived response: web ~7s → iOS native ~3s
 
 ### P0 — Verification
-- User confirms on iPhone: icons no longer show boxes, app loads fast, splash has no visible boundary
+- User confirms on iPhone: splash circular mask perfect, gold labels look right, Try Lex Free + onboarding flow works
 
-### P1 — Phase 2 (mobile launch)
-- Capacitor iOS/Android wrap (capacitor.config.json already scaffolded)
+### P1 — Session 2 (Capacitor / native launch)
+- Capacitor iOS/Android native wrap (capacitor.config.json already scaffolded)
 - Swap Vault `localStorage` → native iOS Keychain / Android Keystore
-- First-time onboarding tour (3-4 swipeable cards)
-- First-run free 1-question Lex chat without signup
-- "Hey Lex" discovery card in Settings
+- SiriKit Shortcuts (replacement for "Hey Lex")
+- Apple's on-device Speech + TTS (replaces Whisper/OpenAI TTS on iOS)
+- TestFlight beta (5-10 friends, 1 week)
+- App Store metadata: screenshots (5 sizes), description, age rating, support URL, privacy/terms URLs (already exist), App Privacy declarations
 
-### P2 — Phase 3
+### P2 — Post-launch (v1.1)
 - Lex Confidence Check toggle (sources + confidence score)
+- Verified Solicitor Marketplace (one-tap £49 30-min consultation, revenue split)
+- Case Lifecycle Tracker (Filed → Awaiting → Hearing → Closed + push notifications)
 - 2FA / authenticator-app login
 - Trustpilot reviews wall (once 5+ reviews exist)
 - iOS Siri Shortcuts / Action Button → Emergency mode
 - Lex Auto-File + global search across cases
 
-## Code Architecture (unchanged)
-- `/app/backend/server.py` — FastAPI (Auth, LLM, Vault, GDPR, Contracts, Engagements, Webhooks)
+## Code Architecture
+- `/app/backend/server.py` — FastAPI (Auth, LLM, Vault, GDPR, Contracts, Engagements, Webhooks, **🆕 `/lex/taster` + `/lex/taster/status`**)
 - `/app/backend/app_crypto.py` — Fernet AES utilities
-- `/app/frontend/src/App.js` — ~5900 lines, Consumer UI (do NOT refactor pre-launch)
+- `/app/frontend/src/App.js` — ~6100 lines, Consumer UI (do NOT refactor pre-launch). Includes new `WelcomeTour` + `TasterLex` components inside `AuthScreen`.
 - `/app/frontend/src/FirmPortal.js` — B2B lawyer dashboard
-- `/app/frontend/src/icons.js` — PNG icon wrappers (now using transparent PNGs)
+- `/app/frontend/src/icons.js` — PNG icon wrappers
 - `/app/frontend/public/icons/` — 22 optimized transparent 256×256 PNGs (1.3 MB total)
-- `/app/frontend/public/icons_originals_backup/` — Pristine 1024×1024 originals (~10.5 MB)
+- `/app/frontend/public/privacy.html`, `/terms.html` — public legal pages for App Store
+- `/app/frontend/public/assets/splash-clean.mp4` (119 KB), `splash-midframe.jpg` (28 KB)
 
 ## Critical Notes for Next Agent
-- **Icons are now RGBA** with transparent backgrounds. Never restore from `icons_originals_backup/` without re-processing — that would bring back the black boxes.
-- **Splash CSS in two places**: React component `App.js:~5306` + first-paint poster in `index.html`. Keep mask/filter values in sync if tuning further.
-- **iOS PWA hard-refresh**: Users must close Safari tab + reopen to clear cached CSS.
+- **Free taster Lex**: rate-limited by `device_id` (localStorage `aa_device_id`) + IP, 7-day window. Uses claude-haiku-4-5. Records to `taster_usage` MongoDB collection.
+- **Onboarding tour**: shows once per browser based on localStorage `aa_welcomed`. Auto-opens TasterLex after tour completes (high-conversion pattern).
+- **Emergent badge stripped** from `index.html` — DO NOT restore.
+- **i18n auto-translation**: only English keys added in Session 1 for new flows. Other 10 languages will fall back to English keys until translated (intentional — auto-translate is the project's pattern).

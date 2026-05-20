@@ -966,6 +966,77 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
 
     return {"session_id": session_id, "response": response, "reply_language": reply_language, "model": model_id}
 
+
+# ==================== FREE TASTER LEX (no auth, 1 question per device) ====================
+class TasterMessage(BaseModel):
+    message: str
+    device_id: str  # opaque client-generated UUID; tied to localStorage
+    language: str = "en-GB"
+    country: str = "GB"
+
+@api_router.post("/lex/taster")
+async def lex_taster(req: Request, data: TasterMessage):
+    """
+    Free single-question Lex chat for first-run users (no signup).
+    Limit: 1 question per device_id AND per IP per 7 days.
+    Uses Haiku (cheapest) — this is a conversion hook, not the product.
+    """
+    text = (data.message or "").strip()
+    if len(text) < 4:
+        raise HTTPException(400, "Question too short")
+    if len(text) > 500:
+        raise HTTPException(400, "Free question must be 500 characters or less. Sign up for unlimited.")
+
+    # IP fingerprint (in case device_id is rotated by the client)
+    ip = req.client.host if req.client else "0.0.0.0"
+    fp_ip = f"taster_ip:{ip}"
+    fp_dev = f"taster_dev:{data.device_id}"
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+
+    used = await db.taster_usage.count_documents({
+        "$or": [{"key": fp_ip}, {"key": fp_dev}],
+        "at": {"$gte": cutoff},
+    })
+    if used > 0:
+        raise HTTPException(429, "You've used your free question. Sign up for unlimited Lex chat (7-day free trial).")
+
+    # Use cheapest model — this is a free hook
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"taster-{uuid.uuid4()}",
+            system_message=(
+                lex_system_prompt(data.language, data.country, None)
+                + "\n\nIMPORTANT: This is the user's FIRST-EVER question. Be concise (under 250 words), "
+                "warm and helpful. End with: 'Sign up for unlimited Lex chat, case files, and your private "
+                "Vault — 7-day free trial.'"
+            ),
+        ).with_model("anthropic", "claude-haiku-4-5-20251001").with_params(max_tokens=600)
+        response = await chat.send_message(UserMessage(text=text))
+    except Exception as e:
+        logger.exception("Taster Lex error")
+        raise HTTPException(500, f"Lex is busy — please try again. ({str(e)[:100]})")
+
+    # Record usage so the device + IP can't burn another free question for 7 days
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.taster_usage.insert_one({"key": fp_ip, "at": now_iso})
+    await db.taster_usage.insert_one({"key": fp_dev, "at": now_iso})
+
+    return {"response": response, "model": "claude-haiku-4-5"}
+
+
+@api_router.get("/lex/taster/status")
+async def lex_taster_status(req: Request, device_id: str):
+    """Tell the client whether this device still has a free question left."""
+    ip = req.client.host if req.client else "0.0.0.0"
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    used = await db.taster_usage.count_documents({
+        "$or": [{"key": f"taster_ip:{ip}"}, {"key": f"taster_dev:{device_id}"}],
+        "at": {"$gte": cutoff},
+    })
+    return {"available": used == 0}
+
+
 @api_router.get("/lex/sessions")
 async def list_sessions(user: dict = Depends(get_user)):
     pipeline = [

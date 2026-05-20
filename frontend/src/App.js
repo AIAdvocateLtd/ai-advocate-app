@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import "@/App.css";
 import axios from "axios";
 import {
   MessageCircle, Mic, Folder, FileText, Gavel, Globe, Briefcase, Home as HomeIcon,
   Stethoscope, Scale, X, Send, Upload, Languages, LogOut, Check, ArrowLeft, Square, Play,
   Camera, MapPin, Phone, ExternalLink, Settings as SettingsIcon, Star, Building2, Image as ImageIcon,
-  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint
+  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint, Sparkles
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
 import { setAppIconBadge } from "@/appBadge";
@@ -233,6 +233,10 @@ function AuthScreen({ lang, country, onAuth }) {
   const [err, setErr] = useState("");
   const [providers, setProviders] = useState({ google_enabled: false, apple_enabled: false });
 
+  // First-run experience: show onboarding tour then taster Lex on initial visit
+  const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem("aa_welcomed"));
+  const [showTaster, setShowTaster] = useState(false);
+
   useEffect(() => { api.get("/auth/providers").then(r => setProviders(r.data)).catch(() => {}); }, []);
 
   // Inject Google Identity Services script when enabled
@@ -372,6 +376,163 @@ function AuthScreen({ lang, country, onAuth }) {
               style={{ marginTop: 20, color: "var(--gold-soft)", background: "transparent", border: "none", cursor: "pointer" }}>
         {mode === "signin" ? t(lang, "noAccount") + " " + t(lang, "signUp") : t(lang, "haveAccount") + " " + t(lang, "signIn")}
       </button>
+
+      {/* Try Lex Free — single CTA below auth, always available */}
+      <button data-testid="try-lex-free-btn" onClick={() => setShowTaster(true)}
+              style={{
+                marginTop: 22,
+                padding: "10px 18px",
+                background: "transparent",
+                color: "var(--gold)",
+                border: "1px solid var(--gold-deep)",
+                borderRadius: 12,
+                cursor: "pointer",
+                fontSize: 13,
+                letterSpacing: "0.02em",
+                display: "inline-flex", alignItems: "center", gap: 8,
+              }}>
+        <Sparkles size={14} /> {t(lang, "tryLexFree")}
+      </button>
+
+      {showWelcome && (
+        <WelcomeTour lang={lang} onDone={() => { localStorage.setItem("aa_welcomed", "1"); setShowWelcome(false); setShowTaster(true); }} />
+      )}
+      {showTaster && (
+        <TasterLex lang={lang} country={country} onClose={() => setShowTaster(false)} onSignupClick={() => { setShowTaster(false); setMode("signup"); }} />
+      )}
+    </div>
+  );
+}
+
+// ---------- First-run onboarding (3 swipeable cards) ----------
+function WelcomeTour({ lang, onDone }) {
+  const [step, setStep] = useState(0);
+  const cards = [
+    { icon: "/icons/ask_lex.png", title: t(lang, "tourTitle1"), body: t(lang, "tourBody1") },
+    { icon: "/icons/camera.png",  title: t(lang, "tourTitle2"), body: t(lang, "tourBody2") },
+    { icon: "/icons/vault.png",   title: t(lang, "tourTitle3"), body: t(lang, "tourBody3") },
+  ];
+  const next = () => step < cards.length - 1 ? setStep(step + 1) : onDone();
+  const c = cards[step];
+  return (
+    <div className="modal-bg" data-testid="welcome-tour" style={{ zIndex: 10000 }}>
+      <div className="modal-card" style={{ padding: 28, maxWidth: 420, textAlign: "center" }}>
+        <img src={c.icon} alt="" style={{ width: 96, height: 96, objectFit: "contain", margin: "0 auto 14px", filter: "drop-shadow(0 4px 16px rgba(247,201,72,0.35))" }} />
+        <h2 style={{ fontFamily: "'Cinzel', serif", color: "var(--gold)", fontSize: 20, margin: "0 0 10px", letterSpacing: "0.05em" }}>{c.title}</h2>
+        <p style={{ color: "var(--text)", fontSize: 14, lineHeight: 1.55, margin: "0 0 24px" }}>{c.body}</p>
+        <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 20 }}>
+          {cards.map((_, i) => (
+            <span key={i} style={{ width: i === step ? 18 : 6, height: 6, borderRadius: 3, background: i === step ? "var(--gold)" : "var(--line)", transition: "0.2s" }} />
+          ))}
+        </div>
+        <button className="btn-gold w-full" data-testid="welcome-tour-next" onClick={next}>
+          {step < cards.length - 1 ? t(lang, "next") : t(lang, "tourCta")}
+        </button>
+        <button data-testid="welcome-tour-skip" onClick={onDone}
+                style={{ marginTop: 10, background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 12 }}>
+          {t(lang, "skip")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Free taster Lex chat (no signup, 1 question) ----------
+function TasterLex({ lang, country, onClose, onSignupClick }) {
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [available, setAvailable] = useState(true);
+
+  // Stable per-device id (survives reloads, not incognito)
+  const deviceId = useMemo(() => {
+    let d = localStorage.getItem("aa_device_id");
+    if (!d) { d = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`); localStorage.setItem("aa_device_id", d); }
+    return d;
+  }, []);
+
+  useEffect(() => {
+    api.get(`/lex/taster/status?device_id=${encodeURIComponent(deviceId)}`)
+      .then(r => setAvailable(!!r.data?.available))
+      .catch(() => {});
+  }, [deviceId]);
+
+  const ask = async (e) => {
+    e?.preventDefault?.();
+    if (!question.trim() || busy) return;
+    setBusy(true); setErr(""); setAnswer("");
+    try {
+      const { data } = await api.post("/lex/taster", {
+        message: question.trim(), device_id: deviceId, language: lang, country,
+      });
+      setAnswer(data.response);
+      setAvailable(false);
+    } catch (e2) {
+      setErr(e2?.response?.data?.detail || "Lex is busy — try again");
+      if (e2?.response?.status === 429) setAvailable(false);
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="modal-bg" data-testid="taster-lex" style={{ zIndex: 10000 }}>
+      <div className="modal-card" style={{ padding: 22, maxWidth: 480 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <img src="/icons/ask_lex.png" alt="" style={{ width: 36, height: 36, objectFit: "contain" }} />
+            <div>
+              <h2 style={{ fontFamily: "'Cinzel', serif", color: "var(--gold)", fontSize: 17, margin: 0, letterSpacing: "0.04em" }}>{t(lang, "tasterTitle")}</h2>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>{t(lang, "tasterSubtitle")}</div>
+            </div>
+          </div>
+          <button onClick={onClose} data-testid="taster-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={20} /></button>
+        </div>
+
+        {!answer && available && (
+          <form onSubmit={ask}>
+            <textarea data-testid="taster-input"
+              value={question} onChange={(e) => setQuestion(e.target.value)}
+              placeholder={t(lang, "tasterPlaceholder")}
+              maxLength={500} rows={4}
+              style={{ width: "100%", padding: 12, background: "var(--bg-elev)", border: "1px solid var(--line)", borderRadius: 12, color: "var(--text)", fontSize: 14, fontFamily: "inherit", resize: "vertical" }} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, fontSize: 11, color: "var(--text-muted)" }}>
+              <span>{question.length}/500</span>
+              <span>{t(lang, "tasterLimitNote")}</span>
+            </div>
+            {err && <div style={{ color: "var(--danger)", fontSize: 13, marginTop: 8 }}>{err}</div>}
+            <button type="submit" className="btn-gold w-full" data-testid="taster-submit"
+                    disabled={busy || question.trim().length < 4}
+                    style={{ marginTop: 14 }}>
+              {busy ? <span className="spinner" /> : t(lang, "tasterAskBtn")}
+            </button>
+          </form>
+        )}
+
+        {answer && (
+          <div data-testid="taster-answer">
+            <div style={{ background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 14, fontSize: 13, lineHeight: 1.6, color: "var(--text)", whiteSpace: "pre-wrap", maxHeight: "55vh", overflowY: "auto" }}>
+              {answer}
+            </div>
+            <div style={{ marginTop: 16, padding: 14, background: "linear-gradient(135deg, rgba(247,201,72,0.12), rgba(247,201,72,0.02))", border: "1px solid var(--gold)", borderRadius: 12 }}>
+              <div style={{ color: "var(--gold)", fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{t(lang, "tasterUpsellTitle")}</div>
+              <div style={{ color: "var(--text)", fontSize: 12, lineHeight: 1.5 }}>{t(lang, "tasterUpsellBody")}</div>
+              <button className="btn-gold w-full" data-testid="taster-signup-btn" onClick={onSignupClick} style={{ marginTop: 12 }}>
+                {t(lang, "tasterUpsellCta")}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!available && !answer && (
+          <div data-testid="taster-exhausted" style={{ padding: 16, background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)", borderRadius: 12, textAlign: "center" }}>
+            <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6 }}>{t(lang, "tasterExhaustedTitle")}</div>
+            <div style={{ color: "var(--text-dim)", fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>{t(lang, "tasterExhaustedBody")}</div>
+            <button className="btn-gold w-full" data-testid="taster-signup-exhausted" onClick={onSignupClick}>
+              {t(lang, "tasterUpsellCta")}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -2648,7 +2809,9 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             onBlur={async (e) => { await api.patch("/auth/preferences", { emergency_contact_phone: e.target.value.replace(/\s/g, "") }).then(r => onUpdate(r.data)).catch(() => {}); }} />
         </div>
 
-        {/* "Hey Lex" wake word toggle */}
+        {/* "Hey Lex" wake word toggle — hidden pre-launch.
+            Re-enable when SiriKit Shortcuts arrive in the Capacitor iOS wrap. */}
+        {false && (
         <div data-testid="settings-heylex" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Mic size={18} style={{ color: "var(--gold)" }} />
@@ -2684,6 +2847,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             <br/><strong style={{ color: "var(--gold-soft)" }}>{t(lang, "heyLexIosNote")}</strong>
           </div>
         </div>
+        )}
 
         {/* Auto-detect language toggle */}
         <div data-testid="settings-autodetect" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
