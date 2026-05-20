@@ -3553,15 +3553,18 @@ function SponsorFooter() {
 }
 
 function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub, badges = {} }) {
+  // Bottom nav uses the SAME embossed-gold PNG icons as the dashboard tiles, for
+  // visual consistency. Replacing the old "Home" with "Reminders" — Home is the
+  // default already (every nav tap returns there), so this slot is more useful
+  // surfaced as the Reminders entry-point (also exposes the deadline badge here).
   const items = [
-    { k: "home", Icon: HomeIcon, lbl: t(lang, "home") },
-    { k: "vault", Icon: ShieldCheck, lbl: t(lang, "vault") },
-    { k: "lex", center: true },
-    { k: "lawyers", Icon: Building2, lbl: t(lang, "lawyers") },
-    { k: "cases", Icon: Briefcase, lbl: t(lang, "cases") },
+    { k: "reminders", icon: "/icons/reminder.png", lbl: t(lang, "reminders") || "Reminders" },
+    { k: "vault",     icon: "/icons/vault.png",    lbl: t(lang, "vault") },
+    { k: "lex",       center: true },
+    { k: "lawyers",   icon: "/icons/solicitor.png",lbl: t(lang, "lawyers") },
+    { k: "cases",     icon: "/icons/files.png",    lbl: t(lang, "cases") },
   ];
   const handle = (k) => {
-    if (k === "home") return; // already home
     if (k === "lex" && !hasAccess) { requireSub(); return; }
     onNav(k);
   };
@@ -3585,13 +3588,18 @@ function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub, badges
           }}>
             <img src="/assets/lex.jpg" alt="Lex" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%", mixBlendMode: "lighten" }} />
           </div>
-          <div style={{ fontSize: 10, color: "var(--gold)", fontWeight: 600, marginTop: 2, fontFamily: "Cinzel, serif", letterSpacing: "0.05em" }}>LEX</div>
+          {/* "LEX" caption removed — name is on the Lex logo button itself */}
         </div>
       ) : (
         <button key={it.k} data-testid={`nav-${it.k}`} onClick={() => handle(it.k)}
                 style={{ background: "transparent", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flex: 1, cursor: "pointer", padding: 4, position: "relative" }}>
           <div style={{ position: "relative", display: "inline-flex" }}>
-            <it.Icon size={20} fill={active === it.k ? "var(--gold)" : "var(--gold-deep)"} fillOpacity={active === it.k ? 0.95 : 0.55} style={{ color: active === it.k ? "var(--gold)" : "var(--gold-deep)" }} />
+            <img src={it.icon} alt="" style={{
+              width: 26, height: 26, objectFit: "contain",
+              opacity: active === it.k ? 1 : 0.65,
+              filter: active === it.k ? "drop-shadow(0 0 6px rgba(247,201,72,0.55))" : "none",
+              transition: "opacity 150ms, filter 150ms",
+            }} />
             {badges[it.k] > 0 && (
               <span data-testid={`nav-${it.k}-badge`} style={{
                 position: "absolute", top: -4, right: -6,
@@ -3603,7 +3611,7 @@ function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub, badges
               }}>{badges[it.k] > 9 ? "9+" : badges[it.k]}</span>
             )}
           </div>
-          <span style={{ fontSize: 10, color: active === it.k ? "var(--gold)" : "var(--text-muted)" }}>{it.lbl}</span>
+          <span style={{ fontSize: 10, color: active === it.k ? "var(--gold)" : "var(--gold-soft)", letterSpacing: "0.04em" }}>{it.lbl}</span>
         </button>
       ))}
     </nav>
@@ -3897,7 +3905,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       <SponsorFooter />
 
       <BottomNav lang={lang} active="home"
-        badges={{ cases: casesBadge }}
+        badges={{ cases: casesBadge, reminders: casesBadge }}
         onNav={(k) => {
           if (k === "lex") {
             // Tapping Lex centre button → open Siri-style Voice Mode (Plus+ only)
@@ -3907,6 +3915,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
           else if (k === "vault") setModal({ type: "vault" });
           else if (k === "cases") setModal({ type: "cases" });
           else if (k === "lawyers") setModal({ type: "lawyers" });
+          else if (k === "reminders") setModal({ type: "reminders" });
         }} hasAccess={true} requireSub={() => setShowSub(true)} />
 
       {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} tier={tier} onClose={() => setModal(null)} onSwitchCategory={(newCat) => {
