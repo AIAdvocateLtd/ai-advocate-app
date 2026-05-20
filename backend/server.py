@@ -5,7 +5,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os, logging, uuid, jwt, bcrypt, base64, io, tempfile
+import os, logging, uuid, jwt, bcrypt, base64, io, tempfile, re
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Literal, Tuple
@@ -950,6 +950,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     # the user has discussed, so it can spot connections (e.g. "the contract you
     # reviewed last week has a clause relevant to your deposit case").
     # Only injects if the user has 2+ prior sessions distinct from the current one.
+    cross_sessions_indexed = []  # [{n, session_id, topic, category}] for #N → session_id lookup
     try:
         cross_pipeline = [
             {"$match": {"user_id": user["id"], "session_id": {"$ne": session_id}}},
@@ -963,30 +964,41 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
             {"$sort": {"last_at": -1}},
             {"$limit": 4},
         ]
-        cross_sessions = []
+        n = 0
         async for s in db.conversations.aggregate(cross_pipeline):
             try:
                 txt = decrypt_text(s.get("first_message")) or ""
                 if txt:
-                    # First 90 chars of the question = the topic
                     topic = txt[:90].replace("\n", " ").strip()
                     if len(txt) > 90:
                         topic += "…"
-                    cat = s.get("category") or "ask_lex"
-                    cross_sessions.append(f"- [{cat}] {topic}")
+                    n += 1
+                    cross_sessions_indexed.append({
+                        "n": n,
+                        "session_id": s["_id"],
+                        "topic": topic,
+                        "category": s.get("category") or "ask_lex",
+                    })
             except Exception:
                 continue
     except Exception:
-        cross_sessions = []
+        cross_sessions_indexed = []
 
-    if len(cross_sessions) >= 1:
+    if cross_sessions_indexed:
+        lines = [f"#{c['n']} [{c['category']}] {c['topic']}" for c in cross_sessions_indexed]
         cross_memory_block = (
             "\n\nRECENT CASES THIS USER HAS DISCUSSED WITH YOU (other chat threads):\n"
-            + "\n".join(cross_sessions)
-            + "\n\nIMPORTANT: Use this list ONLY if the new question genuinely connects to one of these prior cases "
-              "(e.g. same landlord, related employment issue, the contract you already reviewed). "
-              "If you spot a connection, briefly mention it: 'This relates to the [topic] we discussed.' "
-              "If there's no clear connection, IGNORE this list completely — never force a link."
+            + "\n".join(lines)
+            + "\n\nCROSS-CASE CONNECTION RULE:\n"
+              "If the user's NEW question shares a SPECIFIC entity with any case in the list above — "
+              "the same company/employer name, the same landlord, the same person, the same property address, "
+              "the same contract, or the same incident date — you MUST acknowledge it and you MUST output the "
+              "[CONNECTED_TO: #N short topic] marker, where N is the number from the list above.\n"
+              "Example: list contains '#1 [ask_lex] My landlord Acme wont return my deposit'. "
+              "New question: 'My employer Acme also fired me.' → Same company Acme → "
+              "OUTPUT: [CONNECTED_TO: #1 Acme deposit dispute]\n"
+              "Also briefly mention the connection IN the answer body (e.g. 'This is the same Acme we discussed earlier about your deposit — there may be strategic synergy in pursuing both claims.').\n"
+              "If there is no shared specific entity, OMIT the [CONNECTED_TO:] line entirely. Never force a link."
         )
         system_msg = base_system_msg + cross_memory_block
     else:
@@ -1051,7 +1063,25 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
-    return {"session_id": session_id, "response": response, "reply_language": reply_language, "model": model_id}
+    # 🔗 Resolve cross-session link: if Lex tagged the answer with [CONNECTED_TO: #N ...],
+    # look up that session_id so the frontend can render the chip as a clickable jump.
+    connected_session_id = None
+    try:
+        m = re.search(r"\[CONNECTED_TO:\s*#(\d+)", response, re.IGNORECASE)
+        if m:
+            idx = int(m.group(1)) - 1
+            if 0 <= idx < len(cross_sessions_indexed):
+                connected_session_id = cross_sessions_indexed[idx]["session_id"]
+    except Exception:
+        connected_session_id = None
+
+    return {
+        "session_id": session_id,
+        "response": response,
+        "reply_language": reply_language,
+        "model": model_id,
+        "connected_session_id": connected_session_id,
+    }
 
 
 # ==================== FREE TASTER LEX (no auth, 1 question per device) ====================

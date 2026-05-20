@@ -559,7 +559,8 @@ function parseLexMetadata(raw) {
       else if (key === "SOURCES") {
         sources = val.split(/[;|]/).map(s => s.trim()).filter(s => s && s !== "—" && s !== "-");
       } else if (key === "CONNECTED_TO") {
-        connectedTo = val.replace(/^["']|["']$/g, "");
+        // Strip leading "#N" reference (used for backend → session_id lookup) so chip text is clean
+        connectedTo = val.replace(/^#\d+\s*[-:|–]?\s*/, "").replace(/^["']|["']$/g, "").trim();
       }
     } else {
       kept.push(line);
@@ -1047,7 +1048,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         auto_detect: autoDetect,
       });
       setSessionId(data.session_id);
-      setMessages(m => [...m, { role: "lex", content: data.response, at: new Date().toISOString(), model: data.model, replyLang: data.reply_language }]);
+      setMessages(m => [...m, { role: "lex", content: data.response, at: new Date().toISOString(), model: data.model, replyLang: data.reply_language, connectedSessionId: data.connected_session_id || null }]);
 
       // Smart category routing — only on first user message in general "ask_lex" chat
       if (category === "ask_lex" && !classifiedRef.current && onSwitchCategory) {
@@ -1201,16 +1202,46 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                     const meta = m.role === "lex" ? parseLexMetadata(m.content) : { body: m.content, confidence: null, sources: [], connectedTo: null };
                     return (
                       <>
-                        {meta.connectedTo && (
-                          <div data-testid={`connected-${i}`} style={{
-                            display: "inline-flex", alignItems: "center", gap: 6,
-                            background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)",
-                            color: "var(--gold)", borderRadius: 999, padding: "3px 10px",
-                            fontSize: 11, marginBottom: 6, alignSelf: "flex-start",
-                          }}>
-                            <Sparkles size={11} /> Connected to: {meta.connectedTo}
-                          </div>
-                        )}
+                        {meta.connectedTo && (() => {
+                          const targetId = m.connectedSessionId;
+                          const clickable = !!targetId;
+                          const handler = clickable ? async () => {
+                            try {
+                              setBusy(true);
+                              const r = await api.get(`/lex/sessions/${targetId}`);
+                              const loaded = (r.data || []).flatMap(row => [
+                                { role: "user", content: row.user_message, at: row.created_at },
+                                { role: "lex", content: row.assistant_response, at: row.created_at, model: row.model_used },
+                              ]);
+                              setMessages(loaded);
+                              setSessionId(targetId);
+                              classifiedRef.current = true;  // skip auto-categorisation on loaded thread
+                            } catch {
+                              // silent — fail gracefully, user can still keep chatting in current session
+                            } finally {
+                              setBusy(false);
+                            }
+                          } : undefined;
+                          return (
+                            <div data-testid={`connected-${i}`}
+                                 onClick={handler}
+                                 title={clickable ? "Tap to open this earlier conversation" : ""}
+                                 style={{
+                                   display: "inline-flex", alignItems: "center", gap: 6,
+                                   background: "rgba(247,201,72,0.08)",
+                                   border: `1px solid ${clickable ? "var(--gold)" : "var(--gold-deep)"}`,
+                                   color: "var(--gold)", borderRadius: 999, padding: "3px 10px",
+                                   fontSize: 11, marginBottom: 6, alignSelf: "flex-start",
+                                   cursor: clickable ? "pointer" : "default",
+                                   transition: "background 150ms, transform 150ms",
+                                 }}
+                                 onMouseEnter={(e) => { if (clickable) e.currentTarget.style.background = "rgba(247,201,72,0.18)"; }}
+                                 onMouseLeave={(e) => { if (clickable) e.currentTarget.style.background = "rgba(247,201,72,0.08)"; }}>
+                              <Sparkles size={11} /> Connected to: {meta.connectedTo}
+                              {clickable && <ExternalLink size={10} style={{ opacity: 0.8, marginLeft: 2 }} />}
+                            </div>
+                          );
+                        })()}
                         <div className={m.role === "user" ? "bubble-user" : "bubble-lex"}
                              data-testid={`msg-${m.role}-${i}`}
                              style={{ padding: "10px 14px", borderRadius: 14, maxWidth: "82%", whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 }}>

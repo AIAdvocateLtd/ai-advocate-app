@@ -10,6 +10,12 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 1f — Tappable Connected-to chip)
+- **🔗 "Connected to" chip is now clickable** — tap it to jump straight into that prior conversation thread (loads all its messages, switches session_id, smooth context switch).
+- Backend: cross-sessions indexed with `#N` numbering. Lex now outputs `[CONNECTED_TO: #1 short topic]`. Backend regex extracts `#1`, looks up session_id from the indexed list, returns it as `connected_session_id` in the chat response.
+- Frontend: parser strips `#N` prefix from chip text. Click handler calls `GET /api/lex/sessions/{id}` (existing endpoint) → replaces messages → updates sessionId. Hover state on clickable chip + external-link icon.
+- Strengthened cross-case prompt rule: "If the user's NEW question shares a SPECIFIC entity (same company/landlord/property/contract/date) with any case in the list above, you MUST output [CONNECTED_TO: #N]." Verified: Acme deposit (Session A) + Acme employer (Session B) → Lex correctly outputs `[CONNECTED_TO: #1 Acme deposit dispute]` → backend resolves to Session A's UUID → frontend chip becomes a clickable gold-bordered link.
+
 ### 2026-02 (Session 1e — Clickable source citations)
 - **🔗 Source chips are now clickable.** Each `[SOURCES:]` citation Lex produces is auto-routed to its official database:
   - UK statute (any "Act YYYY" / "s.X" / "Schedule X") → **legislation.gov.uk** search
