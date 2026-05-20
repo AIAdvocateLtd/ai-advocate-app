@@ -10,6 +10,11 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 1c — Cross-session memory)
+- **🧠 Cross-session memory**: `/api/lex/chat` now injects a one-line summary of the user's **other** recent chat threads into the system prompt. Lex can spot connections like "you were fired without warning after 3 years at Acme Ltd (we discussed earlier) — now they're withholding your final pay…" — but **only when there's a genuine link**.
+- Verified end-to-end: A=dismissal at Acme → B=property → C=noise (clean, no false cross-links) → D=Acme final pay = **correctly carried the Acme/employment context across sessions**.
+- Implementation: MongoDB aggregation pulls last 4 distinct session_ids excluding the current one, decrypts the first turn of each, builds topic list "[category] first 90 chars…", and appends as `RECENT CASES THIS USER HAS DISCUSSED WITH YOU` block. Failsafe: aggregation wrapped in try/except — if anything fails, just uses base system prompt.
+
 ### 2026-02 (Session 1b — Lex conversation memory + speed)
 - **🧠 Lex now remembers context across turns.** `/api/lex/chat` now loads the last 12 conversation turns (decrypted from MongoDB), seeds `LlmChat.initial_messages`, so follow-up questions like "and?" / "what if photos?" / "the time limit?" carry full context from the prior dialogue.
 - Added `CONVERSATION MEMORY` directive in `lex_system_prompt` so model explicitly links follow-ups back to prior facts (parties, dates, jurisdiction).

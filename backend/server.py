@@ -937,7 +937,53 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     provider, model_id, max_tok = lex_model_for_tier(tier, deep_think=data.deep_think)
 
     session_id = data.session_id or str(uuid.uuid4())
-    system_msg = lex_system_prompt(reply_language, data.country, data.category)
+    base_system_msg = lex_system_prompt(reply_language, data.country, data.category)
+
+    # 🧠 Cross-session memory — give Lex a one-line summary of OTHER recent cases
+    # the user has discussed, so it can spot connections (e.g. "the contract you
+    # reviewed last week has a clause relevant to your deposit case").
+    # Only injects if the user has 2+ prior sessions distinct from the current one.
+    try:
+        cross_pipeline = [
+            {"$match": {"user_id": user["id"], "session_id": {"$ne": session_id}}},
+            {"$sort": {"created_at": -1}},
+            {"$group": {
+                "_id": "$session_id",
+                "first_message": {"$last": "$user_message"},  # oldest = first turn of that case
+                "category": {"$first": "$category"},
+                "last_at": {"$first": "$created_at"},
+            }},
+            {"$sort": {"last_at": -1}},
+            {"$limit": 4},
+        ]
+        cross_sessions = []
+        async for s in db.conversations.aggregate(cross_pipeline):
+            try:
+                txt = decrypt_text(s.get("first_message")) or ""
+                if txt:
+                    # First 90 chars of the question = the topic
+                    topic = txt[:90].replace("\n", " ").strip()
+                    if len(txt) > 90:
+                        topic += "…"
+                    cat = s.get("category") or "ask_lex"
+                    cross_sessions.append(f"- [{cat}] {topic}")
+            except Exception:
+                continue
+    except Exception:
+        cross_sessions = []
+
+    if len(cross_sessions) >= 1:
+        cross_memory_block = (
+            "\n\nRECENT CASES THIS USER HAS DISCUSSED WITH YOU (other chat threads):\n"
+            + "\n".join(cross_sessions)
+            + "\n\nIMPORTANT: Use this list ONLY if the new question genuinely connects to one of these prior cases "
+              "(e.g. same landlord, related employment issue, the contract you already reviewed). "
+              "If you spot a connection, briefly mention it: 'This relates to the [topic] we discussed.' "
+              "If there's no clear connection, IGNORE this list completely — never force a link."
+        )
+        system_msg = base_system_msg + cross_memory_block
+    else:
+        system_msg = base_system_msg
 
     # 🧠 Load prior conversation history so Lex remembers context across turns.
     # We pull the last 12 turns for this user+session, decrypt them, and seed
