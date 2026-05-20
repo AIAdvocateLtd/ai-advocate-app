@@ -2095,9 +2095,18 @@ async def analyze_recording(
     audio: UploadFile = File(...),
     language: str = Form("en-GB"),
     country: str = Form("GB"),
+    recorded_at: Optional[str] = Form(None),   # ISO-8601 wall-clock start (UTC)
+    ended_at: Optional[str] = Form(None),
+    duration_seconds: Optional[int] = Form(None),
+    tz_name: Optional[str] = Form(None, alias="timezone"),  # IANA tz e.g. "Europe/London"
+    location_lat: Optional[str] = Form(None),
+    location_lng: Optional[str] = Form(None),
+    location_accuracy_m: Optional[int] = Form(None),
     user: dict = Depends(get_user)
 ):
-    """Transcribe audio and analyse it as a legal interaction (police/court)."""
+    """Transcribe audio and analyse it as a legal interaction (police/court).
+    Captures evidentiary metadata: precise start/end timestamps, duration,
+    timezone, and optional GPS location (with accuracy in metres)."""
     pub = user_to_public(user)
     if not pub.get("has_access"):
         raise HTTPException(402, "Subscription required.")
@@ -2107,6 +2116,9 @@ async def analyze_recording(
     suffix = "." + (fname.rsplit(".", 1)[-1] if "." in fname else "webm")
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     tmp.write(contents); tmp.close()
+
+    # Server-side wall-clock receipt time (used if client did not send recorded_at)
+    server_received_at = datetime.now(timezone.utc).isoformat()
 
     stt = OpenAISpeechToText(api_key=EMERGENT_LLM_KEY)
     try:
@@ -2134,6 +2146,16 @@ async def analyze_recording(
         "type": "recording",
         "transcript": transcript,
         "analysis": analysis,
+        # 🕒 Evidentiary timestamps
+        "recorded_at": recorded_at or server_received_at,     # wall-clock start
+        "ended_at": ended_at,                                  # wall-clock end
+        "duration_seconds": duration_seconds,
+        "timezone": tz_name,
+        "server_received_at": server_received_at,              # tamper-evident server timestamp
+        # 📍 Optional location
+        "location_lat": location_lat,
+        "location_lng": location_lng,
+        "location_accuracy_m": location_accuracy_m,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.legal_files.insert_one(rec.copy())
@@ -2730,9 +2752,38 @@ async def pdf_for_file(file_id: str, user: dict = Depends(get_user)):
         meta = {"Type": f.get("evidence_type", "-"), "Created": created}
     elif ftype == "recording":
         title = "Recording Analysis"
-        body = (f"--- TRANSCRIPT ---\n\n{f.get('transcript','')}\n\n"
+        # 🕒 Evidentiary header — prominent, audit-friendly
+        ev_lines = ["⚖ EVIDENCE METADATA", "─" * 38]
+        rec_at = f.get("recorded_at") or created
+        end_at = f.get("ended_at")
+        dur = f.get("duration_seconds")
+        tz = f.get("timezone")
+        lat = f.get("location_lat"); lng = f.get("location_lng"); acc = f.get("location_accuracy_m")
+        srv = f.get("server_received_at")
+        ev_lines.append(f"Recording started : {rec_at}")
+        if end_at:
+            ev_lines.append(f"Recording ended   : {end_at}")
+        if dur is not None:
+            m, s = divmod(int(dur), 60)
+            ev_lines.append(f"Duration          : {m}m {s}s ({dur} seconds)")
+        if tz:
+            ev_lines.append(f"Local timezone    : {tz}")
+        if lat and lng:
+            ev_lines.append(f"GPS location      : {lat}, {lng}" + (f" (±{acc}m)" if acc else ""))
+        if srv:
+            ev_lines.append(f"Server-received   : {srv}")
+        ev_lines.append(f"File reference    : {f.get('id', '-')[:13]}…")
+        ev_lines.append("─" * 38)
+        ev_block = "\n".join(ev_lines)
+        body = (f"{ev_block}\n\n"
+                f"--- TRANSCRIPT ---\n\n{f.get('transcript','')}\n\n"
                 f"--- LEX ANALYSIS ---\n\n{f.get('analysis','')}")
-        meta = {"Source": fname, "Created": created}
+        meta = {
+            "Source": fname,
+            "Recorded": (rec_at or "")[:19].replace("T", " "),
+            "Duration": f"{dur}s" if dur else "—",
+            "Timezone": tz or "—",
+        }
     else:
         # Default = contract analysis
         title = "Contract Analysis"

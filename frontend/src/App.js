@@ -1995,21 +1995,94 @@ function LegalLetterModal({ lang, country, onClose }) {
 // ---------- Record Legal Interaction ----------
 function RecordModal({ lang, country, onClose }) {
   const { recording, start, stop } = useRecorder();
-  const [busy, setBusy] = useState(false); const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [meta, setMeta] = useState(null);  // {started_at, ended_at, duration_s, location}
+  const startedAtRef = useRef(null);
   const { ensureConsent, GateModal } = useRecordingConsent({ lang, country, surface: "record_legal", recordingTitle: "" });
+
+  // Best-effort GPS: silently captured ONCE, after the user starts recording.
+  // Permission may be denied — that's fine, we just omit location from the evidence header.
+  const captureLocation = () => new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({
+        lat: pos.coords.latitude.toFixed(5),
+        lng: pos.coords.longitude.toFixed(5),
+        accuracy_m: Math.round(pos.coords.accuracy || 0),
+      }),
+      () => resolve(null),
+      { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 }
+    );
+  });
 
   const onMic = async () => {
     if (recording) {
-      const blob = await stop(); if (!blob) return; setBusy(true);
-      const fd = new FormData(); fd.append("audio", blob, "rec.webm"); fd.append("language", lang); fd.append("country", country);
-      try { const { data } = await api.post("/record/analyze", fd); setResult(data); }
-      catch (e) { alert(e?.response?.data?.detail || "Failed"); }
-      finally { setBusy(false); }
-    } else { start(); }
+      // STOP — capture wall-clock end time + duration
+      const endedAt = new Date();
+      const blob = await stop(); if (!blob) return;
+      const startedAt = startedAtRef.current || new Date(endedAt.getTime());
+      const durationS = Math.max(1, Math.round((endedAt - startedAt) / 1000));
+      setBusy(true);
+      const fd = new FormData();
+      fd.append("audio", blob, "rec.webm");
+      fd.append("language", lang);
+      fd.append("country", country);
+      fd.append("recorded_at", startedAt.toISOString());
+      fd.append("ended_at", endedAt.toISOString());
+      fd.append("duration_seconds", String(durationS));
+      fd.append("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+      // Attach the location we captured at start (if user granted permission)
+      const loc = startedAtRef.current?.__loc;
+      if (loc) {
+        fd.append("location_lat", loc.lat);
+        fd.append("location_lng", loc.lng);
+        fd.append("location_accuracy_m", String(loc.accuracy_m));
+      }
+      try {
+        const { data } = await api.post("/record/analyze", fd);
+        setResult(data);
+        setMeta({
+          started_at: startedAt.toISOString(),
+          ended_at: endedAt.toISOString(),
+          duration_s: durationS,
+          location: loc || null,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+        });
+      } catch (e) {
+        alert(e?.response?.data?.detail || "Failed");
+      } finally {
+        setBusy(false);
+        startedAtRef.current = null;
+      }
+    } else {
+      // START — stamp wall-clock now, request location in parallel (non-blocking)
+      const now = new Date();
+      startedAtRef.current = now;
+      captureLocation().then((loc) => { if (loc && startedAtRef.current) startedAtRef.current.__loc = loc; });
+      start();
+    }
   };
 
   // Wrap mic press in consent gate (only fires before first start, not for stop)
   const onMicGated = recording ? onMic : ensureConsent(onMic);
+
+  // Pretty time helpers
+  const fmtTime = (iso) => {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString(lang || "en-GB", {
+        year: "numeric", month: "short", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+        timeZoneName: "short",
+      });
+    } catch { return iso; }
+  };
+  const fmtDur = (s) => {
+    if (!s) return "0s";
+    const m = Math.floor(s / 60); const r = s % 60;
+    return m > 0 ? `${m}m ${r}s` : `${r}s`;
+  };
 
   return (
     <div className="modal-bg" data-testid="record-modal">
@@ -2021,7 +2094,7 @@ function RecordModal({ lang, country, onClose }) {
         {!result ? (
           <div style={{ textAlign: "center", padding: "30px 10px" }}>
             <p style={{ color: "var(--text-dim)", marginBottom: 20 }}>
-              Record your interaction with police, court, or any legal authority. Lex will transcribe and analyse it.
+              Record your interaction with police, court, or any legal authority. Every recording is time-stamped (UTC + your local time) and optionally tagged with GPS location for evidentiary use. Lex will transcribe and analyse it.
             </p>
             <button onClick={onMicGated} disabled={busy} data-testid="record-mic-btn"
                     className={recording ? "lex-circle recording" : ""}
@@ -2032,9 +2105,29 @@ function RecordModal({ lang, country, onClose }) {
             <p style={{ marginTop: 14, color: "var(--gold-soft)" }}>
               {busy ? t(lang, "analyzing") : (recording ? t(lang, "recording") : t(lang, "tapToRecord"))}
             </p>
+            {recording && startedAtRef.current && (
+              <div data-testid="record-live-stamp" style={{ marginTop: 14, padding: "8px 12px", background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)", borderRadius: 10, display: "inline-block", color: "var(--gold)", fontSize: 11, letterSpacing: "0.03em" }}>
+                ● Started: {fmtTime(startedAtRef.current.toISOString())}
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ overflowY: "auto" }}>
+            {/* Evidence header — time-stamped, prominent */}
+            {meta && (
+              <div data-testid="record-evidence-header" style={{ background: "linear-gradient(135deg, rgba(247,201,72,0.10), rgba(247,201,72,0.02))", border: "1px solid var(--gold)", borderRadius: 12, padding: 12, marginBottom: 14 }}>
+                <div style={{ color: "var(--gold)", fontWeight: 700, fontSize: 11, letterSpacing: "0.14em", marginBottom: 6 }}>⚖ EVIDENCE METADATA</div>
+                <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", fontSize: 12, color: "var(--text)" }}>
+                  <div style={{ color: "var(--gold-soft)" }}>Started:</div><div>{fmtTime(meta.started_at)}</div>
+                  <div style={{ color: "var(--gold-soft)" }}>Ended:</div><div>{fmtTime(meta.ended_at)}</div>
+                  <div style={{ color: "var(--gold-soft)" }}>Duration:</div><div>{fmtDur(meta.duration_s)}</div>
+                  <div style={{ color: "var(--gold-soft)" }}>Timezone:</div><div>{meta.timezone}</div>
+                  {meta.location && (
+                    <><div style={{ color: "var(--gold-soft)" }}>Location:</div><div>{meta.location.lat}, {meta.location.lng} (±{meta.location.accuracy_m}m)</div></>
+                  )}
+                </div>
+              </div>
+            )}
             <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6 }}>{t(lang, "transcript")}</div>
             <div style={{ background: "#0a0a0a", padding: 12, borderRadius: 10, color: "var(--text-dim)", fontSize: 13.5, marginBottom: 14 }}>{result.transcript}</div>
             <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6 }}>{t(lang, "lexAnalysis")}</div>
@@ -2043,7 +2136,7 @@ function RecordModal({ lang, country, onClose }) {
               <button className="btn-gold" data-testid="record-pdf-btn" onClick={() => pdfForFile(result.id, result.filename || "recording")} style={{ flex: 1 }}>
                 <Download size={16} style={{ display: "inline", marginRight: 6 }} />Download PDF
               </button>
-              <button className="btn-ghost" onClick={() => setResult(null)} style={{ flex: 1 }}>{t(lang, "recordAnother")}</button>
+              <button className="btn-ghost" onClick={() => { setResult(null); setMeta(null); }} style={{ flex: 1 }}>{t(lang, "recordAnother")}</button>
             </div>
           </div>
         )}
@@ -3498,7 +3591,7 @@ function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub, badges
         <button key={it.k} data-testid={`nav-${it.k}`} onClick={() => handle(it.k)}
                 style={{ background: "transparent", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flex: 1, cursor: "pointer", padding: 4, position: "relative" }}>
           <div style={{ position: "relative", display: "inline-flex" }}>
-            <it.Icon size={20} fill={active === it.k ? "var(--gold)" : "currentColor"} fillOpacity={active === it.k ? 0.95 : 0.7} style={{ color: active === it.k ? "var(--gold)" : "var(--text-muted)" }} />
+            <it.Icon size={20} fill={active === it.k ? "var(--gold)" : "var(--gold-deep)"} fillOpacity={active === it.k ? 0.95 : 0.55} style={{ color: active === it.k ? "var(--gold)" : "var(--gold-deep)" }} />
             {badges[it.k] > 0 && (
               <span data-testid={`nav-${it.k}-badge`} style={{
                 position: "absolute", top: -4, right: -6,

@@ -10,6 +10,15 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 1i — Evidence-grade timestamping + Bottom-nav icon polish)
+- **⚖ Recording timestamps + GPS for evidentiary use.**
+  - Frontend `RecordModal` now captures wall-clock `started_at` + `ended_at` + computed `duration_seconds` + IANA timezone. Best-effort GPS captured (silently, on permission) at recording start.
+  - Backend `/api/record/analyze` accepts the new Form fields and stores them. Also stamps a tamper-evident `server_received_at` independent of the client clock.
+  - PDF export (`/api/pdf/file/{id}`) now opens with a prominent **⚖ EVIDENCE METADATA** block listing recording start, end, duration, timezone, GPS (with ±metres accuracy), server timestamp, and a file reference.
+  - In-app result view shows the same metadata in a gold-bordered "Evidence Metadata" card above the transcript.
+  - Verified end-to-end: inserted a synthetic record → fetched the PDF (HTTP 200, 408 KB) → extracted text via pypdf → confirmed all six evidence fields rendered correctly.
+- **🎨 Bottom-nav icons fully gold.** Previously inactive items were `var(--text-muted)` (grey); now muted gold (`var(--gold-deep)` at 55% fill) inactive and bright gold (95% fill) active. Heraldic consistency end-to-end.
+
 ### 2026-02 (Session 1h — Sponsor Admin)
 - **🛠️ Standalone admin page** at `/admin-sponsor.html` (phone-friendly, no React build). Sign in with admin email → live preview pill → toggle sponsor on/off → save.
 - **`GET /api/admin/sponsor`** + **`POST /api/admin/sponsor`** — protected by existing `require_admin` (checks `ADMIN_EMAILS` env, default `admin@aiadvocate.co.uk`). Upserts into MongoDB `sponsor` collection.
