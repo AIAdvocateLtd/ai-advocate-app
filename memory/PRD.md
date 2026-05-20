@@ -10,6 +10,12 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 1d — Lex Confidence Check + Connected-to chip)
+- **🛡️ Lex Confidence + Sources visible in chat.** Every Lex answer now ends with three structured markers `[CONFIDENCE: HIGH|MED|LOW]` `[SOURCES: ...]` `[CONNECTED_TO: ...]`. Backend system-prompt enforces the format; frontend parses + strips them from the bubble and renders as colored pills below (green=HIGH, gold=MED, red=LOW) + grey source chips.
+- **✨ "Connected to: …" chip** appears above the bubble when Lex links the new question to a prior case. Powered by the cross-session memory we built in 1c.
+- Line-based parser handles `[2019]`-style case-citation brackets inside source values without breaking.
+- Verified end-to-end: Turn 1 → HIGH + 2 sources + no connection. Turn 2 (new session referencing Acme from turn 1) → HIGH + 4 sources + "Connected to: Landlord deposit refusal" AND Lex spontaneously wrote strategic advice: *"mention in any settlement talks that you also have an outstanding £1200 deposit claim against them — combined pressure = more likely they'll settle both."*
+
 ### 2026-02 (Session 1c — Cross-session memory)
 - **🧠 Cross-session memory**: `/api/lex/chat` now injects a one-line summary of the user's **other** recent chat threads into the system prompt. Lex can spot connections like "you were fired without warning after 3 years at Acme Ltd (we discussed earlier) — now they're withholding your final pay…" — but **only when there's a genuine link**.
 - Verified end-to-end: A=dismissal at Acme → B=property → C=noise (clean, no false cross-links) → D=Acme final pay = **correctly carried the Acme/employment context across sessions**.

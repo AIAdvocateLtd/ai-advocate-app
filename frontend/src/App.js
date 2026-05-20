@@ -537,6 +537,38 @@ function TasterLex({ lang, country, onClose, onSignupClick }) {
   );
 }
 
+// ---------- Lex metadata parser (Confidence / Sources / Connected-to) ----------
+// Strips structured markers from Lex's reply body and returns { body, confidence, sources, connectedTo }.
+// Markers are expected on their OWN line at the end of the reply, e.g.
+//   [CONFIDENCE: HIGH]
+//   [SOURCES: Housing Act 2004 s.213; Smith v Jones [2019] EWCA Civ 123]
+//   [CONNECTED_TO: deposit dispute with previous landlord]
+function parseLexMetadata(raw) {
+  if (!raw || typeof raw !== "string") return { body: raw || "", confidence: null, sources: [], connectedTo: null };
+  let confidence = null, sources = [], connectedTo = null;
+  // Line-based match so source values can contain [...] (e.g. "Smith v Jones [2019]")
+  const lineRe = /^\s*\[(CONFIDENCE|SOURCES|CONNECTED_TO):\s*([\s\S]*?)\]\s*$/im;
+  const lines = raw.split(/\r?\n/);
+  const kept = [];
+  for (const line of lines) {
+    const m = line.match(lineRe);
+    if (m) {
+      const key = m[1].toUpperCase();
+      const val = m[2].trim();
+      if (key === "CONFIDENCE") confidence = val.toUpperCase();
+      else if (key === "SOURCES") {
+        sources = val.split(/[;|]/).map(s => s.trim()).filter(s => s && s !== "—" && s !== "-");
+      } else if (key === "CONNECTED_TO") {
+        connectedTo = val.replace(/^["']|["']$/g, "");
+      }
+    } else {
+      kept.push(line);
+    }
+  }
+  const body = kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return { body, confidence, sources, connectedTo };
+}
+
 // ---------- Voice Recording Hook ----------
 const useRecorder = () => {
   const mr = useRef(null); const chunks = useRef([]);
@@ -1138,11 +1170,56 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                 </div>
               ) : (
                 <>
-                  <div className={m.role === "user" ? "bubble-user" : "bubble-lex"}
-                       data-testid={`msg-${m.role}-${i}`}
-                       style={{ padding: "10px 14px", borderRadius: 14, maxWidth: "82%", whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 }}>
-                    {m.content}
-                  </div>
+                  {(() => {
+                    const meta = m.role === "lex" ? parseLexMetadata(m.content) : { body: m.content, confidence: null, sources: [], connectedTo: null };
+                    return (
+                      <>
+                        {meta.connectedTo && (
+                          <div data-testid={`connected-${i}`} style={{
+                            display: "inline-flex", alignItems: "center", gap: 6,
+                            background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)",
+                            color: "var(--gold)", borderRadius: 999, padding: "3px 10px",
+                            fontSize: 11, marginBottom: 6, alignSelf: "flex-start",
+                          }}>
+                            <Sparkles size={11} /> Connected to: {meta.connectedTo}
+                          </div>
+                        )}
+                        <div className={m.role === "user" ? "bubble-user" : "bubble-lex"}
+                             data-testid={`msg-${m.role}-${i}`}
+                             style={{ padding: "10px 14px", borderRadius: 14, maxWidth: "82%", whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 }}>
+                          {meta.body}
+                        </div>
+                        {m.role === "lex" && (meta.confidence || meta.sources.length > 0) && (
+                          <div data-testid={`lex-meta-${i}`} style={{
+                            display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignSelf: "flex-start", maxWidth: "82%",
+                          }}>
+                            {meta.confidence && (
+                              <span style={{
+                                display: "inline-flex", alignItems: "center", gap: 4,
+                                background: meta.confidence === "HIGH" ? "rgba(34,197,94,0.12)"
+                                          : meta.confidence === "MEDIUM" ? "rgba(247,201,72,0.12)"
+                                          : "rgba(239,68,68,0.12)",
+                                border: `1px solid ${meta.confidence === "HIGH" ? "#22c55e" : meta.confidence === "MEDIUM" ? "var(--gold-deep)" : "#ef4444"}`,
+                                color: meta.confidence === "HIGH" ? "#22c55e" : meta.confidence === "MEDIUM" ? "var(--gold)" : "#ef4444",
+                                fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
+                                padding: "2px 8px", borderRadius: 999,
+                              }}>
+                                <ShieldCheck size={10} /> {meta.confidence}
+                              </span>
+                            )}
+                            {meta.sources.map((src, si) => (
+                              <span key={si} title="Statute / case Lex cited" style={{
+                                background: "rgba(255,255,255,0.04)", border: "1px solid var(--line)",
+                                color: "var(--text-dim)", fontSize: 10, padding: "2px 8px", borderRadius: 999,
+                              }}>
+                                {src}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                   {m.role === "lex" && (
                     <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
                       <button data-testid={`fb-up-${i}`} title="Helpful" disabled={m._fb}
