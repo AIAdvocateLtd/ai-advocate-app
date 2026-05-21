@@ -1,0 +1,43 @@
+{
+  "summary": "Iter14 — RAG (Tavily) graceful fallback + Hybrid Claude/GPT-5.2 tier routing + Bottom-nav UX (LEX caption removed, customisable slot1, mic-access button). Backend pytest 6/6 PASS: auth/providers 200; POST /api/lex/chat as trial_pro (admin@aiadvocate.co.uk) returns coherent answer with deep_think OFF and ON (200/429 both acceptable on deep); rag.py module loads, is_enabled()=False when TAVILY_API_KEY='', smalltalk filter works; two property/housing-law chat calls succeed with empty Tavily key (no exception in backend logs). Frontend (390x844) verified end-to-end after T&C+onboarding: bottom-nav renders ['nav-reminders','nav-vault','nav-lex','nav-lex-avatar','nav-lawyers','nav-cases']; nav-lex inner_text='' confirming 'LEX caption removed'; Settings → 'Customise quick nav' card present with all 8 option buttons (Reminders/Vault/Cases/Lawyers/Hearing Recorder/letter/contracts/Free Legal Aid); clicking 'letter' option persists to localStorage.aa_nav_slot1='letter' AND BottomNav live-updates to show nav-letter via the aa:nav-slot1 event (no reload needed); settings-mic-access section + mic-access-btn visible+enabled, label='Enable microphone'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/lex/chat", "issue": "Response field name is inconsistent across the codebase — admin chat returned a 'reply' key but no 'model' field surfaced to clients, so the routing-to-Sonnet check is currently code-review-only (verified via lex_model_for_tier in server.py:626-636). Consider returning model in the JSON for transparency/debugging."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "NavSlotPicker labels (Settings → Customise quick nav)", "issues": ["Two of the eight option labels render as the raw keys 'letter' and 'contracts' (lowercase, unstyled) instead of human labels 'Letters' / 'Contracts'. Root cause: i18n keys 'letter' and 'contracts' in t(lang,...) don't return a label fallback inside NavSlotPicker the same way BottomNav's NAV_OPTIONS does ('Letters'/'Contracts'). Cosmetic only — functionality works."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter14_rag_gpt5.py",
+    "/app/test_reports/pytest/iter14_results.xml"
+  ],
+  "action_items": [
+    "[LOW] Normalise NavSlotPicker option labels — currently displays 'letter' and 'contracts' (lowercase keys) while the BottomNav itself shows them as 'Letters'/'Contracts'. Hard-code labels in NavSlotPicker the same way BottomNav.NAV_OPTIONS does, or extend t() fallback.",
+    "[INFO] Optionally surface the model id in /api/lex/chat response JSON to make end-to-end Sonnet/GPT-5.2/Haiku routing assertable without inspecting code."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 4998 lines — splitting into routers (lex_router.py / rag_router.py / firm_router.py / engagements_router.py) is overdue.",
+    "rag.py uses module-level constant TAVILY_API_KEY=os.environ.get(...).strip() captured at import time. Rotating the key without restarting backend will not pick up the new value. Consider reading the env inside is_enabled()/_tavily_search() for hot-rotation.",
+    "rag.py timeout=8s on Tavily call is sensible, but two parallel calls + LLM call means tail-latency on slow Tavily responses could push lex/chat above the frontend's perceived timeout. Consider asyncio.wait_for with a budget around the whole RAG block.",
+    "lex_chat: RAG context is appended to system_msg after cross_memory_block — if Tavily returns large snippets and the user is on Free (Haiku 1200 max_tokens), token budget may be squeezed. Consider truncating rag_block when tier=free."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter14_rag_gpt5.py (NEW — 6 pytest cases)"
+  ],
+  "success_rate": {
+    "backend": "100% (6/6 iter14)",
+    "frontend": "100% — all in-scope features render and work (BottomNav, slot1 live-update, mic-access button, LEX caption removed)"
+  },
+  "test_credentials": "Admin (trial_pro): admin@aiadvocate.co.uk / AdminLex2026!. Consumer: test@advocate.app / Test12345!.",
+  "seed_data_creation": "None — iter14 only authenticates as the existing admin user and exercises read-mostly endpoints.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend retest: `python -m pytest /app/backend/tests/test_iter14_rag_gpt5.py -v` (~73s, 6/6). Login token field is 'access_token' (NOT 'token') — accept either. Frontend flow on 390x844: 1) Click 'OK' on language picker; 2) tick T&C checkbox + 'Accept & Continue'; 3) Skip onboarding (click 'next'/'skip' loop); 4) Close 'Try Lex' popup BEFORE login (it overlays the form — find via text 'Try Lex', walk up parents, click X). 5) Then email/password + 'Sign In'. KEY testids: bottom-nav, nav-lex, nav-lex-avatar, nav-reminders (default slot1), nav-vault, nav-lawyers, nav-cases, settings-btn, settings-close, settings-mic-access, mic-access-btn. NavSlotPicker uses BUTTONS (not a select) — labels rendered: Reminders|Vault|Cases|Lawyers|Hearing Recorder|letter|contracts|Free Legal Aid. To switch slot1 in tests: click one of those buttons; localStorage.aa_nav_slot1 updates AND the BottomNav refreshes live via aa:nav-slot1 event. Tavily key is intentionally empty — no exceptions in backend logs during legal-question chat calls (housing act, tenancy, deposit). Pro/trial_pro routing → claude-sonnet-4-5-20250929 (1400 normal / 3500 deep_think); Plus → openai/gpt-5.2/1400; Free → claude-haiku-4-5-20251001/1200.",
+  "rca of the issue": "N/A — no functional regressions observed. Only cosmetic note: NavSlotPicker shows two labels as raw keys ('letter','contracts') because the picker reuses i18n keys without the human-label fallback that BottomNav.NAV_OPTIONS provides."
+}

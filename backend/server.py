@@ -53,6 +53,7 @@ if SENTRY_DSN:
     )
 
 from app_crypto import encrypt_text, decrypt_text, encrypt_bytes, decrypt_bytes, is_enabled as crypto_enabled  # noqa: E402
+from rag import build_rag_context, is_enabled as rag_enabled  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -615,18 +616,22 @@ CONVERSATION MEMORY (CRITICAL):
     return base + addons.get(category, "")
 
 # ==================== Tier-based Lex Brain Routing ====================
-# Free → Haiku 4.5 (fast, sharp paralegal-grade)
-# Plus → Sonnet 4.5 (top-tier solicitor)
-# Pro / trial_pro → Sonnet 4.5 + extended Deep Think (King's Counsel-grade)
+# Hybrid Claude + GPT-5 strategy (user pref: strategy A):
+#   Free        → Claude Haiku 4.5  (cheap, fast paralegal-grade)
+#   Plus        → OpenAI GPT-5.2    (conversational primary)
+#   Pro / Yearly → Claude Sonnet 4.5 (legal-reasoning specialist)
+#   Pro + Deep Think → Claude Sonnet 4.5 with extended token budget
+# If GPT-5 is unavailable for any reason, the lex_chat fallback path swaps in
+# Sonnet 4.5 so the user is never blocked.
 def lex_model_for_tier(tier: str, deep_think: bool = False) -> tuple:
     """Returns (provider, model_id, max_tokens) for the given tier."""
     if tier in ("pro", "yearly", "trial_pro"):
-        # Pro tier — Sonnet 4.5 always, with bigger token budget for Deep Think
         if deep_think:
             return ("anthropic", "claude-sonnet-4-5-20250929", 3500)
         return ("anthropic", "claude-sonnet-4-5-20250929", 1400)
     if tier == "plus":
-        return ("anthropic", "claude-sonnet-4-5-20250929", 1400)
+        # GPT-5.2 for conversational flow on Plus.
+        return ("openai", "gpt-5.2", 1400)
     # free → Haiku for cost/speed. Fall back to Sonnet if Haiku id is rejected.
     return ("anthropic", "claude-haiku-4-5-20251001", 1200)
 
@@ -1003,6 +1008,17 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         system_msg = base_system_msg + cross_memory_block
     else:
         system_msg = base_system_msg
+
+    # 📚 RAG: pull live legislation / case-law / web context relevant to this question.
+    # Gracefully skipped if TAVILY_API_KEY is not configured. Total budget: 2 Tavily
+    # calls (one filtered to authority domains, one general). The retrieved snippets
+    # are appended to the system prompt and Lex is told to cite numbered sources.
+    try:
+        rag_block = await build_rag_context(data.message, country=data.country or "GB")
+        if rag_block:
+            system_msg = system_msg + rag_block
+    except Exception as e:
+        logger.warning(f"RAG context build failed (continuing without): {e}")
 
     # 🧠 Load prior conversation history so Lex remembers context across turns.
     # We pull the last 12 turns for this user+session, decrypt them, and seed

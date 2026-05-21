@@ -3119,6 +3119,30 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
         </div>
         )}
 
+        {/* Customise Quick Nav — first bottom-nav slot is user-pickable */}
+        <div data-testid="settings-nav-slot1" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <SettingsIcon size={18} style={{ color: "var(--gold)" }} />
+            <span style={{ fontWeight: 600 }}>Customise quick nav</span>
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 10 }}>
+            Choose which shortcut sits next to Lex in the bottom bar.
+          </div>
+          <NavSlotPicker lang={lang} />
+        </div>
+
+        {/* Microphone Access — explicit opt-in, replaces the implicit startup prompt */}
+        <div data-testid="settings-mic-access" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <Mic size={18} style={{ color: "var(--gold)" }} />
+            <span style={{ fontWeight: 600 }}>Microphone access</span>
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 10 }}>
+            Lex uses your microphone for voice questions, the Hearing Recorder, and live transcription. Tap below to grant or test access.
+          </div>
+          <MicAccessButton />
+        </div>
+
         {/* Auto-detect language toggle */}
         <div data-testid="settings-autodetect" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -3552,13 +3576,98 @@ function SponsorFooter() {
   );
 }
 
+function NavSlotPicker({ lang }) {
+  const OPTIONS = [
+    { k: "reminders", lbl: t(lang, "reminders") || "Reminders" },
+    { k: "vault",     lbl: t(lang, "vault") || "Vault" },
+    { k: "cases",     lbl: t(lang, "cases") || "Cases" },
+    { k: "lawyers",   lbl: t(lang, "lawyers") || "Lawyers" },
+    { k: "hearing",   lbl: t(lang, "hearingRecorder") || "Hearings" },
+    { k: "letter",    lbl: t(lang, "letter") || "Letters" },
+    { k: "contracts", lbl: t(lang, "contracts") || "Contracts" },
+    { k: "legal_aid", lbl: t(lang, "freeLegalAid") || "Legal Aid" },
+  ];
+  const [sel, setSel] = useState(() => localStorage.getItem("aa_nav_slot1") || "reminders");
+  const pick = (k) => {
+    setSel(k);
+    localStorage.setItem("aa_nav_slot1", k);
+    window.dispatchEvent(new CustomEvent("aa:nav-slot1", { detail: { key: k } }));
+  };
+  return (
+    <div data-testid="nav-slot1-picker" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      {OPTIONS.map(o => (
+        <button key={o.k} data-testid={`nav-slot1-opt-${o.k}`} onClick={() => pick(o.k)}
+          style={{
+            padding: "6px 12px", borderRadius: 999, cursor: "pointer",
+            background: sel === o.k ? "var(--gold)" : "transparent",
+            color: sel === o.k ? "#1a1300" : "var(--gold-soft)",
+            border: `1px solid ${sel === o.k ? "var(--gold)" : "var(--line)"}`,
+            fontSize: 12, fontWeight: 600,
+          }}>{o.lbl}</button>
+      ))}
+    </div>
+  );
+}
+
+function MicAccessButton() {
+  const [state, setState] = useState("idle"); // idle | granted | denied | unsupported
+  useEffect(() => {
+    if (!navigator.permissions || !navigator.permissions.query) return;
+    navigator.permissions.query({ name: "microphone" }).then(p => {
+      if (p.state === "granted") setState("granted");
+      else if (p.state === "denied") setState("denied");
+    }).catch(() => {});
+  }, []);
+  const request = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) { setState("unsupported"); return; }
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      s.getTracks().forEach(t => t.stop());
+      setState("granted");
+    } catch (e) {
+      setState("denied");
+    }
+  };
+  const label = state === "granted" ? "✓ Microphone enabled"
+    : state === "denied" ? "Blocked — open device settings"
+    : state === "unsupported" ? "Not supported on this device"
+    : "Enable microphone";
+  return (
+    <button data-testid="mic-access-btn" onClick={request} disabled={state === "granted" || state === "unsupported"}
+      style={{
+        padding: "10px 16px", borderRadius: 10, cursor: state === "granted" ? "default" : "pointer",
+        background: state === "granted" ? "rgba(34,197,94,0.15)" : "var(--gold)",
+        color: state === "granted" ? "#22c55e" : "#1a1300",
+        border: state === "granted" ? "1px solid #22c55e" : "none",
+        fontSize: 13, fontWeight: 700, width: "100%",
+      }}>{label}</button>
+  );
+}
+
 function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub, badges = {} }) {
   // Bottom nav uses the SAME embossed-gold PNG icons as the dashboard tiles, for
-  // visual consistency. Replacing the old "Home" with "Reminders" — Home is the
-  // default already (every nav tap returns there), so this slot is more useful
-  // surfaced as the Reminders entry-point (also exposes the deadline badge here).
+  // visual consistency. The FIRST slot (left of Vault) is user-customisable via
+  // Settings → "Customise quick nav" — defaults to Reminders.
+  const NAV_OPTIONS = {
+    reminders: { icon: "/icons/reminder.png",   lbl: t(lang, "reminders") || "Reminders" },
+    vault:     { icon: "/icons/vault.png",      lbl: t(lang, "vault") },
+    cases:     { icon: "/icons/files.png",      lbl: t(lang, "cases") },
+    lawyers:   { icon: "/icons/solicitor.png",  lbl: t(lang, "lawyers") },
+    hearing:   { icon: "/icons/hearing.png",    lbl: t(lang, "hearingRecorder") || "Hearings" },
+    letter:    { icon: "/icons/letter.png",     lbl: t(lang, "letter") || "Letters" },
+    contracts: { icon: "/icons/contract.png",   lbl: t(lang, "contracts") || "Contracts" },
+    legal_aid: { icon: "/icons/aid.png",        lbl: t(lang, "freeLegalAid") || "Aid" },
+  };
+  const [slot1, setSlot1] = useState(() => localStorage.getItem("aa_nav_slot1") || "reminders");
+  useEffect(() => {
+    const sync = () => setSlot1(localStorage.getItem("aa_nav_slot1") || "reminders");
+    window.addEventListener("aa:nav-slot1", sync);
+    return () => window.removeEventListener("aa:nav-slot1", sync);
+  }, []);
+  const slot1Cfg = NAV_OPTIONS[slot1] || NAV_OPTIONS.reminders;
+
   const items = [
-    { k: "reminders", icon: "/icons/reminder.png", lbl: t(lang, "reminders") || "Reminders" },
+    { k: slot1,       icon: slot1Cfg.icon,        lbl: slot1Cfg.lbl },
     { k: "vault",     icon: "/icons/vault.png",    lbl: t(lang, "vault") },
     { k: "lex",       center: true },
     { k: "lawyers",   icon: "/icons/solicitor.png",lbl: t(lang, "lawyers") },
@@ -3916,6 +4025,10 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
           else if (k === "cases") setModal({ type: "cases" });
           else if (k === "lawyers") setModal({ type: "lawyers" });
           else if (k === "reminders") setModal({ type: "reminders" });
+          else if (k === "hearing") setModal({ type: "hearing" });
+          else if (k === "letter") setModal({ type: "letter_lib" });
+          else if (k === "contracts") setModal({ type: "contracts" });
+          else if (k === "legal_aid") setModal({ type: "legal_aid" });
         }} hasAccess={true} requireSub={() => setShowSub(true)} />
 
       {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} tier={tier} onClose={() => setModal(null)} onSwitchCategory={(newCat) => {
