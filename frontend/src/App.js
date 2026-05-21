@@ -1841,7 +1841,7 @@ function CourtroomModal({ lang, country, onClose }) {
                     opacity: consentChecked ? 1 : 0.4,
                     cursor: consentChecked ? "pointer" : "not-allowed",
                   }}>
-                  {consentChecked ? (t(lang, "consentContinue") || "Accept & continue") : "Tick the box to continue"}
+                  {consentChecked ? "Accept & continue" : "Tick the box to continue"}
                 </button>
               </div>
             ) : (
