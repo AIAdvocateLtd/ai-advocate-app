@@ -3576,6 +3576,39 @@ function SponsorFooter() {
   );
 }
 
+// Bottom-nav slot storage. Up to 4 items; LEX is always pinned centre.
+// First 2 entries render LEFT of LEX, last 2 entries render RIGHT.
+const NAV_SLOT_MAX = 4;
+function loadNavSlots() {
+  try {
+    const raw = localStorage.getItem("aa_nav_slots");
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        // dedupe + cap
+        const seen = new Set();
+        const out = [];
+        for (const k of arr) {
+          if (typeof k === "string" && !seen.has(k)) { seen.add(k); out.push(k); }
+          if (out.length >= NAV_SLOT_MAX) break;
+        }
+        return out;
+      }
+    }
+  } catch (e) { /* fall through */ }
+  // Migrate the old single-slot key (which caused the duplication bug)
+  const legacy = localStorage.getItem("aa_nav_slot1");
+  const def = ["reminders", "vault", "lawyers", "cases"];
+  if (legacy && !def.includes(legacy)) def[0] = legacy;
+  localStorage.removeItem("aa_nav_slot1");
+  localStorage.setItem("aa_nav_slots", JSON.stringify(def));
+  return def;
+}
+function saveNavSlots(arr) {
+  localStorage.setItem("aa_nav_slots", JSON.stringify(arr));
+  window.dispatchEvent(new CustomEvent("aa:nav-slots", { detail: { slots: arr } }));
+}
+
 function NavSlotPicker({ lang }) {
   const OPTIONS = [
     { k: "reminders", lbl: t(lang, "reminders") || "Reminders" },
@@ -3587,30 +3620,57 @@ function NavSlotPicker({ lang }) {
     { k: "contracts", lbl: "Contracts" },
     { k: "legal_aid", lbl: t(lang, "freeLegalAid") || "Legal Aid" },
   ];
-  const [sel, setSel] = useState(() => localStorage.getItem("aa_nav_slot1") || "reminders");
-  const pick = (k) => {
-    setSel(k);
-    localStorage.setItem("aa_nav_slot1", k);
-    window.dispatchEvent(new CustomEvent("aa:nav-slot1", { detail: { key: k } }));
+  const [slots, setSlots] = useState(() => loadNavSlots());
+  const toggle = (k) => {
+    const has = slots.includes(k);
+    let next;
+    if (has) {
+      next = slots.filter(x => x !== k);
+    } else {
+      if (slots.length >= NAV_SLOT_MAX) return;
+      next = [...slots, k];
+    }
+    setSlots(next);
+    saveNavSlots(next);
   };
   return (
-    <div data-testid="nav-slot1-picker" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-      {OPTIONS.map(o => (
-        <button key={o.k} data-testid={`nav-slot1-opt-${o.k}`} onClick={() => pick(o.k)}
-          style={{
-            padding: "6px 12px", borderRadius: 999, cursor: "pointer",
-            background: sel === o.k ? "var(--gold)" : "transparent",
-            color: sel === o.k ? "#1a1300" : "var(--gold-soft)",
-            border: `1px solid ${sel === o.k ? "var(--gold)" : "var(--line)"}`,
-            fontSize: 12, fontWeight: 600,
-          }}>{o.lbl}</button>
-      ))}
+    <div data-testid="nav-slots-picker">
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10 }}>
+        Pick up to {NAV_SLOT_MAX} · <strong style={{ color: "var(--gold)" }}>{slots.length}/{NAV_SLOT_MAX}</strong> selected · tap to add or remove
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {OPTIONS.map(o => {
+          const sel = slots.includes(o.k);
+          const idx = slots.indexOf(o.k);
+          const disabled = !sel && slots.length >= NAV_SLOT_MAX;
+          return (
+            <button key={o.k} data-testid={`nav-slot-opt-${o.k}`} onClick={() => toggle(o.k)} disabled={disabled}
+              style={{
+                padding: "6px 12px", borderRadius: 999,
+                cursor: disabled ? "not-allowed" : "pointer",
+                background: sel ? "var(--gold)" : "transparent",
+                color: sel ? "#1a1300" : (disabled ? "var(--text-muted)" : "var(--gold-soft)"),
+                border: `1px solid ${sel ? "var(--gold)" : "var(--line)"}`,
+                fontSize: 12, fontWeight: 600,
+                opacity: disabled ? 0.45 : 1,
+                display: "inline-flex", alignItems: "center", gap: 6,
+              }}>
+              {sel && <span style={{
+                background: "#1a1300", color: "var(--gold)",
+                borderRadius: "50%", width: 16, height: 16, fontSize: 9,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+              }}>{idx + 1}</span>}
+              {o.lbl}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 function MicAccessButton() {
-  const [state, setState] = useState("idle"); // idle | granted | denied | unsupported
+  const [state, setState] = useState("idle");
   useEffect(() => {
     if (!navigator.permissions || !navigator.permissions.query) return;
     navigator.permissions.query({ name: "microphone" }).then(p => {
@@ -3622,7 +3682,7 @@ function MicAccessButton() {
     if (!navigator.mediaDevices?.getUserMedia) { setState("unsupported"); return; }
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-      s.getTracks().forEach(t => t.stop());
+      s.getTracks().forEach(tr => tr.stop());
       setState("granted");
     } catch (e) {
       setState("denied");
@@ -3645,38 +3705,70 @@ function MicAccessButton() {
 }
 
 function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub, badges = {} }) {
-  // Bottom nav uses the SAME embossed-gold PNG icons as the dashboard tiles, for
-  // visual consistency. The FIRST slot (left of Vault) is user-customisable via
-  // Settings → "Customise quick nav" — defaults to Reminders.
+  // LEX is always centred. Up to 4 user-customisable slots: 2 left + 2 right.
+  // Lawyer icon uses the GAVEL (lawyer.png) so it matches the "Find a Lawyer"
+  // dashboard tile — tapping nav Lawyers opens that same screen.
   const NAV_OPTIONS = {
-    reminders: { icon: "/icons/reminder.png",   lbl: t(lang, "reminders") || "Reminders" },
-    vault:     { icon: "/icons/vault.png",      lbl: t(lang, "vault") },
-    cases:     { icon: "/icons/files.png",      lbl: t(lang, "cases") },
-    lawyers:   { icon: "/icons/solicitor.png",  lbl: t(lang, "lawyers") },
-    hearing:   { icon: "/icons/hearing.png",    lbl: t(lang, "hearingRecorder") || "Hearings" },
-    letter:    { icon: "/icons/letter.png",     lbl: "Letters" },
-    contracts: { icon: "/icons/contract.png",   lbl: "Contracts" },
-    legal_aid: { icon: "/icons/aid.png",        lbl: t(lang, "freeLegalAid") || "Aid" },
+    reminders: { icon: "/icons/reminder.png", lbl: t(lang, "reminders") || "Reminders" },
+    vault:     { icon: "/icons/vault.png",    lbl: t(lang, "vault") || "Vault" },
+    cases:     { icon: "/icons/files.png",    lbl: t(lang, "cases") || "Cases" },
+    lawyers:   { icon: "/icons/lawyer.png",   lbl: t(lang, "lawyers") || "Lawyers" },
+    hearing:   { icon: "/icons/hearing.png",  lbl: t(lang, "hearingRecorder") || "Hearings" },
+    letter:    { icon: "/icons/letter.png",   lbl: "Letters" },
+    contracts: { icon: "/icons/contract.png", lbl: "Contracts" },
+    legal_aid: { icon: "/icons/aid.png",      lbl: t(lang, "freeLegalAid") || "Aid" },
   };
-  const [slot1, setSlot1] = useState(() => localStorage.getItem("aa_nav_slot1") || "reminders");
+  const [slots, setSlots] = useState(() => loadNavSlots());
   useEffect(() => {
-    const sync = () => setSlot1(localStorage.getItem("aa_nav_slot1") || "reminders");
-    window.addEventListener("aa:nav-slot1", sync);
-    return () => window.removeEventListener("aa:nav-slot1", sync);
+    const sync = () => setSlots(loadNavSlots());
+    window.addEventListener("aa:nav-slots", sync);
+    return () => window.removeEventListener("aa:nav-slots", sync);
   }, []);
-  const slot1Cfg = NAV_OPTIONS[slot1] || NAV_OPTIONS.reminders;
 
-  const items = [
-    { k: slot1,       icon: slot1Cfg.icon,        lbl: slot1Cfg.lbl },
-    { k: "vault",     icon: "/icons/vault.png",    lbl: t(lang, "vault") },
-    { k: "lex",       center: true },
-    { k: "lawyers",   icon: "/icons/solicitor.png",lbl: t(lang, "lawyers") },
-    { k: "cases",     icon: "/icons/files.png",    lbl: t(lang, "cases") },
-  ];
   const handle = (k) => {
     if (k === "lex" && !hasAccess) { requireSub(); return; }
     onNav(k);
   };
+
+  // Pad arrays to exactly 2 either side so LEX is geometrically centred.
+  const left = slots.slice(0, 2);
+  const right = slots.slice(2, 4);
+  const leftPadded = [...left, ...Array(Math.max(0, 2 - left.length)).fill(null)];
+  const rightPadded = [...right, ...Array(Math.max(0, 2 - right.length)).fill(null)];
+
+  const renderSlot = (k, fallbackKey) => {
+    if (!k) {
+      // empty placeholder keeps the LEX button centred
+      return <div key={fallbackKey} style={{ flex: 1 }} />;
+    }
+    const cfg = NAV_OPTIONS[k];
+    if (!cfg) return <div key={fallbackKey} style={{ flex: 1 }} />;
+    return (
+      <button key={k} data-testid={`nav-${k}`} onClick={() => handle(k)}
+              style={{ background: "transparent", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flex: 1, cursor: "pointer", padding: 4, position: "relative" }}>
+        <div style={{ position: "relative", display: "inline-flex" }}>
+          <img src={cfg.icon} alt="" style={{
+            width: 26, height: 26, objectFit: "contain",
+            opacity: active === k ? 1 : 0.65,
+            filter: active === k ? "drop-shadow(0 0 6px rgba(247,201,72,0.55))" : "none",
+            transition: "opacity 150ms, filter 150ms",
+          }} />
+          {badges[k] > 0 && (
+            <span data-testid={`nav-${k}-badge`} style={{
+              position: "absolute", top: -4, right: -6,
+              minWidth: 14, height: 14, padding: "0 4px",
+              borderRadius: 7, background: "var(--gold)", color: "#1a1300",
+              fontSize: 9, fontWeight: 800, display: "inline-flex",
+              alignItems: "center", justifyContent: "center",
+              boxShadow: "0 0 8px rgba(247,201,72,0.7)",
+            }}>{badges[k] > 9 ? "9+" : badges[k]}</span>
+          )}
+        </div>
+        <span style={{ fontSize: 10, color: active === k ? "var(--gold)" : "var(--gold-soft)", letterSpacing: "0.04em" }}>{cfg.lbl}</span>
+      </button>
+    );
+  };
+
   return (
     <nav data-testid="bottom-nav" style={{
       position: "fixed", bottom: 0, left: 0, right: 0,
@@ -3685,44 +3777,20 @@ function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub, badges
       borderTop: "1px solid var(--line)",
       padding: "8px 8px 14px", zIndex: 50,
     }}>
-      {items.map(it => it.center ? (
-        <div key="lex" data-testid="nav-lex" onClick={() => handle("lex")}
-             style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1, cursor: "pointer" }}>
-          <div data-testid="nav-lex-avatar" style={{
-            width: 60, height: 60, borderRadius: "50%",
-            background: "#000",
-            border: "3px solid var(--gold)", marginTop: -22, overflow: "hidden",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 4px 22px rgba(247,201,72,0.55)",
-          }}>
-            <img src="/assets/lex.jpg" alt="Lex" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%", mixBlendMode: "lighten" }} />
-          </div>
-          {/* "LEX" caption removed — name is on the Lex logo button itself */}
+      {leftPadded.map((k, i) => renderSlot(k, `L${i}`))}
+      <div key="lex" data-testid="nav-lex" onClick={() => handle("lex")}
+           style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1, cursor: "pointer" }}>
+        <div data-testid="nav-lex-avatar" style={{
+          width: 60, height: 60, borderRadius: "50%",
+          background: "#000",
+          border: "3px solid var(--gold)", marginTop: -22, overflow: "hidden",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 4px 22px rgba(247,201,72,0.55)",
+        }}>
+          <img src="/assets/lex.jpg" alt="Lex" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%", mixBlendMode: "lighten" }} />
         </div>
-      ) : (
-        <button key={it.k} data-testid={`nav-${it.k}`} onClick={() => handle(it.k)}
-                style={{ background: "transparent", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flex: 1, cursor: "pointer", padding: 4, position: "relative" }}>
-          <div style={{ position: "relative", display: "inline-flex" }}>
-            <img src={it.icon} alt="" style={{
-              width: 26, height: 26, objectFit: "contain",
-              opacity: active === it.k ? 1 : 0.65,
-              filter: active === it.k ? "drop-shadow(0 0 6px rgba(247,201,72,0.55))" : "none",
-              transition: "opacity 150ms, filter 150ms",
-            }} />
-            {badges[it.k] > 0 && (
-              <span data-testid={`nav-${it.k}-badge`} style={{
-                position: "absolute", top: -4, right: -6,
-                minWidth: 14, height: 14, padding: "0 4px",
-                borderRadius: 7, background: "var(--gold)", color: "#1a1300",
-                fontSize: 9, fontWeight: 800, display: "inline-flex",
-                alignItems: "center", justifyContent: "center",
-                boxShadow: "0 0 8px rgba(247,201,72,0.7)",
-              }}>{badges[it.k] > 9 ? "9+" : badges[it.k]}</span>
-            )}
-          </div>
-          <span style={{ fontSize: 10, color: active === it.k ? "var(--gold)" : "var(--gold-soft)", letterSpacing: "0.04em" }}>{it.lbl}</span>
-        </button>
-      ))}
+      </div>
+      {rightPadded.map((k, i) => renderSlot(k, `R${i}`))}
     </nav>
   );
 }
