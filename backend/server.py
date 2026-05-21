@@ -53,7 +53,7 @@ if SENTRY_DSN:
     )
 
 from app_crypto import encrypt_text, decrypt_text, encrypt_bytes, decrypt_bytes, is_enabled as crypto_enabled  # noqa: E402
-from rag import build_rag_context, is_enabled as rag_enabled  # noqa: E402
+from rag import build_rag_context, is_enabled as rag_enabled, get_usage as rag_get_usage  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -1014,7 +1014,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     # calls (one filtered to authority domains, one general). The retrieved snippets
     # are appended to the system prompt and Lex is told to cite numbered sources.
     try:
-        rag_block = await build_rag_context(data.message, country=data.country or "GB")
+        rag_block = await build_rag_context(data.message, country=data.country or "GB", db=db)
         if rag_block:
             system_msg = system_msg + rag_block
     except Exception as e:
@@ -4829,6 +4829,18 @@ async def admin_stats(_: dict = Depends(require_admin)):
         "firms_approved": await db.firm_accounts.count_documents({"status": "approved"}),
         "chats_today": await db.conversations.count_documents({"created_at": {"$gte": datetime.now(timezone.utc).date().isoformat()}}),
         "leads_today": await db.inquiries.count_documents({"created_at": {"$gte": datetime.now(timezone.utc).date().isoformat()}}),
+    }
+
+
+@api_router.get("/admin/rag-usage")
+async def admin_rag_usage(_: dict = Depends(require_admin)):
+    """Tavily usage this month — used / cap / remaining. Lets the owner see whether
+    Lex's RAG grounding is still active before the monthly cap kicks in."""
+    usage = await rag_get_usage(db)
+    return {
+        "enabled": rag_enabled(),
+        **usage,
+        "pct_used": round(100.0 * usage["used"] / usage["cap"], 1) if usage["cap"] else 0.0,
     }
 
 

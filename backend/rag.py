@@ -3,28 +3,34 @@ AI Advocate — Legal RAG (Retrieval-Augmented Grounding) for Lex.
 
 Pulls live legal context from:
   • legislation.gov.uk + bailii.org + judiciary.uk + gov.uk (filtered Tavily search)
-  • Broader web (general Tavily search) — only the top-3 hits.
+  • Broader web (general Tavily search) — only the top-2 hits.
 
 The result is a compact, citation-tagged context string that gets injected into
 Lex's system prompt BEFORE the LLM is called. Every fact Lex states should now be
 traceable to a real URL.
 
-If TAVILY_API_KEY is not set, this module gracefully returns an empty context —
-Lex still works, just without web grounding. This means the app keeps running
-even when the user hasn't activated Tavily yet.
+Usage cap protection
+--------------------
+Tavily's free tier = 1000 search credits / month. To make sure we NEVER overshoot
+that, we keep a per-month counter in MongoDB (`tavily_usage`) and refuse new calls
+once the configured `TAVILY_MONTHLY_CAP` (default 900) is reached. When capped,
+Lex still answers the user — just without live grounding for the rest of the month.
+
+If TAVILY_API_KEY is unset OR the monthly cap is reached, this module gracefully
+returns an empty context. Lex is never blocked.
 """
 from __future__ import annotations
 
 import os
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
 
 import httpx
 
 logger = logging.getLogger("rag")
 
-TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "").strip()
 TAVILY_ENDPOINT = "https://api.tavily.com/search"
 
 # Official UK legal sources — Tavily is told to *prefer* these so case law /
@@ -39,8 +45,60 @@ AUTHORITY_DOMAINS = [
 ]
 
 
+def _get_key() -> str:
+    # Read at call-time so hot-rotating the key (without restart) just works.
+    return os.environ.get("TAVILY_API_KEY", "").strip()
+
+
+def _get_cap() -> int:
+    try:
+        return int(os.environ.get("TAVILY_MONTHLY_CAP", "900"))
+    except ValueError:
+        return 900
+
+
 def is_enabled() -> bool:
-    return bool(TAVILY_API_KEY)
+    return bool(_get_key())
+
+
+def _month_bucket() -> str:
+    """e.g. '2026-02' — the bucket key for the usage counter."""
+    now = datetime.now(timezone.utc)
+    return f"{now.year:04d}-{now.month:02d}"
+
+
+async def get_usage(db) -> Dict:
+    """Return {'month': '2026-02', 'used': 42, 'cap': 900, 'remaining': 858}."""
+    if db is None:
+        return {"month": _month_bucket(), "used": 0, "cap": _get_cap(), "remaining": _get_cap()}
+    bucket = _month_bucket()
+    doc = await db.tavily_usage.find_one({"month": bucket}, {"_id": 0, "count": 1}) or {}
+    used = int(doc.get("count") or 0)
+    cap = _get_cap()
+    return {"month": bucket, "used": used, "cap": cap, "remaining": max(0, cap - used)}
+
+
+async def _under_cap(db) -> bool:
+    if db is None:
+        return True
+    bucket = _month_bucket()
+    doc = await db.tavily_usage.find_one({"month": bucket}, {"_id": 0, "count": 1}) or {}
+    used = int(doc.get("count") or 0)
+    return used < _get_cap()
+
+
+async def _increment_usage(db, n: int = 1) -> None:
+    if db is None or n <= 0:
+        return
+    bucket = _month_bucket()
+    try:
+        await db.tavily_usage.update_one(
+            {"month": bucket},
+            {"$inc": {"count": n}, "$set": {"last_used_at": datetime.now(timezone.utc).isoformat()}},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.warning("Failed to increment Tavily usage counter: %s", e)
 
 
 async def _tavily_search(
@@ -51,11 +109,12 @@ async def _tavily_search(
     search_depth: str = "basic",
 ) -> List[Dict]:
     """One Tavily API call. Returns list of {title, url, content} dicts."""
-    if not TAVILY_API_KEY:
+    key = _get_key()
+    if not key:
         return []
 
     payload = {
-        "api_key": TAVILY_API_KEY,
+        "api_key": key,
         "query": query[:380],  # Tavily best-practice: keep < 400 chars
         "search_depth": search_depth,
         "max_results": max_results,
@@ -93,17 +152,16 @@ def _looks_like_legal_question(text: str) -> bool:
     t = text.strip().lower()
     if len(t) < 12:
         return False
-    # If it's just one or two words, skip.
     if len(t.split()) < 3:
         return False
     return True
 
 
-def _format_block(label: str, items: List[Dict]) -> str:
+def _format_block(label: str, items: List[Dict], start_index: int = 1) -> str:
     if not items:
         return ""
     lines = [f"### {label}"]
-    for i, it in enumerate(items, 1):
+    for i, it in enumerate(items, start_index):
         title = it.get("title") or "(untitled)"
         url = it.get("url") or ""
         snippet = (it.get("content") or "")[:350].replace("\n", " ").strip()
@@ -111,14 +169,21 @@ def _format_block(label: str, items: List[Dict]) -> str:
     return "\n".join(lines)
 
 
-async def build_rag_context(message: str, country: str = "GB") -> str:
+async def build_rag_context(message: str, country: str = "GB", db=None) -> str:
     """
     Returns a citation-tagged context block to append to Lex's system prompt,
-    OR an empty string if RAG is disabled / question is smalltalk.
+    OR an empty string if RAG is disabled / question is smalltalk / monthly cap hit.
+
+    Pass `db` (the Motor database handle) to enable usage-cap protection.
     """
     if not is_enabled():
         return ""
     if not _looks_like_legal_question(message):
+        return ""
+
+    # 🚧 Usage cap — never exceed the configured monthly cap.
+    if db is not None and not await _under_cap(db):
+        logger.info("Tavily monthly cap reached — serving Lex without RAG this turn.")
         return ""
 
     # Bias query toward jurisdiction for better UK / Scotland / NI hits.
@@ -133,6 +198,7 @@ async def build_rag_context(message: str, country: str = "GB") -> str:
 
     base_q = f"{message.strip()[:280]}{jurisdiction_hint}"
 
+    calls_made = 0
     try:
         official_task = _tavily_search(
             base_q,
@@ -146,10 +212,23 @@ async def build_rag_context(message: str, country: str = "GB") -> str:
             max_results=2,
             search_depth="basic",
         )
-        official, web = await asyncio.gather(official_task, web_task)
+        # Whole RAG budget hard-capped at ~9s so a slow Tavily call never tanks
+        # Lex's perceived response time.
+        official, web = await asyncio.wait_for(
+            asyncio.gather(official_task, web_task), timeout=9.0
+        )
+        calls_made = 2  # we attempted 2 search credits regardless of result count
+    except asyncio.TimeoutError:
+        logger.warning("Tavily RAG block timed out — continuing without grounding.")
+        return ""
     except Exception as e:
         logger.warning("RAG gather failed: %s", e)
         return ""
+
+    # Count the credits we actually consumed (Tavily charges per call attempted,
+    # not per result returned).
+    if calls_made:
+        await _increment_usage(db, calls_made)
 
     # Dedupe by URL — web search will sometimes return the same authority hit.
     seen = set()
@@ -169,10 +248,12 @@ async def build_rag_context(message: str, country: str = "GB") -> str:
         return ""
 
     blocks = []
+    next_idx = 1
     if official:
-        blocks.append(_format_block("OFFICIAL UK LEGAL SOURCES (statute / case law)", official))
+        blocks.append(_format_block("OFFICIAL UK LEGAL SOURCES (statute / case law)", official, start_index=next_idx))
+        next_idx += len(official)
     if web:
-        blocks.append(_format_block("SUPPORTING WEB SOURCES", web))
+        blocks.append(_format_block("SUPPORTING WEB SOURCES", web, start_index=next_idx))
 
     body = "\n\n".join(blocks)
 
