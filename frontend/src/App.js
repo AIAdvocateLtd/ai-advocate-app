@@ -1000,7 +1000,7 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
 }
 
 // ---------- Lex Chat ----------
-function LexChat({ lang, country, category, title, onClose, autoMic = false, tier = "free", onSwitchCategory }) {
+function LexChat({ lang, country, category, title, onClose, autoMic = false, tier = "free", onSwitchCategory, initialSeed = "" }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1012,6 +1012,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
   const audioRef = useRef(null);
   const scrollRef = useRef(null);
   const autoStartedRef = useRef(false);
+  const seedSentRef = useRef(false);
   const classifiedRef = useRef(false);
 
   const isPro = tier === "pro" || tier === "yearly" || tier === "trial_pro";
@@ -1036,6 +1037,17 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
       return () => clearTimeout(id);
     }
   }, [autoMic, start]);
+
+  // Auto-send an initial seed message (e.g. from Courtroom Live Assist "Ask Lex to review")
+  useEffect(() => {
+    if (initialSeed && !seedSentRef.current) {
+      seedSentRef.current = true;
+      // small delay so the modal animates open first
+      const id = setTimeout(() => { send(initialSeed); }, 200);
+      return () => clearTimeout(id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSeed]);
 
   const send = async (text) => {
     if (!text.trim()) return;
@@ -1612,21 +1624,25 @@ function CourtroomModal({ lang, country, onClose }) {
   };
 
   // Live Assist state
-  const [consent, setConsent] = useState(false);
+  const [consentChecked, setConsentChecked] = useState(false); // tick box state
+  const [consent, setConsent] = useState(false);               // gate passed (Accept clicked)
   const [scenario, setScenario] = useState("police_interview");
   const [liveActive, setLiveActive] = useState(false);
   const [lFacts, setLFacts] = useState("");
   const [advice, setAdvice] = useState([]); // {at, said, advice}
+  const [reviewBusy, setReviewBusy] = useState(false);         // "Send to Lex for review" loading
   const lRecRef = useRef(null);
   const lChunkBufRef = useRef("");
   const lSentRef = useRef(0);
   const lSessionRef = useRef(null);
+  const lStartedAtRef = useRef(null);                          // ISO timestamp of session start
 
   const startLive = () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { alert("This browser does not support live speech recognition. Use Chrome/Edge/Safari."); return; }
     const r = new SR();
     r.continuous = true; r.interimResults = true; r.lang = lang || "en-GB";
+    lStartedAtRef.current = new Date().toISOString();
     r.onresult = async (ev) => {
       let finalText = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
@@ -1738,12 +1754,27 @@ function CourtroomModal({ lang, country, onClose }) {
                     </ul>
                   </div>
                 </div>
+                <a href="/terms.html" target="_blank" rel="noopener noreferrer"
+                   data-testid="live-consent-terms-link"
+                   style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--gold)", fontSize: 12.5, textDecoration: "underline", marginBottom: 12 }}>
+                  <FileText size={14} /> Read full Terms & Conditions
+                </a>
                 <label className="flex items-start gap-2" style={{ cursor: "pointer" }}>
-                  <input type="checkbox" data-testid="consent-checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)}
+                  <input type="checkbox" data-testid="consent-checkbox" checked={consentChecked}
+                    onChange={(e) => setConsentChecked(e.target.checked)}
                     style={{ width: 18, height: 18, accentColor: "var(--gold)", marginTop: 3 }} />
-                  <span style={{ fontSize: 12.5, color: "var(--text-dim)" }}>I confirm I have lawful permission to record this conversation, that I am NOT in an active courtroom, and I accept full responsibility for the legality of this use in my jurisdiction.</span>
+                  <span style={{ fontSize: 12.5, color: "var(--text-dim)" }}>I have read and understood the Terms above. I confirm I have lawful permission to record this conversation, that I am NOT in an active courtroom, and I accept full responsibility for the legality of this use in my jurisdiction.</span>
                 </label>
-                <button className="btn-gold w-full" data-testid="consent-continue" disabled={!consent} onClick={() => setConsent(true)} style={{ marginTop: 14 }}>{t(lang, "consentContinue")}</button>
+                <button className="btn-gold w-full" data-testid="consent-continue"
+                  disabled={!consentChecked}
+                  onClick={() => setConsent(true)}
+                  style={{
+                    marginTop: 14,
+                    opacity: consentChecked ? 1 : 0.4,
+                    cursor: consentChecked ? "pointer" : "not-allowed",
+                  }}>
+                  {consentChecked ? (t(lang, "consentContinue") || "Accept & continue") : "Tick the box to continue"}
+                </button>
               </div>
             ) : (
               <>
@@ -1761,22 +1792,67 @@ function CourtroomModal({ lang, country, onClose }) {
                 </button>
                 {liveActive && <div style={{ textAlign: "center", color: "var(--gold)", fontSize: 12, marginTop: 6 }}>🎙 Listening — Lex will whisper advice as the other side speaks</div>}
                 {!liveActive && lSessionRef.current && advice.length > 0 && (
-                  <button data-testid="export-live-pdf" onClick={async () => {
-                    try {
-                      const r = await fetch(`${API}/live/notes/${lSessionRef.current}/export`, {
-                        headers: { Authorization: `Bearer ${localStorage.getItem("aa_token")}` },
-                      });
-                      const blob = await r.blob();
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement("a");
-                      a.href = url; a.download = `ai-advocate-session-${lSessionRef.current.slice(0,8)}.pdf`;
-                      document.body.appendChild(a); a.click(); a.remove();
-                      URL.revokeObjectURL(url);
-                    } catch (e) { alert("Export failed"); }
-                  }} className="btn-ghost w-full" style={{ marginTop: 8, fontSize: 13 }}>
-                    <Download size={14} style={{ display: "inline", marginRight: 6 }} />
-                    Export timestamped notes (PDF)
-                  </button>
+                  <>
+                    <div data-testid="live-saved-indicator" style={{
+                      background: "rgba(34,197,94,0.1)", border: "1px solid #22c55e",
+                      borderRadius: 10, padding: 10, marginTop: 8, fontSize: 12, color: "#86efac",
+                      display: "flex", alignItems: "center", gap: 8,
+                    }}>
+                      <Check size={14} />
+                      <span>Session saved · {advice.length} turn{advice.length === 1 ? "" : "s"} · started {lStartedAtRef.current ? new Date(lStartedAtRef.current).toLocaleString() : "just now"}</span>
+                    </div>
+                    <button data-testid="export-live-pdf" onClick={async () => {
+                      try {
+                        const r = await fetch(`${API}/live/notes/${lSessionRef.current}/export`, {
+                          headers: { Authorization: `Bearer ${localStorage.getItem("aa_token")}` },
+                        });
+                        const blob = await r.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url; a.download = `ai-advocate-session-${lSessionRef.current.slice(0,8)}.pdf`;
+                        document.body.appendChild(a); a.click(); a.remove();
+                        URL.revokeObjectURL(url);
+                      } catch (e) { alert("Export failed"); }
+                    }} className="btn-ghost w-full" style={{ marginTop: 8, fontSize: 13 }}>
+                      <Download size={14} style={{ display: "inline", marginRight: 6 }} />
+                      Export timestamped notes (PDF)
+                    </button>
+                    <button data-testid="lex-review-session" disabled={reviewBusy} onClick={async () => {
+                      // Build a structured summary of the live session and hand it to Lex chat
+                      // for a full advisory — what was said, what was advised in the moment,
+                      // and now what should the user do next (especially for police interviews
+                      // or HR / disciplinary). Opens the normal Lex chat with this as the seed.
+                      setReviewBusy(true);
+                      try {
+                        const lines = advice.slice().reverse().map((a, i) => (
+                          `[${a.at}] Other party: "${a.said}"\n[${a.at}] Lex (in the moment): ${a.advice}`
+                        )).join("\n\n");
+                        const seed = (
+                          `I've just finished a recorded ${scenario.replace(/_/g, " ")} session.\n\n` +
+                          `My situation / facts:\n${lFacts || "(none provided)"}\n\n` +
+                          `Transcript & in-the-moment advice (chronological):\n${lines}\n\n` +
+                          `Please review the FULL session and tell me:\n` +
+                          `1) What did I do well?\n` +
+                          `2) What did I get wrong or should have answered differently?\n` +
+                          `3) What are my next steps right now?\n` +
+                          `4) Any red flags I should escalate (legal aid, formal complaint, solicitor)?\n` +
+                          `Treat this as the most important review you'll do today.`
+                        );
+                        // Hand off to the main Lex chat — close this modal first.
+                        window.dispatchEvent(new CustomEvent("aa:open-lex-with-seed", {
+                          detail: { seed, category: "ask_lex", title: "Lex — Session Review" }
+                        }));
+                        onClose();
+                      } catch (e) {
+                        alert("Couldn't hand off to Lex. Please try again.");
+                      } finally {
+                        setReviewBusy(false);
+                      }
+                    }} className="btn-gold w-full" style={{ marginTop: 8, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                      {reviewBusy ? <span className="spinner" /> : <Sparkles size={14} />}
+                      Ask Lex to review this session
+                    </button>
+                  </>
                 )}
                 <div style={{ flex: 1, overflowY: "auto", marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
                   {advice.length === 0 && liveActive && <div style={{ color: "var(--text-muted)", textAlign: "center", padding: 20, fontSize: 13 }}>{t(lang, "waitingForOtherSide")}</div>}
@@ -3818,9 +3894,18 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     window.addEventListener("aa:open-subscribe", handler);
     const wakeHandler = (e) => setWakeOn(!!e?.detail?.enabled);
     window.addEventListener("aa:wake-toggle", wakeHandler);
+    // Allow Courtroom Live Assist to hand off a session for full Lex review
+    const seedHandler = (e) => {
+      const seed = e?.detail?.seed || "";
+      const category = e?.detail?.category || "ask_lex";
+      const title = e?.detail?.title || "Lex";
+      setModal({ type: "chat", category, title, _initialSeed: seed });
+    };
+    window.addEventListener("aa:open-lex-with-seed", seedHandler);
     return () => {
       window.removeEventListener("aa:open-subscribe", handler);
       window.removeEventListener("aa:wake-toggle", wakeHandler);
+      window.removeEventListener("aa:open-lex-with-seed", seedHandler);
     };
   }, []);
 
@@ -4082,7 +4167,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       <SponsorFooter />
 
       <BottomNav lang={lang} active="home"
-        badges={{ cases: casesBadge, reminders: casesBadge }}
+        badges={{ reminders: casesBadge }}
         onNav={(k) => {
           if (k === "lex") {
             // Tapping Lex centre button → open Siri-style Voice Mode (Plus+ only)
@@ -4099,7 +4184,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
           else if (k === "legal_aid") setModal({ type: "legal_aid" });
         }} hasAccess={true} requireSub={() => setShowSub(true)} />
 
-      {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} tier={tier} onClose={() => setModal(null)} onSwitchCategory={(newCat) => {
+      {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} initialSeed={modal._initialSeed || ""} tier={tier} onClose={() => setModal(null)} onSwitchCategory={(newCat) => {
         const labelByCat = { employment: t(lang, "employment"), property: t(lang, "property"), immigration: t(lang, "immigration"), medical_negligence: t(lang, "medical") };
         if (!hasTier("plus")) { setSubPreset("plus"); setShowSub(true); return; }
         setModal({ type: "chat", category: newCat, title: labelByCat[newCat] || "Lex" });

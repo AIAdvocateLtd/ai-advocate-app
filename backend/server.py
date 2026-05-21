@@ -380,6 +380,20 @@ def user_to_public(u: dict) -> dict:
     if trial_end_dt and trial_end_dt.tzinfo is None:
         trial_end_dt = trial_end_dt.replace(tzinfo=timezone.utc)
 
+    # 🛡 OWNER / ADMIN — free Pro access forever, regardless of trial / subscription.
+    # ADMIN_EMAILS env (defaults to "admin@aiadvocate.co.uk") = the owner accounts.
+    admin_emails = [
+        e.strip().lower() for e in
+        (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",")
+        if e.strip()
+    ]
+    if (u.get("email") or "").lower() in admin_emails:
+        out["tier"] = "pro"
+        out["has_access"] = True
+        out["trial_days_remaining"] = 0
+        out["is_owner"] = True
+        return out
+
     # Tier: explicit subscription tier overrides everything when active
     tier = u.get("tier") or "free"
     sub_status = u.get("subscription_status")
