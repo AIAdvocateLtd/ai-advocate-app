@@ -1,0 +1,45 @@
+{
+  "summary": "Iter15 — Owner/admin free Pro override, Cases-badge mirroring fix, Live Legal Assist (MediaRecorder + Whisper rebuild), 2-step consent UX, SAY THIS pinned card, post-session 'Ask Lex to review' hand-off. Backend pytest 6/6 PASS (test_iter15_owner_voice.py): admin /auth/me returns tier='pro', is_owner=true, has_access=true; admin can POST /lex/chat deep_think=true (200, NOT 402) and category='court_prep' (200); fresh-signup user is tier='trial_pro' with no is_owner; /api/voice/transcribe accepts multipart audio (1s silent WAV → 200 with 'text' field); /api/lex/live-assist accepts scenario+other_party_said → 200 with 'response' field. Frontend (390x844 admin login) verified: bottom-nav rendered with nav-cases having NO red badge (only nav-reminders shows the '1' badge — Cases mirroring removed); Courtroom Trainer → Live Legal Assist tab: live-consent-terms-link present (opens /terms.html target=_blank, code reviewed), consent-checkbox initially unchecked, consent-continue initially disabled with label 'Tick the box to continue', after tick → enabled, after CLICK Accept → recorder UI (live-start) appears (live-start was NOT present pre-click — confirms the auto-accept-on-tick bug is fixed). Post-session CTAs (live-saved-indicator, export-live-pdf, lex-review-session) + SAY THIS pinned card (live-say-this) + 'aa:open-lex-with-seed' dispatch + Dashboard listener (lines 4010-4016) + LexChat initialSeed auto-send with seedSentRef guard (lines 1043-1050) all confirmed via code review — full render requires real mic which is unavailable in headless browser.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/lex/chat & /api/lex/live-assist", "issue": "Reply field is 'response' (not the 'reply'/'message' contract used by some older endpoints) — inconsistent naming across Lex endpoints. Tests updated to accept either."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Live Assist consent button label after tick", "issues": ["The button label is 'Continue' after the checkbox is ticked, not 'Accept & continue' as the spec describes. Root cause: t(lang, 'consentContinue') returns 'Continue', so the fallback string in App.js:1844 never fires. Minor — semantics are still clear (explicit click required) and the behavior is correct."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter15_owner_voice.py",
+    "/app/test_reports/pytest/iter15_results.xml"
+  ],
+  "action_items": [
+    "[LOW] Update i18n key 'consentContinue' to 'Accept & continue' (currently 'Continue') so the user sees the explicit-acceptance language the spec calls for.",
+    "[LOW] Normalise Lex endpoint response field name — surface both 'reply' and 'response' (or pick one) across /lex/chat and /lex/live-assist for API consistency.",
+    "[INFO] Live-session post-recording CTAs (live-saved-indicator, lex-review-session) cannot be exercised in CI without a real audio device. Consider adding a hidden dev-only 'simulate completed session' hook so headless tests can verify the Ask-Lex-to-review hand-off path end-to-end."
+  ],
+  "critical_code_review_comments": [
+    "App.js is now ~6900 lines — splitting CourtroomModal (lines 1640-2000+), LexChat (1003+) and Dashboard (3900+) into their own files is overdue.",
+    "CourtroomModal.startLive uses MediaRecorder with 8s rolling chunks + multipart upload to /api/voice/transcribe every cycle. No exponential backoff if transcribe returns 5xx — burst failures could spam the endpoint. Consider a per-chunk retry budget and pause-on-N-consecutive-errors.",
+    "The 'aa:open-lex-with-seed' event uses window-level CustomEvent; works but couples two unrelated React subtrees through the DOM. Long-term, lift to a small context/provider so React DevTools can see the data flow.",
+    "seedSentRef guard correctly prevents double auto-send on remount, but if initialSeed changes (e.g. user opens a new session review while a previous one is still mounted), the new seed will NOT be sent because seedSentRef.current is already true. Resetting seedSentRef when initialSeed value actually changes would be safer.",
+    "server.py user_to_public() owner-override correctly short-circuits before trial/subscription logic — clean. Consider also setting subscription_status='owner' (or similar) so downstream code that gates on subscription_status can treat owners explicitly."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter15_owner_voice.py (NEW — 6 pytest cases)"
+  ],
+  "success_rate": {
+    "backend": "100% (6/6 iter15)",
+    "frontend": "100% — all DOM-verifiable in-scope behaviours pass (bottom-nav badges, consent gating, recorder UI gating). Post-session CTA rendering verified via code review (requires real mic)."
+  },
+  "test_credentials": "Admin/owner: admin@aiadvocate.co.uk / AdminLex2026! (now tier='pro' via owner-override). Standard: test@advocate.app / Test12345!.",
+  "seed_data_creation": "1 throwaway signup user via /api/auth/signup with random test_<rand>@advocate.app email — not cleaned up (creates 1 row per test run; acceptable for current scale).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend retest: `python -m pytest /app/backend/tests/test_iter15_owner_voice.py -v` (~55s, 6/6). Login token field is 'access_token'. Lex endpoint reply field is 'response' (NOT 'reply' / 'message'). /api/lex/live-assist requires fields 'scenario' AND 'other_party_said' (Pydantic-validated, 422 otherwise). Frontend mobile flow (390x844): 1) Click 'OK' on language picker; 2) Tick T&C checkbox + click 'Accept & Continue'; 3) Skip onboarding loop; 4) Pre-login 'Try Lex' popup overlays the form — DISMISS via [aria-label=Close] BEFORE filling email/password (otherwise login form clicks miss). 5) Login with admin creds. KEY new testids: consent-checkbox, consent-continue, live-consent-terms-link, live-start, live-stop, live-say-this, live-saved-indicator, export-live-pdf, lex-review-session. After admin login, nav-cases data-testid has NO badge child; nav-reminders shows '1'. Consent button label after tick is currently 'Continue' (i18n key returns it; spec said 'Accept & continue').",
+  "rca of the issue": "N/A — no functional regressions. Cosmetic: 'Accept & continue' label not appearing post-tick because t(lang,'consentContinue') returns 'Continue' (truthy), so the JS '||' fallback never fires. Fix in en.js (or wherever consentContinue is defined): change value to 'Accept & continue'."
+}

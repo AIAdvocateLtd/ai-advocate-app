@@ -1631,55 +1631,123 @@ function CourtroomModal({ lang, country, onClose }) {
   const [lFacts, setLFacts] = useState("");
   const [advice, setAdvice] = useState([]); // {at, said, advice}
   const [reviewBusy, setReviewBusy] = useState(false);         // "Send to Lex for review" loading
+  const [liveStatus, setLiveStatus] = useState("");            // "listening" | "transcribing" | "thinking" | ""
+  const lStreamRef = useRef(null);
   const lRecRef = useRef(null);
-  const lChunkBufRef = useRef("");
-  const lSentRef = useRef(0);
+  const lChunkLoopRef = useRef(null);                          // setInterval handle for chunk rotation
   const lSessionRef = useRef(null);
   const lStartedAtRef = useRef(null);                          // ISO timestamp of session start
+  const lLiveActiveRef = useRef(false);                        // mirrors liveActive for use in async callbacks
 
-  const startLive = () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { alert("This browser does not support live speech recognition. Use Chrome/Edge/Safari."); return; }
-    const r = new SR();
-    r.continuous = true; r.interimResults = true; r.lang = lang || "en-GB";
-    lStartedAtRef.current = new Date().toISOString();
-    r.onresult = async (ev) => {
-      let finalText = "";
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        if (ev.results[i].isFinal) finalText += ev.results[i][0].transcript + " ";
+  // Send a finalised audio chunk through Whisper → Lex live-assist, append to advice list.
+  // Runs in the background so the next chunk can record while this one is being processed.
+  const processChunk = async (blob) => {
+    if (!blob || blob.size < 2000) return; // skip tiny / silent chunks
+    try {
+      setLiveStatus("transcribing");
+      const fd = new FormData();
+      fd.append("audio", blob, `chunk-${Date.now()}.webm`);
+      fd.append("language", (lang || "en-GB").split("-")[0]);
+      const tx = await api.post("/voice/transcribe", fd);
+      const said = (tx?.data?.text || "").trim();
+      if (!said || said.length < 4) {
+        setLiveStatus(lLiveActiveRef.current ? "listening" : "");
+        return;
       }
-      if (finalText.trim()) {
-        lChunkBufRef.current += finalText;
-        // dispatch every ~25 chars or after a final phrase
-        const now = Date.now();
-        if (lChunkBufRef.current.length > 25 && now - lSentRef.current > 3500) {
-          const chunk = lChunkBufRef.current.trim();
-          lChunkBufRef.current = "";
-          lSentRef.current = now;
-          try {
-            const { data } = await api.post("/lex/live-assist", {
-              session_id: lSessionRef.current, scenario,
-              other_party_said: chunk, my_facts: lFacts, language: lang, country,
-            });
-            lSessionRef.current = data.session_id;
-            setAdvice(a => [{ at: new Date().toLocaleTimeString(), said: chunk, advice: data.response }, ...a].slice(0, 30));
-            // Persist timestamped notes — for later PDF export & playback reference
-            api.post("/live/notes", { session_id: data.session_id, speaker: "other_party", text: chunk }).catch(() => {});
-            api.post("/live/notes", { session_id: data.session_id, speaker: "lex", text: data.response, note_kind: "advice" }).catch(() => {});
-          } catch (e) { /* swallow */ }
-        }
-      }
-    };
-    r.onerror = () => {};
-    r.onend = () => { if (liveActive) { try { r.start(); } catch {} } };
-    try { r.start(); lRecRef.current = r; setLiveActive(true); } catch (e) { alert("Mic permission required."); }
+      setLiveStatus("thinking");
+      const { data } = await api.post("/lex/live-assist", {
+        session_id: lSessionRef.current, scenario,
+        other_party_said: said, my_facts: lFacts, language: lang, country,
+      });
+      lSessionRef.current = data.session_id;
+      setAdvice(a => [{ at: new Date().toLocaleTimeString(), said, advice: data.response }, ...a].slice(0, 50));
+      // Persist timestamped notes server-side
+      api.post("/live/notes", { session_id: data.session_id, speaker: "other_party", text: said }).catch(() => {});
+      api.post("/live/notes", { session_id: data.session_id, speaker: "lex", text: data.response, note_kind: "advice" }).catch(() => {});
+    } catch (e) {
+      // never crash the recording loop
+      console.warn("live-assist chunk failed", e?.response?.data || e?.message);
+    } finally {
+      setLiveStatus(lLiveActiveRef.current ? "listening" : "");
+    }
   };
+
+  // Rotate the MediaRecorder every 8s: stop -> capture blob -> process -> start a new one.
+  // This lets Whisper transcribe in near-real-time while the next slice is being recorded.
+  const rotateRecorder = () => {
+    const old = lRecRef.current;
+    const stream = lStreamRef.current;
+    if (!stream || !lLiveActiveRef.current) return;
+    try {
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4"
+        : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+      const fresh = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      const chunks = [];
+      fresh.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) chunks.push(ev.data); };
+      fresh.onstop = () => {
+        const blob = new Blob(chunks, { type: fresh.mimeType || "audio/webm" });
+        processChunk(blob); // fire-and-forget — runs in background
+      };
+      fresh.start();
+      lRecRef.current = fresh;
+      // Stop the previous recorder (its onstop will process the blob)
+      if (old && old.state !== "inactive") {
+        try { old.stop(); } catch {}
+      }
+    } catch (e) {
+      console.error("rotateRecorder failed", e);
+    }
+  };
+
+  const startLive = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      alert("Microphone not supported in this browser. Use Chrome, Safari, or Edge.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      lStreamRef.current = stream;
+      lStartedAtRef.current = new Date().toISOString();
+      lLiveActiveRef.current = true;
+      setLiveActive(true);
+      setLiveStatus("listening");
+      // First chunk
+      rotateRecorder();
+      // Rotate every 8 seconds → balance latency vs Whisper accuracy
+      lChunkLoopRef.current = setInterval(() => rotateRecorder(), 8000);
+    } catch (e) {
+      alert("Microphone permission denied. Open Settings → Microphone access to grant it.");
+    }
+  };
+
   const stopLive = () => {
+    lLiveActiveRef.current = false;
     setLiveActive(false);
-    try { lRecRef.current?.stop(); } catch {}
+    setLiveStatus("");
+    if (lChunkLoopRef.current) { clearInterval(lChunkLoopRef.current); lChunkLoopRef.current = null; }
+    try {
+      if (lRecRef.current && lRecRef.current.state !== "inactive") {
+        lRecRef.current.stop(); // last blob flushes through processChunk
+      }
+    } catch {}
     lRecRef.current = null;
+    // Release the microphone
+    if (lStreamRef.current) {
+      try { lStreamRef.current.getTracks().forEach(t => t.stop()); } catch {}
+      lStreamRef.current = null;
+    }
   };
-  useEffect(() => () => { try { lRecRef.current?.stop(); } catch {} }, []);
+
+  useEffect(() => () => {
+    // Cleanup on unmount
+    lLiveActiveRef.current = false;
+    if (lChunkLoopRef.current) clearInterval(lChunkLoopRef.current);
+    try { lRecRef.current?.stop?.(); } catch {}
+    try { lStreamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+  }, []);
 
   return (
     <div className="modal-bg" data-testid="courtroom-modal">
@@ -1790,7 +1858,46 @@ function CourtroomModal({ lang, country, onClose }) {
                   style={{ marginTop: 10, background: liveActive ? "#dc2626" : undefined, color: liveActive ? "#fff" : undefined }}>
                   {liveActive ? "STOP listening" : "START listening"}
                 </button>
-                {liveActive && <div style={{ textAlign: "center", color: "var(--gold)", fontSize: 12, marginTop: 6 }}>🎙 Listening — Lex will whisper advice as the other side speaks</div>}
+                {liveActive && (
+                  <div style={{
+                    background: "rgba(247,201,72,0.08)",
+                    border: "1px solid var(--gold-deep)",
+                    borderRadius: 10, padding: "8px 12px", marginTop: 8,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    fontSize: 12, color: "var(--gold)",
+                  }}>
+                    <span style={{
+                      width: 8, height: 8, borderRadius: "50%",
+                      background: liveStatus === "listening" ? "#ef4444" : liveStatus === "thinking" ? "var(--gold)" : "#86efac",
+                      animation: "lex-pulse 1.4s ease-in-out infinite",
+                    }} />
+                    {liveStatus === "transcribing" ? "📝 Transcribing what they said…"
+                      : liveStatus === "thinking" ? "🧠 Lex is preparing your reply…"
+                      : "🎙 Listening — speak naturally"}
+                  </div>
+                )}
+
+                {/* Latest "SAY THIS" card — pinned at top so user reads it without looking away */}
+                {liveActive && advice.length > 0 && (
+                  <div data-testid="live-say-this" style={{
+                    background: "linear-gradient(135deg, rgba(247,201,72,0.18), rgba(247,201,72,0.06))",
+                    border: "2px solid var(--gold)",
+                    borderRadius: 14, padding: 14, marginTop: 10,
+                    boxShadow: "0 0 24px rgba(247,201,72,0.25)",
+                  }}>
+                    <div style={{
+                      fontSize: 10, fontWeight: 800, letterSpacing: "0.12em",
+                      color: "var(--gold)", marginBottom: 6,
+                    }}>💬 SAY THIS — {advice[0].at}</div>
+                    <div style={{
+                      fontSize: 16, fontWeight: 600, color: "#fff", lineHeight: 1.45,
+                    }}>{advice[0].advice}</div>
+                    <div style={{
+                      fontSize: 11, color: "var(--text-dim)", marginTop: 8, fontStyle: "italic",
+                      borderTop: "1px solid var(--gold-deep)", paddingTop: 6,
+                    }}>They said: "{advice[0].said}"</div>
+                  </div>
+                )}
                 {!liveActive && lSessionRef.current && advice.length > 0 && (
                   <>
                     <div data-testid="live-saved-indicator" style={{
@@ -1856,7 +1963,8 @@ function CourtroomModal({ lang, country, onClose }) {
                 )}
                 <div style={{ flex: 1, overflowY: "auto", marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
                   {advice.length === 0 && liveActive && <div style={{ color: "var(--text-muted)", textAlign: "center", padding: 20, fontSize: 13 }}>{t(lang, "waitingForOtherSide")}</div>}
-                  {advice.map((a, i) => (
+                  {/* During live mode the latest advice is shown in the SAY THIS pinned card above — skip it here to avoid duplication. */}
+                  {(liveActive ? advice.slice(1) : advice).map((a, i) => (
                     <div key={i} style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 10 }}>
                       <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>{a.at} — They said:</div>
                       <div style={{ fontSize: 12.5, color: "var(--text-dim)", fontStyle: "italic", marginBottom: 6 }}>"{a.said}"</div>
