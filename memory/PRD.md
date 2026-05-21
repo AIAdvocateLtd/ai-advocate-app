@@ -10,6 +10,21 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 2a — Live legal RAG + Hybrid Claude/GPT-5 + customisable bottom nav)
+- **📚 Legal RAG grounding.** New `/app/backend/rag.py` calls **Tavily** twice per qualifying question — once filtered to UK authority domains (`legislation.gov.uk`, `bailii.org`, `judiciary.uk`, `supremecourt.uk`, `gov.uk`, `caselaw.nationalarchives.gov.uk`) and once for broader web. Snippets are numbered and appended to Lex's system prompt with explicit citation instructions, so every claim is traceable to a real URL.
+  - Gracefully no-ops when `TAVILY_API_KEY` is empty — Lex still answers, just without grounding.
+  - Smalltalk filter (`_looks_like_legal_question`) avoids burning credits on "hi" / "thanks".
+  - Jurisdiction-aware (UK / Scotland / NI).
+- **🧠 Hybrid Claude + GPT-5 routing** in `lex_model_for_tier`:
+  - Free → `claude-haiku-4-5-20251001`
+  - Plus → `openai/gpt-5.2` (conversational primary)
+  - Pro / Yearly / trial_pro → `claude-sonnet-4-5-20250929` (Deep Think doubles token budget)
+  - Existing fallback to Sonnet 4.5 if primary model rejects.
+- **📱 Customisable bottom nav.** First slot (left of Vault) is now user-pickable via Settings → "Customise quick nav" — 8 options (Reminders / Vault / Cases / Lawyers / Hearings / Letters / Contracts / Legal Aid). Live-updates without reload via `aa:nav-slot1` event.
+- **🎤 Microphone access moved to Settings.** New "Microphone access" card explicitly requests permission via `getUserMedia`; uses `navigator.permissions.query` to surface current state.
+- Confirmed: "LEX" caption beneath the centre Lex button was already removed.
+- Verified: backend pytest 6/6 PASS, frontend live-update verified by testing agent on 390x844.
+
 ### 2026-02 (Session 1i — Evidence-grade timestamping + Bottom-nav icon polish)
 - **⚖ Recording timestamps + GPS for evidentiary use.**
   - Frontend `RecordModal` now captures wall-clock `started_at` + `ended_at` + computed `duration_seconds` + IANA timezone. Best-effort GPS captured (silently, on permission) at recording start.

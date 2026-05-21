@@ -3583,8 +3583,8 @@ function NavSlotPicker({ lang }) {
     { k: "cases",     lbl: t(lang, "cases") || "Cases" },
     { k: "lawyers",   lbl: t(lang, "lawyers") || "Lawyers" },
     { k: "hearing",   lbl: t(lang, "hearingRecorder") || "Hearings" },
-    { k: "letter",    lbl: t(lang, "letter") || "Letters" },
-    { k: "contracts", lbl: t(lang, "contracts") || "Contracts" },
+    { k: "letter",    lbl: "Letters" },
+    { k: "contracts", lbl: "Contracts" },
     { k: "legal_aid", lbl: t(lang, "freeLegalAid") || "Legal Aid" },
   ];
   const [sel, setSel] = useState(() => localStorage.getItem("aa_nav_slot1") || "reminders");
@@ -3654,8 +3654,8 @@ function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub, badges
     cases:     { icon: "/icons/files.png",      lbl: t(lang, "cases") },
     lawyers:   { icon: "/icons/solicitor.png",  lbl: t(lang, "lawyers") },
     hearing:   { icon: "/icons/hearing.png",    lbl: t(lang, "hearingRecorder") || "Hearings" },
-    letter:    { icon: "/icons/letter.png",     lbl: t(lang, "letter") || "Letters" },
-    contracts: { icon: "/icons/contract.png",   lbl: t(lang, "contracts") || "Contracts" },
+    letter:    { icon: "/icons/letter.png",     lbl: "Letters" },
+    contracts: { icon: "/icons/contract.png",   lbl: "Contracts" },
     legal_aid: { icon: "/icons/aid.png",        lbl: t(lang, "freeLegalAid") || "Aid" },
   };
   const [slot1, setSlot1] = useState(() => localStorage.getItem("aa_nav_slot1") || "reminders");
