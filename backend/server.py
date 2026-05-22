@@ -1743,8 +1743,16 @@ class SilentSOSRequest(BaseModel):
 @api_router.get("/emergency/contacts")
 async def get_emergency_contacts(user: dict = Depends(get_user)):
     doc = await db.emergency_profile.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
+    # Drop clearly-incomplete contacts (likely abandoned input from earlier sessions):
+    # names with <2 chars OR phones with <7 digits get hidden + auto-pruned on next save.
+    raw = doc.get("contacts", []) or []
+    def _is_valid(c):
+        name = (c.get("name") or "").strip()
+        phone_digits = re.sub(r"\D", "", (c.get("phone") or ""))
+        return len(name) >= 2 and len(phone_digits) >= 7
+    clean = [c for c in raw if _is_valid(c)]
     return {
-        "contacts": doc.get("contacts", []),
+        "contacts": clean,
         "lawyer_standby_enabled": doc.get("lawyer_standby_enabled", False),
         "lawyer_standby_radius_km": doc.get("lawyer_standby_radius_km", 25.0),
         "sos_message": doc.get("sos_message", ""),
@@ -1762,7 +1770,13 @@ async def set_emergency_contacts(data: EmergencyContactsPayload, user: dict = De
     # Tracking window: hard-clamp 15 min → 24h. Available to ALL tiers as a life-safety
     # feature — we will not paywall the difference between someone being found in 2h vs 24h.
     window = max(15, min(1440, int(data.tracking_window_minutes or 60)))
-    contacts = [c.model_dump() for c in data.contacts][:20]
+    # Filter out incomplete entries server-side too: name<2 chars or phone<7 digits = skip.
+    raw_contacts = [c.model_dump() for c in data.contacts][:20]
+    def _is_valid(c):
+        name = (c.get("name") or "").strip()
+        phone_digits = re.sub(r"\D", "", (c.get("phone") or ""))
+        return len(name) >= 2 and len(phone_digits) >= 7
+    contacts = [c for c in raw_contacts if _is_valid(c)]
     await db.emergency_profile.update_one(
         {"user_id": user["id"]},
         {"$set": {

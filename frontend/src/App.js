@@ -20,7 +20,7 @@ import {
   AskLexIcon, RecordIcon, CameraIcon, LawyerIcon, FilesIcon, LetterIcon,
   CourtIcon, ImmigrationIcon, EmploymentIcon, PropertyIcon, MedicalIcon,
   OutcomeIcon, CostIcon, HearingIcon, AidIcon, ReminderIcon,
-  ContractIcon, DraftIcon, VaultIcon, SuggestIcon, HandshakeIcon
+  ContractIcon, DraftIcon, VaultIcon, SuggestIcon, HandshakeIcon, RecycleIcon
 } from "@/icons";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -4266,9 +4266,6 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
         {/* 🎁 OWNER ONLY — comp Pro access for family / friends / customer service */}
         {user?.is_owner && <CompProAdminCard lang={lang} />}
 
-        {/* 🗑 Recycle Bin — soft-delete recovery for 30 days */}
-        <RecycleBinCard lang={lang} />
-
         {/* Auto-detect language toggle */}
         <div data-testid="settings-autodetect" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -4863,19 +4860,18 @@ function NavSlotPicker({ lang }) {
   );
 }
 
-// 🗑 RecycleBinCard — lets users view, restore, or permanently purge soft-deleted
-// items across all kinds (files, cases, items, conversations, reminders, hearings).
-// Items are auto-purged after 30 days by the backend sweeper.
-function RecycleBinCard({ lang }) {
+// 🗑 RecycleBinModal — full-screen modal opened from the dashboard tile. Lists every
+// soft-deleted item across kinds (legal_files, cases, case_items, conversations, reminders,
+// hearings). 30-day window with auto-purge sweeper on the backend.
+function RecycleBinModal({ lang, onClose }) {
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [expanded, setExpanded] = useState(false);
 
   const load = () => {
     setBusy(true);
     api.get("/recycle-bin").then(r => setItems(r.data?.items || [])).catch(() => {}).finally(() => setBusy(false));
   };
-  useEffect(() => { if (expanded) load(); }, [expanded]);
+  useEffect(() => { load(); }, []);
 
   const restore = async (it) => {
     setBusy(true);
@@ -4905,67 +4901,63 @@ function RecycleBinCard({ lang }) {
   };
 
   return (
-    <div data-testid="settings-recycle-bin" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
-      <button onClick={() => setExpanded(e => !e)} data-testid="recycle-bin-toggle"
-        style={{ background: "transparent", border: "none", color: "var(--text)", width: "100%", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Trash2 size={18} style={{ color: "var(--gold)" }} />
-          <span style={{ fontWeight: 600 }}>Recycle Bin</span>
-          {items.length > 0 && (
-            <span style={{ background: "var(--gold-deep)", color: "#1a1300", borderRadius: 999, fontSize: 10, fontWeight: 700, padding: "2px 8px" }}>
-              {items.length}
-            </span>
-          )}
+    <div className="modal-bg" data-testid="recycle-bin-modal">
+      <div className="modal-card" style={{ padding: 20, overflowY: "auto" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20, display: "flex", alignItems: "center", gap: 10 }}>
+            <RecycleIcon size={26} />
+            Recycle Bin
+          </h2>
+          <button onClick={onClose} data-testid="recycle-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
         </div>
-        <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{expanded ? "▲" : "▼"}</span>
-      </button>
-      <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5, marginTop: 8 }}>
-        Deleted items stay here for <strong style={{ color: "var(--gold-soft)" }}>30 days</strong>. Tap restore to bring them back, or empty the bin to permanently delete now.
+        <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 14 }}>
+          Deleted items stay here for <strong style={{ color: "var(--gold-soft)" }}>30 days</strong>. Tap restore to bring them back, or empty the bin to permanently delete now.
+        </p>
+        {items.length > 0 && (
+          <button data-testid="recycle-empty-btn" disabled={busy} onClick={emptyAll}
+            style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 10, padding: "10px 14px", width: "100%", marginBottom: 14, fontSize: 13, cursor: "pointer" }}>
+            <Trash2 size={13} style={{ display: "inline", marginRight: 6 }} />
+            Empty bin permanently ({items.length})
+          </button>
+        )}
+        {busy && items.length === 0 && (
+          <div style={{ color: "var(--text-muted)", fontSize: 13, textAlign: "center", padding: 30 }}>
+            <span className="aa-typing-dots"><span/><span/><span/></span> Loading…
+          </div>
+        )}
+        {!busy && items.length === 0 && (
+          <div style={{ color: "var(--text-muted)", fontSize: 13, textAlign: "center", padding: 30, border: "1px dashed var(--line)", borderRadius: 12 }}>
+            Recycle bin is empty. Anything you delete from Files, Cases, Hearings, Reminders or Chats will appear here for 30 days.
+          </div>
+        )}
+        {items.map(it => (
+          <div key={`${it.kind}-${it.id}`} data-testid={`recycle-item-${it.id}`}
+            style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 12, padding: 12, marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <span style={{ background: "var(--gold-deep)", color: "#1a1300", padding: "2px 7px", borderRadius: 6, fontSize: 9, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                {it.kind.replace("_", " ")}
+              </span>
+              <span style={{ color: "var(--gold)", fontSize: 13.5, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {it.label}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10 }}>
+              Deleted {new Date(it.deleted_at).toLocaleDateString()} ·
+              <span style={{ color: it.days_left < 7 ? "#fca5a5" : "var(--text-muted)", marginLeft: 4 }}>
+                {it.days_left}d left
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button data-testid={`recycle-restore-${it.id}`} disabled={busy} onClick={() => restore(it)}
+                className="btn-gold" style={{ flex: 1, padding: "8px 12px", fontSize: 12 }}>Restore</button>
+              <button data-testid={`recycle-purge-${it.id}`} disabled={busy} onClick={() => purge(it)}
+                style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 8, padding: "8px 14px", fontSize: 12, cursor: "pointer" }}>
+                <Trash2 size={12} />
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
-      {expanded && (
-        <div style={{ marginTop: 12 }}>
-          {busy && items.length === 0 && (
-            <div style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", padding: 14 }}>
-              <span className="aa-typing-dots"><span/><span/><span/></span> Loading…
-            </div>
-          )}
-          {!busy && items.length === 0 && (
-            <div style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", padding: 14, border: "1px dashed var(--line)", borderRadius: 10 }}>
-              Nothing here. Recently deleted items will appear here.
-            </div>
-          )}
-          {items.length > 0 && (
-            <button data-testid="recycle-empty-btn" disabled={busy} onClick={emptyAll}
-              style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 10, padding: "8px 12px", width: "100%", marginBottom: 10, fontSize: 12, cursor: "pointer" }}>
-              Empty bin permanently ({items.length})
-            </button>
-          )}
-          {items.map(it => (
-            <div key={`${it.kind}-${it.id}`} data-testid={`recycle-item-${it.id}`}
-              style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, marginBottom: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                <span style={{ background: "var(--gold-deep)", color: "#1a1300", padding: "2px 6px", borderRadius: 6, fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-                  {it.kind.replace("_", " ")}
-                </span>
-                <span style={{ color: "var(--gold)", fontSize: 12.5, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {it.label}
-                </span>
-              </div>
-              <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 8 }}>
-                Deleted {new Date(it.deleted_at).toLocaleDateString()} · <span style={{ color: it.days_left < 7 ? "#fca5a5" : "var(--text-muted)" }}>{it.days_left}d left</span>
-              </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button data-testid={`recycle-restore-${it.id}`} disabled={busy} onClick={() => restore(it)}
-                  className="btn-gold" style={{ flex: 1, padding: "6px 8px", fontSize: 11 }}>Restore</button>
-                <button data-testid={`recycle-purge-${it.id}`} disabled={busy} onClick={() => purge(it)}
-                  style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 8, padding: "6px 10px", fontSize: 11, cursor: "pointer" }}>
-                  <Trash2 size={11} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -5650,6 +5642,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "files", label: t(lang, "myFiles"), Icon: FilesIcon, req: "free" },
     { id: "cases", label: t(lang, "caseFiles"), Icon: FilesIcon, req: "free" },
     { id: "reminders", label: t(lang, "reminders"), Icon: ReminderIcon, req: "free" },
+    { id: "recycle", label: "Recycle Bin", Icon: RecycleIcon, req: "free" },
     { id: "letter", label: t(lang, "letterLibrary"), Icon: LetterIcon, req: "free" },
     { id: "immigration", label: t(lang, "immigration"), Icon: ImmigrationIcon, cat: "immigration", req: "plus" },
     { id: "employment", label: t(lang, "employment"), Icon: EmploymentIcon, cat: "employment", req: "plus" },
@@ -5666,6 +5659,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     if (tile.id === "files") setModal({ type: "files" });
     else if (tile.id === "cases") setModal({ type: "cases" });
     else if (tile.id === "reminders") setModal({ type: "reminders" });
+    else if (tile.id === "recycle") setModal({ type: "recycle" });
     else if (tile.id === "letter") setModal({ type: "letter_lib" });
     else if (tile.id === "record") setModal({ type: "record" });
     else if (tile.id === "snap") setModal({ type: "snap" });
@@ -5868,6 +5862,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "files" && <FilesModal lang={lang} onClose={() => setModal(null)} />}
       {modal?.type === "cases" && <CaseFilesModal lang={lang} openCaseId={modal._openCaseId} onClose={() => setModal(null)} />}
       {modal?.type === "reminders" && <RemindersModal lang={lang} onClose={() => setModal(null)} />}
+      {modal?.type === "recycle" && <RecycleBinModal lang={lang} onClose={() => setModal(null)} />}
       {modal?.type === "letter" && <LegalLetterModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "record" && <RecordHub lang={lang} country={country} user={user} hasTier={hasTier} onUpsell={() => { setSubPreset("pro"); setShowSub(true); }} onClose={() => setModal(null)} />}
       {modal?.type === "snap" && <SnapEvidenceModal lang={lang} country={country} onClose={() => setModal(null)} />}
