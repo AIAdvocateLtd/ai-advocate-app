@@ -1425,6 +1425,8 @@ function EmergencyModal({ lang, country, user, onClose }) {
   const [lawyersBusy, setLawyersBusy] = useState(false);
   const [trackSession, setTrackSession] = useState(null); // {sos_id, expires_at, window_minutes}
   const [trackRemain, setTrackRemain] = useState(0);      // seconds remaining
+  const [batteryLowPrompt, setBatteryLowPrompt] = useState(null); // {level, charging}
+  const batteryHandledRef = useRef(false);
   const trackPingHandleRef = useRef(null);
   const trackTickHandleRef = useRef(null);
   const audioRef = useRef(null);
@@ -1563,6 +1565,7 @@ function EmergencyModal({ lang, country, user, onClose }) {
 
   const startLiveTracking = (session) => {
     setTrackSession(session);
+    batteryHandledRef.current = false;
     // Tick a 1-second countdown for the banner
     const expiresAt = new Date(session.expires_at).getTime();
     const tick = () => {
@@ -1591,6 +1594,51 @@ function EmergencyModal({ lang, country, user, onClose }) {
     pingNow();
     if (trackPingHandleRef.current) clearInterval(trackPingHandleRef.current);
     trackPingHandleRef.current = setInterval(pingNow, 120000); // every 2 minutes
+
+    // 🔋 Battery monitor — if phone drops below 15% AND is discharging, prompt to extend
+    // the window to max so family doesn't lose visibility right when the phone dies.
+    // Only Android Chrome currently exposes the Battery API; on iOS Safari this is a no-op
+    // (we still show a manual "Extend to max" button on the banner as a universal fallback).
+    if (navigator.getBattery) {
+      navigator.getBattery().then((battery) => {
+        const check = () => {
+          if (batteryHandledRef.current) return;
+          if (!battery.charging && battery.level < 0.15) {
+            batteryHandledRef.current = true;
+            setBatteryLowPrompt({ level: battery.level, charging: battery.charging });
+          }
+        };
+        check();
+        battery.addEventListener("levelchange", check);
+        battery.addEventListener("chargingchange", check);
+      }).catch(() => {});
+    }
+  };
+
+  // Extend the active track session to the user's tier-maximum (24h Pro, 2h Free).
+  // Triggered by the battery-low banner or the manual "Extend" button on the SOS banner.
+  const extendTrackToMax = async () => {
+    if (!trackSession?.sos_id) return;
+    try {
+      const { data } = await api.post(`/emergency/track/${trackSession.sos_id}/extend`);
+      if (data.already_at_max) {
+        alert("Your SOS is already at the maximum tracking window.");
+      } else if (data.expires_at) {
+        // Update local countdown
+        setTrackSession(s => ({ ...s, expires_at: data.expires_at, window_minutes: data.max_window_minutes }));
+        const expiresAt = new Date(data.expires_at).getTime();
+        if (trackTickHandleRef.current) clearInterval(trackTickHandleRef.current);
+        trackTickHandleRef.current = setInterval(() => {
+          const r = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+          setTrackRemain(r);
+          if (r <= 0) stopLiveTracking(true);
+        }, 1000);
+      }
+      setBatteryLowPrompt(null);
+    } catch (e) {
+      alert(e?.response?.data?.detail || "Could not extend.");
+      setBatteryLowPrompt(null);
+    }
   };
 
   const stopLiveTracking = async (auto = false) => {
@@ -1744,7 +1792,7 @@ function EmergencyModal({ lang, country, user, onClose }) {
           <div data-testid="sos-live-tracking-banner" style={{
             background: "linear-gradient(135deg, rgba(220,38,38,0.18), rgba(34,211,238,0.12))",
             border: "1px solid #67e8f9", borderRadius: 12, padding: 12, marginBottom: 12,
-            display: "flex", alignItems: "center", gap: 10,
+            display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
           }}>
             <span style={{
               width: 10, height: 10, borderRadius: "50%", background: "#ef4444",
@@ -1754,10 +1802,41 @@ function EmergencyModal({ lang, country, user, onClose }) {
               <div style={{ fontSize: 12, fontWeight: 700, color: "#67e8f9" }}>📍 Live location active</div>
               <div style={{ fontSize: 11, color: "var(--text-dim)" }}>Sharing your position with family. Auto-stops in <strong style={{ color: "#fff" }}>{fmtRemain(trackRemain)}</strong>.</div>
             </div>
+            <button data-testid="sos-extend-tracking" onClick={extendTrackToMax}
+              title="Extend the tracking window to your tier maximum (24h Pro / 2h Free)"
+              style={{ background: "transparent", border: "1px solid var(--gold)", color: "var(--gold)", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+              ⏱ EXTEND
+            </button>
             <button data-testid="sos-stop-tracking" onClick={() => stopLiveTracking(false)}
               style={{ background: "transparent", border: "1px solid #fca5a5", color: "#fca5a5", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
               STOP
             </button>
+          </div>
+        )}
+
+        {/* 🔋 Battery-low extend prompt — auto-fires when phone hits <15% while tracking is active. */}
+        {batteryLowPrompt && trackSession && (
+          <div data-testid="sos-battery-prompt" style={{
+            background: "linear-gradient(135deg, rgba(220,38,38,0.25), rgba(247,201,72,0.15))",
+            border: "2px solid var(--gold)", borderRadius: 12, padding: 14, marginBottom: 12,
+            boxShadow: "0 0 20px rgba(247,201,72,0.4)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 22 }}>🔋</span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "var(--gold)" }}>BATTERY LOW · {Math.round(batteryLowPrompt.level * 100)}%</div>
+                <div style={{ fontSize: 11, color: "var(--text-dim)" }}>Your phone is about to die — extend SOS to max so family doesn't lose you.</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button data-testid="sos-battery-extend" onClick={extendTrackToMax} className="btn-gold" style={{ flex: 2, fontSize: 13, fontWeight: 800 }}>
+                ⏱ Extend to maximum
+              </button>
+              <button data-testid="sos-battery-dismiss" onClick={() => setBatteryLowPrompt(null)}
+                style={{ flex: 1, background: "transparent", border: "1px solid var(--line)", color: "var(--text-muted)", borderRadius: 10, fontSize: 12, cursor: "pointer" }}>
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
         {(!profile?.contacts || profile.contacts.length === 0) && !sosResult && (

@@ -2006,6 +2006,50 @@ async def track_stop(sos_id: str, user: dict = Depends(get_user)):
     return {"ok": True}
 
 
+@api_router.post("/emergency/track/{sos_id}/extend")
+async def track_extend(sos_id: str, user: dict = Depends(get_user)):
+    """Extend an ACTIVE track session to the user's tier-maximum.
+    Triggered by the battery-low prompt — when the user's phone is about to die,
+    we extend the window so family doesn't lose visibility at the worst moment.
+    Hard caps: 1440 min (24h) for Pro, 120 min (2h) for Free.
+    """
+    pub = user_to_public(user)
+    max_minutes = 1440 if tier_has_access(pub["tier"], "live_assist") else 120
+
+    track = await db.emergency_tracks.find_one(
+        {"sos_id": sos_id, "user_id": user["id"]}, {"_id": 0, "active": 1, "started_at": 1, "expires_at": 1},
+    )
+    if not track:
+        raise HTTPException(404, "Track not found")
+    if not track.get("active"):
+        raise HTTPException(409, "Track already ended — fire a fresh SOS to start a new session.")
+
+    started_at = datetime.fromisoformat(track["started_at"])
+    current_expires = datetime.fromisoformat(track["expires_at"])
+    max_expires = started_at + timedelta(minutes=max_minutes)
+
+    if current_expires >= max_expires:
+        # Already at max — nothing to extend.
+        return {"ok": True, "already_at_max": True, "expires_at": track["expires_at"]}
+
+    await db.emergency_tracks.update_one(
+        {"sos_id": sos_id, "user_id": user["id"]},
+        {"$set": {
+            "expires_at": max_expires.isoformat(),
+            "extended_at": datetime.now(timezone.utc).isoformat(),
+            "extended_reason": "battery_low",
+        }},
+    )
+    new_remaining = int((max_expires - datetime.now(timezone.utc)).total_seconds())
+    return {
+        "ok": True,
+        "already_at_max": False,
+        "expires_at": max_expires.isoformat(),
+        "expires_in_seconds": max(0, new_remaining),
+        "max_window_minutes": max_minutes,
+    }
+
+
 @api_router.get("/emergency/track/{sos_id}/active")
 async def track_active_check(sos_id: str, user: dict = Depends(get_user)):
     """Quick poll from the user's phone to check if its own track is still active.
