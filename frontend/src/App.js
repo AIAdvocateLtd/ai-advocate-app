@@ -4132,6 +4132,9 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
         {/* 🚨 Emergency Contacts + Lawyer Standby + Watch SOS — life-safety section */}
         <EmergencyContactsCard lang={lang} user={user} />
 
+        {/* 🎁 OWNER ONLY — comp Pro access for family / friends / customer service */}
+        {user?.is_owner && <CompProAdminCard lang={lang} />}
+
         {/* Auto-detect language toggle */}
         <div data-testid="settings-autodetect" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -4658,6 +4661,167 @@ function NavSlotPicker({ lang }) {
   );
 }
 
+function CompProAdminCard({ lang }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [days, setDays] = useState(30);
+  const [reason, setReason] = useState("");
+  const [activeComps, setActiveComps] = useState([]);
+  const [feedback, setFeedback] = useState(null);    // {ok:true, msg} | {ok:false, msg}
+
+  const loadComps = () => {
+    api.get("/admin/users/comps").then(r => setActiveComps(r.data?.comps || [])).catch(() => {});
+  };
+  useEffect(() => { loadComps(); }, []);
+
+  const search = async () => {
+    if (!query.trim() || query.trim().length < 2) { setResults([]); return; }
+    setSearching(true);
+    try {
+      const r = await api.get(`/admin/users/search?q=${encodeURIComponent(query.trim())}`);
+      setResults(r.data?.users || []);
+    } catch (e) { setResults([]); }
+    finally { setSearching(false); }
+  };
+
+  const grantComp = async (email) => {
+    setActionBusy(true); setFeedback(null);
+    try {
+      const r = await api.post("/admin/users/comp", { email, days, reason });
+      setFeedback({ ok: true, msg: r.data.is_lifetime
+        ? `✓ Lifetime Pro granted to ${email}`
+        : `✓ ${r.data.days_granted} days Pro granted to ${email} (until ${r.data.comp_pro_until.slice(0,10)})` });
+      loadComps();
+      // Refresh search to show new status
+      if (query) search();
+    } catch (e) {
+      setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not grant." });
+    } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
+  };
+
+  const revokeComp = async (email) => {
+    if (!window.confirm(`Revoke Pro comp for ${email}?`)) return;
+    setActionBusy(true); setFeedback(null);
+    try {
+      await api.post("/admin/users/uncomp", { email, reason: "Owner revoked" });
+      setFeedback({ ok: true, msg: `✓ Comp revoked for ${email}` });
+      loadComps();
+      if (query) search();
+    } catch (e) {
+      setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not revoke." });
+    } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
+  };
+
+  return (
+    <div data-testid="settings-comp-pro" style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <Sparkles size={18} style={{ color: "var(--gold)" }} />
+        <span style={{ fontWeight: 600, color: "var(--gold)" }}>Owner tool — Comp Pro Access</span>
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 12 }}>
+        Grant free Pro access to family, friends, or unhappy customers. Every grant is logged. Tap a preset, search a user by email, then tap "Grant".
+      </div>
+
+      {/* Days preset row */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, marginBottom: 10 }}>
+        {[
+          { d: 7, lbl: "7d" }, { d: 30, lbl: "1m" }, { d: 90, lbl: "3m" }, { d: 365, lbl: "1yr" }, { d: 0, lbl: "Lifetime" }
+        ].map(opt => {
+          const sel = days === opt.d;
+          return (
+            <button key={opt.d} data-testid={`comp-days-${opt.d}`} onClick={() => setDays(opt.d)}
+              style={{
+                padding: "8px 4px", borderRadius: 8, cursor: "pointer",
+                background: sel ? "var(--gold)" : "transparent",
+                color: sel ? "#1a1300" : "var(--gold-soft)",
+                border: `1px solid ${sel ? "var(--gold)" : "var(--line)"}`,
+                fontSize: 11, fontWeight: 700,
+              }}>{opt.lbl}</button>
+          );
+        })}
+      </div>
+      <input className="input" data-testid="comp-reason" placeholder="Reason (e.g. 'Family — brother', 'Goodwill — complaint about Lex')"
+        value={reason} onChange={(e) => setReason(e.target.value)} style={{ marginBottom: 10 }} />
+
+      {/* User search */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+        <input className="input" data-testid="comp-search" placeholder="Search user by email…"
+          value={query} onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && search()} style={{ flex: 1 }} />
+        <button className="btn-gold" data-testid="comp-search-btn" onClick={search} disabled={searching || query.length < 2}>
+          {searching ? <span className="spinner" /> : "🔍"}
+        </button>
+      </div>
+
+      {/* Search results */}
+      {results.length > 0 && (
+        <div data-testid="comp-search-results" style={{ marginBottom: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+          {results.map(u => {
+            const hasComp = u.comp_pro_until && new Date(u.comp_pro_until) > new Date();
+            return (
+              <div key={u.id} style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--line)", borderRadius: 10, padding: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.email}</div>
+                  <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>
+                    {u.full_name || "—"} · {u.tier || "free"}
+                    {hasComp && <span style={{ color: "var(--gold)" }}> · comp until {u.comp_pro_until.slice(0,10)}</span>}
+                  </div>
+                </div>
+                {hasComp ? (
+                  <button data-testid={`comp-revoke-${u.id}`} onClick={() => revokeComp(u.email)} disabled={actionBusy}
+                    style={{ background: "transparent", border: "1px solid #fca5a5", color: "#fca5a5", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                    Revoke
+                  </button>
+                ) : (
+                  <button data-testid={`comp-grant-${u.id}`} onClick={() => grantComp(u.email)} disabled={actionBusy}
+                    style={{ background: "var(--gold)", border: "none", color: "#1a1300", borderRadius: 8, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                    Grant {days === 0 ? "lifetime" : `${days}d`}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {feedback && (
+        <div data-testid="comp-feedback" style={{
+          padding: 8, borderRadius: 8, marginBottom: 10, fontSize: 12,
+          background: feedback.ok ? "rgba(34,197,94,0.10)" : "rgba(220,38,38,0.10)",
+          border: `1px solid ${feedback.ok ? "#22c55e" : "#fca5a5"}`,
+          color: feedback.ok ? "#86efac" : "#fca5a5",
+        }}>{feedback.msg}</div>
+      )}
+
+      {/* Active comps dashboard */}
+      {activeComps.length > 0 && (
+        <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6, fontWeight: 600, letterSpacing: "0.04em" }}>
+            ACTIVE COMPS ({activeComps.length})
+          </div>
+          <div data-testid="comp-active-list" style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 160, overflowY: "auto" }}>
+            {activeComps.map(c => {
+              const isLifetime = new Date(c.comp_pro_until).getFullYear() > 2050;
+              return (
+                <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "4px 0" }}>
+                  <div style={{ fontSize: 11.5, color: "var(--text-dim)", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {c.email}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: isLifetime ? "var(--gold)" : "var(--text-muted)", whiteSpace: "nowrap" }}>
+                    {isLifetime ? "Lifetime" : `until ${c.comp_pro_until.slice(0,10)}`}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MicAccessButton() {
   const [state, setState] = useState("idle");
   useEffect(() => {
@@ -4989,6 +5153,67 @@ function BottomNav({ lang, active = "home", onNav, hasAccess, requireSub, badges
 }
 
 // ---------- Dashboard ----------
+// 🎁 Gift banner for users granted free Pro by the owner. Persists until they
+// dismiss it (per comp_pro_until timestamp so a re-grant shows it again).
+function CompGiftBanner({ user, lang }) {
+  const compUntil = user?.comp_pro_until;
+  const isComp = !!user?.is_comp && !!compUntil;
+  const dismissKey = `aa_comp_gift_seen_${compUntil || ""}`;
+  const [dismissed, setDismissed] = useState(() => isComp && localStorage.getItem(dismissKey) === "1");
+
+  if (!isComp || dismissed) return null;
+
+  const daysLeft = user.comp_pro_days_remaining ?? 0;
+  const isLifetime = compUntil && new Date(compUntil).getFullYear() > 2050;
+
+  const dismiss = () => {
+    localStorage.setItem(dismissKey, "1");
+    setDismissed(true);
+  };
+
+  return (
+    <div data-testid="comp-gift-banner" style={{
+      position: "relative",
+      background: "linear-gradient(135deg, rgba(247,201,72,0.30), rgba(247,201,72,0.10) 60%, rgba(220,38,38,0.12))",
+      border: "2px solid var(--gold)",
+      borderRadius: 14, padding: "14px 16px", marginBottom: 14,
+      boxShadow: "0 0 30px rgba(247,201,72,0.30)",
+      overflow: "hidden",
+    }}>
+      {/* Subtle shimmer overlay */}
+      <div style={{
+        position: "absolute", inset: 0, pointerEvents: "none",
+        background: "radial-gradient(ellipse at top right, rgba(255,255,255,0.18), transparent 60%)",
+      }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative" }}>
+        <div style={{ fontSize: 30, lineHeight: 1, flexShrink: 0 }}>🎁</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "var(--gold)", letterSpacing: "0.05em", marginBottom: 2 }}>
+            YOU'VE BEEN GIFTED PRO ACCESS
+          </div>
+          <div style={{ fontSize: 12.5, color: "#fff", lineHeight: 1.45 }}>
+            {isLifetime
+              ? "The AI Advocate team has gifted you full Pro features — for life. Welcome to the inner circle."
+              : `The AI Advocate team has gifted you full Pro features for ${daysLeft} more day${daysLeft === 1 ? "" : "s"}. Enjoy.`}
+          </div>
+          <div style={{ fontSize: 10.5, color: "var(--gold-soft)", marginTop: 4, opacity: 0.85 }}>
+            ✓ Deep Think · ✓ Translation Mode · ✓ Whisper Mode · ✓ Lawyer Standby · ✓ 24h SOS tracking
+          </div>
+        </div>
+        <button data-testid="comp-gift-dismiss" onClick={dismiss}
+          aria-label="Dismiss"
+          style={{
+            background: "transparent", border: "1px solid var(--gold-deep)",
+            color: "var(--gold)", borderRadius: 8, padding: "5px 10px",
+            fontSize: 11, fontWeight: 700, cursor: "pointer", flexShrink: 0,
+          }}>
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refreshUser }) {
   const [modal, setModal] = useState(null); // {type, title, category}
   const [showLang, setShowLang] = useState(false);
@@ -5219,6 +5444,9 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
           <a href="https://aiadvocate.co.uk/subscribe" style={{ color: "var(--gold)", textDecoration: "underline" }}>aiadvocate.co.uk/subscribe</a>
         </div>
       )}
+      {/* 🎁 Comp-Pro gift banner — fires once for users who've been comped by the owner.
+          Tied to the specific `comp_pro_until` timestamp so re-comping shows it again. */}
+      <CompGiftBanner user={user} lang={lang} />
       {tier === "trial_pro" && (
         <div className="trial-banner" data-testid="trial-banner" style={{ marginBottom: 14 }}>
           {t(lang, "trialDays", { n: user.trial_days_remaining })}

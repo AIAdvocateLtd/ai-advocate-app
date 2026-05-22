@@ -411,6 +411,28 @@ def user_to_public(u: dict) -> dict:
         out["is_owner"] = True
         return out
 
+    # 🎁 COMP PRO — owner has granted this user free Pro (family, friends, customer service).
+    # Active until comp_pro_until in the future. Owner can revoke at any time.
+    comp_until = u.get("comp_pro_until")
+    if comp_until:
+        if isinstance(comp_until, str):
+            try:
+                comp_dt = datetime.fromisoformat(comp_until)
+                if comp_dt.tzinfo is None:
+                    comp_dt = comp_dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                comp_dt = None
+        else:
+            comp_dt = comp_until
+        if comp_dt and now < comp_dt:
+            out["tier"] = "pro"
+            out["has_access"] = True
+            days_remaining = (comp_dt - now).days
+            out["comp_pro_days_remaining"] = days_remaining
+            out["comp_pro_until"] = comp_dt.isoformat()
+            out["is_comp"] = True
+            return out
+
     # Tier: explicit subscription tier overrides everything when active
     tier = u.get("tier") or "free"
     sub_status = u.get("subscription_status")
@@ -5479,6 +5501,103 @@ async def admin_rag_usage(_: dict = Depends(require_admin)):
         **usage,
         "pct_used": round(100.0 * usage["used"] / usage["cap"], 1) if usage["cap"] else 0.0,
     }
+
+
+# ==================== Admin: Comp Pro Access (gift free Pro) ====================
+# Owner-only tool to grant free Pro access to family, friends, or unhappy customers.
+# Every grant is logged in db.comp_audit for accountability.
+class CompUserPayload(BaseModel):
+    email: str
+    days: int = 30                       # 0 = lifetime (sets ~30 years)
+    reason: Optional[str] = "Goodwill"
+
+@api_router.get("/admin/users/search")
+async def admin_users_search(q: str, _: dict = Depends(require_admin)):
+    """Search users by email (partial match). Used by the comp UI to find a user."""
+    if not q or len(q) < 2:
+        return {"users": []}
+    rx = q.strip().lower().replace("\\", "").replace("%", "").replace("$", "")
+    users = await db.users.find(
+        {"email": {"$regex": rx, "$options": "i"}, "deleted": {"$ne": True}},
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "tier": 1, "subscription_status": 1,
+         "trial_end_date": 1, "comp_pro_until": 1, "created_at": 1},
+    ).limit(20).to_list(20)
+    return {"users": users}
+
+
+@api_router.post("/admin/users/comp")
+async def admin_users_comp(data: CompUserPayload, admin: dict = Depends(require_admin)):
+    """Grant the named user free Pro access for `days` days (0 = lifetime)."""
+    target = await db.users.find_one({"email": data.email.strip().lower()}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "User not found. They must have signed up first.")
+
+    days = max(1, int(data.days or 30)) if data.days and data.days > 0 else (365 * 30)  # 0 = lifetime
+    # If they already have a comp window in the future, extend it; else start from now
+    now = datetime.now(timezone.utc)
+    existing = target.get("comp_pro_until")
+    if existing:
+        try:
+            existing_dt = datetime.fromisoformat(existing) if isinstance(existing, str) else existing
+            if existing_dt.tzinfo is None:
+                existing_dt = existing_dt.replace(tzinfo=timezone.utc)
+            base = max(now, existing_dt)
+        except Exception:
+            base = now
+    else:
+        base = now
+    new_until = base + timedelta(days=days)
+
+    await db.users.update_one(
+        {"id": target["id"]},
+        {"$set": {"comp_pro_until": new_until.isoformat(),
+                  "comp_pro_granted_at": now.isoformat()}},
+    )
+    # Audit log
+    await db.comp_audit.insert_one({
+        "id": str(uuid.uuid4()),
+        "granted_by_id": admin["id"], "granted_by_email": admin["email"],
+        "target_id": target["id"], "target_email": target["email"],
+        "days": days, "until": new_until.isoformat(),
+        "reason": (data.reason or "Goodwill")[:300],
+        "at": now.isoformat(), "action": "grant",
+    })
+    return {
+        "ok": True, "email": target["email"], "comp_pro_until": new_until.isoformat(),
+        "days_granted": days,
+        "is_lifetime": days >= 365 * 25,
+    }
+
+
+@api_router.post("/admin/users/uncomp")
+async def admin_users_uncomp(data: CompUserPayload, admin: dict = Depends(require_admin)):
+    """Revoke comp Pro for a user (sets comp_pro_until to null)."""
+    target = await db.users.find_one({"email": data.email.strip().lower()}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "User not found.")
+    await db.users.update_one(
+        {"id": target["id"]},
+        {"$set": {"comp_pro_until": None, "comp_pro_revoked_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    await db.comp_audit.insert_one({
+        "id": str(uuid.uuid4()),
+        "granted_by_id": admin["id"], "granted_by_email": admin["email"],
+        "target_id": target["id"], "target_email": target["email"],
+        "reason": (data.reason or "Revoked")[:300],
+        "at": datetime.now(timezone.utc).isoformat(), "action": "revoke",
+    })
+    return {"ok": True, "email": target["email"], "revoked": True}
+
+
+@api_router.get("/admin/users/comps")
+async def admin_users_comps(_: dict = Depends(require_admin)):
+    """List all currently-active comps (for the owner's at-a-glance dashboard)."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    users = await db.users.find(
+        {"comp_pro_until": {"$gt": now_iso}, "deleted": {"$ne": True}},
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "comp_pro_until": 1, "comp_pro_granted_at": 1},
+    ).sort("comp_pro_until", -1).to_list(200)
+    return {"comps": users, "count": len(users)}
 
 
 # Sponsor management — flip the "In partnership with [Firm]" footer on/off without an engineer.
