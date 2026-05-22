@@ -10,6 +10,16 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 2e — Recycle Bin + Soft-delete + Merged Record tile + Timeline Save/Clear)
+- **🗑 Recycle Bin (30-day soft-delete recovery)** — every delete in the app is now non-destructive. Affects: legal_files, cases, case_items, conversations, reminders, hearings. New collection-agnostic endpoints: `GET /api/recycle-bin`, `POST /api/recycle-bin/restore/{kind}/{id}`, `DELETE /api/recycle-bin/{kind}/{id}`, `DELETE /api/recycle-bin` (empty all). Background sweeper (every 6h) hard-purges items older than 30 days. New `RecycleBinCard` collapsible in Settings shows per-item days-left, Restore + Permanently-Delete + Empty-bin.
+- **🎙 Merged Record tile** — the separate "Record Legal Interaction" and "Hearing Recorder" tiles are gone. One tile (using the Hearing/vintage-mic icon) opens a new `RecordHub` modal with two mode pills: 🚔 *Encounter* (Plus, default — panic-mic + auto-GPS) and 🏛 *Hearing* (Pro — title field + file-upload). Mode persists in localStorage.
+- **🚨 Emergency Contacts auto-save on remove** — trash button on contact rows now POSTs immediately, so stale rows can't reappear after re-opening Settings.
+- **📁 Case Files: per-item delete + upload + Save to Vault** — each case-item has its own trash button (soft-delete via `DELETE /api/case-items/{id}`) and a "🛡 Save to Vault" button. Cases now also expose `POST /api/cases/{id}/upload-file` (multipart, ≤50MB, SHA256-hashed, metadata-only) to attach arbitrary docs/photos/audio/video.
+- **🗂 My Legal Files: Save to Vault** — detail view gained a new Save-to-Vault button alongside Download PDF / Delete. Hearing & Encounter result panes also gained the Save-to-Vault action.
+- **📜 Case Timeline upgrades** — items are now clickable: `chat` opens the chat, `deadline` opens Reminders, `case` opens that case directly. New **Save timeline** button snapshots the current view to `legal_files` (`POST /api/timeline/snapshot`). New **Clear timeline** button (`DELETE /api/timeline`) soft-deletes chats + reminders; if unsaved, prompts to save first.
+- **Backend**: soft-delete filter `{deleted_at: {$in: [None, '', False]}}` added to all list/get queries. Cascading restore for cases (items with `deleted_with_case: true` restore alongside the parent).
+- **Tested**: backend 13/13 PASS — see `/app/test_reports/iteration_18.json` and `/app/backend/tests/test_iter18_recycle_bin.py`. JS lint clean.
+
 ### 2026-02 (Session 2d — Embassy quick-dial + Multi-contact SOS + Lawyer Standby + Covert Watch SOS)
 - **🏛 Embassy / Consulate quick-dial** — built-in directory of 25 British FCDO consulates (Iraq, UAE, Turkey, Egypt, Thailand, India, Pakistan, US, China, Russia, France, Germany, Spain, Italy, Greece, Morocco, Saudi, Qatar, Japan, Australia, South Africa, Nigeria, Kenya, Brazil, Mexico). Unknown country falls back to the FCDO 24/7 emergency line (+44 20 7008 5000). New endpoints: `GET /api/embassy/lookup?country=XX`, `GET /api/embassy/all`. Tappable button in Emergency Modal.
 - **📍 Geo-sorted lawyer finder** — "Nearest lawyers to you" section in Emergency Modal pulls top-3 firms within 50km via the existing `/api/lawfirms?latitude=&longitude=&max_km=` endpoint. One-tap call buttons.
