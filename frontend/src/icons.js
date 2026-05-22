@@ -55,56 +55,7 @@ export const PropertyIcon     = make("property.png",    "Property");
 export const MedicalIcon      = make("medical.png",     "Medical");
 export const OutcomeIcon      = make("outcome.png",     "Outcome");
 export const CostIcon         = make("cost.png",        "Cost");
-
-// 🗑 Recycle Bin — inline SVG matched to the embossed-gold tile aesthetic.
-// We don't have a PNG render yet, so we hand-craft the same gold gradient + drop-shadow
-// the other tiles use, so it sits naturally next to them in the dashboard grid.
-export const RecycleIcon = ({ size = 44, alt = "Recycle Bin" }) => (
-  <svg
-    width={size * ICON_SIZE_SCALE}
-    height={size * ICON_SIZE_SCALE}
-    viewBox="0 0 64 64"
-    role="img"
-    aria-label={alt}
-    style={{
-      display: "inline-block",
-      filter: "drop-shadow(0 2px 8px rgba(0,0,0,0.5))",
-      userSelect: "none",
-      pointerEvents: "none",
-    }}
-  >
-    <defs>
-      <linearGradient id="aaRecycleGold" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%"   stopColor="#fde68a" />
-        <stop offset="35%"  stopColor="#f7c948" />
-        <stop offset="60%"  stopColor="#c89324" />
-        <stop offset="100%" stopColor="#7a5a12" />
-      </linearGradient>
-      <linearGradient id="aaRecycleRim" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%"   stopColor="#fff3c4" />
-        <stop offset="50%"  stopColor="#f7c948" />
-        <stop offset="100%" stopColor="#8a6612" />
-      </linearGradient>
-    </defs>
-    {/* Lid */}
-    <rect x="8" y="14" width="48" height="7" rx="2.5" fill="url(#aaRecycleRim)" stroke="#5a3f0a" strokeWidth="1.2" />
-    {/* Handle */}
-    <rect x="24" y="8" width="16" height="5" rx="2.2" fill="url(#aaRecycleRim)" stroke="#5a3f0a" strokeWidth="1.2" />
-    {/* Body */}
-    <path
-      d="M12 22 L52 22 L48 56 Q47 60 43 60 L21 60 Q17 60 16 56 Z"
-      fill="url(#aaRecycleGold)"
-      stroke="#5a3f0a"
-      strokeWidth="1.4"
-    />
-    {/* Vertical embossed lines */}
-    <path d="M24 27 L23 55" stroke="#5a3f0a" strokeOpacity="0.55" strokeWidth="1.4" strokeLinecap="round" />
-    <path d="M32 27 L32 55" stroke="#5a3f0a" strokeOpacity="0.55" strokeWidth="1.4" strokeLinecap="round" />
-    <path d="M40 27 L41 55" stroke="#5a3f0a" strokeOpacity="0.55" strokeWidth="1.4" strokeLinecap="round" />
-    {/* Top highlight */}
-    <path d="M14 23 Q32 21 50 23" stroke="#fff7d6" strokeOpacity="0.6" strokeWidth="1" fill="none" />
-  </svg>
-);
+export const RecycleIcon      = make("recycle.png",     "Recycle Bin");
 
 // SuggestIcon was a lightbulb (Settings → Suggest a feature) — keep small SVG, no PNG needed
 export const SuggestIcon = ({ size = 22 }) => (
