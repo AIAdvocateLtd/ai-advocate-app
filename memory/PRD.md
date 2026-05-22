@@ -10,6 +10,16 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 2c — Whisper Mode + Translation Mode + T&Cs v1.1)
+- **🌍 Translation Mode** (3rd tab in Courtroom Trainer). Bidirectional live interpreter for travellers stopped abroad. Powered by Whisper (STT) + Claude (translation) + OpenAI TTS (playback). 53-language picker (Whisper's full list — Arabic, Mandarin, Urdu, Hindi, Swahili, etc.). Other party's speech → translated + safety tip + suggested reply. User reply → translated → spoken aloud in their language. Pro tier only.
+  - New backend endpoints: `POST /api/lex/translate`, `GET /api/lex/translate/languages`.
+  - New frontend components: `TransReplyBar`, full Translation panel in `CourtroomModal` with consent gate.
+  - RTL rendering for Arabic / Farsi / Hebrew / Urdu.
+- **🔊 Whisper Mode** — TTS read-aloud on the Live Legal Assist SAY THIS card. Tap "Listen" to play Lex's suggested reply through AirPods. "Auto" toggle remembers preference in localStorage.
+  - **Court-proximity guard** (uses existing `recordingLaw.detectNearCourt`) auto-disables audio output near courthouses, with one-tap user override stored in sessionStorage.
+- **📜 T&Cs v1.1** — added sections 4a (Whisper Mode), 4b (Translation Mode), 4c (Cross-border data flow). Footer bumped to v1.1.
+- Tested: backend 8/8 PASS · frontend 100%.
+
 ### 2026-02 (Session 2a — Live legal RAG + Hybrid Claude/GPT-5 + customisable bottom nav)
 - **📚 Legal RAG grounding.** New `/app/backend/rag.py` calls **Tavily** twice per qualifying question — once filtered to UK authority domains (`legislation.gov.uk`, `bailii.org`, `judiciary.uk`, `supremecourt.uk`, `gov.uk`, `caselaw.nationalarchives.gov.uk`) and once for broader web. Snippets are numbered and appended to Lex's system prompt with explicit citation instructions, so every claim is traceable to a real URL.
   - Gracefully no-ops when `TAVILY_API_KEY` is empty — Lex still answers, just without grounding.
