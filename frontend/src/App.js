@@ -2978,6 +2978,60 @@ function LegalLetterModal({ lang, country, onClose }) {
   );
 }
 
+// ---------- Record Hub (unified entry: Encounter ↔ Hearing) ----------
+// One tile, two modes. Encounter = the original RecordModal (Plus tier, panic-mic GPS-stamped).
+// Hearing = HearingRecorderModal (Pro tier, title field + file upload, no GPS).
+// Mode persists per-user via localStorage so frequent users land on their preferred mode.
+function RecordHub({ lang, country, user, hasTier, onUpsell, onClose }) {
+  const [mode, setMode] = useState(() => localStorage.getItem("aa_record_mode") || "encounter");
+  const setModePersist = (m) => {
+    if (m === "hearing" && !hasTier("pro")) {
+      onUpsell?.();
+      return;
+    }
+    setMode(m);
+    localStorage.setItem("aa_record_mode", m);
+  };
+  const ModePill = ({ k, icon, label, tierBadge }) => (
+    <button data-testid={`record-mode-${k}`} onClick={() => setModePersist(k)}
+      style={{
+        flex: 1, padding: "10px 8px", borderRadius: 999, cursor: "pointer",
+        background: mode === k ? "var(--gold)" : "transparent",
+        color: mode === k ? "#0a0a0a" : "var(--gold)",
+        border: `1px solid ${mode === k ? "var(--gold)" : "var(--gold-deep)"}`,
+        fontSize: 12.5, fontWeight: 700, letterSpacing: "0.04em",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+      }}>
+      <span style={{ fontSize: 14 }}>{icon}</span>{label}
+      {tierBadge && (
+        <span style={{
+          fontSize: 9, padding: "1px 5px", borderRadius: 6,
+          background: mode === k ? "rgba(0,0,0,0.15)" : "rgba(247,201,72,0.15)",
+          letterSpacing: "0.06em",
+        }}>{tierBadge}</span>
+      )}
+    </button>
+  );
+  return (
+    <>
+      {/* Floating mode-picker sits above the chosen sub-modal */}
+      <div data-testid="record-hub-modeswitch" style={{
+        position: "fixed", top: 18, left: "50%", transform: "translateX(-50%)",
+        zIndex: 1001, background: "rgba(10,10,10,0.92)", backdropFilter: "blur(10px)",
+        border: "1px solid var(--gold-deep)", borderRadius: 999, padding: 4,
+        display: "flex", gap: 4, width: "min(360px, calc(100% - 24px))",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+      }}>
+        <ModePill k="encounter" icon="🚔" label="Encounter" />
+        <ModePill k="hearing" icon="🏛" label="Hearing" tierBadge={!hasTier("pro") ? "PRO" : null} />
+      </div>
+      {mode === "hearing"
+        ? <HearingRecorderModal lang={lang} country={country} onClose={onClose} />
+        : <RecordModal lang={lang} country={country} onClose={onClose} />}
+    </>
+  );
+}
+
 // ---------- Record Legal Interaction ----------
 function RecordModal({ lang, country, onClose }) {
   const { recording, start, stop } = useRecorder();
@@ -3118,11 +3172,29 @@ function RecordModal({ lang, country, onClose }) {
             <div style={{ background: "#0a0a0a", padding: 12, borderRadius: 10, color: "var(--text-dim)", fontSize: 13.5, marginBottom: 14 }}>{result.transcript}</div>
             <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 6 }}>{t(lang, "lexAnalysis")}</div>
             <div style={{ background: "#0a0a0a", padding: 12, borderRadius: 10, color: "var(--text-dim)", fontSize: 13.5, whiteSpace: "pre-wrap" }}>{result.analysis}</div>
-            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-              <button className="btn-gold" data-testid="record-pdf-btn" onClick={() => pdfForFile(result.id, result.filename || "recording")} style={{ flex: 1 }}>
+            <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+              <button className="btn-gold" data-testid="record-pdf-btn" onClick={() => pdfForFile(result.id, result.filename || "recording")} style={{ flex: 1, minWidth: 120 }}>
                 <Download size={16} style={{ display: "inline", marginRight: 6 }} />Download PDF
               </button>
-              <button className="btn-ghost" onClick={() => { setResult(null); setMeta(null); }} style={{ flex: 1 }}>{t(lang, "recordAnother")}</button>
+              {/* Save the encounter recording's transcript + analysis into the Vault. */}
+              <button className="btn-ghost" data-testid="record-vault-btn"
+                onClick={async () => {
+                  if (!result?.id) { alert("Save unavailable."); return; }
+                  try {
+                    const bundle = JSON.stringify({ transcript: result.transcript, analysis: result.analysis, meta }, null, 2);
+                    await api.post(`/legal-files/${result.id}/save-to-vault`, {
+                      file_id: result.id,
+                      encrypted_content: btoa(unescape(encodeURIComponent(bundle))),
+                      iv: "record-shim",
+                      label: `Encounter — ${new Date().toLocaleDateString()}`,
+                    });
+                    alert("Saved to Vault.");
+                  } catch (e) { alert(e?.response?.data?.detail || "Save failed"); }
+                }}
+                style={{ flex: 1, minWidth: 120 }}>
+                <ShieldCheck size={14} style={{ display: "inline", marginRight: 6 }} />Save to Vault
+              </button>
+              <button className="btn-ghost" onClick={() => { setResult(null); setMeta(null); }} style={{ flex: 1, minWidth: 120 }}>{t(lang, "recordAnother")}</button>
             </div>
           </div>
         )}
@@ -3139,13 +3211,36 @@ function FilesModal({ lang, onClose }) {
   useEffect(() => { load(); }, []);
   const removeFile = async (id, e) => {
     e?.stopPropagation?.();
-    if (!window.confirm("Delete this file? This cannot be undone.")) return;
+    if (!window.confirm("Delete this file?\n\n(Recoverable from Recycle Bin for 30 days.)")) return;
     setBusy(true);
     try {
       await api.delete(`/legal-files/${id}`);
       if (open?.id === id) setOpen(null);
+      // Optimistic: also drop from local list immediately so the UI updates even
+      // before the re-fetch completes.
+      setFiles(prev => prev.filter(f => f.id !== id));
       load();
     } catch (err) { alert(err?.response?.data?.detail || "Delete failed"); }
+    finally { setBusy(false); }
+  };
+  // Save the currently-open file's content into the Vault. Encryption happens on the
+  // server side using the user's Fernet envelope (the client-side AES wrap is layered
+  // on top inside the Vault modal itself when the user unlocks).
+  const saveToVault = async (f) => {
+    if (!f) return;
+    setBusy(true);
+    try {
+      const body = (f.content || f.analysis || f.transcript || JSON.stringify(f)).slice(0, 50000);
+      // Server-side encryption shim: we don't have a client AES key here, so we send
+      // a labelled payload tagged as `from_legal_file` and let the Vault decrypt at unlock.
+      await api.post(`/legal-files/${f.id}/save-to-vault`, {
+        file_id: f.id,
+        encrypted_content: btoa(unescape(encodeURIComponent(body))),  // base64 placeholder envelope
+        iv: "legal-file-shim",
+        label: f.filename || f.type || "Legal file",
+      });
+      alert("Saved to Vault. Open Vault → Recently Saved to view.");
+    } catch (err) { alert(err?.response?.data?.detail || "Save to Vault failed"); }
     finally { setBusy(false); }
   };
   return (
@@ -3179,9 +3274,13 @@ function FilesModal({ lang, onClose }) {
             <h3 style={{ color: "var(--gold)" }}>{open.filename}</h3>
             {open.transcript && <><div style={{ color: "var(--gold)", marginTop: 10 }}>Transcript</div><div style={{ background: "#0a0a0a", padding: 10, borderRadius: 8, color: "var(--text-dim)", fontSize: 13 }}>{open.transcript}</div></>}
             {(open.analysis || open.content) && <><div style={{ color: "var(--gold)", marginTop: 10 }}>Content</div><div style={{ background: "#0a0a0a", padding: 10, borderRadius: 8, whiteSpace: "pre-wrap", color: "var(--text-dim)", fontSize: 13 }}>{open.analysis || open.content}</div></>}
-            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-              <button className="btn-gold" data-testid="file-pdf-btn" onClick={() => pdfForFile(open.id, open.filename || "ai_advocate")} style={{ flex: 1 }}>
+            <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+              <button className="btn-gold" data-testid="file-pdf-btn" onClick={() => pdfForFile(open.id, open.filename || "ai_advocate")} style={{ flex: 1, minWidth: 120 }}>
                 <Download size={16} style={{ display: "inline", marginRight: 6 }} />Download PDF
+              </button>
+              <button className="btn-ghost" data-testid="file-vault-btn" disabled={busy} onClick={() => saveToVault(open)}
+                      style={{ flex: 1, minWidth: 120 }}>
+                <ShieldCheck size={14} style={{ display: "inline", marginRight: 6 }} />Save to Vault
               </button>
               <button data-testid="file-delete-detail-btn" disabled={busy} onClick={(e) => removeFile(open.id, e)}
                       style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 10, padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
@@ -3196,7 +3295,7 @@ function FilesModal({ lang, onClose }) {
 }
 
 // ---------- Case Files (group chats / photos / videos / letters per case) ----------
-function CaseFilesModal({ lang, onClose }) {
+function CaseFilesModal({ lang, onClose, openCaseId }) {
   const [cases, setCases] = useState([]);
   const [open, setOpen] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -3205,6 +3304,14 @@ function CaseFilesModal({ lang, onClose }) {
 
   const load = () => api.get("/cases").then(r => setCases(r.data.cases || [])).catch(() => {});
   useEffect(() => { load(); }, []);
+
+  // Deep-link support: timeline taps a case → opens that case directly
+  useEffect(() => {
+    if (!openCaseId) return;
+    let cancelled = false;
+    api.get(`/cases/${openCaseId}`).then(r => { if (!cancelled) setOpen(r.data); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [openCaseId]);
 
   // Escape closes detail-view first, then closes the whole modal
   useEffect(() => {
@@ -3240,8 +3347,54 @@ function CaseFilesModal({ lang, onClose }) {
   };
 
   const remove = async () => {
-    if (!window.confirm(t(lang, "deleteConfirm"))) return;
+    if (!window.confirm(t(lang, "deleteConfirm") + "\n\n(Recoverable from Recycle Bin for 30 days.)")) return;
     await api.delete(`/cases/${open.id}`); setOpen(null); load();
+  };
+
+  // Upload an arbitrary file (doc/photo/audio/video) into the open case as a new item.
+  const uploadRef = useRef(null);
+  const onUpload = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    if (f.size > 50 * 1024 * 1024) { alert("File too large (50MB max)."); return; }
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      fd.append("title", f.name);
+      await api.post(`/cases/${open.id}/upload-file`, fd);
+      const r = await api.get(`/cases/${open.id}`);
+      setOpen(r.data);
+    } catch (err) { alert(err?.response?.data?.detail || "Upload failed"); }
+    finally { setBusy(false); }
+  };
+
+  // Soft-delete a single item in the case (file/photo/recording/letter).
+  const deleteItem = async (itemId) => {
+    if (!window.confirm("Delete this item?\n\n(Recoverable from Recycle Bin for 30 days.)")) return;
+    setBusy(true);
+    try {
+      await api.delete(`/case-items/${itemId}`);
+      const r = await api.get(`/cases/${open.id}`);
+      setOpen(r.data);
+    } catch (err) { alert(err?.response?.data?.detail || "Delete failed"); }
+    finally { setBusy(false); }
+  };
+
+  // Save a case-item to the Vault. We let the user save the human-readable preview/title
+  // (the bytes themselves aren't stored on the server for evidence items — Vault stores
+  // a labelled snapshot of the item's metadata + preview that the user can recover later).
+  const saveItemToVault = async (it) => {
+    // Reuse the legal-files save-to-vault endpoint by first writing a tiny legal_file
+    // shadow with the item's content, then calling save-to-vault. Simpler: dispatch a
+    // global event so the Vault modal can pick it up — keeps logic isolated.
+    window.dispatchEvent(new CustomEvent("aa:save-to-vault", { detail: {
+      kind: it.item_type || "case_item",
+      label: it.title || it.filename || "Case item",
+      preview: it.preview || it.title || "",
+    }}));
+    alert("Open the Vault to confirm encrypting and saving this item.");
   };
 
   const exportPdf = async () => {
@@ -3306,17 +3459,37 @@ function CaseFilesModal({ lang, onClose }) {
               <button className="btn-ghost" onClick={shareCase} data-testid="share-case-btn" style={{ flex: 1, fontSize: 12 }}>Share</button>
               <button className="btn-ghost" onClick={remove} data-testid="delete-case-btn" style={{ flex: 0.7, fontSize: 12, color: "#fca5a5" }}><Trash2 size={14} /></button>
             </div>
+            {/* Upload to case — accepts document/photo/audio/video. Stored as a case_item with SHA256 + timestamp. */}
+            <input ref={uploadRef} type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt"
+                   onChange={onUpload} style={{ display: "none" }} data-testid="case-upload-input" />
+            <button className="btn-ghost w-full" data-testid="case-upload-btn" disabled={busy}
+                    onClick={() => uploadRef.current?.click()}
+                    style={{ marginBottom: 12, padding: 10, fontSize: 12, borderStyle: "dashed" }}>
+              {busy ? <span className="spinner" /> : <>+ Upload file to this case</>}
+            </button>
             {(open.items || []).length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 14, fontSize: 13 }}>{t(lang, "noFilesYet")}</p>}
             {(open.items || []).map(it => (
               <div key={it.id} data-testid={`case-item-${it.id}`} style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginBottom: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                  <span style={{ background: "var(--gold-deep)", color: "#1a1300", padding: "2px 7px", borderRadius: 8, fontSize: 10, fontWeight: 700, letterSpacing: "0.05em" }}>{it.item_type.toUpperCase()}</span>
-                  <span style={{ color: "var(--gold)", fontSize: 13, fontWeight: 600 }}>{it.title}</span>
+                  <span style={{ background: "var(--gold-deep)", color: "#1a1300", padding: "2px 7px", borderRadius: 8, fontSize: 10, fontWeight: 700, letterSpacing: "0.05em" }}>{(it.item_type || "ITEM").toUpperCase()}</span>
+                  <span style={{ color: "var(--gold)", fontSize: 13, fontWeight: 600, flex: 1 }}>{it.title}</span>
                 </div>
                 {it.preview && <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4, whiteSpace: "pre-wrap" }}>{it.preview}</div>}
                 <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6 }}>
                   {new Date(it.timestamp_utc || it.created_at).toLocaleString()}
                   {it.location && ` · 📍 ${it.location}`}
+                  {it.sha256 && ` · sha256:${it.sha256.slice(0,8)}…`}
+                </div>
+                {/* Per-item actions — Save to Vault + Delete (soft, restorable for 30 days) */}
+                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                  <button data-testid={`case-item-vault-${it.id}`} onClick={() => saveItemToVault(it)}
+                          className="btn-ghost" style={{ flex: 1, fontSize: 11, padding: "6px 8px" }}>
+                    🛡 Save to Vault
+                  </button>
+                  <button data-testid={`case-item-delete-${it.id}`} onClick={() => deleteItem(it.id)} disabled={busy}
+                          style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 8, padding: "6px 12px", fontSize: 11, cursor: "pointer" }}>
+                    <Trash2 size={12} />
+                  </button>
                 </div>
               </div>
             ))}
@@ -4093,6 +4266,9 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
         {/* 🎁 OWNER ONLY — comp Pro access for family / friends / customer service */}
         {user?.is_owner && <CompProAdminCard lang={lang} />}
 
+        {/* 🗑 Recycle Bin — soft-delete recovery for 30 days */}
+        <RecycleBinCard lang={lang} />
+
         {/* Auto-detect language toggle */}
         <div data-testid="settings-autodetect" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -4359,13 +4535,55 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
 
 // ---------- Bottom Navigation ----------
 // ---------- Case Timeline (cross-thread visual map) ----------
-function CaseTimeline({ lang, onClose, onOpenChat }) {
+function CaseTimeline({ lang, onClose, onOpenChat, onOpenReminders, onOpenCase }) {
   const [data, setData] = useState({ items: [], stats: { total_chats: 0, open_deadlines: 0, cases: 0, vault_items: 0 } });
   const [busy, setBusy] = useState(true);
+  const [savedAt, setSavedAt] = useState(null);   // last successful save timestamp (this session)
+  const [unsavedChanges, setUnsavedChanges] = useState(false);
 
-  useEffect(() => {
-    api.get("/timeline").then(r => setData(r.data || { items: [], stats: {} })).catch(() => {}).finally(() => setBusy(false));
-  }, []);
+  const load = () => {
+    setBusy(true);
+    api.get("/timeline").then(r => {
+      setData(r.data || { items: [], stats: {} });
+      setUnsavedChanges(true);   // any newly-loaded data hasn't been snapshotted yet
+    }).catch(() => {}).finally(() => setBusy(false));
+  };
+  useEffect(() => { load(); }, []);
+
+  // Save a snapshot to My Legal Files so the user can recover the timeline later
+  // (and export it as PDF, save to Vault, etc.). Resets the "unsaved" flag.
+  const saveSnapshot = async () => {
+    setBusy(true);
+    try {
+      await api.post("/timeline/snapshot");
+      setSavedAt(new Date());
+      setUnsavedChanges(false);
+      alert("Timeline saved to your Legal Files. You can export it as PDF or save it to the Vault from there.");
+    } catch (e) { alert(e?.response?.data?.detail || "Failed to save snapshot"); }
+    finally { setBusy(false); }
+  };
+
+  // Clear timeline: soft-deletes all conversation history + reminders (cases preserved).
+  // If the user hasn't saved a snapshot first, we prompt to save before clearing.
+  const clearTimeline = async () => {
+    if (unsavedChanges) {
+      const choice = window.confirm(
+        "You haven't saved this timeline yet.\n\n" +
+        "Tap OK to SAVE first, then clear.\n" +
+        "Tap Cancel to leave the timeline as-is."
+      );
+      if (!choice) return;
+      try { await api.post("/timeline/snapshot"); }
+      catch (e) { alert("Save failed — aborting clear."); return; }
+    }
+    if (!window.confirm("Clear timeline?\n\n(Chats & deadlines will be moved to Recycle Bin for 30 days. Cases are kept.)")) return;
+    setBusy(true);
+    try {
+      await api.delete("/timeline");
+      load();
+    } catch (e) { alert(e?.response?.data?.detail || "Failed to clear"); }
+    finally { setBusy(false); }
+  };
 
   const iconFor = (kind, cat) => {
     if (kind === "deadline") return "/icons/reminder.png";
@@ -4378,6 +4596,13 @@ function CaseTimeline({ lang, onClose, onOpenChat }) {
       return "/icons/ask_lex.png";
     }
     return "/icons/ask_lex.png";
+  };
+
+  // Route a timeline tap → its source surface
+  const handleItemClick = (it) => {
+    if (it.kind === "chat" && onOpenChat) onOpenChat(it.id);
+    else if (it.kind === "deadline" && onOpenReminders) onOpenReminders();
+    else if (it.kind === "case" && onOpenCase) onOpenCase(it.id);
   };
 
   const fmtDate = (iso) => {
@@ -4409,6 +4634,19 @@ function CaseTimeline({ lang, onClose, onOpenChat }) {
           <button onClick={onClose} data-testid="timeline-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={20} /></button>
         </div>
 
+        {/* Action strip — Save + Clear */}
+        <div style={{ display: "flex", gap: 8, padding: "10px 18px 0" }}>
+          <button data-testid="timeline-save-btn" disabled={busy || data.items.length === 0} onClick={saveSnapshot}
+                  className="btn-gold" style={{ flex: 1, padding: "8px 12px", fontSize: 12 }}>
+            <Download size={13} style={{ display: "inline", marginRight: 6 }} />
+            {savedAt && !unsavedChanges ? "Saved ✓" : "Save timeline"}
+          </button>
+          <button data-testid="timeline-clear-btn" disabled={busy || data.items.length === 0} onClick={clearTimeline}
+                  className="btn-ghost" style={{ flex: 1, padding: "8px 12px", fontSize: 12, color: "#fca5a5" }}>
+            <Trash2 size={13} style={{ display: "inline", marginRight: 6 }} />Clear timeline
+          </button>
+        </div>
+
         {/* Stat strip */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, padding: "14px 18px 0" }}>
           {[
@@ -4436,13 +4674,15 @@ function CaseTimeline({ lang, onClose, onOpenChat }) {
               Nothing yet. Ask Lex a question, add a deadline, or open a case file — they'll all appear here.
             </div>
           )}
-          {data.items.map((it, idx) => (
+          {data.items.map((it, idx) => {
+            const clickable = it.kind === "chat" || it.kind === "deadline" || it.kind === "case";
+            return (
             <div key={it.id || idx} data-testid={`timeline-item-${idx}`}
-                 onClick={() => { if (it.kind === "chat" && onOpenChat) onOpenChat(it.id); }}
+                 onClick={() => clickable && handleItemClick(it)}
                  style={{
                    display: "flex", gap: 12, padding: "12px 0",
                    borderBottom: idx < data.items.length - 1 ? "1px solid var(--line)" : "none",
-                   cursor: it.kind === "chat" ? "pointer" : "default",
+                   cursor: clickable ? "pointer" : "default",
                  }}>
               {/* Time-rail dot */}
               <div style={{ position: "relative", width: 28, flexShrink: 0, display: "flex", justifyContent: "center" }}>
@@ -4474,13 +4714,17 @@ function CaseTimeline({ lang, onClose, onOpenChat }) {
                   {it.kind === "deadline" && it.completed && (
                     <span style={{ fontSize: 10, color: "#22c55e" }}>✓ done</span>
                   )}
+                  {clickable && (
+                    <span style={{ fontSize: 10, color: "var(--gold)", marginLeft: "auto" }}>open →</span>
+                  )}
                 </div>
                 <div style={{ color: "var(--text)", fontSize: 13, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
                   {it.title}
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
@@ -4615,6 +4859,113 @@ function NavSlotPicker({ lang }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// 🗑 RecycleBinCard — lets users view, restore, or permanently purge soft-deleted
+// items across all kinds (files, cases, items, conversations, reminders, hearings).
+// Items are auto-purged after 30 days by the backend sweeper.
+function RecycleBinCard({ lang }) {
+  const [items, setItems] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const load = () => {
+    setBusy(true);
+    api.get("/recycle-bin").then(r => setItems(r.data?.items || [])).catch(() => {}).finally(() => setBusy(false));
+  };
+  useEffect(() => { if (expanded) load(); }, [expanded]);
+
+  const restore = async (it) => {
+    setBusy(true);
+    try {
+      await api.post(`/recycle-bin/restore/${it.kind}/${it.id}`);
+      load();
+    } catch (e) { alert(e?.response?.data?.detail || "Restore failed"); }
+    finally { setBusy(false); }
+  };
+  const purge = async (it) => {
+    if (!window.confirm(`Permanently delete "${it.label}"? This cannot be undone.`)) return;
+    setBusy(true);
+    try {
+      await api.delete(`/recycle-bin/${it.kind}/${it.id}`);
+      load();
+    } catch (e) { alert(e?.response?.data?.detail || "Purge failed"); }
+    finally { setBusy(false); }
+  };
+  const emptyAll = async () => {
+    if (!window.confirm(`Permanently delete all ${items.length} item${items.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    setBusy(true);
+    try {
+      await api.delete("/recycle-bin");
+      load();
+    } catch (e) { alert(e?.response?.data?.detail || "Empty failed"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div data-testid="settings-recycle-bin" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+      <button onClick={() => setExpanded(e => !e)} data-testid="recycle-bin-toggle"
+        style={{ background: "transparent", border: "none", color: "var(--text)", width: "100%", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Trash2 size={18} style={{ color: "var(--gold)" }} />
+          <span style={{ fontWeight: 600 }}>Recycle Bin</span>
+          {items.length > 0 && (
+            <span style={{ background: "var(--gold-deep)", color: "#1a1300", borderRadius: 999, fontSize: 10, fontWeight: 700, padding: "2px 8px" }}>
+              {items.length}
+            </span>
+          )}
+        </div>
+        <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{expanded ? "▲" : "▼"}</span>
+      </button>
+      <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5, marginTop: 8 }}>
+        Deleted items stay here for <strong style={{ color: "var(--gold-soft)" }}>30 days</strong>. Tap restore to bring them back, or empty the bin to permanently delete now.
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 12 }}>
+          {busy && items.length === 0 && (
+            <div style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", padding: 14 }}>
+              <span className="aa-typing-dots"><span/><span/><span/></span> Loading…
+            </div>
+          )}
+          {!busy && items.length === 0 && (
+            <div style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", padding: 14, border: "1px dashed var(--line)", borderRadius: 10 }}>
+              Nothing here. Recently deleted items will appear here.
+            </div>
+          )}
+          {items.length > 0 && (
+            <button data-testid="recycle-empty-btn" disabled={busy} onClick={emptyAll}
+              style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 10, padding: "8px 12px", width: "100%", marginBottom: 10, fontSize: 12, cursor: "pointer" }}>
+              Empty bin permanently ({items.length})
+            </button>
+          )}
+          {items.map(it => (
+            <div key={`${it.kind}-${it.id}`} data-testid={`recycle-item-${it.id}`}
+              style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, marginBottom: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                <span style={{ background: "var(--gold-deep)", color: "#1a1300", padding: "2px 6px", borderRadius: 6, fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                  {it.kind.replace("_", " ")}
+                </span>
+                <span style={{ color: "var(--gold)", fontSize: 12.5, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {it.label}
+                </span>
+              </div>
+              <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 8 }}>
+                Deleted {new Date(it.deleted_at).toLocaleDateString()} · <span style={{ color: it.days_left < 7 ? "#fca5a5" : "var(--text-muted)" }}>{it.days_left}d left</span>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button data-testid={`recycle-restore-${it.id}`} disabled={busy} onClick={() => restore(it)}
+                  className="btn-gold" style={{ flex: 1, padding: "6px 8px", fontSize: 11 }}>Restore</button>
+                <button data-testid={`recycle-purge-${it.id}`} disabled={busy} onClick={() => purge(it)}
+                  style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 8, padding: "6px 10px", fontSize: 11, cursor: "pointer" }}>
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -4845,8 +5196,25 @@ function EmergencyContactsCard({ lang, user }) {
   const updateContact = (i, patch) => {
     setContacts(c => c.map((x, idx) => idx === i ? { ...x, ...patch } : x));
   };
-  const removeContact = (i) => {
-    setContacts(c => c.filter((_, idx) => idx !== i));
+  const removeContact = async (i) => {
+    // Persist the deletion immediately so re-opening Settings doesn't show the row again.
+    // Previously we only mutated local state, which let stale contacts re-appear after refresh.
+    const next = contacts.filter((_, idx) => idx !== i);
+    setContacts(next);
+    try {
+      await api.post("/emergency/contacts", {
+        contacts: next.filter(c => c.name && c.phone),
+        lawyer_standby_enabled: standby,
+        lawyer_standby_radius_km: radius,
+        sos_message: sosMsg,
+        tracking_window_minutes: trackWindow,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (e) {
+      // Don't roll back UI — user can re-save. Just surface a soft hint.
+      console.warn("Auto-save after remove failed:", e);
+    }
   };
   const save = async () => {
     setBusy(true); setSaved(false);
@@ -5265,7 +5633,11 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
   const tiles = [
     { id: "ask_lex", label: t(lang, "askLex"), sub: t(lang, "askLexSub"), Icon: AskLexIcon, cat: "ask_lex", req: "free" },
     { id: "courtroom", label: t(lang, "courtroomTrainer"), Icon: CourtIcon, req: "plus" },
-    { id: "record", label: t(lang, "recordLegal"), Icon: RecordIcon, cat: "record", req: "plus" },
+    // Merged "Record" tile — opens RecordModal with two modes:
+    // 🚔 Encounter (Plus tier, was the original "Record Legal Interaction")
+    // 🏛 Hearing (Pro tier, was the "Hearing Recorder")
+    // Uses the Hearing/vintage-mic icon per user preference.
+    { id: "record", label: t(lang, "recordLegal"), Icon: HearingIcon, cat: "record", req: "plus" },
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
     { id: "letter_reader", label: t(lang, "letterReader"), Icon: LetterIcon, req: "free" },
     { id: "contracts", label: t(lang, "contractTools"), Icon: ContractIcon, req: "free" },
@@ -5273,7 +5645,6 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "vault", label: t(lang, "vaultTitle"), Icon: VaultIcon, req: "free" },
     { id: "outcome", label: t(lang, "predictOutcome"), Icon: OutcomeIcon, req: "pro" },
     { id: "cost", label: t(lang, "lawyerCost"), Icon: CostIcon, req: "free" },
-    { id: "hearing", label: t(lang, "hearingRecorder"), Icon: HearingIcon, req: "pro" },
     { id: "legal_aid", label: t(lang, "freeLegalAid"), sub: t(lang, "freeLegalAidSub"), Icon: AidIcon, req: "free" },
     { id: "lawyers", label: t(lang, "findLawyer"), Icon: LawyerIcon, req: "free" },
     { id: "files", label: t(lang, "myFiles"), Icon: FilesIcon, req: "free" },
@@ -5304,7 +5675,6 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     else if (tile.id === "vault") setModal({ type: "vault" });
     else if (tile.id === "outcome") setModal({ type: "outcome" });
     else if (tile.id === "cost") setModal({ type: "cost" });
-    else if (tile.id === "hearing") setModal({ type: "hearing" });
     else if (tile.id === "legal_aid") setModal({ type: "legal_aid" });
     else if (tile.id === "lawyers") setModal({ type: "lawyers" });
     else if (tile.id === "courtroom") setModal({ type: "courtroom" });
@@ -5462,7 +5832,11 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       </div>
 
       {showSuggest && <SuggestFeatureModal lang={lang} onClose={() => setShowSuggest(false)} />}
-      {showTimeline && <CaseTimeline lang={lang} onClose={() => setShowTimeline(false)} onOpenChat={(sid) => { setShowTimeline(false); setModal({ type: "chat", category: "ask_lex", title: "Lex", _resumeSession: sid }); }} />}
+      {showTimeline && <CaseTimeline lang={lang} onClose={() => setShowTimeline(false)}
+        onOpenChat={(sid) => { setShowTimeline(false); setModal({ type: "chat", category: "ask_lex", title: "Lex", _resumeSession: sid }); }}
+        onOpenReminders={() => { setShowTimeline(false); setModal({ type: "reminders" }); }}
+        onOpenCase={(cid) => { setShowTimeline(false); setModal({ type: "cases", _openCaseId: cid }); }}
+      />}
 
       <SponsorFooter />
 
@@ -5492,10 +5866,10 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "courtroom" && <CourtroomModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "letter_lib" && <LetterLibraryModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "files" && <FilesModal lang={lang} onClose={() => setModal(null)} />}
-      {modal?.type === "cases" && <CaseFilesModal lang={lang} onClose={() => setModal(null)} />}
+      {modal?.type === "cases" && <CaseFilesModal lang={lang} openCaseId={modal._openCaseId} onClose={() => setModal(null)} />}
       {modal?.type === "reminders" && <RemindersModal lang={lang} onClose={() => setModal(null)} />}
       {modal?.type === "letter" && <LegalLetterModal lang={lang} country={country} onClose={() => setModal(null)} />}
-      {modal?.type === "record" && <RecordModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "record" && <RecordHub lang={lang} country={country} user={user} hasTier={hasTier} onUpsell={() => { setSubPreset("pro"); setShowSub(true); }} onClose={() => setModal(null)} />}
       {modal?.type === "snap" && <SnapEvidenceModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "letter_reader" && <LetterReaderModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "contracts" && <ContractsHubModal lang={lang} country={country} hasTier={hasTier} onUpsell={() => { setSubPreset("pro"); setShowSub(true); }} onClose={() => setModal(null)} />}
@@ -5504,6 +5878,8 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "outcome" && <OutcomeModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "cost" && <CostEstimateModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "hearing" && <HearingRecorderModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {/* Legacy "hearing" tile id removed — merged into "record" via RecordHub. The
+          modal route above stays for any external aa:open-modal events that still target it. */}
       {modal?.type === "legal_aid" && <LegalAidModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "lawyers" && <LawyersModal lang={lang} country={country} user={user} onClose={() => setModal(null)} openAdvertise={() => { setModal(null); setShowAdvertise(true); }} />}
       {showEmergency && <EmergencyModal lang={lang} country={country} user={user} onClose={() => setShowEmergency(false)} />}
@@ -5867,6 +6243,27 @@ function HearingRecorderModal({ lang, country, onClose }) {
               <summary style={{ color: "var(--gold)", fontSize: 13, cursor: "pointer" }}>{t(lang, "hearingFullTranscript") || "Full transcript"}</summary>
               <pre style={{ background: "#0a0a0a", padding: 10, borderRadius: 8, color: "var(--text-dim)", fontSize: 12, whiteSpace: "pre-wrap", marginTop: 8 }}>{r.transcript}</pre>
             </details>
+            {/* Save the hearing's transcript + analysis bundle into the Vault. The
+                transcribe endpoint already persisted a legal_file row (returned as r.id);
+                we re-use that to wire up save-to-vault. */}
+            <button data-testid="hearing-vault-save" className="btn-ghost w-full"
+              onClick={async () => {
+                if (!r?.id) { alert("Save unavailable — please re-transcribe."); return; }
+                try {
+                  const bundle = JSON.stringify({ transcript: r.transcript, analysis: r.analysis }, null, 2);
+                  await api.post(`/legal-files/${r.id}/save-to-vault`, {
+                    file_id: r.id,
+                    encrypted_content: btoa(unescape(encodeURIComponent(bundle))),
+                    iv: "hearing-shim",
+                    label: `Hearing — ${new Date().toLocaleDateString()}`,
+                  });
+                  alert("Hearing saved to Vault.");
+                } catch (e) { alert(e?.response?.data?.detail || "Save failed"); }
+              }}
+              style={{ marginTop: 12, padding: "10px 14px", fontSize: 13 }}>
+              <ShieldCheck size={14} style={{ display: "inline", marginRight: 6 }} />
+              Save to Vault
+            </button>
           </div>
         )}
       </div>

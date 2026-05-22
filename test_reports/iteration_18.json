@@ -1,0 +1,36 @@
+{
+  "summary": "Backend-only verification of iteration 18 (Recycle Bin + soft-delete + save-to-vault + timeline snapshot + case upload-file). 13/13 pytest tests passed against admin@aiadvocate.co.uk on the live preview URL. All new endpoints behave correctly: recycle-bin listing, legal-file soft-delete lifecycle (delete -> bin -> restore -> purge), case soft-delete cascading items with restore propagation, case-item decrement of items_count, multipart upload-file for cases, save-to-vault row creation, timeline snapshot persisting as a legal_files row with type='timeline_snapshot', and clear-timeline soft-deleting conversations + reminders. Empty-bin endpoint returns purged_count and leaves the bin empty.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter18_recycle_bin.py",
+    "/app/test_reports/pytest/iter18_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 6048 lines — well past the 700-line threshold. Suggest splitting recycle-bin/vault/cases/timeline routers into separate modules.",
+    "_recycle_bin_sweeper() and the 6-hour periodic task are started on startup but there is no try/finally to cancel the task on shutdown — minor leak risk under hot reload but harmless in production with a single worker.",
+    "Soft-delete filter uses {'$in': [None, '', False]} everywhere; consistent — good. Consider adding a Mongo index on (user_id, deleted_at) for the legal_files/cases/case_items/conversations/reminders/hearing_recordings collections — recycle-bin scans 200 per kind which will get slow once the bin has many rows across users.",
+    "POST /legal-files/{id}/save-to-vault accepts arbitrary base64 strings as encrypted_content/iv with no length/format validation; ok for the documented 'shim' behaviour but the comment in the model says client-side AES-GCM happens — the docstring should match the shim reality so future devs don't assume crypto is in place.",
+    "POST /cases/{id}/upload-file discards the raw bytes and only stores a sha256 hash + metadata. The endpoint description correctly notes this, but the response does not include any 'storage' or 'preserved' flag — clients can't tell from the response whether the file was retained. Consider adding 'bytes_stored': false to make the contract explicit.",
+    "DELETE /api/case-items/{id} decrements items_count even when the item is already soft-deleted in theory — guard {'deleted_at': {'$in': [None,'',False]}} prevents the update from matching, so the find_one + $inc still runs. Net effect is harmless (no second decrement because the update did not match means the function would early-return at 404). Verified by tests.",
+    "/api/timeline/snapshot calls get_timeline(user=user) — works because get_timeline only uses the user arg, but the type: ignore[arg-type] comment indicates the team is aware this is brittle. If get_timeline ever grows additional Depends params, the snapshot will silently break."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter18_recycle_bin.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "admin@aiadvocate.co.uk / AdminLex2026!",
+  "seed_data_creation": "Tests create TEST_-prefixed legal letters, cases, case items, and a vault row. Each test cleans up its own data (soft-delete + purge or empty-bin), but the final test_empty_bin_returns_purged_count empties the user's entire recycle bin so no leftover soft-deleted rows remain.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The new pytest suite at /app/backend/tests/test_iter18_recycle_bin.py covers: recycle-bin GET/restore/purge/empty, soft-delete on legal_files + cases (with case_item cascade), case_item delete + items_count decrement, multipart upload-file for cases, save-to-vault, timeline snapshot, and clear-timeline. Frontend smoke (RecordHub mode pills, Settings Recycle Bin card, single Record tile) was NOT executed — per request testing_type was 'backend only'. If the next agent does frontend smoke, hit /api/auth/login first then load the SPA; data-testids referenced by the request are 'settings-recycle-bin', 'record-mode-encounter', 'record-mode-hearing'.",
+  "rca of the issue": "N/A — no bugs found in this iteration's backend changes."
+}

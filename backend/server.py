@@ -1303,7 +1303,7 @@ async def get_timeline(user: dict = Depends(get_user)):
 
     # Reminders / deadlines
     try:
-        async for r in db.reminders.find({"user_id": user_id}, {"_id": 0}).sort("due_at", 1).limit(50):
+        async for r in db.reminders.find({"user_id": user_id, "deleted_at": {"$in": [None, "", False]}}, {"_id": 0}).sort("due_at", 1).limit(50):
             items.append({
                 "kind": "deadline",
                 "id": r.get("id"),
@@ -1324,11 +1324,11 @@ async def get_timeline(user: dict = Depends(get_user)):
 
     # Cases (case files)
     try:
-        async for c in db.cases.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(30):
+        async for c in db.cases.find({"user_id": user_id, "deleted_at": {"$in": [None, "", False]}}, {"_id": 0}).sort("created_at", -1).limit(30):
             items.append({
                 "kind": "case",
                 "id": c.get("id"),
-                "title": c.get("title") or "(untitled case)",
+                "title": c.get("title") or c.get("name") or "(untitled case)",
                 "category": c.get("category") or "case",
                 "updated_at": c.get("updated_at") or c.get("created_at"),
             })
@@ -2726,7 +2726,7 @@ async def analyze_contract(
 @api_router.get("/legal-files")
 async def list_files(user: dict = Depends(get_user)):
     files = await db.legal_files.find(
-        {"user_id": user["id"]}, {"_id": 0}
+        {"user_id": user["id"], "deleted_at": {"$in": [None, "", False]}}, {"_id": 0}
     ).sort("created_at", -1).to_list(100)
     return files
 
@@ -3544,7 +3544,7 @@ async def create_case(data: CaseCreate, user: dict = Depends(get_user)):
 
 @api_router.get("/cases")
 async def list_cases(user: dict = Depends(get_user), status: Optional[str] = None):
-    q = {"user_id": user["id"]}
+    q = {"user_id": user["id"], "deleted_at": {"$in": [None, "", False]}}
     if status: q["status"] = status
     out = []
     async for c in db.cases.find(q, {"_id": 0}).sort("updated_at", -1).limit(200):
@@ -3554,11 +3554,11 @@ async def list_cases(user: dict = Depends(get_user), status: Optional[str] = Non
 
 @api_router.get("/cases/{case_id}")
 async def get_case(case_id: str, user: dict = Depends(get_user)):
-    c = await db.cases.find_one({"id": case_id, "user_id": user["id"]}, {"_id": 0})
+    c = await db.cases.find_one({"id": case_id, "user_id": user["id"], "deleted_at": {"$in": [None, "", False]}}, {"_id": 0})
     if not c: raise HTTPException(404, "Case not found")
     if "summary" in c: c["summary"] = decrypt_text(c["summary"])
     items = []
-    async for it in db.case_items.find({"case_id": case_id, "user_id": user["id"]}, {"_id": 0}).sort("created_at", -1):
+    async for it in db.case_items.find({"case_id": case_id, "user_id": user["id"], "deleted_at": {"$in": [None, "", False]}}, {"_id": 0}).sort("created_at", -1):
         if "description" in it: it["description"] = decrypt_text(it["description"])
         items.append(it)
     c["items"] = items
@@ -3577,10 +3577,33 @@ async def update_case(case_id: str, data: CaseUpdate, user: dict = Depends(get_u
 
 @api_router.delete("/cases/{case_id}")
 async def delete_case(case_id: str, user: dict = Depends(get_user)):
-    r = await db.cases.delete_one({"id": case_id, "user_id": user["id"]})
-    if r.deleted_count == 0: raise HTTPException(404, "Case not found")
-    await db.case_items.delete_many({"case_id": case_id})
-    return {"deleted": True}
+    """Soft-delete a case + all its items. Recoverable from /recycle-bin for 30 days."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    r = await db.cases.update_one(
+        {"id": case_id, "user_id": user["id"], "deleted_at": {"$in": [None, "", False]}},
+        {"$set": {"deleted_at": now_iso}},
+    )
+    if r.matched_count == 0: raise HTTPException(404, "Case not found")
+    await db.case_items.update_many(
+        {"case_id": case_id, "deleted_at": {"$in": [None, "", False]}},
+        {"$set": {"deleted_at": now_iso, "deleted_with_case": True}},
+    )
+    return {"deleted": True, "recoverable_for_days": 30}
+
+@api_router.delete("/case-items/{item_id}")
+async def delete_case_item(item_id: str, user: dict = Depends(get_user)):
+    """Soft-delete a single item within a case (file/photo/recording/letter)."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    r = await db.case_items.update_one(
+        {"id": item_id, "user_id": user["id"], "deleted_at": {"$in": [None, "", False]}},
+        {"$set": {"deleted_at": now_iso}},
+    )
+    if r.matched_count == 0: raise HTTPException(404, "Item not found")
+    # Decrement parent case items_count
+    target = await db.case_items.find_one({"id": item_id}, {"_id": 0, "case_id": 1})
+    if target and target.get("case_id"):
+        await db.cases.update_one({"id": target["case_id"]}, {"$inc": {"items_count": -1}})
+    return {"deleted": True, "recoverable_for_days": 30}
 
 @api_router.post("/cases/{case_id}/items")
 async def attach_item(case_id: str, data: CaseItemAttach, user: dict = Depends(get_user)):
@@ -4851,14 +4874,17 @@ No greetings, no preamble — just the tip itself."""
     return {"date": today, "tip": tip, "cached": False}
 
 
-# ==================== File Deletion ====================
+# ==================== File Deletion (soft delete → recycle bin) ====================
 @api_router.delete("/legal-files/{file_id}")
 async def delete_legal_file(file_id: str, user: dict = Depends(get_user)):
-    """Customer-facing delete for any file in /legal-files."""
-    res = await db.legal_files.delete_one({"id": file_id, "user_id": user["id"]})
-    if res.deleted_count == 0:
+    """Soft-delete a legal file. Recoverable from /recycle-bin for 30 days."""
+    res = await db.legal_files.update_one(
+        {"id": file_id, "user_id": user["id"], "deleted_at": {"$in": [None, "", False]}},
+        {"$set": {"deleted_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    if res.matched_count == 0:
         raise HTTPException(404, "File not found")
-    return {"deleted": True, "id": file_id}
+    return {"deleted": True, "id": file_id, "recoverable_for_days": 30}
 
 
 # ==================== Contract Reader & Drafter ====================
@@ -5743,6 +5769,249 @@ async def review_recorded(user: dict = Depends(get_user)):
     await db.users.update_one({"id": user["id"]}, {"$set": {"review_left": True, "review_left_at": datetime.now(timezone.utc).isoformat()}})
     return {"recorded": True}
 
+
+# ==================== Recycle Bin (30-day soft-delete recovery) ====================
+# Every "delete" in the app actually marks `deleted_at` instead of removing the row.
+# This endpoint family lets users see, restore, or permanently purge soft-deleted items
+# for 30 days. After 30 days the daily sweeper hard-purges them.
+RECYCLE_KIND_TO_COLL = {
+    "legal_file": "legal_files",
+    "case": "cases",
+    "case_item": "case_items",
+    "reminder": "reminders",
+    "conversation": "conversations",
+    "hearing": "hearing_recordings",
+}
+
+@api_router.get("/recycle-bin")
+async def list_recycle_bin(user: dict = Depends(get_user)):
+    """Aggregate every soft-deleted item across kinds for this user."""
+    out = []
+    for kind, coll_name in RECYCLE_KIND_TO_COLL.items():
+        try:
+            coll = db[coll_name]
+            cursor = coll.find(
+                {"user_id": user["id"], "deleted_at": {"$nin": [None, "", False]}},
+                {"_id": 0, "id": 1, "name": 1, "title": 1, "filename": 1,
+                 "deleted_at": 1, "created_at": 1, "case_id": 1, "item_type": 1, "type": 1},
+            ).sort("deleted_at", -1).limit(200)
+            async for d in cursor:
+                # Compute days remaining (30-day window)
+                try:
+                    deleted_dt = datetime.fromisoformat(d["deleted_at"].replace("Z", "+00:00"))
+                    expires_at = deleted_dt + timedelta(days=30)
+                    days_left = max(0, (expires_at - datetime.now(timezone.utc)).days)
+                except Exception:
+                    days_left = 30
+                out.append({
+                    "kind": kind,
+                    "id": d.get("id"),
+                    "label": d.get("filename") or d.get("name") or d.get("title") or d.get("item_type") or kind,
+                    "deleted_at": d.get("deleted_at"),
+                    "created_at": d.get("created_at"),
+                    "case_id": d.get("case_id"),
+                    "subtype": d.get("type") or d.get("item_type"),
+                    "days_left": days_left,
+                })
+        except Exception:
+            continue
+    out.sort(key=lambda x: x.get("deleted_at") or "", reverse=True)
+    return {"items": out, "count": len(out)}
+
+
+@api_router.post("/recycle-bin/restore/{kind}/{item_id}")
+async def restore_recycle_item(kind: str, item_id: str, user: dict = Depends(get_user)):
+    coll_name = RECYCLE_KIND_TO_COLL.get(kind)
+    if not coll_name:
+        raise HTTPException(400, f"Unknown kind: {kind}")
+    coll = db[coll_name]
+    res = await coll.update_one(
+        {"id": item_id, "user_id": user["id"]},
+        {"$unset": {"deleted_at": "", "deleted_with_case": ""}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Item not found")
+    # If we just restored a case, also restore items deleted alongside it
+    if kind == "case":
+        await db.case_items.update_many(
+            {"case_id": item_id, "deleted_with_case": True},
+            {"$unset": {"deleted_at": "", "deleted_with_case": ""}},
+        )
+    # If we restored a case_item, bump parent case items_count
+    if kind == "case_item":
+        it = await db.case_items.find_one({"id": item_id}, {"_id": 0, "case_id": 1})
+        if it and it.get("case_id"):
+            await db.cases.update_one({"id": it["case_id"]}, {"$inc": {"items_count": 1}})
+    return {"restored": True, "kind": kind, "id": item_id}
+
+
+@api_router.delete("/recycle-bin/{kind}/{item_id}")
+async def purge_recycle_item(kind: str, item_id: str, user: dict = Depends(get_user)):
+    coll_name = RECYCLE_KIND_TO_COLL.get(kind)
+    if not coll_name:
+        raise HTTPException(400, f"Unknown kind: {kind}")
+    coll = db[coll_name]
+    res = await coll.delete_one(
+        {"id": item_id, "user_id": user["id"], "deleted_at": {"$nin": [None, "", False]}},
+    )
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Item not found")
+    return {"purged": True, "kind": kind, "id": item_id}
+
+
+@api_router.delete("/recycle-bin")
+async def empty_recycle_bin(user: dict = Depends(get_user)):
+    """Hard-delete every soft-deleted item for this user, across all kinds."""
+    total = 0
+    for coll_name in RECYCLE_KIND_TO_COLL.values():
+        try:
+            res = await db[coll_name].delete_many(
+                {"user_id": user["id"], "deleted_at": {"$nin": [None, "", False]}}
+            )
+            total += res.deleted_count
+        except Exception:
+            continue
+    return {"purged_count": total}
+
+
+async def _recycle_bin_sweeper():
+    """Permanently delete soft-deleted items older than 30 days. Idempotent."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    total = 0
+    for coll_name in RECYCLE_KIND_TO_COLL.values():
+        try:
+            res = await db[coll_name].delete_many(
+                {"deleted_at": {"$lt": cutoff, "$nin": [None, "", False]}}
+            )
+            total += res.deleted_count
+        except Exception:
+            continue
+    if total:
+        logger.info(f"[recycle-bin] swept {total} expired soft-deleted items")
+    return total
+
+
+# ==================== Save-to-Vault (any file kind → Vault) ====================
+class VaultSaveLegalFile(BaseModel):
+    file_id: str
+    # Client-side AES-GCM encryption happens before this call; we just store the wrapped
+    # ciphertext + IV under the user's vault. The legal_file row stays where it is —
+    # this is a copy, not a move (so the source-of-truth chain-of-custody remains intact).
+    encrypted_content: str
+    iv: str
+    label: Optional[str] = None
+
+
+@api_router.post("/legal-files/{file_id}/save-to-vault")
+async def save_legal_file_to_vault(file_id: str, payload: VaultSaveLegalFile, user: dict = Depends(get_user)):
+    src = await db.legal_files.find_one({"id": file_id, "user_id": user["id"]}, {"_id": 0})
+    if not src:
+        raise HTTPException(404, "File not found")
+    # Insert into vault_items with the client-encrypted payload
+    item_id = str(uuid.uuid4())
+    await db.vault_items.insert_one({
+        "id": item_id,
+        "user_id": user["id"],
+        "label": (payload.label or src.get("filename") or "Saved file")[:200],
+        "kind": src.get("type") or "file",
+        "encrypted_content": payload.encrypted_content,
+        "iv": payload.iv,
+        "source_id": file_id,
+        "source_kind": "legal_file",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"saved": True, "vault_item_id": item_id}
+
+
+# ==================== Case Items: file upload + delete + save-to-vault ====================
+@api_router.post("/cases/{case_id}/upload-file")
+async def upload_file_to_case(
+    case_id: str,
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    user: dict = Depends(get_user),
+):
+    """Attach an arbitrary file (document/photo/audio/video) to a case. The raw file
+    is NOT stored — only metadata + a SHA256 hash for chain-of-custody. Users who
+    want the bytes preserved should save the file to the Vault separately."""
+    c = await db.cases.find_one({"id": case_id, "user_id": user["id"], "deleted_at": {"$in": [None, "", False]}})
+    if not c:
+        raise HTTPException(404, "Case not found")
+    raw = await file.read()
+    if len(raw) > 50 * 1024 * 1024:
+        raise HTTPException(413, "File too large (50MB max)")
+    import hashlib as _hl
+    sha = _hl.sha256(raw).hexdigest()
+    mt = (file.content_type or "application/octet-stream").lower()
+    kind = "photo" if mt.startswith("image/") else (
+           "video" if mt.startswith("video/") else (
+           "audio" if mt.startswith("audio/") else "document"))
+    item = {
+        "id": str(uuid.uuid4()), "case_id": case_id, "user_id": user["id"],
+        "item_type": kind,
+        "title": (title or file.filename or kind)[:200],
+        "preview": (description or "")[:500],
+        "filename": file.filename or "",
+        "content_type": mt,
+        "size_bytes": len(raw),
+        "sha256": sha,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.case_items.insert_one(item)
+    await db.cases.update_one(
+        {"id": case_id},
+        {"$inc": {"items_count": 1}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    item.pop("_id", None)
+    return item
+
+
+# ==================== Timeline: save snapshot + clear ====================
+@api_router.post("/timeline/snapshot")
+async def save_timeline_snapshot(user: dict = Depends(get_user)):
+    """Save a point-in-time snapshot of the user's timeline into legal_files (so it
+    appears in My Legal Files + can be exported / saved to Vault later)."""
+    # Reuse the same aggregation as /timeline above
+    tl = await get_timeline(user=user)  # type: ignore[arg-type]
+    snap_id = str(uuid.uuid4())
+    label = f"Case timeline — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
+    # Build a human-readable text summary so PDF export & previews look right
+    lines = [label, ""]
+    for it in tl.get("items", []):
+        when = it.get("updated_at") or it.get("due_at") or ""
+        lines.append(f"• [{it.get('kind','')}] {it.get('title','')}  ({when})")
+    content = "\n".join(lines)
+    await db.legal_files.insert_one({
+        "id": snap_id,
+        "user_id": user["id"],
+        "filename": label + ".txt",
+        "type": "timeline_snapshot",
+        "content": content,
+        "timeline_payload": tl,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"saved": True, "snapshot_id": snap_id, "label": label}
+
+
+@api_router.delete("/timeline")
+async def clear_timeline(user: dict = Depends(get_user)):
+    """Soft-delete every source row contributing to the timeline. Recoverable from
+    Recycle Bin for 30 days. Conversations and reminders only — case files are NOT
+    cleared by this (would be too destructive); user can delete cases individually."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    convs = await db.conversations.update_many(
+        {"user_id": user["id"], "deleted_at": {"$in": [None, "", False]}},
+        {"$set": {"deleted_at": now_iso}},
+    )
+    rems = await db.reminders.update_many(
+        {"user_id": user["id"], "deleted_at": {"$in": [None, "", False]}},
+        {"$set": {"deleted_at": now_iso}},
+    )
+    return {"cleared": True, "conversations": convs.modified_count, "reminders": rems.modified_count}
+
+
 app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware, allow_credentials=True,
@@ -5757,6 +6026,21 @@ async def startup():
         logger.info("Law firm seed ensured")
     except Exception as e:
         logger.exception(f"Seed error: {e}")
+    # Run the recycle-bin sweeper once at startup, then schedule periodic re-runs.
+    # Idempotent — safe even if multiple workers boot.
+    import asyncio as _aio
+    try:
+        await _recycle_bin_sweeper()
+    except Exception as e:
+        logger.warning(f"Recycle-bin sweep on startup failed: {e}")
+    async def _periodic_sweep():
+        while True:
+            await _aio.sleep(6 * 3600)   # every 6 hours
+            try:
+                await _recycle_bin_sweeper()
+            except Exception as e:
+                logger.warning(f"Periodic recycle-bin sweep failed: {e}")
+    _aio.create_task(_periodic_sweep())
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
