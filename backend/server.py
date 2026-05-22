@@ -555,6 +555,22 @@ LANG_NAMES = {
     "it-IT": "Italian", "pt-PT": "Portuguese", "zh-CN": "Chinese (Simplified)"
 }
 
+# ISO-639-1 → English name. Used by /lex/translate so we can refer to languages
+# the rest of the app doesn't otherwise speak (Swahili, Vietnamese, Amharic, etc).
+ISO_639_NAMES = {
+    "en": "English", "ar": "Arabic", "fr": "French", "es": "Spanish", "de": "German",
+    "it": "Italian", "pt": "Portuguese", "pl": "Polish", "ru": "Russian", "uk": "Ukrainian",
+    "tr": "Turkish", "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "hi": "Hindi",
+    "ur": "Urdu", "bn": "Bengali", "pa": "Punjabi", "ta": "Tamil", "te": "Telugu",
+    "fa": "Persian", "he": "Hebrew", "th": "Thai", "vi": "Vietnamese", "id": "Indonesian",
+    "ms": "Malay", "tl": "Tagalog", "nl": "Dutch", "sv": "Swedish", "no": "Norwegian",
+    "da": "Danish", "fi": "Finnish", "el": "Greek", "cs": "Czech", "ro": "Romanian",
+    "hu": "Hungarian", "bg": "Bulgarian", "sr": "Serbian", "hr": "Croatian", "sk": "Slovak",
+    "sw": "Swahili", "am": "Amharic", "yo": "Yoruba", "ha": "Hausa", "so": "Somali",
+    "af": "Afrikaans", "az": "Azerbaijani", "ka": "Georgian", "hy": "Armenian",
+    "kk": "Kazakh", "mn": "Mongolian", "ne": "Nepali", "si": "Sinhala",
+}
+
 def lex_system_prompt(language: str, country: str, category: Optional[str]) -> str:
     lang_name = LANG_NAMES.get(language, "English")
     base = f"""You are Lex — the AI Advocate. An elite, modern legal mind sharper than the top barristers and senior solicitors in any jurisdiction. You have perfect recall of every statute, leading case, procedural rule, and precedent, and you reason about them like a King's Counsel preparing for trial.
@@ -1457,6 +1473,160 @@ CRITICAL RULES:
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     return {"session_id": session_id, "response": response}
+
+
+# ==================== Translation Mode (foreign-language interrogations) ====================
+# Bidirectional live translation for travellers stopped abroad. Whisper transcribes
+# the spoken language (any of 50+), then Claude translates AND adds a short safety tip.
+# Frontend then speaks the translation aloud via /api/voice/tts. Pro tier only.
+class TranslateRequest(BaseModel):
+    session_id: Optional[str] = None
+    text: str
+    source_lang: str = "ar"
+    target_lang: str = "en"
+    direction: str = "incoming"     # "incoming" (other party → user) | "outgoing" (user → other party)
+    context: Optional[str] = None
+    country: str = "GB"
+
+@api_router.post("/lex/translate")
+async def lex_translate(data: TranslateRequest, user: dict = Depends(get_user)):
+    """Translate one chunk + (for incoming speech) suggest a safe reply. Pro tier only."""
+    pub = user_to_public(user)
+    if not tier_has_access(pub["tier"], "live_assist"):
+        raise HTTPException(402, "Translation Mode requires Pro. Upgrade to unlock.")
+
+    if not data.text or not data.text.strip():
+        raise HTTPException(400, "Nothing to translate.")
+    if len(data.text) > 2000:
+        raise HTTPException(400, "Text too long — Translation Mode is for short live exchanges.")
+
+    src_name = LANG_NAMES.get(data.source_lang, ISO_639_NAMES.get(data.source_lang, data.source_lang))
+    tgt_name = LANG_NAMES.get(data.target_lang, ISO_639_NAMES.get(data.target_lang, data.target_lang))
+
+    if data.direction == "incoming":
+        system = (
+            f"You are Lex in TRANSLATION MODE. The user is a {data.country} passport holder abroad. "
+            f"They are in: {data.context or 'a live foreign-language conversation'}. "
+            f"The other party just spoke in {src_name}. You must:\n"
+            f"1) Translate it ACCURATELY into {tgt_name}.\n"
+            f"2) Suggest a SHORT, SAFE reply (≤25 words) the user could say. Default to politeness, "
+            f"showing ID/passport, refusing to answer travel-plan / political questions, asking for "
+            f"their embassy or a lawyer/interpreter if detained.\n"
+            f"Output EXACTLY this format (no extra text):\n"
+            f"TRANSLATION: <the translation in {tgt_name}>\n"
+            f"TIP: <one-line safety tip in {tgt_name}>\n"
+            f"REPLY: <the suggested reply in {tgt_name}>"
+        )
+        user_prompt = f'They said (in {src_name}): "{data.text}"'
+    else:
+        system = (
+            f"You are a precise live interpreter. Translate the user's message from {src_name} into "
+            f"{tgt_name}. Output ONLY the translation — no preamble, no quotes, no commentary."
+        )
+        user_prompt = data.text
+
+    session_id = data.session_id or str(uuid.uuid4())
+    chat = LlmChat(
+        api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=system,
+    ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=240)
+    try:
+        response = await chat.send_message(UserMessage(text=user_prompt))
+    except Exception as e:
+        logger.exception("translate error")
+        raise HTTPException(500, f"Translate failed: {e}")
+
+    translation = response.strip()
+    tip = ""
+    suggested_reply = ""
+    if data.direction == "incoming":
+        parsed_translation = None
+        for line in response.splitlines():
+            s = line.strip()
+            up = s.upper()
+            if up.startswith("TRANSLATION:"):
+                parsed_translation = s.split(":", 1)[1].strip()
+            elif up.startswith("TIP:"):
+                tip = s.split(":", 1)[1].strip()
+            elif up.startswith("REPLY:"):
+                suggested_reply = s.split(":", 1)[1].strip()
+        if parsed_translation:
+            translation = parsed_translation
+
+    await db.conversations.insert_one({
+        "id": str(uuid.uuid4()), "user_id": user["id"], "session_id": session_id,
+        "category": f"translate_{data.direction}",
+        "user_message": data.text, "assistant_response": response,
+        "language": data.target_lang,
+        "source_lang": data.source_lang, "target_lang": data.target_lang,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    return {
+        "session_id": session_id,
+        "translation": translation,
+        "tip": tip,
+        "suggested_reply": suggested_reply,
+    }
+
+
+@api_router.get("/lex/translate/languages")
+async def translate_languages():
+    """Whisper-supported language list for Translation Mode pickers."""
+    return {"languages": [
+        {"code": "en", "name": "English",     "native": "English"},
+        {"code": "ar", "name": "Arabic",      "native": "العربية"},
+        {"code": "fr", "name": "French",      "native": "Français"},
+        {"code": "es", "name": "Spanish",     "native": "Español"},
+        {"code": "de", "name": "German",      "native": "Deutsch"},
+        {"code": "it", "name": "Italian",     "native": "Italiano"},
+        {"code": "pt", "name": "Portuguese",  "native": "Português"},
+        {"code": "pl", "name": "Polish",      "native": "Polski"},
+        {"code": "ru", "name": "Russian",     "native": "Русский"},
+        {"code": "uk", "name": "Ukrainian",   "native": "Українська"},
+        {"code": "tr", "name": "Turkish",     "native": "Türkçe"},
+        {"code": "zh", "name": "Chinese",     "native": "中文"},
+        {"code": "ja", "name": "Japanese",    "native": "日本語"},
+        {"code": "ko", "name": "Korean",      "native": "한국어"},
+        {"code": "hi", "name": "Hindi",       "native": "हिन्दी"},
+        {"code": "ur", "name": "Urdu",        "native": "اردو"},
+        {"code": "bn", "name": "Bengali",     "native": "বাংলা"},
+        {"code": "pa", "name": "Punjabi",     "native": "ਪੰਜਾਬੀ"},
+        {"code": "ta", "name": "Tamil",       "native": "தமிழ்"},
+        {"code": "te", "name": "Telugu",      "native": "తెలుగు"},
+        {"code": "fa", "name": "Persian",     "native": "فارسی"},
+        {"code": "he", "name": "Hebrew",      "native": "עברית"},
+        {"code": "th", "name": "Thai",        "native": "ไทย"},
+        {"code": "vi", "name": "Vietnamese",  "native": "Tiếng Việt"},
+        {"code": "id", "name": "Indonesian",  "native": "Bahasa Indonesia"},
+        {"code": "ms", "name": "Malay",       "native": "Bahasa Melayu"},
+        {"code": "tl", "name": "Tagalog",     "native": "Tagalog"},
+        {"code": "nl", "name": "Dutch",       "native": "Nederlands"},
+        {"code": "sv", "name": "Swedish",     "native": "Svenska"},
+        {"code": "no", "name": "Norwegian",   "native": "Norsk"},
+        {"code": "da", "name": "Danish",      "native": "Dansk"},
+        {"code": "fi", "name": "Finnish",     "native": "Suomi"},
+        {"code": "el", "name": "Greek",       "native": "Ελληνικά"},
+        {"code": "cs", "name": "Czech",       "native": "Čeština"},
+        {"code": "ro", "name": "Romanian",    "native": "Română"},
+        {"code": "hu", "name": "Hungarian",   "native": "Magyar"},
+        {"code": "bg", "name": "Bulgarian",   "native": "Български"},
+        {"code": "sr", "name": "Serbian",     "native": "Српски"},
+        {"code": "hr", "name": "Croatian",    "native": "Hrvatski"},
+        {"code": "sk", "name": "Slovak",      "native": "Slovenčina"},
+        {"code": "sw", "name": "Swahili",     "native": "Kiswahili"},
+        {"code": "am", "name": "Amharic",     "native": "አማርኛ"},
+        {"code": "yo", "name": "Yoruba",      "native": "Yorùbá"},
+        {"code": "ha", "name": "Hausa",       "native": "Hausa"},
+        {"code": "so", "name": "Somali",      "native": "Soomaali"},
+        {"code": "af", "name": "Afrikaans",   "native": "Afrikaans"},
+        {"code": "az", "name": "Azerbaijani", "native": "Azərbaycan"},
+        {"code": "ka", "name": "Georgian",    "native": "ქართული"},
+        {"code": "hy", "name": "Armenian",    "native": "Հայերեն"},
+        {"code": "kk", "name": "Kazakh",      "native": "Қазақ"},
+        {"code": "mn", "name": "Mongolian",   "native": "Монгол"},
+        {"code": "ne", "name": "Nepali",      "native": "नेपाली"},
+        {"code": "si", "name": "Sinhala",     "native": "සිංහල"},
+    ]}
 
 
 # ==================== Emergency: "I've Been Arrested" ====================

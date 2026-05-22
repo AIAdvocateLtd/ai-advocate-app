@@ -5,7 +5,7 @@ import {
   MessageCircle, Mic, Folder, FileText, Gavel, Globe, Briefcase, Home as HomeIcon,
   Stethoscope, Scale, X, Send, Upload, Languages, LogOut, Check, ArrowLeft, Square, Play,
   Camera, MapPin, Phone, ExternalLink, Settings as SettingsIcon, Star, Building2, Image as ImageIcon,
-  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint, Sparkles
+  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint, Sparkles, Volume2
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
 import { setAppIconBadge } from "@/appBadge";
@@ -1749,6 +1749,170 @@ function CourtroomModal({ lang, country, onClose }) {
     try { lStreamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
   }, []);
 
+  // ============= Translation Mode state =============
+  // Bidirectional live interpreter for travellers stopped abroad.
+  const [tLanguages, setTLanguages] = useState([]);            // {code, name, native}[]
+  const [tTheirLang, setTTheirLang] = useState("ar");          // language spoken by the other party
+  const [tMyLang, setTMyLang]       = useState("en");          // user's language
+  const [tContext, setTContext]     = useState("");            // e.g. "Iraqi checkpoint, traveller"
+  const [tActive, setTActive]       = useState(false);         // listening for the OTHER party
+  const [tStatus, setTStatus]       = useState("");            // "listening" | "transcribing" | "translating"
+  const [tHistory, setTHistory]     = useState([]);            // {at, dir, original, translation, tip, suggested_reply}
+  const [tConsent, setTConsent]     = useState(false);
+  const [tConsentChecked, setTConsentChecked] = useState(false);
+  const [tReplyBusy, setTReplyBusy] = useState(false);
+  const tSessionRef = useRef(null);
+  const tStreamRef = useRef(null);
+  const tRecRef = useRef(null);
+  const tChunkLoopRef = useRef(null);
+  const tActiveRef = useRef(false);
+  const tTheirLangRef = useRef("ar");
+  const tMyLangRef = useRef("en");
+  useEffect(() => { tTheirLangRef.current = tTheirLang; }, [tTheirLang]);
+  useEffect(() => { tMyLangRef.current = tMyLang; }, [tMyLang]);
+
+  // Load Whisper language list once
+  useEffect(() => {
+    api.get("/lex/translate/languages")
+      .then(r => setTLanguages(r.data?.languages || []))
+      .catch(() => setTLanguages([]));
+  }, []);
+
+  const playTTS = async (text, language) => {
+    if (!text) return;
+    try {
+      const r = await api.post("/voice/tts", { text, language }, { responseType: "blob" });
+      const url = URL.createObjectURL(r.data);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      await audio.play();
+    } catch (e) { console.warn("TTS failed", e?.response?.data || e?.message); }
+  };
+
+  // Process one incoming chunk for Translation Mode
+  const processTransChunk = async (blob) => {
+    if (!blob || blob.size < 2000) return;
+    try {
+      setTStatus("transcribing");
+      const fd = new FormData();
+      fd.append("audio", blob, `chunk-${Date.now()}.webm`);
+      fd.append("language", tTheirLangRef.current);
+      const tx = await api.post("/voice/transcribe", fd);
+      const heard = (tx?.data?.text || "").trim();
+      if (!heard || heard.length < 3) { setTStatus(tActiveRef.current ? "listening" : ""); return; }
+      setTStatus("translating");
+      const { data } = await api.post("/lex/translate", {
+        session_id: tSessionRef.current,
+        text: heard,
+        source_lang: tTheirLangRef.current,
+        target_lang: tMyLangRef.current,
+        direction: "incoming",
+        context: tContext,
+        country,
+      });
+      tSessionRef.current = data.session_id;
+      const entry = {
+        at: new Date().toLocaleTimeString(),
+        dir: "incoming",
+        original: heard,
+        translation: data.translation || "",
+        tip: data.tip || "",
+        suggested_reply: data.suggested_reply || "",
+      };
+      setTHistory(h => [entry, ...h].slice(0, 50));
+    } catch (e) {
+      console.warn("trans chunk failed", e?.response?.data || e?.message);
+    } finally {
+      setTStatus(tActiveRef.current ? "listening" : "");
+    }
+  };
+
+  const rotateTransRecorder = () => {
+    const old = tRecRef.current;
+    const stream = tStreamRef.current;
+    if (!stream || !tActiveRef.current) return;
+    try {
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4"
+        : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+      const fresh = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      const chunks = [];
+      fresh.ondataavailable = (ev) => { if (ev.data?.size > 0) chunks.push(ev.data); };
+      fresh.onstop = () => {
+        const blob = new Blob(chunks, { type: fresh.mimeType || "audio/webm" });
+        processTransChunk(blob);
+      };
+      fresh.start();
+      tRecRef.current = fresh;
+      if (old && old.state !== "inactive") { try { old.stop(); } catch {} }
+    } catch (e) { console.error("rotateTransRecorder failed", e); }
+  };
+
+  const startTranslation = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) { alert("Microphone not supported."); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      tStreamRef.current = stream;
+      tActiveRef.current = true;
+      setTActive(true); setTStatus("listening");
+      rotateTransRecorder();
+      tChunkLoopRef.current = setInterval(() => rotateTransRecorder(), 6000);
+    } catch (e) {
+      alert("Microphone permission denied. Go to Settings → Microphone access to grant it.");
+    }
+  };
+
+  const stopTranslation = () => {
+    tActiveRef.current = false;
+    setTActive(false); setTStatus("");
+    if (tChunkLoopRef.current) { clearInterval(tChunkLoopRef.current); tChunkLoopRef.current = null; }
+    try { if (tRecRef.current?.state !== "inactive") tRecRef.current?.stop?.(); } catch {}
+    tRecRef.current = null;
+    if (tStreamRef.current) {
+      try { tStreamRef.current.getTracks().forEach(t => t.stop()); } catch {}
+      tStreamRef.current = null;
+    }
+  };
+
+  // User wants to reply IN their language → translate to other-party language → speak it out loud.
+  const speakMyReply = async (myText) => {
+    if (!myText?.trim() || tReplyBusy) return;
+    setTReplyBusy(true);
+    try {
+      const { data } = await api.post("/lex/translate", {
+        session_id: tSessionRef.current,
+        text: myText.trim(),
+        source_lang: tMyLang,
+        target_lang: tTheirLang,
+        direction: "outgoing",
+      });
+      tSessionRef.current = data.session_id;
+      const entry = {
+        at: new Date().toLocaleTimeString(),
+        dir: "outgoing",
+        original: myText.trim(),
+        translation: data.translation || "",
+        tip: "", suggested_reply: "",
+      };
+      setTHistory(h => [entry, ...h].slice(0, 50));
+      // Speak the translation aloud for the OTHER party
+      await playTTS(data.translation, tTheirLang);
+    } catch (e) {
+      alert("Translation failed. Try again.");
+    } finally {
+      setTReplyBusy(false);
+    }
+  };
+
+  useEffect(() => () => {
+    tActiveRef.current = false;
+    if (tChunkLoopRef.current) clearInterval(tChunkLoopRef.current);
+    try { tRecRef.current?.stop?.(); } catch {}
+    try { tStreamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+  }, []);
+
   return (
     <div className="modal-bg" data-testid="courtroom-modal">
       <div className="modal-card" style={{ height: "92vh", padding: 0 }}>
@@ -1758,16 +1922,22 @@ function CourtroomModal({ lang, country, onClose }) {
         </div>
         <div style={{ display: "flex", padding: "10px 14px", gap: 6 }}>
           <button data-testid="tab-practice" onClick={() => setTab("practice")}
-            style={{ flex: 1, padding: "8px 12px", borderRadius: 10, cursor: "pointer",
+            style={{ flex: 1, padding: "8px 8px", borderRadius: 10, cursor: "pointer", fontSize: 12,
               background: tab === "practice" ? "var(--gold)" : "transparent",
               color: tab === "practice" ? "#1a1300" : "var(--gold)", border: "1px solid var(--gold-deep)", fontWeight: 600 }}>
-            Practice Mode
+            Practice
           </button>
           <button data-testid="tab-live" onClick={() => setTab("live")}
-            style={{ flex: 1, padding: "8px 12px", borderRadius: 10, cursor: "pointer",
+            style={{ flex: 1, padding: "8px 8px", borderRadius: 10, cursor: "pointer", fontSize: 12,
               background: tab === "live" ? "var(--gold)" : "transparent",
               color: tab === "live" ? "#1a1300" : "var(--gold)", border: "1px solid var(--gold-deep)", fontWeight: 600 }}>
-            Live Legal Assist
+            Live Assist
+          </button>
+          <button data-testid="tab-translate" onClick={() => setTab("translate")}
+            style={{ flex: 1, padding: "8px 8px", borderRadius: 10, cursor: "pointer", fontSize: 12,
+              background: tab === "translate" ? "var(--gold)" : "transparent",
+              color: tab === "translate" ? "#1a1300" : "var(--gold)", border: "1px solid var(--gold-deep)", fontWeight: 600 }}>
+            🌍 Translate
           </button>
         </div>
 
@@ -1803,7 +1973,7 @@ function CourtroomModal({ lang, country, onClose }) {
               </button>
             </div>
           </div>
-        ) : (
+        ) : tab === "live" ? (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "0 14px 14px", overflow: "hidden" }}>
             {!consent ? (
               <div style={{ padding: 8, overflowY: "auto" }}>
@@ -1885,10 +2055,13 @@ function CourtroomModal({ lang, country, onClose }) {
                     borderRadius: 14, padding: 14, marginTop: 10,
                     boxShadow: "0 0 24px rgba(247,201,72,0.25)",
                   }}>
-                    <div style={{
-                      fontSize: 10, fontWeight: 800, letterSpacing: "0.12em",
-                      color: "var(--gold)", marginBottom: 6,
-                    }}>💬 SAY THIS — {advice[0].at}</div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 8 }}>
+                      <div style={{
+                        fontSize: 10, fontWeight: 800, letterSpacing: "0.12em",
+                        color: "var(--gold)",
+                      }}>💬 SAY THIS — {advice[0].at}</div>
+                      <WhisperButton text={advice[0].advice} language={lang} />
+                    </div>
                     <div style={{
                       fontSize: 16, fontWeight: 600, color: "#fff", lineHeight: 1.45,
                     }}>{advice[0].advice}</div>
@@ -1975,8 +2148,294 @@ function CourtroomModal({ lang, country, onClose }) {
               </>
             )}
           </div>
+        ) : (
+          /* ============= TRANSLATION MODE TAB ============= */
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "0 14px 14px", overflow: "hidden" }}>
+            {!tConsent ? (
+              <div style={{ padding: 8, overflowY: "auto" }}>
+                <div style={{ background: "#0a1f2a", border: "1px solid #155e75", borderRadius: 12, padding: 14, marginBottom: 10 }}>
+                  <div style={{ color: "#67e8f9", fontWeight: 600, marginBottom: 6 }}>🌍 Live Translation Mode</div>
+                  <div style={{ fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.6 }}>
+                    For travellers, expats, and migrants in a foreign-language conversation (checkpoint, hospital, immigration, hotel, taxi). Lex listens to the other party, translates to YOUR language, and suggests a safe reply. You can speak back and Lex will translate it into their language and read it aloud.
+                    <br /><br />
+                    <strong style={{ color: "#fca5a5" }}>⚠ Not for use in courtrooms or sworn legal proceedings.</strong> AI translation is best-effort — for binding legal proceedings, you must request a certified court interpreter.
+                  </div>
+                </div>
+                <a href="/terms.html" target="_blank" rel="noopener noreferrer"
+                   data-testid="trans-consent-terms-link"
+                   style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--gold)", fontSize: 12.5, textDecoration: "underline", marginBottom: 12 }}>
+                  <FileText size={14} /> Read full Terms & Conditions
+                </a>
+                <label className="flex items-start gap-2" style={{ cursor: "pointer" }}>
+                  <input type="checkbox" data-testid="trans-consent-checkbox" checked={tConsentChecked}
+                    onChange={(e) => setTConsentChecked(e.target.checked)}
+                    style={{ width: 18, height: 18, accentColor: "var(--gold)", marginTop: 3 }} />
+                  <span style={{ fontSize: 12.5, color: "var(--text-dim)" }}>I understand AI translation is best-effort, not a substitute for a certified interpreter in legal proceedings, and that I am responsible for the lawful use of recording in the jurisdiction I'm in.</span>
+                </label>
+                <button className="btn-gold w-full" data-testid="trans-consent-continue"
+                  disabled={!tConsentChecked} onClick={() => setTConsent(true)}
+                  style={{ marginTop: 14, opacity: tConsentChecked ? 1 : 0.4, cursor: tConsentChecked ? "pointer" : "not-allowed" }}>
+                  {tConsentChecked ? "Accept & continue" : "Tick the box to continue"}
+                </button>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                  <div>
+                    <label style={{ fontSize: 10.5, color: "var(--text-muted)", letterSpacing: "0.06em" }}>THEIR LANGUAGE</label>
+                    <select className="input" data-testid="trans-their-lang" value={tTheirLang}
+                      onChange={(e) => setTTheirLang(e.target.value)} style={{ width: "100%" }} disabled={tActive}>
+                      {tLanguages.map(l => <option key={l.code} value={l.code}>{l.native} — {l.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 10.5, color: "var(--text-muted)", letterSpacing: "0.06em" }}>MY LANGUAGE</label>
+                    <select className="input" data-testid="trans-my-lang" value={tMyLang}
+                      onChange={(e) => setTMyLang(e.target.value)} style={{ width: "100%" }} disabled={tActive}>
+                      {tLanguages.map(l => <option key={l.code} value={l.code}>{l.native} — {l.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <input className="input" data-testid="trans-context" placeholder="Context (optional, e.g. 'Iraqi checkpoint, tourist')"
+                  value={tContext} onChange={(e) => setTContext(e.target.value)} style={{ marginBottom: 10 }} disabled={tActive} />
+                <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
+                  {!tActive ? (
+                    <button className="btn-gold flex-1" data-testid="trans-start" onClick={startTranslation}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                      <Mic size={16} /> Start listening
+                    </button>
+                  ) : (
+                    <button className="btn-ghost flex-1" data-testid="trans-stop" onClick={stopTranslation}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, borderColor: "var(--danger)", color: "var(--danger)" }}>
+                      <Square size={16} /> Stop
+                    </button>
+                  )}
+                </div>
+
+                {tActive && (
+                  <div style={{
+                    background: "rgba(34,211,238,0.08)", border: "1px solid #155e75",
+                    borderRadius: 10, padding: "8px 12px", marginTop: 4,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    fontSize: 12, color: "#67e8f9",
+                  }}>
+                    <span style={{
+                      width: 8, height: 8, borderRadius: "50%",
+                      background: tStatus === "listening" ? "#ef4444" : tStatus === "translating" ? "#67e8f9" : "#86efac",
+                      animation: "lex-pulse 1.4s ease-in-out infinite",
+                    }} />
+                    {tStatus === "transcribing" ? "📝 Transcribing what they said…"
+                      : tStatus === "translating" ? "🌍 Translating…"
+                      : `🎙 Listening in ${tLanguages.find(l => l.code === tTheirLang)?.native || tTheirLang}`}
+                  </div>
+                )}
+
+                {tHistory.length > 0 && (
+                  <div data-testid="trans-latest" style={{
+                    background: tHistory[0].dir === "incoming"
+                      ? "linear-gradient(135deg, rgba(34,211,238,0.16), rgba(34,211,238,0.04))"
+                      : "linear-gradient(135deg, rgba(247,201,72,0.16), rgba(247,201,72,0.04))",
+                    border: `2px solid ${tHistory[0].dir === "incoming" ? "#22d3ee" : "var(--gold)"}`,
+                    borderRadius: 14, padding: 14, marginTop: 10,
+                    boxShadow: tHistory[0].dir === "incoming"
+                      ? "0 0 24px rgba(34,211,238,0.25)"
+                      : "0 0 24px rgba(247,201,72,0.25)",
+                  }}>
+                    <div style={{
+                      fontSize: 10, fontWeight: 800, letterSpacing: "0.12em",
+                      color: tHistory[0].dir === "incoming" ? "#67e8f9" : "var(--gold)",
+                      marginBottom: 6,
+                    }}>
+                      {tHistory[0].dir === "incoming" ? `💬 THEY SAID (${tLanguages.find(l => l.code === tTheirLang)?.native || tTheirLang} → ${tLanguages.find(l => l.code === tMyLang)?.native || tMyLang})` : "📢 YOU SAID (translated & spoken)"} — {tHistory[0].at}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: "var(--text-dim)", fontStyle: "italic", marginBottom: 6 }}>"{tHistory[0].original}"</div>
+                    <div style={{
+                      fontSize: 16, fontWeight: 600, color: "#fff", lineHeight: 1.45,
+                      direction: ["ar","fa","he","ur"].includes(tHistory[0].dir === "incoming" ? tMyLang : tTheirLang) ? "rtl" : "ltr",
+                    }}>{tHistory[0].translation}</div>
+                    {tHistory[0].dir === "incoming" && (
+                      <button data-testid="trans-replay" onClick={() => playTTS(tHistory[0].translation, tMyLang)}
+                        style={{ marginTop: 8, background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <Volume2 size={12} /> Hear translation
+                      </button>
+                    )}
+                    {tHistory[0].dir === "incoming" && tHistory[0].tip && (
+                      <div style={{ marginTop: 10, padding: 8, background: "rgba(247,201,72,0.08)", borderLeft: "3px solid var(--gold)", borderRadius: 4, fontSize: 12, color: "var(--gold)" }}>
+                        💡 {tHistory[0].tip}
+                      </div>
+                    )}
+                    {tHistory[0].dir === "incoming" && tHistory[0].suggested_reply && (
+                      <div style={{ marginTop: 8, padding: 10, background: "rgba(34,197,94,0.08)", border: "1px dashed #22c55e", borderRadius: 8 }}>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: "#86efac", marginBottom: 4 }}>SUGGESTED REPLY</div>
+                        <div style={{ fontSize: 13, color: "#fff", marginBottom: 6 }}>{tHistory[0].suggested_reply}</div>
+                        <button data-testid="trans-speak-suggested" onClick={() => speakMyReply(tHistory[0].suggested_reply)} disabled={tReplyBusy}
+                          className="btn-gold" style={{ fontSize: 11, padding: "5px 10px", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          {tReplyBusy ? <span className="spinner" /> : <Volume2 size={12} />} Speak this reply
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <TransReplyBar lang={lang} myLang={tMyLang} disabled={tReplyBusy} onSend={speakMyReply} />
+
+                <div style={{ flex: 1, overflowY: "auto", marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {tHistory.length === 0 && tActive && <div style={{ color: "var(--text-muted)", textAlign: "center", padding: 20, fontSize: 13 }}>Waiting for the other party to speak…</div>}
+                  {tHistory.slice(1).map((h, i) => (
+                    <div key={i} style={{
+                      background: "var(--bg-card)", border: `1px solid ${h.dir === "incoming" ? "#155e75" : "var(--gold-deep)"}`,
+                      borderRadius: 10, padding: 10,
+                    }}>
+                      <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>
+                        {h.at} — {h.dir === "incoming" ? "They said" : "You said"}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-dim)", fontStyle: "italic", marginBottom: 4 }}>"{h.original}"</div>
+                      <div style={{ fontSize: 13, color: h.dir === "incoming" ? "#67e8f9" : "var(--gold)", fontWeight: 600 }}>{h.translation}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Whisper Mode button — TTS read-aloud for the SAY THIS card.
+// Includes a court-proximity warning with one-tap override (legitimate uses:
+// waiting rooms, prep meetings, lawyer-client conversations near courts).
+// "Auto-play" remembers the user's preference in localStorage so future advice
+// is read aloud automatically when arrives.
+function WhisperButton({ text, language }) {
+  const [busy, setBusy] = useState(false);
+  const [auto, setAuto] = useState(() => localStorage.getItem("aa_whisper_auto") === "1");
+  const [override, setOverride] = useState(() => sessionStorage.getItem("aa_court_override") === "1");
+  const [nearCourt, setNearCourt] = useState(false);
+  const audioRef = useRef(null);
+  const lastSpokenRef = useRef("");
+
+  // Best-effort court-proximity check — only flags if recordingLaw helper exists
+  // and explicitly returns isNearCourt:true. Otherwise assume safe.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const mod = await import("./recordingLaw").catch(() => null);
+        if (!mod || !mod.detectNearCourt || cancelled) return;
+        const near = await mod.detectNearCourt();
+        if (!cancelled) setNearCourt(!!near);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const play = async () => {
+    if (!text || busy) return;
+    if (nearCourt && !override) return;          // visual only inside court
+    setBusy(true);
+    try {
+      const r = await api.post("/voice/tts", { text, language }, { responseType: "blob" });
+      const url = URL.createObjectURL(r.data);
+      if (audioRef.current) { try { audioRef.current.pause(); } catch {} }
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => URL.revokeObjectURL(url);
+      await audio.play();
+    } catch (e) {
+      console.warn("whisper TTS failed", e?.response?.data || e?.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Auto-play newly-arrived advice (skips repeats by text-hash)
+  useEffect(() => {
+    if (!auto || !text || lastSpokenRef.current === text) return;
+    lastSpokenRef.current = text;
+    if (nearCourt && !override) return;
+    play();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, auto]);
+
+  const toggleAuto = () => {
+    const next = !auto;
+    setAuto(next);
+    localStorage.setItem("aa_whisper_auto", next ? "1" : "0");
+  };
+
+  if (nearCourt && !override) {
+    return (
+      <button data-testid="whisper-court-override" onClick={() => { sessionStorage.setItem("aa_court_override", "1"); setOverride(true); }}
+        title="Court area detected — tap to confirm you're in the waiting area, not the courtroom"
+        style={{ background: "transparent", border: "1px solid #fca5a5", color: "#fca5a5", borderRadius: 8, padding: "3px 8px", fontSize: 10, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
+        🚫 Audio off near court — tap to enable
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <button data-testid="whisper-play" onClick={play} disabled={busy}
+        title="Read aloud — pair AirPods for discreet listening"
+        style={{ background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 8, padding: "3px 8px", fontSize: 11, cursor: busy ? "wait" : "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
+        {busy ? <span className="spinner" style={{ width: 10, height: 10 }} /> : <Volume2 size={12} />}
+        Listen
+      </button>
+      <button data-testid="whisper-auto-toggle" onClick={toggleAuto}
+        title={auto ? "Auto-play ON: new advice will be spoken automatically" : "Tap to auto-play future advice"}
+        style={{
+          background: auto ? "var(--gold)" : "transparent",
+          border: "1px solid var(--gold-deep)",
+          color: auto ? "#1a1300" : "var(--gold)",
+          borderRadius: 8, padding: "3px 8px", fontSize: 10, fontWeight: 700,
+          cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3,
+        }}>
+        {auto ? "AUTO ✓" : "Auto"}
+      </button>
+    </div>
+  );
+}
+
+// Compact text/mic input for Translation Mode replies
+function TransReplyBar({ lang, myLang, disabled, onSend }) {
+  const [val, setVal] = useState("");
+  const { recording, start, stop } = useRecorder();
+  const handleMic = async () => {
+    if (recording) {
+      const blob = await stop();
+      if (!blob) return;
+      try {
+        const fd = new FormData();
+        fd.append("audio", blob, "reply.webm");
+        fd.append("language", myLang);
+        const tx = await api.post("/voice/transcribe", fd);
+        const heard = (tx?.data?.text || "").trim();
+        if (heard) setVal(v => (v ? v + " " : "") + heard);
+      } catch {}
+    } else {
+      try { await start(); } catch { alert("Microphone needed for voice reply."); }
+    }
+  };
+  const submit = () => {
+    if (!val.trim()) return;
+    onSend(val.trim());
+    setVal("");
+  };
+  return (
+    <div className="flex items-center gap-2" style={{ marginTop: 10 }}>
+      <button onClick={handleMic} data-testid="trans-reply-mic"
+        style={{ background: "#000", border: `2px solid ${recording ? "var(--danger)" : "var(--gold)"}`, borderRadius: "50%", width: 40, height: 40, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {recording ? <Square size={16} style={{ color: "var(--danger)" }} /> : <Mic size={16} style={{ color: "var(--gold)" }} />}
+      </button>
+      <input className="input" data-testid="trans-reply-input"
+        placeholder="Type your reply (or tap mic) — Lex will speak it in their language"
+        value={val} onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()} style={{ flex: 1 }} disabled={disabled} />
+      <button className="btn-gold" data-testid="trans-reply-send" onClick={submit} disabled={disabled || !val.trim()} style={{ padding: "9px 12px" }}>
+        <Volume2 size={14} />
+      </button>
     </div>
   );
 }
