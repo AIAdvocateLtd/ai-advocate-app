@@ -1453,22 +1453,44 @@ function EmergencyModal({ lang, country, user, onClose }) {
   // then opens the native SMS composer with ALL contacts pre-loaded so the user only
   // taps Send. SMS goes from the user's own number → family instantly recognises them.
   // Email contacts (if any) get a parallel mailto:.
-  const buildSosBody = () => {
+  const buildSosBody = (coordsOverride) => {
+    const c = coordsOverride || coords;
     const parts = [
       `🚨 EMERGENCY: ${user?.full_name || user?.email || "I"} need help.`,
       profile?.sos_message?.trim() || note?.trim() || "I've been stopped or detained.",
     ];
-    if (coords) parts.push(`📍 https://maps.google.com/?q=${coords.latitude},${coords.longitude}`);
+    if (c) {
+      parts.push(`📍 My location: https://maps.google.com/?q=${c.latitude},${c.longitude}`);
+      if (c.accuracy) parts.push(`(accurate to ~${Math.round(c.accuracy)}m)`);
+    } else {
+      parts.push("📍 Location not available (GPS off or denied).");
+    }
     if (country) parts.push(`Country: ${country}`);
     parts.push("(Sent via AI Advocate.)");
     return parts.join(" ");
   };
 
+  // Fetch fresh GPS just-in-time before composing the SOS. This is the safety net:
+  // even if the initial mount-time fetch failed/timed-out, we get one more shot
+  // right at the moment the user needs it. Tries hi-accuracy first, low-accuracy fallback.
+  const fetchFreshCoords = () => new Promise((resolve) => {
+    if (!navigator.geolocation) { resolve(null); return; }
+    const fallback = setTimeout(() => {
+      navigator.geolocation.getCurrentPosition(
+        (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }),
+        () => resolve(null),
+        { timeout: 5000, enableHighAccuracy: false, maximumAge: 300000 },
+      );
+    }, 4500); // if hi-accuracy hasn't responded in 4.5s, try low-accuracy
+    navigator.geolocation.getCurrentPosition(
+      (p) => { clearTimeout(fallback); resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }); },
+      () => { /* let fallback run */ },
+      { timeout: 6000, enableHighAccuracy: true, maximumAge: 60000 },
+    );
+  });
+
   const openNativeSms = (phones, body) => {
     if (!phones.length) return;
-    // iOS uses ';' or ',' separator, Android typically ','. Use ',' for max compat.
-    // iOS query-string syntax is `&body=`, Android is `?body=`. Use `?body=` first
-    // and let the OS resolve — iOS Safari handles both.
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     const sep = isIOS ? "&" : "?";
     const list = phones.map(p => p.replace(/\s/g, "")).join(",");
@@ -1486,37 +1508,49 @@ function EmergencyModal({ lang, country, user, onClose }) {
     if (sosBusy) return;
     setSosBusy(true);
     try {
+      // 0) Get the freshest possible location BEFORE composing the SMS. Use the existing
+      // coords if we have them (instant) and kick off a fresh fetch in parallel — whichever
+      // resolves first wins. This makes "location included" the rule, not the exception.
+      let liveCoords = coords;
+      if (!liveCoords) {
+        liveCoords = await fetchFreshCoords();
+        if (liveCoords) setCoords(liveCoords);
+      }
+
       // 1) Record server-side (audit log + Lawyer Standby firm pings if Pro enabled)
       const { data } = await api.post("/emergency/silent-sos", {
         silent: true,
-        latitude: coords?.latitude, longitude: coords?.longitude,
+        latitude: liveCoords?.latitude, longitude: liveCoords?.longitude,
         country, note: note || profile?.sos_message || "",
         source: "phone",
       });
       setSosResult(data);
 
       // 2) Open the user's native SMS composer with all SOS-included contacts pre-filled.
-      // They tap Send. SMS goes from THEIR number — family instantly recognises them.
       const sosContacts = (profile?.contacts || []).filter(c => c.include_in_sos);
       const phones = sosContacts.map(c => c.phone).filter(Boolean);
       const emails = sosContacts.map(c => c.email).filter(Boolean);
-      const body = buildSosBody();
+      const body = buildSosBody(liveCoords);
 
       if (phones.length) {
-        // Slight delay so the success state can render before the OS popup
         setTimeout(() => openNativeSms(phones, body), 250);
       }
       if (emails.length && !phones.length) {
-        // Only auto-open email if there are no phones (otherwise it interferes with the SMS popup)
         setTimeout(() => openNativeEmail(emails, body), 250);
       }
-      // Expose a separate "Email family too" button (rendered below) for when there are both
       window.__aaLastSos = { phones, emails, body };
     } catch (e) {
       setSosResult({ error: e?.response?.data?.detail || "Could not send SOS." });
     } finally {
       setSosBusy(false);
     }
+  };
+
+  // Manual location prompt — fires when the user taps the "Enable location" pill
+  const requestLocationNow = async () => {
+    const c = await fetchFreshCoords();
+    if (c) setCoords(c);
+    else alert("Location permission denied. Open your device settings to enable GPS for AI Advocate, then try again.");
   };
 
   const callEmbassy = () => {
@@ -1550,10 +1584,23 @@ function EmergencyModal({ lang, country, user, onClose }) {
   }, []);
 
   useEffect(() => {
+    // Aggressive geo-fetch on mount: hi-accuracy first, fall back to low-accuracy after 4s.
+    // This makes GPS-included-in-SOS the norm rather than the exception.
     if (navigator.geolocation) {
+      let lowAccTimer = setTimeout(() => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => setCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+          () => {},
+          { timeout: 6000, enableHighAccuracy: false, maximumAge: 600000 },
+        );
+      }, 4000);
       navigator.geolocation.getCurrentPosition(
-        (pos) => setCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-        () => {}, { timeout: 4000 }
+        (pos) => {
+          clearTimeout(lowAccTimer);
+          setCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy });
+        },
+        () => { /* let the low-acc fallback try */ },
+        { timeout: 5000, enableHighAccuracy: true, maximumAge: 60000 },
       );
     }
     fetchRights("");
@@ -1569,6 +1616,25 @@ function EmergencyModal({ lang, country, user, onClose }) {
             <X size={24} />
           </button>
         </div>
+
+        {/* GPS status pill — gives the user clear, up-front confidence that their
+            location IS in the SOS text. If permission denied / not yet resolved,
+            shows a tappable "Enable location" button. */}
+        <button data-testid="sos-gps-status" onClick={coords ? undefined : requestLocationNow}
+          disabled={!!coords}
+          style={{
+            width: "100%", marginBottom: 8, padding: "8px 12px", borderRadius: 10,
+            background: coords ? "rgba(34,197,94,0.10)" : "rgba(247,201,72,0.08)",
+            border: `1px solid ${coords ? "#22c55e" : "var(--gold)"}`,
+            color: coords ? "#86efac" : "var(--gold)",
+            cursor: coords ? "default" : "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            fontSize: 11.5, fontWeight: 600,
+          }}>
+          {coords
+            ? `📍 Location ON — will be included in SOS (±${Math.round(coords.accuracy || 0)}m)`
+            : "📍 Tap to enable location (recommended for SOS)"}
+        </button>
 
         {/* 🚨 THE BIG SOS BUTTON — fires SOS to all stored contacts + Lawyer Standby */}
         <button data-testid="emergency-sos-fire" onClick={fireSilentSOS} disabled={sosBusy}
