@@ -1423,6 +1423,10 @@ function EmergencyModal({ lang, country, user, onClose }) {
   const [embassy, setEmbassy] = useState(null);
   const [nearbyLawyers, setNearbyLawyers] = useState([]);
   const [lawyersBusy, setLawyersBusy] = useState(false);
+  const [trackSession, setTrackSession] = useState(null); // {sos_id, expires_at, window_minutes}
+  const [trackRemain, setTrackRemain] = useState(0);      // seconds remaining
+  const trackPingHandleRef = useRef(null);
+  const trackTickHandleRef = useRef(null);
   const audioRef = useRef(null);
 
   // Load emergency profile + embassy + lawyer-near-me in parallel as soon as we know GPS
@@ -1453,7 +1457,7 @@ function EmergencyModal({ lang, country, user, onClose }) {
   // then opens the native SMS composer with ALL contacts pre-loaded so the user only
   // taps Send. SMS goes from the user's own number → family instantly recognises them.
   // Email contacts (if any) get a parallel mailto:.
-  const buildSosBody = (coordsOverride) => {
+  const buildSosBody = (coordsOverride, sosId) => {
     const c = coordsOverride || coords;
     const parts = [
       `🚨 EMERGENCY: ${user?.full_name || user?.email || "I"} need help.`,
@@ -1461,9 +1465,14 @@ function EmergencyModal({ lang, country, user, onClose }) {
     ];
     if (c) {
       parts.push(`📍 My location: https://maps.google.com/?q=${c.latitude},${c.longitude}`);
-      if (c.accuracy) parts.push(`(accurate to ~${Math.round(c.accuracy)}m)`);
+      if (c.accuracy) parts.push(`(±${Math.round(c.accuracy)}m)`);
     } else {
       parts.push("📍 Location not available (GPS off or denied).");
+    }
+    // Live tracking link — family can follow movement in real-time for the configured window
+    if (sosId) {
+      const origin = (process.env.REACT_APP_BACKEND_URL || window.location.origin).replace(/\/$/, "");
+      parts.push(`🔴 Live location (auto-updates): ${origin}/track.html?sid=${sosId}`);
     }
     if (country) parts.push(`Country: ${country}`);
     parts.push("(Sent via AI Advocate.)");
@@ -1530,7 +1539,7 @@ function EmergencyModal({ lang, country, user, onClose }) {
       const sosContacts = (profile?.contacts || []).filter(c => c.include_in_sos);
       const phones = sosContacts.map(c => c.phone).filter(Boolean);
       const emails = sosContacts.map(c => c.email).filter(Boolean);
-      const body = buildSosBody(liveCoords);
+      const body = buildSosBody(liveCoords, data.sos_id);
 
       if (phones.length) {
         setTimeout(() => openNativeSms(phones, body), 250);
@@ -1539,11 +1548,72 @@ function EmergencyModal({ lang, country, user, onClose }) {
         setTimeout(() => openNativeEmail(emails, body), 250);
       }
       window.__aaLastSos = { phones, emails, body };
+
+      // 3) Start the live-location ping loop. Every 2 min, send current GPS to the server
+      // for the configured window. Family's track.html page auto-refreshes from the same data.
+      if (data.track_session?.sos_id) {
+        startLiveTracking(data.track_session);
+      }
     } catch (e) {
       setSosResult({ error: e?.response?.data?.detail || "Could not send SOS." });
     } finally {
       setSosBusy(false);
     }
+  };
+
+  const startLiveTracking = (session) => {
+    setTrackSession(session);
+    // Tick a 1-second countdown for the banner
+    const expiresAt = new Date(session.expires_at).getTime();
+    const tick = () => {
+      const r = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+      setTrackRemain(r);
+      if (r <= 0) stopLiveTracking(true);
+    };
+    tick();
+    if (trackTickHandleRef.current) clearInterval(trackTickHandleRef.current);
+    trackTickHandleRef.current = setInterval(tick, 1000);
+    // Ping immediately, then every 2 minutes
+    const pingNow = async () => {
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        try {
+          await api.post("/emergency/track/ping", {
+            sos_id: session.sos_id,
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy: pos.coords.accuracy,
+            source: "phone",
+          });
+        } catch {}
+      }, () => {}, { timeout: 8000, enableHighAccuracy: true, maximumAge: 60000 });
+    };
+    pingNow();
+    if (trackPingHandleRef.current) clearInterval(trackPingHandleRef.current);
+    trackPingHandleRef.current = setInterval(pingNow, 120000); // every 2 minutes
+  };
+
+  const stopLiveTracking = async (auto = false) => {
+    if (trackPingHandleRef.current) { clearInterval(trackPingHandleRef.current); trackPingHandleRef.current = null; }
+    if (trackTickHandleRef.current) { clearInterval(trackTickHandleRef.current); trackTickHandleRef.current = null; }
+    if (trackSession?.sos_id && !auto) {
+      try { await api.post(`/emergency/track/${trackSession.sos_id}/stop`); } catch {}
+    }
+    setTrackSession(null);
+    setTrackRemain(0);
+  };
+
+  // Cleanup ping loops when modal unmounts (does NOT stop server-side track — it keeps
+  // pinging from background until window expires, which is what families need)
+  useEffect(() => () => {
+    if (trackPingHandleRef.current) clearInterval(trackPingHandleRef.current);
+    if (trackTickHandleRef.current) clearInterval(trackTickHandleRef.current);
+  }, []);
+
+  const fmtRemain = (sec) => {
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
   };
 
   // Manual location prompt — fires when the user taps the "Enable location" pill
@@ -1665,6 +1735,28 @@ function EmergencyModal({ lang, country, user, onClose }) {
               else alert("No email addresses on your SOS contacts. Add one in Settings → Emergency Contacts.");
             }} style={{ flex: 1, padding: "8px 10px", background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 10, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
               ✉ Email family
+            </button>
+          </div>
+        )}
+
+        {/* 📍 Live tracking active banner — pulsing red dot, countdown, STOP button. */}
+        {trackSession && trackRemain > 0 && (
+          <div data-testid="sos-live-tracking-banner" style={{
+            background: "linear-gradient(135deg, rgba(220,38,38,0.18), rgba(34,211,238,0.12))",
+            border: "1px solid #67e8f9", borderRadius: 12, padding: 12, marginBottom: 12,
+            display: "flex", alignItems: "center", gap: 10,
+          }}>
+            <span style={{
+              width: 10, height: 10, borderRadius: "50%", background: "#ef4444",
+              animation: "lex-pulse 1.2s ease-in-out infinite", flexShrink: 0,
+            }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#67e8f9" }}>📍 Live location active</div>
+              <div style={{ fontSize: 11, color: "var(--text-dim)" }}>Sharing your position with family. Auto-stops in <strong style={{ color: "#fff" }}>{fmtRemain(trackRemain)}</strong>.</div>
+            </div>
+            <button data-testid="sos-stop-tracking" onClick={() => stopLiveTracking(false)}
+              style={{ background: "transparent", border: "1px solid #fca5a5", color: "#fca5a5", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+              STOP
             </button>
           </div>
         )}
@@ -4533,6 +4625,7 @@ function EmergencyContactsCard({ lang, user }) {
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showWatch, setShowWatch] = useState(false);
+  const [trackWindow, setTrackWindow] = useState(60);   // minutes
 
   useEffect(() => {
     api.get("/emergency/contacts").then(r => {
@@ -4541,6 +4634,7 @@ function EmergencyContactsCard({ lang, user }) {
       setRadius(r.data?.lawyer_standby_radius_km || 25);
       setSosMsg(r.data?.sos_message || "");
       setWatchToken(r.data?.watch_token || null);
+      setTrackWindow(r.data?.tracking_window_minutes || 60);
     }).catch(() => {});
   }, []);
 
@@ -4561,6 +4655,7 @@ function EmergencyContactsCard({ lang, user }) {
         lawyer_standby_enabled: standby,
         lawyer_standby_radius_km: radius,
         sos_message: sosMsg,
+        tracking_window_minutes: trackWindow,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -4644,6 +4739,40 @@ function EmergencyContactsCard({ lang, user }) {
       )}
       <textarea className="input" data-testid="ec-sos-msg" rows={2} placeholder="Pre-written SOS message (e.g. 'I've been detained, please call my lawyer and embassy.')"
         value={sosMsg} onChange={(e) => setSosMsg(e.target.value)} style={{ marginBottom: 10 }} />
+
+      {/* 📍 Live Location Tracking Window — how long the app keeps sharing location after SOS fires.
+          Default 1h, max 24h Pro / 2h Free. Family taps the SMS link to watch live position. */}
+      <div data-testid="ec-track-window" style={{ background: "rgba(34,211,238,0.05)", border: "1px solid #155e75", borderRadius: 10, padding: 10, marginBottom: 12 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: "#67e8f9" }}>📍 Live Location after SOS</div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 10 }}>
+          When you fire the SOS, your phone shares your live location for this long. Family taps the map link in the SMS to follow you in real-time. Auto-stops when the window ends — or stop it any time from the in-app banner.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
+          {[15, 60, 360, 720, 1440].map(min => {
+            const label = min < 60 ? `${min}m` : min < 1440 ? `${min/60}h` : "24h";
+            const pro = min > 120;
+            const sel = trackWindow === min;
+            return (
+              <button key={min} data-testid={`ec-track-${min}`} onClick={() => setTrackWindow(min)}
+                style={{
+                  padding: "8px 4px", borderRadius: 8, cursor: "pointer",
+                  background: sel ? "#67e8f9" : "transparent",
+                  color: sel ? "#012a36" : "#67e8f9",
+                  border: `1px solid ${sel ? "#67e8f9" : "#155e75"}`,
+                  fontSize: 12, fontWeight: 700,
+                  position: "relative",
+                }}>
+                {label}
+                {pro && <span style={{ position: "absolute", top: -6, right: -6, background: "var(--gold)", color: "#1a1300", borderRadius: 4, fontSize: 8, padding: "1px 3px", fontWeight: 800 }}>PRO</span>}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
+          Default: 1 hour. Hard maximum: 24 hours (GDPR proportionality). Free tier capped at 2 hours.
+          <br />Lawful basis: vital interests (UK GDPR Art 6(1)(d)) — triggered only by your own SOS tap.
+        </div>
+      </div>
 
       <button onClick={save} disabled={busy} className="btn-gold w-full" data-testid="ec-save"
         style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 12 }}>

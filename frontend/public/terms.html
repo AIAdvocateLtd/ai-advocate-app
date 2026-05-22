@@ -62,6 +62,11 @@
   <h2>4c. Cross-border data flow</h2>
   <p>The App is operated from the United Kingdom but routes AI requests to providers in the UK, EU, and US. By using the App outside the UK you acknowledge that your audio, transcripts, and chat content may transit and be processed in jurisdictions other than your own. You remain responsible for the lawfulness of using AI assistance, recording, and translation in the jurisdiction where you are physically located.</p>
 
+  <h2>4d. Emergency SOS &amp; Live Location Tracking</h2>
+  <p>The Emergency SOS button records an event server-side and (where you have enabled it) pings the nearest opted-in solicitor firms. Tapping it ALSO opens your phone's native SMS / email composer pre-filled with your stored contacts and a live-location link — these messages are sent over <strong>your own mobile network</strong>, from your own number, at your network's standard SMS rates. AI Advocate does not relay or read those messages.</p>
+  <p>When you fire an SOS, the App will share your live GPS position with the people who hold the SMS link for a window you select in Settings (default 1 hour, maximum 24 hours; free-tier users are capped at 2 hours). The lawful basis under UK GDPR Article 6(1)(d) is <em>vital interests</em> — you have actively triggered the SOS yourself. You may stop the sharing at any time from the in-app banner. Location data is retained for 30 days as a safety audit log and then deleted.</p>
+  <p>The covert smartwatch trigger only fires a server-side event and (if enabled) the firm-standby ping. It cannot send SMS to your family contacts — that requires your phone. Keep your watch-trigger URL private; anyone with that URL can fire an SOS in your name.</p>
+
   <h2>5. Vault</h2>
   <p>The Lex Vault uses end-to-end encryption with a PIN that only you know. If you lose your PIN, your vault items are <strong>PERMANENTLY UNRECOVERABLE</strong>. We do not hold a copy.</p>
 
@@ -83,7 +88,7 @@
   <h2>11. Contact</h2>
   <p><a href="mailto:support@aiadvocate.app">support@aiadvocate.app</a></p>
 
-  <div class="meta">Last updated: 2026-02-22 · v1.1 (added Whisper Mode + Translation Mode + cross-border data flow) · © AI Advocate</div>
+  <div class="meta">Last updated: 2026-02-22 · v1.2 (added Emergency SOS, Live Location Tracking, Whisper Mode, Translation Mode, cross-border data flow) · © AI Advocate</div>
 </div>
 </body>
 </html>

@@ -1704,6 +1704,7 @@ class EmergencyContactsPayload(BaseModel):
     lawyer_standby_enabled: bool = False
     lawyer_standby_radius_km: float = 25.0
     sos_message: Optional[str] = None       # pre-written brief sent with every SOS
+    tracking_window_minutes: int = 60       # default 1h; max 24h Pro / 2h Free, clamped server-side
 
 class SilentSOSRequest(BaseModel):
     """Triggered by the SOS button or a smartwatch covert tap.
@@ -1725,7 +1726,8 @@ async def get_emergency_contacts(user: dict = Depends(get_user)):
         "lawyer_standby_enabled": doc.get("lawyer_standby_enabled", False),
         "lawyer_standby_radius_km": doc.get("lawyer_standby_radius_km", 25.0),
         "sos_message": doc.get("sos_message", ""),
-        "watch_token": doc.get("watch_token"),  # null until they generate one
+        "watch_token": doc.get("watch_token"),
+        "tracking_window_minutes": doc.get("tracking_window_minutes", 60),
     }
 
 
@@ -1735,7 +1737,11 @@ async def set_emergency_contacts(data: EmergencyContactsPayload, user: dict = De
     # Lawyer Standby is a Pro feature; contacts list is free.
     if data.lawyer_standby_enabled and not tier_has_access(pub["tier"], "live_assist"):
         raise HTTPException(402, "Lawyer Standby fallback requires Pro. Contacts can still be saved.")
-    contacts = [c.model_dump() for c in data.contacts][:20]  # safety cap
+    # Tracking window: hard-clamp 15 min → 24h. Windows >2h require Pro (informed consent + GDPR proportionality).
+    window = max(15, min(1440, int(data.tracking_window_minutes or 60)))
+    if window > 120 and not tier_has_access(pub["tier"], "live_assist"):
+        window = 120  # Free tier: max 2 hours
+    contacts = [c.model_dump() for c in data.contacts][:20]
     await db.emergency_profile.update_one(
         {"user_id": user["id"]},
         {"$set": {
@@ -1744,11 +1750,12 @@ async def set_emergency_contacts(data: EmergencyContactsPayload, user: dict = De
             "lawyer_standby_enabled": data.lawyer_standby_enabled,
             "lawyer_standby_radius_km": max(1.0, min(200.0, data.lawyer_standby_radius_km)),
             "sos_message": (data.sos_message or "")[:500],
+            "tracking_window_minutes": window,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }},
         upsert=True,
     )
-    return {"saved": True, "contact_count": len(contacts)}
+    return {"saved": True, "contact_count": len(contacts), "tracking_window_minutes": window}
 
 
 @api_router.post("/emergency/watch-token")
@@ -1858,6 +1865,24 @@ async def silent_sos(
 
     notified = await _send_sos_to_contacts(user, profile, sos_record)
 
+    # 📍 Start a Live Location track session so family can see the user move in real-time.
+    # Window = user's pre-configured `tracking_window_minutes` (default 60, max 1440=24h, free tier capped at 120).
+    # GDPR lawful basis: vital interests (Art 6(1)(d)) — user has actively triggered an SOS.
+    # Auto-expires; user can stop early from the in-app banner.
+    window_min = int(profile.get("tracking_window_minutes") or 60)
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(minutes=window_min)
+    await db.emergency_tracks.insert_one({
+        "sos_id": sos_id, "user_id": user["id"],
+        "started_at": now.isoformat(),
+        "expires_at": expires_at.isoformat(),
+        "active": True,
+        "window_minutes": window_min,
+        "pings": [{"at": now.isoformat(), "lat": data.latitude, "lng": data.longitude,
+                   "accuracy": None, "source": data.source or "phone"}] if data.latitude is not None else [],
+    })
+    sos_record["track_session"] = {"sos_id": sos_id, "expires_at": expires_at.isoformat(), "window_minutes": window_min}
+
     # Lawyer Standby: top-3 firms simultaneously. If user has no contacts at all OR
     # standby is enabled, fire it right away (the user's choice — strategy "b").
     standby_pinged = []
@@ -1866,11 +1891,11 @@ async def silent_sos(
 
     await db.emergency_events.insert_one(sos_record.copy())
 
-    # Intentionally compact response — fewer bytes = less likely to draw attention.
     return {
         "ok": True, "sos_id": sos_id,
         "notified": len(notified),
         "standby_pinged": len(standby_pinged),
+        "track_session": sos_record["track_session"],
     }
 
 
@@ -1897,6 +1922,110 @@ async def sos_history(user: dict = Depends(get_user)):
         {"user_id": user["id"]}, {"_id": 0},
     ).sort("created_at", -1).to_list(50)
     return {"events": events}
+
+
+# ==================== Live Location Tracking (post-SOS) ====================
+# Once SOS fires, the user's phone continues pinging location for the configured window
+# (default 1h, max 24h Pro / 2h Free). Family can open a public maps URL from the SMS
+# to watch the user's position update in real-time.
+class TrackPing(BaseModel):
+    sos_id: str
+    latitude: float
+    longitude: float
+    accuracy: Optional[float] = None
+    source: str = "phone"
+
+@api_router.post("/emergency/track/ping")
+async def track_ping(data: TrackPing, user: Optional[dict] = Depends(get_user_optional), wt: Optional[str] = None):
+    """Append a new location ping to an active track session.
+    Auth: user JWT (phone) OR ?wt=watch_token (smartwatch).
+    Silently drops if track has expired — keeps the response fast for low battery."""
+    if user is None and wt:
+        prof = await db.emergency_profile.find_one({"watch_token": wt}, {"_id": 0, "user_id": 1})
+        if prof:
+            user = await db.users.find_one({"id": prof["user_id"]})
+    if user is None:
+        raise HTTPException(401, "Authentication required")
+
+    track = await db.emergency_tracks.find_one({"sos_id": data.sos_id, "user_id": user["id"]}, {"_id": 0})
+    if not track or not track.get("active"):
+        return {"ok": False, "reason": "track_inactive"}
+    if datetime.now(timezone.utc) > datetime.fromisoformat(track["expires_at"]):
+        await db.emergency_tracks.update_one({"sos_id": data.sos_id}, {"$set": {"active": False}})
+        return {"ok": False, "reason": "expired"}
+
+    ping = {
+        "at": datetime.now(timezone.utc).isoformat(),
+        "lat": data.latitude, "lng": data.longitude,
+        "accuracy": data.accuracy, "source": data.source,
+    }
+    await db.emergency_tracks.update_one(
+        {"sos_id": data.sos_id, "user_id": user["id"]},
+        {"$push": {"pings": {"$each": [ping], "$slice": -500}}},  # keep last 500 pings
+    )
+    return {"ok": True}
+
+
+@api_router.get("/emergency/track/{sos_id}")
+async def track_view(sos_id: str):
+    """PUBLIC view — used by the SMS-embedded map link family taps. Auth = knowing the
+    sos_id (UUID, ~10^36 entropy). Returns only what's needed for the live map view.
+    Returns 404 if track is inactive/expired so family doesn't see stale data."""
+    track = await db.emergency_tracks.find_one({"sos_id": sos_id}, {"_id": 0})
+    if not track:
+        raise HTTPException(404, "Track not found")
+    now = datetime.now(timezone.utc)
+    expires_at = datetime.fromisoformat(track["expires_at"])
+    if now > expires_at:
+        # Lazy-deactivate on read
+        if track.get("active"):
+            await db.emergency_tracks.update_one({"sos_id": sos_id}, {"$set": {"active": False}})
+        return {"active": False, "expired": True, "expires_at": track["expires_at"], "pings": []}
+    user = await db.users.find_one({"id": track["user_id"]}, {"_id": 0, "full_name": 1, "email": 1})
+    last_ping = (track.get("pings") or [])[-1] if track.get("pings") else None
+    return {
+        "active": bool(track.get("active")),
+        "expired": False,
+        "expires_at": track["expires_at"],
+        "expires_in_seconds": max(0, int((expires_at - now).total_seconds())),
+        "started_at": track["started_at"],
+        "window_minutes": track["window_minutes"],
+        "user_name": user.get("full_name") or (user.get("email") or "").split("@")[0],
+        "pings": track.get("pings", [])[-50:],   # last 50 only for bandwidth
+        "last_ping": last_ping,
+    }
+
+
+@api_router.post("/emergency/track/{sos_id}/stop")
+async def track_stop(sos_id: str, user: dict = Depends(get_user)):
+    """User-triggered stop — must be the same user who owns the track."""
+    await db.emergency_tracks.update_one(
+        {"sos_id": sos_id, "user_id": user["id"]},
+        {"$set": {"active": False, "stopped_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True}
+
+
+@api_router.get("/emergency/track/{sos_id}/active")
+async def track_active_check(sos_id: str, user: dict = Depends(get_user)):
+    """Quick poll from the user's phone to check if its own track is still active.
+    Used by the in-app banner countdown and to know when to stop pinging."""
+    track = await db.emergency_tracks.find_one(
+        {"sos_id": sos_id, "user_id": user["id"]},
+        {"_id": 0, "active": 1, "expires_at": 1, "window_minutes": 1},
+    )
+    if not track:
+        return {"active": False}
+    now = datetime.now(timezone.utc)
+    expires_at = datetime.fromisoformat(track["expires_at"])
+    if not track.get("active") or now > expires_at:
+        return {"active": False, "expires_at": track["expires_at"]}
+    return {
+        "active": True,
+        "expires_at": track["expires_at"],
+        "expires_in_seconds": max(0, int((expires_at - now).total_seconds())),
+        "window_minutes": track["window_minutes"],
+    }
 
 
 # ==================== Embassy / Consulate Directory (offline-ready) ====================

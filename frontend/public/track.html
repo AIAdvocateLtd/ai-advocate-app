@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>AI Advocate — Live Emergency Location</title>
+<style>
+  :root { --gold:#f7c948; --bg:#0a0a0a; --card:#161514; --line:#2a2520; --text:#f5e9c8; --text-dim:#c9b988; --danger:#fca5a5; --ok:#86efac; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--text); min-height: 100vh; }
+  header { padding: 14px 18px; border-bottom: 1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap: 10px; }
+  .badge { background: rgba(220,38,38,0.12); border: 1px solid #7f1d1d; color: var(--danger); padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; }
+  .badge.live::before { content: ""; display: inline-block; width: 7px; height: 7px; background: #ef4444; border-radius: 50%; margin-right: 6px; animation: pulse 1.2s ease-in-out infinite; vertical-align: middle; }
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.4); } }
+  .meta { padding: 12px 18px; font-size: 13px; color: var(--text-dim); }
+  .meta strong { color: var(--text); }
+  #map { width: 100%; height: 60vh; min-height: 360px; border: 1px solid var(--line); background: #000; }
+  .actions { padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; }
+  .btn { display: block; padding: 12px 14px; text-align: center; text-decoration: none; border-radius: 10px; font-weight: 700; font-size: 14px; border: 1px solid var(--line); }
+  .btn-gold { background: var(--gold); color: #1a1300; border-color: var(--gold); }
+  .btn-ghost { background: transparent; color: var(--gold); border-color: var(--gold); }
+  .footer { padding: 14px 18px; font-size: 11px; color: #6b5e3f; text-align: center; }
+  .status-expired { background: rgba(0,0,0,0.5); padding: 24px; border-radius: 12px; margin: 24px 18px; border: 1px solid var(--line); text-align:center; }
+  .status-expired h2 { color: var(--text-dim); font-size: 18px; margin: 0 0 6px; }
+  .ping-list { padding: 0 18px 18px; font-size: 11px; color: #6b5e3f; max-height: 120px; overflow: auto; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div style="font-size: 14px; font-weight: 700; color: var(--gold); letter-spacing: 0.08em;">AI ADVOCATE</div>
+    <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Live emergency location</div>
+  </div>
+  <span id="liveBadge" class="badge">CONNECTING…</span>
+</header>
+
+<div class="meta" id="metaBox">
+  Loading tracking session…
+</div>
+
+<div id="mapWrap">
+  <iframe id="map" frameborder="0" allowfullscreen></iframe>
+</div>
+
+<div class="actions" id="actions" style="display:none">
+  <a id="openMaps" class="btn btn-gold" href="#" target="_blank" rel="noopener">📍 Open in Maps app (directions)</a>
+  <a id="callEmergency" class="btn btn-ghost" href="tel:999">📞 Call emergency services (999 / 112 / 911)</a>
+</div>
+
+<div id="expiredBox" class="status-expired" style="display:none">
+  <h2>This tracking session has ended</h2>
+  <div style="font-size: 13px; color: var(--text-dim); margin-top: 6px;">
+    The window has expired or the person has stopped sharing their location.
+    If they are still in trouble, contact emergency services immediately on <strong style="color: var(--danger);">999</strong> (UK), <strong style="color: var(--danger);">112</strong> (EU), or <strong style="color: var(--danger);">911</strong> (US/Canada).
+  </div>
+</div>
+
+<div class="ping-list" id="pingList"></div>
+
+<div class="footer">
+  © AI Advocate · Location shared with consent for safety. Do not redistribute.
+</div>
+
+<script>
+(function () {
+  const sosId = new URLSearchParams(location.search).get("sid") || location.pathname.split("/").pop();
+  if (!sosId) {
+    document.getElementById("metaBox").innerHTML = "<strong style='color:var(--danger)'>Missing tracking ID.</strong>";
+    return;
+  }
+  const API_BASE = location.origin;
+  const map = document.getElementById("map");
+  const badge = document.getElementById("liveBadge");
+  const metaBox = document.getElementById("metaBox");
+  const actions = document.getElementById("actions");
+  const openMaps = document.getElementById("openMaps");
+  const expiredBox = document.getElementById("expiredBox");
+  const mapWrap = document.getElementById("mapWrap");
+  const pingList = document.getElementById("pingList");
+
+  function fmtCountdown(sec) {
+    if (sec <= 0) return "expired";
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    if (h > 0) return h + "h " + m + "m";
+    if (m > 0) return m + "m " + s + "s";
+    return s + "s";
+  }
+
+  let timer = null, pollHandle = null;
+  let lastPing = null;
+
+  async function refresh() {
+    try {
+      const r = await fetch(API_BASE + "/api/emergency/track/" + sosId, { cache: "no-store" });
+      if (r.status === 404) {
+        mapWrap.style.display = "none"; actions.style.display = "none";
+        badge.textContent = "NOT FOUND"; badge.style.color = "var(--text-dim)";
+        metaBox.textContent = "Tracking session not found or already cleaned up.";
+        expiredBox.style.display = "block";
+        if (pollHandle) clearInterval(pollHandle);
+        return;
+      }
+      const d = await r.json();
+      if (d.expired || !d.active) {
+        mapWrap.style.display = "none"; actions.style.display = "none";
+        badge.textContent = "ENDED"; badge.classList.remove("live"); badge.style.background = "rgba(120,120,120,0.12)"; badge.style.borderColor = "var(--line)"; badge.style.color = "var(--text-dim)";
+        metaBox.textContent = "This tracking session ended on " + new Date(d.expires_at).toLocaleString() + ".";
+        expiredBox.style.display = "block";
+        if (pollHandle) clearInterval(pollHandle);
+        return;
+      }
+      badge.classList.add("live"); badge.textContent = "LIVE";
+      const p = d.last_ping;
+      if (p) {
+        lastPing = p;
+        const url = "https://maps.google.com/maps?q=" + p.lat + "," + p.lng + "&z=16&output=embed";
+        if (map.src !== url) map.src = url;
+        openMaps.href = "https://maps.google.com/?q=" + p.lat + "," + p.lng;
+        actions.style.display = "flex";
+        metaBox.innerHTML = "<strong>" + (d.user_name || "User") + "</strong> shared their live location " +
+          new Date(p.at).toLocaleTimeString() +
+          " · Updates every ~2 min · Window <strong>" + d.window_minutes + " min</strong> · Ends in <strong id='cd'>" + fmtCountdown(d.expires_in_seconds) + "</strong>" +
+          (p.accuracy ? " · ±" + Math.round(p.accuracy) + "m" : "") +
+          (p.source === "watch" ? " · Triggered from watch ⌚" : "");
+        if (timer) clearInterval(timer);
+        let remain = d.expires_in_seconds;
+        timer = setInterval(() => {
+          remain -= 1;
+          const cd = document.getElementById("cd");
+          if (cd) cd.textContent = fmtCountdown(remain);
+          if (remain <= 0) { clearInterval(timer); refresh(); }
+        }, 1000);
+        // Ping list
+        const pings = d.pings || [];
+        pingList.innerHTML = pings.slice(-5).reverse().map(pp =>
+          new Date(pp.at).toLocaleTimeString() + " — " + pp.lat.toFixed(5) + ", " + pp.lng.toFixed(5) +
+          (pp.accuracy ? " (±" + Math.round(pp.accuracy) + "m)" : "")
+        ).join("<br>");
+      } else {
+        metaBox.innerHTML = "Waiting for first location ping… (window: <strong>" + d.window_minutes + " min</strong>)";
+      }
+    } catch (e) {
+      metaBox.innerHTML = "<span style='color: var(--danger);'>Connection error. Retrying…</span>";
+    }
+  }
+
+  refresh();
+  pollHandle = setInterval(refresh, 30000); // every 30s
+})();
+</script>
+</body>
+</html>
