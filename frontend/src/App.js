@@ -1417,7 +1417,27 @@ function EmergencyModal({ lang, country, user, onClose }) {
   const [note, setNote] = useState("");
   const [coords, setCoords] = useState(null);
   const [reading, setReading] = useState(false);
+  const [profile, setProfile] = useState(null);          // { contacts, lawyer_standby_enabled, ... }
+  const [sosBusy, setSosBusy] = useState(false);
+  const [sosResult, setSosResult] = useState(null);      // {notified, standby_pinged}
+  const [embassy, setEmbassy] = useState(null);
+  const [nearbyLawyers, setNearbyLawyers] = useState([]);
+  const [lawyersBusy, setLawyersBusy] = useState(false);
   const audioRef = useRef(null);
+
+  // Load emergency profile + embassy + lawyer-near-me in parallel as soon as we know GPS
+  useEffect(() => {
+    api.get("/emergency/contacts").then(r => setProfile(r.data)).catch(() => setProfile({ contacts: [] }));
+    if (country) api.get(`/embassy/lookup?country=${country}`).then(r => setEmbassy(r.data)).catch(() => {});
+  }, [country]);
+  useEffect(() => {
+    if (!coords) return;
+    setLawyersBusy(true);
+    api.get(`/lawfirms?latitude=${coords.latitude}&longitude=${coords.longitude}&max_km=50`)
+      .then(r => setNearbyLawyers((r.data || []).slice(0, 5)))
+      .catch(() => setNearbyLawyers([]))
+      .finally(() => setLawyersBusy(false));
+  }, [coords]);
 
   const fetchRights = useCallback(async (n) => {
     setBusy(true);
@@ -1428,6 +1448,81 @@ function EmergencyModal({ lang, country, user, onClose }) {
     } catch (e) { setRights(e?.response?.data?.detail || "Could not load rights. Stay silent. Ask for a lawyer."); }
     finally { setBusy(false); }
   }, [lang, country, coords]);
+
+  // ⚠ THE BIG BUTTON. Records the SOS server-side (for audit + Lawyer Standby firm pings),
+  // then opens the native SMS composer with ALL contacts pre-loaded so the user only
+  // taps Send. SMS goes from the user's own number → family instantly recognises them.
+  // Email contacts (if any) get a parallel mailto:.
+  const buildSosBody = () => {
+    const parts = [
+      `🚨 EMERGENCY: ${user?.full_name || user?.email || "I"} need help.`,
+      profile?.sos_message?.trim() || note?.trim() || "I've been stopped or detained.",
+    ];
+    if (coords) parts.push(`📍 https://maps.google.com/?q=${coords.latitude},${coords.longitude}`);
+    if (country) parts.push(`Country: ${country}`);
+    parts.push("(Sent via AI Advocate.)");
+    return parts.join(" ");
+  };
+
+  const openNativeSms = (phones, body) => {
+    if (!phones.length) return;
+    // iOS uses ';' or ',' separator, Android typically ','. Use ',' for max compat.
+    // iOS query-string syntax is `&body=`, Android is `?body=`. Use `?body=` first
+    // and let the OS resolve — iOS Safari handles both.
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const sep = isIOS ? "&" : "?";
+    const list = phones.map(p => p.replace(/\s/g, "")).join(",");
+    window.location.href = `sms:${list}${sep}body=${encodeURIComponent(body)}`;
+  };
+
+  const openNativeEmail = (emails, body) => {
+    if (!emails.length) return;
+    const subject = encodeURIComponent("🚨 EMERGENCY — please help");
+    const to = emails.join(",");
+    window.location.href = `mailto:${to}?subject=${subject}&body=${encodeURIComponent(body)}`;
+  };
+
+  const fireSilentSOS = async () => {
+    if (sosBusy) return;
+    setSosBusy(true);
+    try {
+      // 1) Record server-side (audit log + Lawyer Standby firm pings if Pro enabled)
+      const { data } = await api.post("/emergency/silent-sos", {
+        silent: true,
+        latitude: coords?.latitude, longitude: coords?.longitude,
+        country, note: note || profile?.sos_message || "",
+        source: "phone",
+      });
+      setSosResult(data);
+
+      // 2) Open the user's native SMS composer with all SOS-included contacts pre-filled.
+      // They tap Send. SMS goes from THEIR number — family instantly recognises them.
+      const sosContacts = (profile?.contacts || []).filter(c => c.include_in_sos);
+      const phones = sosContacts.map(c => c.phone).filter(Boolean);
+      const emails = sosContacts.map(c => c.email).filter(Boolean);
+      const body = buildSosBody();
+
+      if (phones.length) {
+        // Slight delay so the success state can render before the OS popup
+        setTimeout(() => openNativeSms(phones, body), 250);
+      }
+      if (emails.length && !phones.length) {
+        // Only auto-open email if there are no phones (otherwise it interferes with the SMS popup)
+        setTimeout(() => openNativeEmail(emails, body), 250);
+      }
+      // Expose a separate "Email family too" button (rendered below) for when there are both
+      window.__aaLastSos = { phones, emails, body };
+    } catch (e) {
+      setSosResult({ error: e?.response?.data?.detail || "Could not send SOS." });
+    } finally {
+      setSosBusy(false);
+    }
+  };
+
+  const callEmbassy = () => {
+    const phone = embassy?.found ? embassy.embassy?.phone : embassy?.fallback?.phone;
+    if (phone) window.location.href = `tel:${phone.replace(/\s/g, "")}`;
+  };
 
   const readAloud = async () => {
     if (reading) {
@@ -1465,48 +1560,9 @@ function EmergencyModal({ lang, country, user, onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Build SMS body with location + Google Maps link + a short alert
-  const buildSms = () => {
-    const lines = [
-      `EMERGENCY: ${user?.full_name || user?.email || "I"} need help.`,
-      "I've been stopped or arrested.",
-    ];
-    if (coords) {
-      lines.push(`Location: https://maps.google.com/?q=${coords.latitude},${coords.longitude}`);
-    }
-    if (note) lines.push(`Note: ${note}`);
-    lines.push("Sent from AI Advocate.");
-    return lines.join(" ");
-  };
-
-  const sendSms = () => {
-    const phone = (user?.emergency_contact_phone || "").trim();
-    if (!phone) {
-      alert(t(lang, "emergencyNoContact"));
-      return;
-    }
-    const body = encodeURIComponent(buildSms());
-    // iOS uses & before body; Android uses ?. Use ?body= which works on both.
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    const sep = isIOS ? "&" : "?";
-    window.location.href = `sms:${phone}${sep}body=${body}`;
-  };
-
-  const callContact = () => {
-    const phone = (user?.emergency_contact_phone || "").trim();
-    if (!phone) {
-      alert(t(lang, "emergencyNoContact"));
-      return;
-    }
-    window.location.href = `tel:${phone}`;
-  };
-
-  const contactName = (user?.emergency_contact_name || t(lang, "yourContact")).trim();
-  const hasContact = !!(user?.emergency_contact_phone || "").trim();
-
   return (
     <div className="modal-bg" data-testid="emergency-modal" style={{ background: "rgba(60,0,0,0.85)" }}>
-      <div className="modal-card" style={{ padding: 18, border: "2px solid #dc2626" }}>
+      <div className="modal-card" style={{ padding: 18, border: "2px solid #dc2626", maxHeight: "94vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
           <h2 style={{ fontSize: 20, color: "#fca5a5", fontFamily: "Cinzel, serif", letterSpacing: "0.04em" }}>{t(lang, "emergencyTitle")}</h2>
           <button onClick={onClose} data-testid="emergency-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}>
@@ -1514,24 +1570,75 @@ function EmergencyModal({ lang, country, user, onClose }) {
           </button>
         </div>
 
-        {/* Contact actions row */}
-        <div style={{ display: "grid", gridTemplateColumns: hasContact ? "1fr 1fr" : "1fr", gap: 8, marginBottom: 12 }}>
-          <button data-testid="emergency-sms-btn" onClick={sendSms}
-            style={{ padding: "11px 14px", background: hasContact ? "linear-gradient(135deg,#dc2626,#7f1d1d)" : "var(--bg-card)",
-                     border: `1px solid ${hasContact ? "#fca5a5" : "var(--line)"}`,
-                     color: hasContact ? "#fff" : "var(--text-muted)", borderRadius: 12, fontWeight: 700,
-                     fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-            📱 {hasContact ? t(lang, "emergencyTextContact", { name: contactName }) : t(lang, "emergencyAddContact")}
-          </button>
-          {hasContact && (
-            <button data-testid="emergency-call-btn" onClick={callContact}
-              style={{ padding: "11px 14px", background: "transparent", border: "1px solid var(--gold-deep)",
-                       color: "var(--gold)", borderRadius: 12, fontWeight: 700, fontSize: 13, cursor: "pointer",
-                       display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              📞 {t(lang, "emergencyCallContact", { name: contactName })}
+        {/* 🚨 THE BIG SOS BUTTON — fires SOS to all stored contacts + Lawyer Standby */}
+        <button data-testid="emergency-sos-fire" onClick={fireSilentSOS} disabled={sosBusy}
+          style={{
+            width: "100%", padding: "14px 16px", marginBottom: 8,
+            background: sosResult ? "rgba(34,197,94,0.15)" : "linear-gradient(135deg,#dc2626,#7f1d1d)",
+            border: sosResult ? "1px solid #22c55e" : "1px solid #fca5a5",
+            color: sosResult ? "#86efac" : "#fff",
+            borderRadius: 12, fontWeight: 800, fontSize: 14, letterSpacing: "0.04em",
+            cursor: sosBusy ? "wait" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          }}>
+          {sosBusy ? <span className="spinner" /> : sosResult ? <Check size={18} /> : <AlertTriangle size={18} />}
+          {sosBusy ? "Recording SOS…"
+            : sosResult?.error ? sosResult.error
+            : sosResult ? `✓ SOS recorded — your SMS app opened with ${sosResult.notified} contact(s) pre-loaded. Tap Send.`
+            : "🚨 SEND SOS TO MY CONTACTS"}
+        </button>
+        {/* Re-open native SMS / email composer if user accidentally cancelled the OS popup */}
+        {sosResult && !sosResult.error && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <button data-testid="sos-reopen-sms" onClick={() => {
+              const s = window.__aaLastSos; if (s?.phones?.length) openNativeSms(s.phones, s.body);
+            }} style={{ flex: 1, padding: "8px 10px", background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 10, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+              📱 Re-open SMS
             </button>
-          )}
-        </div>
+            <button data-testid="sos-email-family" onClick={() => {
+              const s = window.__aaLastSos; if (s?.emails?.length) openNativeEmail(s.emails, s.body);
+              else alert("No email addresses on your SOS contacts. Add one in Settings → Emergency Contacts.");
+            }} style={{ flex: 1, padding: "8px 10px", background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 10, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+              ✉ Email family
+            </button>
+          </div>
+        )}
+        {(!profile?.contacts || profile.contacts.length === 0) && !sosResult && (
+          <div style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 8, padding: 8, marginBottom: 12, fontSize: 11.5, color: "var(--gold)" }}>
+            ⚠ No emergency contacts saved yet. Go to Settings → Emergency Contacts to add family + your lawyer for instant SOS.
+          </div>
+        )}
+
+        {/* Embassy quick-dial — only abroad (country differs from user's home country may not be set; we show it if found) */}
+        {embassy && (
+          <button data-testid="emergency-embassy-call" onClick={callEmbassy}
+            style={{ width: "100%", padding: "10px 14px", marginBottom: 10, background: "transparent",
+                     border: "1px solid #67e8f9", color: "#67e8f9", borderRadius: 12, fontWeight: 700, fontSize: 13, cursor: "pointer",
+                     display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            🏛 Call my embassy — {embassy.found ? embassy.embassy.name : embassy.fallback.name}
+          </button>
+        )}
+
+        {/* Nearest lawyer — only shows when GPS available and at least one firm in 50km */}
+        {(nearbyLawyers.length > 0 || lawyersBusy) && (
+          <div data-testid="emergency-nearby-lawyers" style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 10, marginBottom: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--gold)", marginBottom: 6 }}>📍 NEAREST LAWYERS TO YOU</div>
+            {lawyersBusy && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Searching…</div>}
+            {nearbyLawyers.slice(0, 3).map(f => (
+              <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderTop: "1px solid var(--line)" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.name}</div>
+                  <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>{f.city} · {f.distance_km != null ? `${f.distance_km}km` : "—"}</div>
+                </div>
+                {f.phone && (
+                  <a href={`tel:${f.phone.replace(/\s/g, "")}`} data-testid={`emergency-call-firm-${f.id}`}
+                    style={{ background: "var(--gold)", color: "#1a1300", padding: "5px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700, textDecoration: "none" }}>
+                    📞 Call
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         <div style={{ fontSize: 12, color: "#fca5a5", marginBottom: 8 }}>{t(lang, "emergencyStayCalm", { country })}</div>
         <div data-testid="rights-script" style={{ overflowY: "auto", maxHeight: "40vh", padding: 14, background: "#0a0000",
@@ -1539,7 +1646,6 @@ function EmergencyModal({ lang, country, user, onClose }) {
                      lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
           {busy ? <span className="spinner" /> : rights}
         </div>
-        {/* Read aloud (TTS) — critical for distress moments where reading isn't possible */}
         <button data-testid="emergency-read-aloud" onClick={readAloud} disabled={busy || !rights}
           style={{ width: "100%", marginTop: 10, padding: "10px 14px",
                    background: reading ? "var(--gold)" : "transparent",
@@ -3786,6 +3892,9 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
           <MicAccessButton />
         </div>
 
+        {/* 🚨 Emergency Contacts + Lawyer Standby + Watch SOS — life-safety section */}
+        <EmergencyContactsCard lang={lang} user={user} />
+
         {/* Auto-detect language toggle */}
         <div data-testid="settings-autodetect" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -4344,6 +4453,173 @@ function MicAccessButton() {
         border: state === "granted" ? "1px solid #22c55e" : "none",
         fontSize: 13, fontWeight: 700, width: "100%",
       }}>{label}</button>
+  );
+}
+
+// Emergency Contacts + Lawyer Standby + Watch SOS setup — Settings section.
+// This is the life-safety configuration the user fills in BEFORE they ever need it.
+function EmergencyContactsCard({ lang, user }) {
+  const [contacts, setContacts] = useState([]);
+  const [standby, setStandby] = useState(false);
+  const [radius, setRadius] = useState(25);
+  const [sosMsg, setSosMsg] = useState("");
+  const [watchToken, setWatchToken] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [showWatch, setShowWatch] = useState(false);
+
+  useEffect(() => {
+    api.get("/emergency/contacts").then(r => {
+      setContacts(r.data?.contacts || []);
+      setStandby(!!r.data?.lawyer_standby_enabled);
+      setRadius(r.data?.lawyer_standby_radius_km || 25);
+      setSosMsg(r.data?.sos_message || "");
+      setWatchToken(r.data?.watch_token || null);
+    }).catch(() => {});
+  }, []);
+
+  const addContact = () => {
+    setContacts(c => [...c, { name: "", relationship: "", phone: "", include_in_sos: true, is_lawyer: false }]);
+  };
+  const updateContact = (i, patch) => {
+    setContacts(c => c.map((x, idx) => idx === i ? { ...x, ...patch } : x));
+  };
+  const removeContact = (i) => {
+    setContacts(c => c.filter((_, idx) => idx !== i));
+  };
+  const save = async () => {
+    setBusy(true); setSaved(false);
+    try {
+      await api.post("/emergency/contacts", {
+        contacts: contacts.filter(c => c.name && c.phone),
+        lawyer_standby_enabled: standby,
+        lawyer_standby_radius_km: radius,
+        sos_message: sosMsg,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e) {
+      alert(e?.response?.data?.detail || "Could not save.");
+    } finally { setBusy(false); }
+  };
+  const generateWatchToken = async () => {
+    try {
+      const { data } = await api.post("/emergency/watch-token");
+      setWatchToken(data.watch_token);
+      setShowWatch(true);
+    } catch (e) { alert("Could not generate token."); }
+  };
+
+  const apiOrigin = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
+  const watchUrl = watchToken ? `${apiOrigin}/api/emergency/silent-sos?wt=${watchToken}&src=watch` : "";
+
+  return (
+    <div data-testid="settings-emergency-contacts" style={{ background: "var(--bg-card)", border: "1px solid #7f1d1d", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <AlertTriangle size={18} style={{ color: "#fca5a5" }} />
+        <span style={{ fontWeight: 600, color: "#fca5a5" }}>Emergency contacts & SOS</span>
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 12 }}>
+        These are the people Lex notifies the instant you press the red SOS button — family, your lawyer, anyone you trust. Star one as <strong>"My Lawyer"</strong>.
+      </div>
+
+      {contacts.length === 0 && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", padding: 14, border: "1px dashed var(--line)", borderRadius: 10, marginBottom: 10 }}>
+          No contacts yet. Add at least one trusted person.
+        </div>
+      )}
+      {contacts.map((c, i) => (
+        <div key={i} data-testid={`ec-row-${i}`} style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, marginBottom: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 6 }}>
+            <input className="input" data-testid={`ec-name-${i}`} placeholder="Name" value={c.name || ""} onChange={(e) => updateContact(i, { name: e.target.value })} />
+            <input className="input" data-testid={`ec-rel-${i}`} placeholder="Relationship" value={c.relationship || ""} onChange={(e) => updateContact(i, { relationship: e.target.value })} />
+          </div>
+          <input className="input" data-testid={`ec-phone-${i}`} placeholder="+44…" value={c.phone || ""} onChange={(e) => updateContact(i, { phone: e.target.value })} style={{ marginBottom: 6 }} />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11.5 }}>
+              <input type="checkbox" data-testid={`ec-lawyer-${i}`} checked={!!c.is_lawyer}
+                onChange={(e) => {
+                  // Only ONE can be lawyer — uncheck others
+                  setContacts(cs => cs.map((x, idx) => ({ ...x, is_lawyer: idx === i ? e.target.checked : (e.target.checked ? false : x.is_lawyer) })));
+                }} style={{ accentColor: "var(--gold)" }} />
+              <Star size={12} style={{ color: c.is_lawyer ? "var(--gold)" : "var(--text-muted)" }} />
+              My Lawyer
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11.5 }}>
+              <input type="checkbox" data-testid={`ec-sos-${i}`} checked={!!c.include_in_sos}
+                onChange={(e) => updateContact(i, { include_in_sos: e.target.checked })} style={{ accentColor: "var(--gold)" }} />
+              SOS
+            </label>
+            <button data-testid={`ec-remove-${i}`} onClick={() => removeContact(i)}
+              style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 8, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>
+              <Trash2 size={11} />
+            </button>
+          </div>
+        </div>
+      ))}
+      <button data-testid="ec-add" onClick={addContact} className="btn-ghost" style={{ width: "100%", marginTop: 4, fontSize: 12 }}>
+        + Add another contact
+      </button>
+
+      <div style={{ borderTop: "1px solid var(--line)", margin: "14px 0 10px" }} />
+      <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, cursor: "pointer", marginBottom: 8 }}>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 13 }}>Lawyer Standby fallback</div>
+          <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>If nobody acknowledges within 60s, alert the nearest 3 emergency-standby solicitors. <em>Pro only.</em></div>
+        </div>
+        <input type="checkbox" data-testid="ec-standby" checked={standby} onChange={(e) => setStandby(e.target.checked)}
+          style={{ width: 38, height: 22, accentColor: "var(--gold)" }} />
+      </label>
+      {standby && (
+        <div style={{ marginBottom: 10 }}>
+          <label style={{ fontSize: 11, color: "var(--text-muted)" }}>Search radius: {radius}km</label>
+          <input type="range" min={5} max={100} step={5} value={radius} onChange={(e) => setRadius(Number(e.target.value))} style={{ width: "100%", accentColor: "var(--gold)" }} />
+        </div>
+      )}
+      <textarea className="input" data-testid="ec-sos-msg" rows={2} placeholder="Pre-written SOS message (e.g. 'I've been detained, please call my lawyer and embassy.')"
+        value={sosMsg} onChange={(e) => setSosMsg(e.target.value)} style={{ marginBottom: 10 }} />
+
+      <button onClick={save} disabled={busy} className="btn-gold w-full" data-testid="ec-save"
+        style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 12 }}>
+        {busy ? <span className="spinner" /> : saved ? <Check size={14} /> : null}
+        {saved ? "Saved ✓" : "Save emergency settings"}
+      </button>
+
+      {/* WATCH SOS — covert smartwatch trigger */}
+      <div style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+          ⌚ Covert Watch SOS
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 8 }}>
+          For situations where you can't reach your phone — hostile interrogations abroad, abduction, intimidation. One-tap watch shortcut silently records the SOS and, if Lawyer Standby is on, pings the nearest 3 firms server-side.
+          <br /><br />
+          <strong style={{ color: "#fca5a5" }}>⚠ Limit:</strong> a watch-fired SOS does NOT send SMS to family — that requires your phone. For full family SMS dispatch, fire SOS from the phone's Emergency button. The watch is the silent backup that activates the law-firm fallback.
+        </div>
+        {!watchToken ? (
+          <button onClick={generateWatchToken} className="btn-ghost w-full" data-testid="ec-watch-generate" style={{ fontSize: 12 }}>
+            Generate covert watch link
+          </button>
+        ) : (
+          <>
+            <button onClick={() => setShowWatch(s => !s)} className="btn-ghost w-full" data-testid="ec-watch-toggle" style={{ fontSize: 12, marginBottom: 8 }}>
+              {showWatch ? "Hide setup link" : "Show setup link"}
+            </button>
+            {showWatch && (
+              <div data-testid="ec-watch-setup" style={{ background: "#0a0a0a", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 10, fontSize: 11, lineHeight: 1.6 }}>
+                <div style={{ color: "var(--gold)", fontWeight: 700, marginBottom: 6 }}>YOUR PRIVATE SOS URL</div>
+                <input className="input" readOnly value={watchUrl} onClick={(e) => e.target.select()} style={{ fontSize: 10.5, marginBottom: 8 }} data-testid="ec-watch-url" />
+                <div style={{ color: "var(--text-dim)", marginBottom: 6 }}><strong>Apple Watch:</strong> on your iPhone, open <em>Shortcuts</em> → + → "Get Contents of URL" → paste the link above → set Method to GET → tap the share icon → "Add to Apple Watch". Now add the shortcut as a complication on your watch face. One tap = silent SOS.</div>
+                <div style={{ color: "var(--text-dim)", marginBottom: 6 }}><strong>Android / Wear OS:</strong> install <em>HTTP Shortcuts</em> from the Play Store, add a GET request to the URL above, then save it as a Wear OS tile.</div>
+                <div style={{ color: "#fca5a5", fontStyle: "italic", marginTop: 6 }}>⚠ Keep this URL private — anyone with it can fire an SOS as you. Regenerate any time to invalidate the old one.</div>
+                <button onClick={generateWatchToken} className="btn-ghost" style={{ marginTop: 8, fontSize: 11, padding: "5px 10px" }} data-testid="ec-watch-rotate">
+                  Rotate (invalidate old link)
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 

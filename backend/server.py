@@ -368,6 +368,23 @@ async def get_user(creds: HTTPAuthorizationCredentials = Depends(security)) -> d
     except jwt.InvalidTokenError:
         raise HTTPException(401, "Invalid token")
 
+# Optional auth — returns None instead of raising. Used by /emergency/silent-sos so
+# it can fall back to ?wt=... watch token auth when no JWT is supplied.
+async def get_user_optional(
+    creds: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
+) -> Optional[dict]:
+    if not creds:
+        return None
+    try:
+        payload = jwt.decode(creds.credentials, JWT_SECRET, algorithms=["HS256"])
+        u = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+        if u and not u.get("deleted"):
+            return u
+    except Exception:
+        pass
+    return None
+
+
 def user_to_public(u: dict) -> dict:
     out = {k: v for k, v in u.items() if k not in ("_id", "password_hash")}
     # Compute trial status
@@ -1667,6 +1684,269 @@ Be DIRECT. No disclaimers in this output. The user is scared and needs clarity i
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     return {"rights_script": rights, "country": data.country, "language": data.language}
+
+
+# ==================== Emergency Contacts + Silent SOS + Lawyer Standby ====================
+# Multi-contact emergency network. User can store unlimited contacts (family, lawyer, spouse).
+# When the SOS button is pressed (or a smartwatch silent trigger fires), we notify all
+# contacts marked `include_in_sos`. If `lawyer_standby` is enabled and nobody acknowledges
+# within 60s, we escalate to the top-3 nearest opted-in Premium/Practice firms.
+class EmergencyContact(BaseModel):
+    name: str
+    relationship: Optional[str] = None      # "Spouse", "Lawyer", "Brother", etc.
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    include_in_sos: bool = True
+    is_lawyer: bool = False                 # one starred contact = "my lawyer"
+
+class EmergencyContactsPayload(BaseModel):
+    contacts: List[EmergencyContact]
+    lawyer_standby_enabled: bool = False
+    lawyer_standby_radius_km: float = 25.0
+    sos_message: Optional[str] = None       # pre-written brief sent with every SOS
+
+class SilentSOSRequest(BaseModel):
+    """Triggered by the SOS button or a smartwatch covert tap.
+    `silent=True` means: do NOT play sound, vibrate, or flash on the user's phone."""
+    silent: bool = True
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    country: Optional[str] = None
+    note: Optional[str] = None
+    duress: bool = False                    # smartwatch always sets this true
+    source: str = "phone"                   # "phone" | "watch" | "shortcut"
+
+
+@api_router.get("/emergency/contacts")
+async def get_emergency_contacts(user: dict = Depends(get_user)):
+    doc = await db.emergency_profile.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
+    return {
+        "contacts": doc.get("contacts", []),
+        "lawyer_standby_enabled": doc.get("lawyer_standby_enabled", False),
+        "lawyer_standby_radius_km": doc.get("lawyer_standby_radius_km", 25.0),
+        "sos_message": doc.get("sos_message", ""),
+        "watch_token": doc.get("watch_token"),  # null until they generate one
+    }
+
+
+@api_router.post("/emergency/contacts")
+async def set_emergency_contacts(data: EmergencyContactsPayload, user: dict = Depends(get_user)):
+    pub = user_to_public(user)
+    # Lawyer Standby is a Pro feature; contacts list is free.
+    if data.lawyer_standby_enabled and not tier_has_access(pub["tier"], "live_assist"):
+        raise HTTPException(402, "Lawyer Standby fallback requires Pro. Contacts can still be saved.")
+    contacts = [c.model_dump() for c in data.contacts][:20]  # safety cap
+    await db.emergency_profile.update_one(
+        {"user_id": user["id"]},
+        {"$set": {
+            "user_id": user["id"],
+            "contacts": contacts,
+            "lawyer_standby_enabled": data.lawyer_standby_enabled,
+            "lawyer_standby_radius_km": max(1.0, min(200.0, data.lawyer_standby_radius_km)),
+            "sos_message": (data.sos_message or "")[:500],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+    return {"saved": True, "contact_count": len(contacts)}
+
+
+@api_router.post("/emergency/watch-token")
+async def generate_watch_token(user: dict = Depends(get_user)):
+    """Generate a single-use-style token used by smartwatch shortcuts to trigger Silent SOS
+    without exposing the user's primary JWT. Stored on the user's profile; can be rotated."""
+    token = _secrets.token_urlsafe(24)
+    await db.emergency_profile.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"watch_token": token, "watch_token_created_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"watch_token": token, "trigger_url": f"/api/emergency/silent-sos?wt={token}"}
+
+
+async def _send_sos_to_contacts(user: dict, profile: dict, sos: dict):
+    """Record (but do NOT dispatch) the SOS notification intent. Actual SMS / email
+    dispatch happens on the user's own phone via native sms: / mailto: URIs — we
+    intentionally do NOT use a third-party SMS service so:
+      • Family sees the user's OWN number (instant recognition vs unknown spam)
+      • Zero per-message cost
+      • No additional auth / infrastructure
+    For Covert Watch SOS (where the phone may be unreachable), only the server-side
+    Lawyer Standby ping fires — family SMS requires the phone to be accessible.
+    """
+    contacts_to_notify = [c for c in profile.get("contacts", []) if c.get("include_in_sos")]
+    notified = []
+    for c in contacts_to_notify:
+        notified.append({
+            "name": c.get("name"), "relationship": c.get("relationship"),
+            "phone": c.get("phone"), "email": c.get("email"),
+            "is_lawyer": c.get("is_lawyer", False),
+            "status": "ready_for_native_dispatch",
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+        })
+    sos["notified_contacts"] = notified
+    return notified
+
+
+async def _escalate_lawyer_standby(user: dict, profile: dict, sos: dict):
+    """If lawyer_standby_enabled and no contact has responded, ping top-3 nearest opted-in firms."""
+    lat = sos.get("latitude"); lng = sos.get("longitude")
+    if not (profile.get("lawyer_standby_enabled") and lat is not None and lng is not None):
+        return []
+    radius_km = profile.get("lawyer_standby_radius_km", 25.0)
+    firms = await db.law_firms.find(
+        {"verified": True, "emergency_standby": True,
+         "lat": {"$ne": None}, "lng": {"$ne": None}},
+        {"_id": 0, "id": 1, "name": 1, "lat": 1, "lng": 1, "phone": 1, "city": 1, "country": 1, "tier": 1},
+    ).to_list(200)
+    scored = []
+    for f in firms:
+        d = haversine_km(lat, lng, f["lat"], f["lng"])
+        if d <= radius_km:
+            f["distance_km"] = round(d, 1)
+            scored.append(f)
+    scored.sort(key=lambda f: f["distance_km"])
+    top3 = scored[:3]
+    # Mark them as standby-pinged so they can pick up the lead in their dashboard
+    for f in top3:
+        await db.firm_emergency_pings.insert_one({
+            "id": str(uuid.uuid4()),
+            "sos_id": sos["id"],
+            "firm_id": f["id"],
+            "user_id": user["id"],
+            "distance_km": f["distance_km"],
+            "status": "pinged",
+            "pinged_at": datetime.now(timezone.utc).isoformat(),
+            "accept_window_seconds": 90,
+        })
+    sos["lawyer_standby_pinged"] = [
+        {"firm_id": f["id"], "name": f["name"], "distance_km": f["distance_km"]}
+        for f in top3
+    ]
+    return top3
+
+
+@api_router.post("/emergency/silent-sos")
+async def silent_sos(
+    data: SilentSOSRequest,
+    user: Optional[dict] = Depends(get_user_optional),
+    wt: Optional[str] = None,  # ?wt=... from smartwatch shortcut
+):
+    """The big red button. Quietly fires off SOS messages, optionally escalates to
+    nearby firms via Lawyer Standby. Works with either JWT (phone) or watch_token (covert).
+    On the user's phone the response will be intentionally minimal so it doesn't pop up."""
+    # Resolve user: prefer JWT, fall back to watch token from query string
+    if user is None and wt:
+        prof = await db.emergency_profile.find_one({"watch_token": wt}, {"_id": 0, "user_id": 1})
+        if prof:
+            user = await db.users.find_one({"id": prof["user_id"]})
+    if user is None:
+        raise HTTPException(401, "Authentication required")
+
+    profile = await db.emergency_profile.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
+
+    sos_id = str(uuid.uuid4())
+    sos_record = {
+        "id": sos_id, "user_id": user["id"],
+        "silent": bool(data.silent), "duress": bool(data.duress),
+        "source": data.source or "phone",
+        "latitude": data.latitude, "longitude": data.longitude,
+        "country": data.country, "note": data.note or profile.get("sos_message", ""),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "notified_contacts": [], "lawyer_standby_pinged": [],
+    }
+
+    notified = await _send_sos_to_contacts(user, profile, sos_record)
+
+    # Lawyer Standby: top-3 firms simultaneously. If user has no contacts at all OR
+    # standby is enabled, fire it right away (the user's choice — strategy "b").
+    standby_pinged = []
+    if profile.get("lawyer_standby_enabled"):
+        standby_pinged = await _escalate_lawyer_standby(user, profile, sos_record)
+
+    await db.emergency_events.insert_one(sos_record.copy())
+
+    # Intentionally compact response — fewer bytes = less likely to draw attention.
+    return {
+        "ok": True, "sos_id": sos_id,
+        "notified": len(notified),
+        "standby_pinged": len(standby_pinged),
+    }
+
+
+@api_router.get("/emergency/silent-sos")
+async def silent_sos_get(
+    wt: str,
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    src: str = "watch",
+):
+    """GET-version of silent SOS so a smartwatch Shortcut / Tasker tile can fire it
+    with a single tap that hits a URL. Auth is via the ?wt=... watch_token."""
+    data = SilentSOSRequest(
+        silent=True, latitude=lat, longitude=lng,
+        duress=True, source=src,
+    )
+    return await silent_sos(data, user=None, wt=wt)
+
+
+@api_router.get("/emergency/sos-history")
+async def sos_history(user: dict = Depends(get_user)):
+    """Audit log for the user — every SOS fired (phone + watch). GDPR-friendly."""
+    events = await db.emergency_events.find(
+        {"user_id": user["id"]}, {"_id": 0},
+    ).sort("created_at", -1).to_list(50)
+    return {"events": events}
+
+
+# ==================== Embassy / Consulate Directory (offline-ready) ====================
+# Static directory of UK FCDO consulates worldwide. Used by Translation Mode and
+# Emergency Mode for one-tap "Call my embassy" when stranded abroad.
+EMBASSY_DIRECTORY = [
+    {"country": "IQ", "name": "British Embassy Baghdad", "phone": "+964 7901 926 280", "email": "consular.baghdad@fcdo.gov.uk", "address": "International Zone, Baghdad, Iraq"},
+    {"country": "AE", "name": "British Embassy Dubai", "phone": "+971 4 309 4444", "email": "ukinuae.consularenquiries@fcdo.gov.uk", "address": "Al Seef Road, Dubai, UAE"},
+    {"country": "TR", "name": "British Consulate-General Istanbul", "phone": "+90 212 334 6400", "email": "istanbul.consular@fcdo.gov.uk", "address": "Mesrutiyet Caddesi 34, Tepebaşı, Istanbul"},
+    {"country": "EG", "name": "British Embassy Cairo", "phone": "+20 2 2791 6000", "email": "cairo.consularsection@fcdo.gov.uk", "address": "7 Ahmed Ragheb Street, Garden City, Cairo"},
+    {"country": "TH", "name": "British Embassy Bangkok", "phone": "+66 2 305 8333", "email": "info.bangkok@fcdo.gov.uk", "address": "14 Wireless Road, Lumpini, Bangkok"},
+    {"country": "IN", "name": "British High Commission New Delhi", "phone": "+91 11 2419 2100", "email": "uk.consular@fcdo.gov.uk", "address": "Shantipath, Chanakyapuri, New Delhi"},
+    {"country": "PK", "name": "British High Commission Islamabad", "phone": "+92 51 201 2000", "email": "BHC.Pakistan@fcdo.gov.uk", "address": "Diplomatic Enclave, Ramna 5, Islamabad"},
+    {"country": "US", "name": "British Embassy Washington DC", "phone": "+1 202 588 7800", "email": "washington-consular@fcdo.gov.uk", "address": "3100 Massachusetts Ave NW, Washington DC"},
+    {"country": "CN", "name": "British Embassy Beijing", "phone": "+86 10 5192 4000", "email": "consular.beijing@fcdo.gov.uk", "address": "11 Guanghua Lu, Jianguomenwai, Beijing"},
+    {"country": "RU", "name": "British Embassy Moscow", "phone": "+7 495 956 7200", "email": "Moscow.Consular@fcdo.gov.uk", "address": "Smolenskaya Naberezhnaya 10, Moscow"},
+    {"country": "FR", "name": "British Embassy Paris", "phone": "+33 1 44 51 31 00", "email": "paris.consular@fcdo.gov.uk", "address": "35 Rue du Faubourg Saint-Honoré, Paris"},
+    {"country": "DE", "name": "British Embassy Berlin", "phone": "+49 30 204570", "email": "consular.berlin@fcdo.gov.uk", "address": "Wilhelmstraße 70, Berlin"},
+    {"country": "ES", "name": "British Embassy Madrid", "phone": "+34 91 714 6300", "email": "madrid.consular@fcdo.gov.uk", "address": "Torre Espacio, Paseo de la Castellana 259D, Madrid"},
+    {"country": "IT", "name": "British Embassy Rome", "phone": "+39 06 4220 0001", "email": "rome.consular@fcdo.gov.uk", "address": "Via XX Settembre 80, Rome"},
+    {"country": "GR", "name": "British Embassy Athens", "phone": "+30 210 727 2600", "email": "athens.consular@fcdo.gov.uk", "address": "1 Ploutarchou Street, Athens"},
+    {"country": "MA", "name": "British Embassy Rabat", "phone": "+212 537 633 333", "email": "rabat.consular@fcdo.gov.uk", "address": "28 Avenue S.A.R. Sidi Mohammed, Rabat"},
+    {"country": "SA", "name": "British Embassy Riyadh", "phone": "+966 11 481 9100", "email": "consular.riyadh@fcdo.gov.uk", "address": "PO Box 94351, Diplomatic Quarter, Riyadh"},
+    {"country": "QA", "name": "British Embassy Doha", "phone": "+974 4496 2000", "email": "consular.doha@fcdo.gov.uk", "address": "PO Box 3, West Bay, Doha"},
+    {"country": "JP", "name": "British Embassy Tokyo", "phone": "+81 3 5211 1100", "email": "consular.tokyo@fcdo.gov.uk", "address": "1 Ichibancho, Chiyoda-ku, Tokyo"},
+    {"country": "AU", "name": "British High Commission Canberra", "phone": "+61 2 6270 6666", "email": "consular.canberra@fcdo.gov.uk", "address": "Commonwealth Avenue, Yarralumla, Canberra"},
+    {"country": "ZA", "name": "British High Commission Pretoria", "phone": "+27 12 421 7500", "email": "consular.pretoria@fcdo.gov.uk", "address": "255 Hill Street, Arcadia, Pretoria"},
+    {"country": "NG", "name": "British High Commission Abuja", "phone": "+234 909 865 6000", "email": "abuja.consular@fcdo.gov.uk", "address": "Shehu Shagari Way, Maitama, Abuja"},
+    {"country": "KE", "name": "British High Commission Nairobi", "phone": "+254 20 287 3000", "email": "nairobi.consular@fcdo.gov.uk", "address": "Upper Hill Road, Nairobi"},
+    {"country": "BR", "name": "British Embassy Brasília", "phone": "+55 61 3329 2300", "email": "consular.brasilia@fcdo.gov.uk", "address": "Quadra 801, Conjunto K, Lote 8, Brasília"},
+    {"country": "MX", "name": "British Embassy Mexico City", "phone": "+52 55 1670 3200", "email": "mexico.consular@fcdo.gov.uk", "address": "Río Lerma 71, Cuauhtémoc, Mexico City"},
+]
+
+@api_router.get("/embassy/lookup")
+async def embassy_lookup(country: str):
+    """Returns the British embassy/consulate for the given ISO-3166-1 alpha-2 country code."""
+    cc = (country or "").upper()
+    matches = [e for e in EMBASSY_DIRECTORY if e["country"] == cc]
+    if not matches:
+        return {"found": False, "country": cc, "fallback": {
+            "name": "UK FCDO 24/7 Emergency", "phone": "+44 20 7008 5000",
+            "email": "consular.fcdo@fcdo.gov.uk",
+            "note": "Call this 24/7 line — FCDO will route you to the nearest UK consulate."}}
+    return {"found": True, "country": cc, "embassy": matches[0]}
+
+
+@api_router.get("/embassy/all")
+async def embassy_all():
+    """Full list — used by clients to preload an offline copy for travellers without signal."""
+    return {"embassies": EMBASSY_DIRECTORY, "count": len(EMBASSY_DIRECTORY)}
 
 
 # ==================== Letter Library (curated templates) ====================

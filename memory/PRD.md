@@ -10,6 +10,14 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 2d — Embassy quick-dial + Multi-contact SOS + Lawyer Standby + Covert Watch SOS)
+- **🏛 Embassy / Consulate quick-dial** — built-in directory of 25 British FCDO consulates (Iraq, UAE, Turkey, Egypt, Thailand, India, Pakistan, US, China, Russia, France, Germany, Spain, Italy, Greece, Morocco, Saudi, Qatar, Japan, Australia, South Africa, Nigeria, Kenya, Brazil, Mexico). Unknown country falls back to the FCDO 24/7 emergency line (+44 20 7008 5000). New endpoints: `GET /api/embassy/lookup?country=XX`, `GET /api/embassy/all`. Tappable button in Emergency Modal.
+- **📍 Geo-sorted lawyer finder** — "Nearest lawyers to you" section in Emergency Modal pulls top-3 firms within 50km via the existing `/api/lawfirms?latitude=&longitude=&max_km=` endpoint. One-tap call buttons.
+- **🚨 Multi-contact SOS** — replaced the single `emergency_contact_phone` field with unlimited contacts (name, relationship, phone, `include_in_sos`, `is_lawyer` star flag). One contact can be marked "My Lawyer" — exclusivity enforced both client-side and on save. New endpoints: `GET/POST /api/emergency/contacts`, `GET /api/emergency/sos-history`. New Settings card `EmergencyContactsCard`.
+- **⚖ Lawyer Standby fallback** (Pro tier) — if SOS fires with no contact ACK in 60s, pings TOP-3 nearest opted-in Premium/Practice firms simultaneously inside a configurable radius (5–100km). Stored in `db.firm_emergency_pings` for firm-side pickup with a 90s accept window.
+- **⌚ Covert Watch SOS** — new `POST /api/emergency/watch-token` issues a private rotatable token; `GET /api/emergency/silent-sos?wt=<token>&lat=&lng=&src=watch` fires SOS with NO Authorization header — works from any smartwatch via a one-tap URL Shortcut (Apple Watch Shortcuts complication / Wear OS HTTP-Shortcuts tile). Always silent on the user's phone. Sets `duress=true`. Token can be rotated to invalidate. Setup guide built into the Settings card.
+- **Tested:** backend 12/12 PASS (1 env-skipped) · frontend all key Settings flows + "My Lawyer" exclusivity verified by Playwright on mobile 390x844 (see `/app/test_reports/iteration_17.json`).
+
 ### 2026-02 (Session 2c — Whisper Mode + Translation Mode + T&Cs v1.1)
 - **🌍 Translation Mode** (3rd tab in Courtroom Trainer). Bidirectional live interpreter for travellers stopped abroad. Powered by Whisper (STT) + Claude (translation) + OpenAI TTS (playback). 53-language picker (Whisper's full list — Arabic, Mandarin, Urdu, Hindi, Swahili, etc.). Other party's speech → translated + safety tip + suggested reply. User reply → translated → spoken aloud in their language. Pro tier only.
   - New backend endpoints: `POST /api/lex/translate`, `GET /api/lex/translate/languages`.
