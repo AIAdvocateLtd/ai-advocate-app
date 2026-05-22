@@ -1759,10 +1759,9 @@ async def set_emergency_contacts(data: EmergencyContactsPayload, user: dict = De
     # Lawyer Standby is a Pro feature; contacts list is free.
     if data.lawyer_standby_enabled and not tier_has_access(pub["tier"], "live_assist"):
         raise HTTPException(402, "Lawyer Standby fallback requires Pro. Contacts can still be saved.")
-    # Tracking window: hard-clamp 15 min → 24h. Windows >2h require Pro (informed consent + GDPR proportionality).
+    # Tracking window: hard-clamp 15 min → 24h. Available to ALL tiers as a life-safety
+    # feature — we will not paywall the difference between someone being found in 2h vs 24h.
     window = max(15, min(1440, int(data.tracking_window_minutes or 60)))
-    if window > 120 and not tier_has_access(pub["tier"], "live_assist"):
-        window = 120  # Free tier: max 2 hours
     contacts = [c.model_dump() for c in data.contacts][:20]
     await db.emergency_profile.update_one(
         {"user_id": user["id"]},
@@ -2030,13 +2029,12 @@ async def track_stop(sos_id: str, user: dict = Depends(get_user)):
 
 @api_router.post("/emergency/track/{sos_id}/extend")
 async def track_extend(sos_id: str, user: dict = Depends(get_user)):
-    """Extend an ACTIVE track session to the user's tier-maximum.
+    """Extend an ACTIVE track session to 24h (the universal hard maximum).
     Triggered by the battery-low prompt — when the user's phone is about to die,
     we extend the window so family doesn't lose visibility at the worst moment.
-    Hard caps: 1440 min (24h) for Pro, 120 min (2h) for Free.
+    Available to ALL tiers — this is a life-safety feature, not a paywall lever.
     """
-    pub = user_to_public(user)
-    max_minutes = 1440 if tier_has_access(pub["tier"], "live_assist") else 120
+    max_minutes = 1440
 
     track = await db.emergency_tracks.find_one(
         {"sos_id": sos_id, "user_id": user["id"]}, {"_id": 0, "active": 1, "started_at": 1, "expires_at": 1},

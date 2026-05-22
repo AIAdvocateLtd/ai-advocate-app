@@ -4023,48 +4023,6 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
           </div>
         </div>
 
-        {/* Emergency Contact (used for "I've been arrested" SMS) */}
-        <div data-testid="settings-emergency-contact" style={{ background: "var(--bg-card)", border: "1px solid #7f1d1d", borderRadius: 14, padding: 16, marginBottom: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <span style={{ color: "#fca5a5", fontSize: 18 }}>⚠</span>
-            <span style={{ fontWeight: 600 }}>{t(lang, "emergencyContact")}</span>
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10, lineHeight: 1.5 }}>
-            {t(lang, "emergencyContactDesc")}
-          </div>
-          {/* Native Contact Picker — works on Chrome Android & some iOS. Falls back to manual inputs below. */}
-          {("contacts" in navigator) && ("ContactsManager" in window) && (
-            <button data-testid="pick-contact-btn" className="btn-ghost" style={{ width: "100%", marginBottom: 10, padding: "10px", fontSize: 13 }}
-              onClick={async () => {
-                try {
-                  const props = ["name", "tel"];
-                  const opts = { multiple: false };
-                  const result = await navigator.contacts.select(props, opts);
-                  if (result && result.length) {
-                    const c = result[0];
-                    const name = (c.name && c.name[0]) || "";
-                    const tel = (c.tel && c.tel[0]) ? c.tel[0].replace(/\s/g, "") : "";
-                    try {
-                      const r = await api.patch("/auth/preferences", { emergency_contact_name: name, emergency_contact_phone: tel });
-                      onUpdate(r.data);
-                    } catch (e) { alert(e?.response?.data?.detail || t(lang, "failedToSave")); }
-                  }
-                } catch (e) {
-                  alert(t(lang, "contactPickerUnavailable"));
-                }
-              }}>
-              📇 {t(lang, "pickFromContacts")}
-            </button>
-          )}
-          <input className="input" data-testid="emergency-name-input" placeholder={t(lang, "emergencyNamePlaceholder")}
-            defaultValue={user.emergency_contact_name || ""} key={`ename-${user.emergency_contact_name || ""}`}
-            onBlur={async (e) => { await api.patch("/auth/preferences", { emergency_contact_name: e.target.value }).then(r => onUpdate(r.data)).catch(() => {}); }}
-            style={{ marginBottom: 8 }} />
-          <input className="input" data-testid="emergency-phone-input" placeholder={t(lang, "emergencyPhonePlaceholder")}
-            type="tel" defaultValue={user.emergency_contact_phone || ""} key={`ephone-${user.emergency_contact_phone || ""}`}
-            onBlur={async (e) => { await api.patch("/auth/preferences", { emergency_contact_phone: e.target.value.replace(/\s/g, "") }).then(r => onUpdate(r.data)).catch(() => {}); }} />
-        </div>
-
         {/* "Hey Lex" wake word toggle — hidden pre-launch.
             Re-enable when SiriKit Shortcuts arrive in the Capacitor iOS wrap. */}
         {false && (
@@ -4993,7 +4951,6 @@ function EmergencyContactsCard({ lang, user }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
           {[15, 60, 360, 720, 1440].map(min => {
             const label = min < 60 ? `${min}m` : min < 1440 ? `${min/60}h` : "24h";
-            const pro = min > 120;
             const sel = trackWindow === min;
             return (
               <button key={min} data-testid={`ec-track-${min}`} onClick={() => setTrackWindow(min)}
@@ -5003,16 +4960,14 @@ function EmergencyContactsCard({ lang, user }) {
                   color: sel ? "#012a36" : "#67e8f9",
                   border: `1px solid ${sel ? "#67e8f9" : "#155e75"}`,
                   fontSize: 12, fontWeight: 700,
-                  position: "relative",
                 }}>
                 {label}
-                {pro && <span style={{ position: "absolute", top: -6, right: -6, background: "var(--gold)", color: "#1a1300", borderRadius: 4, fontSize: 8, padding: "1px 3px", fontWeight: 800 }}>PRO</span>}
               </button>
             );
           })}
         </div>
         <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
-          Default: 1 hour. Hard maximum: 24 hours (GDPR proportionality). Free tier capped at 2 hours.
+          Default: 1 hour. Hard maximum: 24 hours (GDPR proportionality). Available on every tier — life-safety should never be paywalled.
           <br />Lawful basis: vital interests (UK GDPR Art 6(1)(d)) — triggered only by your own SOS tap.
         </div>
       </div>
