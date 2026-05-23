@@ -11,6 +11,7 @@ import { STRINGS, t, RTL_LANGS } from "@/i18n";
 import { setAppIconBadge } from "@/appBadge";
 import { setSentryUser, clearSentryUser } from "@/sentry";
 import { identify as identifyAnalytics, resetAnalytics, track } from "@/analytics";
+import native, { isNative, hideSplash, openExternal as nativeOpenExternal } from "@/nativeBridge";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
 // we hide all Subscribe / Upgrade buttons (and replace them with a web-billing notice).
@@ -698,7 +699,16 @@ function renderWithCitationPills(text, citations, msgIdx) {
             rel="noopener noreferrer"
             title={cite.title}
             data-testid={`citation-pill-${msgIdx}-${n}`}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              // On native (iOS/Android), open in the in-app browser sheet (Safari View
+              // Controller / Chrome Custom Tab) so users stay inside the app — this is
+              // also required for App Store approval (no bouncing to mobile Safari).
+              if (isNative()) {
+                e.preventDefault();
+                nativeOpenExternal(cite.url);
+              }
+            }}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -8355,6 +8365,11 @@ function App() {
     }
   // eslint-disable-next-line
   }, []);
+
+  // 📱 Hide the native Capacitor splash once React has rendered + auth resolved. No-op on web.
+  useEffect(() => {
+    if (step !== "loading") { hideSplash().catch(() => {}); }
+  }, [step]);
 
   // Deep-link: /engage/<token> — store the invite token so EngagementsModal can auto-accept it after login
   useEffect(() => {

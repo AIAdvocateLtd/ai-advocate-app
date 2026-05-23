@@ -2,24 +2,38 @@
   "appId": "uk.co.aiadvocate.official",
   "appName": "AI Advocate",
   "webDir": "build",
-  "bundledWebRuntime": false,
-  "server": {
-    "url": "https://aiadvocate.co.uk",
-    "cleartext": false,
-    "androidScheme": "https"
-  },
   "ios": {
-    "contentInset": "always"
+    "contentInset": "always",
+    "scheme": "AI Advocate",
+    "limitsNavigationsToAppBoundDomains": true,
+    "preferredContentMode": "mobile"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
   },
   "plugins": {
     "SplashScreen": {
-      "launchShowDuration": 1500,
+      "launchShowDuration": 1800,
+      "launchAutoHide": true,
       "backgroundColor": "#0a0a0a",
-      "showSpinner": false
+      "showSpinner": false,
+      "androidScaleType": "CENTER_CROP",
+      "splashFullScreen": true,
+      "splashImmersive": true
     },
     "StatusBar": {
       "style": "DARK",
-      "backgroundColor": "#0a0a0a"
+      "backgroundColor": "#0a0a0a",
+      "overlaysWebView": false
+    },
+    "Keyboard": {
+      "resize": "body",
+      "resizeOnFullScreen": true
+    },
+    "Geolocation": {
+      "permissions": ["location"]
     }
   }
 }

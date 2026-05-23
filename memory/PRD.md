@@ -10,6 +10,17 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 2g — Capacitor 7 wrap prep)
+- **Installed Capacitor 7** (`@capacitor/core`, `@capacitor/cli`, `@capacitor/ios`, `@capacitor/android`) and all essential plugins: Geolocation, Filesystem, Share, Preferences (Keychain/EncryptedSharedPreferences), SplashScreen, StatusBar, App, Haptics, Network, Device, Clipboard, Keyboard, Browser.
+- **`/app/frontend/capacitor.config.json`** polished — `uk.co.aiadvocate.official` app id, dark splash bg, status bar config, keyboard resize, iOS contentInset, no insecure mixed content.
+- **`/app/frontend/src/nativeBridge.js`** — thin platform-detection layer (`isNative()`) with web fallbacks for every native API: `getPosition`, `share`, `secureGet/Set/Remove`, `openExternal`, `vibrate`, `getNetworkStatus`, `hideSplash`, `addAppListeners`. Lazy-imports each Capacitor plugin so the web bundle stays small.
+- **Two surgical wires:** (1) `hideSplash()` called when auth resolves so the native launch image fades when React is ready; (2) citation pills route through Capacitor `Browser` (Safari View Controller / Chrome Custom Tab) on native — required for App Store approval (no Safari bounces).
+- **Reference docs** for the user's local Xcode/Android Studio build:
+  - `/app/frontend/BUILD_INSTRUCTIONS.md` — prerequisites, day-to-day workflow, iOS/Android release steps, Vault-key migration recipe.
+  - `/app/frontend/IOS_INFO_PLIST.md` — every privacy usage description string verbatim (Location, Microphone, Camera, Photos, Speech, Face ID), background-mode notes, Apple Sign-in entitlement.
+  - `/app/frontend/ANDROID_MANIFEST.md` — full `<uses-permission>` block, `<queries>` for SMS intent visibility, `allowBackup="false"`, Universal Link / App Link snippets, network-security config.
+- **Tested**: lint clean. `yarn build` succeeds (16s). Web preview boots without errors. No regression — `isNative()` returns false on the web so every native code path is a no-op outside Capacitor.
+
 ### 2026-02 (Session 2f — Bug-fix + Citation Pills)
 - **🛠 Replaced `window.confirm()` / `alert()` with in-app modal + toast** — root cause of "delete buttons don't work" reports was Brave/iOS suppressing native dialogs. New `<AAConfirmHost />` + `aaConfirm()` / `aaToast()` are gold-themed, always-visible, mounted at app root. Affected flows: legal-files delete + save-to-vault, case delete + case-item delete + case-item save-to-vault, recycle-bin restore + purge + empty-all, timeline save + clear, hearing/encounter save-to-vault.
 - **🗑 Recycle Bin moved from Settings to dashboard** — new gold tile (between Reminders and Letter Library) using a custom-generated `recycle.png` icon (Nano Banana, transparent BG, hue-shifted to match the existing gold palette).
