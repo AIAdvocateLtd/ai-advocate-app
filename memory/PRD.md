@@ -10,6 +10,16 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 2h — Legal & Compliance hardening for App Store)
+- **T&Cs v1.3** (`/app/frontend/public/terms.html`): Added Legal Services Act 2007 reference; explicit "Not a replacement for 999/112/911" in §4d Emergency SOS; 14-day cooling-off period under UK CCR 2013 in §6; two-party-consent foreign-recording warning in §4; sponsored-firms disclosure in §11; ICO registration reference + DPIA mention in §12.
+- **18+ Age Gate**: Added confirmation checkbox to `TermsScreen` — accept button disabled until both T&C agreement AND "I am 18+" boxes are ticked. App Store 17+ rating evidence.
+- **Persistent UPL footer in Lex Chat**: small "AI-generated legal *information*, not legal advice — always verify with a regulated solicitor" footer below the chat input on every Lex surface.
+- **First-use UPL acknowledgment modal**: Shown the first time a user opens Lex. Lists what Lex is (information assistant) and isn't (a solicitor). Persisted per-device via `aa_lex_upl_ack`.
+- **Cookie / PECR consent banner**: Persistent bottom banner on first visit with "Essential only" / "Accept all" choice; persists in localStorage. PostHog analytics is now gated — `ensureInit()` refuses to initialise until consent is granted, honouring `respect_dnt` browser flag.
+- **999 / Emergency Services banner**: Prominent tappable red banner at top of Emergency modal — `tel:999` direct dial, with EU 112 and US/CA 911 reminders. Coroner-report risk mitigation.
+- **DPIA template** at `/app/memory/DPIA.md` — full ICO-compliant DPIA scaffold covering lawful bases, processing description, retention, risk assessment, and sign-off section ready for your solicitor / DPO.
+- **Pricing left as-is** for now (£14.99 / £34.99 / £319.99) — these touch live Stripe price IDs and need an explicit decision before changing.
+
 ### 2026-02 (Session 2g — Capacitor 7 wrap prep)
 - **Installed Capacitor 7** (`@capacitor/core`, `@capacitor/cli`, `@capacitor/ios`, `@capacitor/android`) and all essential plugins: Geolocation, Filesystem, Share, Preferences (Keychain/EncryptedSharedPreferences), SplashScreen, StatusBar, App, Haptics, Network, Device, Clipboard, Keyboard, Browser.
 - **`/app/frontend/capacitor.config.json`** polished — `uk.co.aiadvocate.official` app id, dark splash bg, status bar config, keyboard resize, iOS contentInset, no insecure mixed content.

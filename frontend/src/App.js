@@ -152,6 +152,51 @@ function AAConfirmHost() {
   );
 }
 
+// 🍪 Cookie / analytics consent banner — PECR + UK-GDPR requirement.
+// Shows on first visit; persists choice in localStorage. If user declines analytics,
+// we still serve the app but skip identifyAnalytics / track() calls.
+function CookieConsentBanner() {
+  const [show, setShow] = useState(() => {
+    try { return !localStorage.getItem("aa_cookie_consent"); } catch (e) { return false; }
+  });
+  if (!show) return null;
+  const choose = (decision) => {
+    try { localStorage.setItem("aa_cookie_consent", decision); } catch (e) {}
+    try { localStorage.setItem("aa_cookie_consent_at", new Date().toISOString()); } catch (e) {}
+    if (decision === "rejected") {
+      // Best-effort: block subsequent analytics calls by setting a global flag
+      try { window.__aa_analytics_off = true; } catch (e) {}
+    }
+    setShow(false);
+  };
+  return (
+    <div data-testid="cookie-consent" style={{
+      position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 99999,
+      background: "rgba(10,10,10,0.96)", backdropFilter: "blur(10px)",
+      borderTop: "1px solid var(--gold-deep)", padding: 14,
+      display: "flex", flexDirection: "column", gap: 10,
+      boxShadow: "0 -8px 24px rgba(0,0,0,0.5)",
+    }}>
+      <div style={{ color: "var(--text)", fontSize: 12.5, lineHeight: 1.5, maxWidth: 580, margin: "0 auto" }}>
+        We use essential cookies to keep you signed in and run the app. With your permission, we also use
+        <strong style={{ color: "var(--gold-soft)" }}> anonymous analytics</strong> (which features get used) and
+        <strong style={{ color: "var(--gold-soft)" }}> crash reporting</strong> (Sentry) — both can be turned off any time in Settings.
+        See our <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: "var(--gold)" }}>Privacy Policy</a>.
+      </div>
+      <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+        <button data-testid="cookie-reject" onClick={() => choose("rejected")}
+          className="btn-ghost" style={{ flex: 1, maxWidth: 200, padding: "9px 14px", fontSize: 12 }}>
+          Essential only
+        </button>
+        <button data-testid="cookie-accept" onClick={() => choose("accepted")}
+          className="btn-gold" style={{ flex: 1, maxWidth: 200, padding: "9px 14px", fontSize: 12, fontWeight: 700 }}>
+          Accept all
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ---------- PDF download helper ----------
 const downloadBlob = (blob, filename) => {
   const url = URL.createObjectURL(blob);
@@ -233,6 +278,7 @@ function LanguagePicker({ initial, onConfirm, lang }) {
 
 function TermsScreen({ lang, onAccept, onDecline, onChangeLang }) {
   const [agree, setAgree] = useState(false);
+  const [over18, setOver18] = useState(false);
   const [body, setBody] = useState("");
   const [note, setNote] = useState("");
   const [englishFull, setEnglishFull] = useState("");
@@ -297,8 +343,14 @@ function TermsScreen({ lang, onAccept, onDecline, onChangeLang }) {
                  style={{ width: 18, height: 18, accentColor: "var(--gold)" }} />
           <span style={{ fontSize: 14 }}>{t(lang, "iAgree")}</span>
         </label>
+        {/* 🛡 18+ age gate — required for App Store 17+ rating + UK consumer law */}
+        <label className="flex items-center gap-2" style={{ marginTop: 10, cursor: "pointer", flexShrink: 0 }}>
+          <input type="checkbox" data-testid="age-gate-checkbox" checked={over18} onChange={(e) => setOver18(e.target.checked)}
+                 style={{ width: 18, height: 18, accentColor: "var(--gold)" }} />
+          <span style={{ fontSize: 13, color: "var(--text-dim)" }}>I confirm I am <strong style={{ color: "var(--gold-soft)" }}>18 years or older</strong>.</span>
+        </label>
         <div className="flex gap-2" style={{ marginTop: 14, flexShrink: 0 }}>
-          <button className="btn-gold" data-testid="accept-terms-btn" disabled={!agree || busy} style={{ flex: 2 }} onClick={onAccept}>{t(lang, "accept")}</button>
+          <button className="btn-gold" data-testid="accept-terms-btn" disabled={!agree || !over18 || busy} style={{ flex: 2 }} onClick={onAccept}>{t(lang, "accept")}</button>
           <button className="btn-ghost" data-testid="decline-terms-btn" onClick={onDecline} style={{ flex: 1 }}>{t(lang, "decline")}</button>
         </div>
       </div>
@@ -1153,6 +1205,12 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
   const seedSentRef = useRef(false);
   const classifiedRef = useRef(false);
 
+  // ⚖ One-time UPL acknowledgment — App Store + UK Legal Services Act 2007 evidence trail.
+  // Persisted per-device so users only see this once. Required disclosure: this is
+  // information, not regulated legal advice, no solicitor-client relationship.
+  const [showUplAck, setShowUplAck] = useState(() => !localStorage.getItem("aa_lex_upl_ack"));
+  const acceptUpl = () => { localStorage.setItem("aa_lex_upl_ack", new Date().toISOString()); setShowUplAck(false); };
+
   const isPro = tier === "pro" || tier === "yearly" || tier === "trial_pro";
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: 1e9, behavior: "smooth" }); }, [messages, busy]);
@@ -1288,6 +1346,41 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
 
   return (
     <div className="modal-bg" data-testid="lex-chat-modal">
+      {/* ⚖ First-use UPL acknowledgment — UK Legal Services Act 2007 evidence trail */}
+      {showUplAck && (
+        <div data-testid="lex-upl-modal" style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 100002,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+        }}>
+          <div style={{
+            background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 16,
+            padding: 24, maxWidth: 400, width: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.7)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <ShieldCheck size={22} style={{ color: "var(--gold)" }} />
+              <div className="brand-font gold" style={{ fontSize: 16, letterSpacing: "0.05em" }}>Before you ask Lex</div>
+            </div>
+            <div style={{ color: "var(--text)", fontSize: 13.5, lineHeight: 1.6, marginBottom: 18 }}>
+              <p style={{ marginTop: 0 }}>Lex is an <strong style={{ color: "var(--gold-soft)" }}>AI legal information assistant</strong> — not a solicitor, barrister, or qualified lawyer.</p>
+              <p style={{ margin: "12px 0 0" }}>By continuing you confirm you understand:</p>
+              <ul style={{ marginTop: 6, paddingLeft: 18, color: "var(--text-dim)", fontSize: 12.5 }}>
+                <li>Lex provides <strong>general legal information</strong>, not regulated legal advice.</li>
+                <li>No solicitor-client relationship is created (Legal Services Act 2007).</li>
+                <li>AI can be wrong — <strong>always verify</strong> with a qualified solicitor before acting.</li>
+                <li>For arrests, court hearings, or life-changing decisions, instruct a regulated lawyer.</li>
+              </ul>
+            </div>
+            <button data-testid="lex-upl-accept" onClick={acceptUpl}
+              className="btn-gold" style={{ width: "100%", padding: "12px 16px", fontSize: 14, fontWeight: 700 }}>
+              I understand — continue to Lex
+            </button>
+            <button data-testid="lex-upl-decline" onClick={() => { setShowUplAck(false); onClose(); }}
+              style={{ width: "100%", marginTop: 8, padding: "10px 16px", background: "transparent", color: "var(--text-muted)", border: "1px solid var(--line)", borderRadius: 10, fontSize: 12, cursor: "pointer" }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       <div className="modal-card" style={{ height: "90vh" }}>
         <div className="flex items-center justify-between" style={{ padding: 16, borderBottom: "1px solid var(--line)" }}>
           <div>
@@ -1559,6 +1652,15 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
           <button className="btn-gold" data-testid="send-btn" onClick={() => send(input)} disabled={!input.trim() || busy} style={{ padding: "12px 16px" }}>
             <Send size={18} />
           </button>
+        </div>
+        {/* ⚖ Persistent UPL footer — required to evidence "general legal information, not advice"
+            on every Lex chat surface. Apple App Review checks for this on AI legal apps. */}
+        <div data-testid="lex-upl-footer" style={{
+          padding: "6px 16px 8px", textAlign: "center",
+          fontSize: 10, color: "var(--text-muted)", lineHeight: 1.4, letterSpacing: "0.02em",
+        }}>
+          <ShieldCheck size={9} style={{ display: "inline", marginRight: 4, opacity: 0.6 }} />
+          AI-generated legal <strong style={{ color: "var(--gold-soft)" }}>information</strong>, not legal advice. Always verify with a regulated solicitor before acting.
         </div>
         {smartCat && (
           <div data-testid="smart-cat-banner" style={{ margin: "10px 16px 0", padding: 10, background: "rgba(247,201,72,0.12)", border: "1px solid var(--gold-deep)", borderRadius: 10, display: "flex", alignItems: "center", gap: 10 }}>
@@ -1906,6 +2008,23 @@ function EmergencyModal({ lang, country, user, onClose }) {
             <X size={24} />
           </button>
         </div>
+
+        {/* 🚨 LIFE-SAFETY DISCLAIMER — App Store + UK coroner risk. Must be visually
+            prominent so it's impossible to miss. Tappable to dial 999 immediately. */}
+        <a href="tel:999" data-testid="emergency-999-banner"
+          style={{
+            display: "flex", alignItems: "center", gap: 10,
+            background: "rgba(220,38,38,0.18)", border: "2px solid #dc2626",
+            borderRadius: 12, padding: "10px 12px", marginBottom: 10,
+            color: "#fca5a5", textDecoration: "none", fontSize: 12.5, lineHeight: 1.4,
+          }}>
+          <AlertTriangle size={18} style={{ color: "#fca5a5", flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <strong style={{ color: "#fee2e2" }}>In immediate danger? Call emergency services first.</strong><br/>
+            <span style={{ opacity: 0.85 }}>UK 999 · EU 112 · US/CA 911. AI Advocate is a supplementary tool, not a replacement for police, fire, ambulance or coastguard.</span>
+          </div>
+          <Phone size={16} style={{ color: "#fee2e2", flexShrink: 0 }} />
+        </a>
 
         {/* GPS status pill — gives the user clear, up-front confidence that their
             location IS in the SOS text. If permission denied / not yet resolved,
@@ -8408,6 +8527,7 @@ function App() {
   return (
     <div className="App app-shell">
       <AAConfirmHost />
+      <CookieConsentBanner />
       {showSplash && <SplashScreen onDone={() => { sessionStorage.setItem("aa_splash_seen", "1"); setShowSplash(false); }} />}
       {step === "lang" && <LanguagePicker lang={lang} initial={lang} onConfirm={(l) => { setLang(l); setStep("terms"); }} />}
       {step === "terms" && <TermsScreen lang={lang} onAccept={() => { localStorage.setItem("aa_terms", "1"); setStep("auth"); }} onDecline={() => setStep("lang")} onChangeLang={() => setStep("lang")} />}

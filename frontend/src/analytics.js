@@ -7,8 +7,20 @@ const HOST = process.env.REACT_APP_POSTHOG_HOST || "https://eu.i.posthog.com";
 
 let initialized = false;
 
+// 🍪 Cookie / PECR consent gate — analytics is disabled until the user clicks "Accept all"
+// in the CookieConsentBanner. The banner sets `aa_cookie_consent = "accepted" | "rejected"`
+// in localStorage, and we honour Do-Not-Track too.
+function _consentGranted() {
+  try {
+    if (window.__aa_analytics_off === true) return false;
+    const c = localStorage.getItem("aa_cookie_consent");
+    return c === "accepted";
+  } catch (e) { return false; }
+}
+
 function ensureInit() {
   if (initialized || !TOKEN) return initialized;
+  if (!_consentGranted()) return false;        // never init until user opts in
   try {
     posthog.init(TOKEN, {
       api_host: HOST,
@@ -31,7 +43,10 @@ function ensureInit() {
   return initialized;
 }
 
-ensureInit();
+// Defer init until consent is granted (see ensureInit). The track()/identify() calls
+// below are idempotent — they call ensureInit() each time, so they auto-activate the
+// first time the user clicks "Accept all" in the cookie banner.
+// ensureInit();  // disabled — analytics now opt-in only per UK PECR
 
 export function track(event, props = {}) {
   if (!ensureInit()) return;
