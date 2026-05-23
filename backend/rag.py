@@ -169,22 +169,25 @@ def _format_block(label: str, items: List[Dict], start_index: int = 1) -> str:
     return "\n".join(lines)
 
 
-async def build_rag_context(message: str, country: str = "GB", db=None) -> str:
+async def build_rag_context(message: str, country: str = "GB", db=None):
     """
-    Returns a citation-tagged context block to append to Lex's system prompt,
-    OR an empty string if RAG is disabled / question is smalltalk / monthly cap hit.
+    Returns a tuple `(prompt_block, citations)` where:
+      • `prompt_block` is the citation-tagged context string appended to Lex's
+        system prompt (or "" if RAG is disabled / smalltalk / monthly cap hit).
+      • `citations` is a list of {n, title, url, source} dicts so the frontend
+        can render `[1] [2]` markers as clickable links to the source URL.
 
     Pass `db` (the Motor database handle) to enable usage-cap protection.
     """
     if not is_enabled():
-        return ""
+        return ("", [])
     if not _looks_like_legal_question(message):
-        return ""
+        return ("", [])
 
     # 🚧 Usage cap — never exceed the configured monthly cap.
     if db is not None and not await _under_cap(db):
         logger.info("Tavily monthly cap reached — serving Lex without RAG this turn.")
-        return ""
+        return ("", [])
 
     # Bias query toward jurisdiction for better UK / Scotland / NI hits.
     jurisdiction_hint = ""
@@ -220,10 +223,10 @@ async def build_rag_context(message: str, country: str = "GB", db=None) -> str:
         calls_made = 2  # we attempted 2 search credits regardless of result count
     except asyncio.TimeoutError:
         logger.warning("Tavily RAG block timed out — continuing without grounding.")
-        return ""
+        return ("", [])
     except Exception as e:
         logger.warning("RAG gather failed: %s", e)
-        return ""
+        return ("", [])
 
     # Count the credits we actually consumed (Tavily charges per call attempted,
     # not per result returned).
@@ -245,23 +248,32 @@ async def build_rag_context(message: str, country: str = "GB", db=None) -> str:
     web = dedupe(web)
 
     if not official and not web:
-        return ""
+        return ("", [])
 
     blocks = []
+    citations = []
     next_idx = 1
     if official:
         blocks.append(_format_block("OFFICIAL UK LEGAL SOURCES (statute / case law)", official, start_index=next_idx))
-        next_idx += len(official)
+        for it in official:
+            citations.append({"n": next_idx, "title": it.get("title") or "(untitled)", "url": it.get("url") or "", "source": "official"})
+            next_idx += 1
     if web:
         blocks.append(_format_block("SUPPORTING WEB SOURCES", web, start_index=next_idx))
+        for it in web:
+            citations.append({"n": next_idx, "title": it.get("title") or "(untitled)", "url": it.get("url") or "", "source": "web"})
+            next_idx += 1
 
     body = "\n\n".join(blocks)
 
     return (
-        "\n\n=== LIVE LEGAL RESEARCH (retrieved just now) ===\n"
-        f"{body}\n\n"
-        "USE THESE SOURCES: Ground your answer in the material above. When you state "
-        "a rule, cite the source like [1] or [2] matching the numbered list. If the "
-        "retrieved material does NOT cover the user's question, say so and give your "
-        "best general guidance — never invent a citation."
+        (
+            "\n\n=== LIVE LEGAL RESEARCH (retrieved just now) ===\n"
+            f"{body}\n\n"
+            "USE THESE SOURCES: Ground your answer in the material above. When you state "
+            "a rule, cite the source like [1] or [2] matching the numbered list. If the "
+            "retrieved material does NOT cover the user's question, say so and give your "
+            "best general guidance — never invent a citation."
+        ),
+        citations,
     )

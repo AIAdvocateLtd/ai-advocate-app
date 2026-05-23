@@ -1082,8 +1082,9 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     # Gracefully skipped if TAVILY_API_KEY is not configured. Total budget: 2 Tavily
     # calls (one filtered to authority domains, one general). The retrieved snippets
     # are appended to the system prompt and Lex is told to cite numbered sources.
+    citations: List[dict] = []
     try:
-        rag_block = await build_rag_context(data.message, country=data.country or "GB", db=db)
+        rag_block, citations = await build_rag_context(data.message, country=data.country or "GB", db=db)
         if rag_block:
             system_msg = system_msg + rag_block
     except Exception as e:
@@ -1134,7 +1135,8 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
             logger.exception("Lex chat error (both primary + fallback)")
             raise HTTPException(500, f"AI error: {str(e2)}")
 
-    # Save conversation (sensitive content encrypted at rest)
+    # Save conversation (sensitive content encrypted at rest). Citations are stored
+    # as plaintext metadata so chat history can re-render the pills on reload.
     await db.conversations.insert_one({
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
@@ -1145,6 +1147,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         "language": reply_language,
         "model_used": model_id,
         "deep_think": data.deep_think,
+        "citations": citations,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -1166,6 +1169,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         "reply_language": reply_language,
         "model": model_id,
         "connected_session_id": connected_session_id,
+        "citations": citations,
     }
 
 

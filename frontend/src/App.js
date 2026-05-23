@@ -71,6 +71,86 @@ const setAuthHeader = (token) => {
   else delete api.defaults.headers.common["Authorization"];
 };
 
+// ---------- In-app confirm + toast (replaces window.confirm/alert) ----------
+// Why: native window.confirm() is suppressed in some mobile browsers (Brave/iOS,
+// preview iframes) so users tap delete and nothing seems to happen. These render
+// our own gold-themed dialog/toast that always shows, regardless of browser.
+const __aaUI = { confirm: null, toast: null };
+const aaConfirm = (opts) => new Promise((resolve) => {
+  if (!__aaUI.confirm) { resolve(window.confirm(typeof opts === "string" ? opts : (opts?.message || ""))); return; }
+  __aaUI.confirm(typeof opts === "string" ? { message: opts } : opts, resolve);
+});
+const aaToast = (msg, type = "success") => {
+  if (!__aaUI.toast) { try { console.log(`[toast/${type}]`, msg); } catch (e) {} return; }
+  __aaUI.toast(msg, type);
+};
+
+function AAConfirmHost() {
+  const [c, setC] = useState(null);   // { message, title, danger, confirmLabel, cancelLabel, resolve }
+  const [toasts, setToasts] = useState([]);
+  useEffect(() => {
+    __aaUI.confirm = (opts, resolve) => setC({ ...opts, resolve });
+    __aaUI.toast = (msg, type) => {
+      const id = Date.now() + Math.random();
+      setToasts(ts => [...ts, { id, msg, type }]);
+      setTimeout(() => setToasts(ts => ts.filter(t => t.id !== id)), type === "error" ? 5000 : 3000);
+    };
+    return () => { __aaUI.confirm = null; __aaUI.toast = null; };
+  }, []);
+  const close = (ok) => { if (c) { c.resolve(ok); setC(null); } };
+  return (
+    <>
+      {c && (
+        <div data-testid="aa-confirm" style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 100000,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+        }} onClick={() => close(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{
+            background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14,
+            padding: 22, maxWidth: 360, width: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+          }}>
+            {c.title && <div style={{ color: "var(--gold)", fontWeight: 700, fontSize: 15, marginBottom: 8 }}>{c.title}</div>}
+            <div style={{ color: "var(--text)", fontSize: 13.5, lineHeight: 1.55, marginBottom: 18, whiteSpace: "pre-wrap" }}>
+              {c.message}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button data-testid="aa-confirm-cancel" onClick={() => close(false)} className="btn-ghost"
+                style={{ flex: 1, padding: "10px 14px", fontSize: 13 }}>
+                {c.cancelLabel || "Cancel"}
+              </button>
+              <button data-testid="aa-confirm-ok" onClick={() => close(true)}
+                style={{
+                  flex: 1, padding: "10px 14px", fontSize: 13, fontWeight: 700, borderRadius: 10, cursor: "pointer",
+                  background: c.danger ? "#7f1d1d" : "var(--gold)",
+                  color: c.danger ? "#fff" : "#0a0a0a",
+                  border: c.danger ? "1px solid #b91c1c" : "1px solid var(--gold-deep)",
+                }}>
+                {c.confirmLabel || (c.danger ? "Delete" : "Confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Stack of toasts, bottom-center, gold theme */}
+      <div style={{
+        position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)",
+        zIndex: 100001, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none",
+        width: "min(420px, calc(100% - 28px))",
+      }}>
+        {toasts.map(t => (
+          <div key={t.id} data-testid={`aa-toast-${t.type}`} style={{
+            background: t.type === "error" ? "#3a0e0e" : t.type === "info" ? "#102a36" : "#1a1300",
+            border: `1px solid ${t.type === "error" ? "#7f1d1d" : t.type === "info" ? "#155e75" : "var(--gold-deep)"}`,
+            borderRadius: 10, padding: "11px 14px", fontSize: 13,
+            color: t.type === "error" ? "#fecaca" : t.type === "info" ? "#67e8f9" : "var(--gold)",
+            boxShadow: "0 10px 30px rgba(0,0,0,0.5)", pointerEvents: "auto",
+          }}>{t.msg}</div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 // ---------- PDF download helper ----------
 const downloadBlob = (blob, filename) => {
   const url = URL.createObjectURL(blob);
@@ -597,6 +677,54 @@ function buildSourceUrl(source) {
   return `https://www.google.com/search?q=${q}+site%3Alegislation.gov.uk+OR+site%3Abailii.org+OR+site%3Aeur-lex.europa.eu`;
 }
 
+// Render Lex message body with inline [1], [2] citation pills that open the actual
+// BAILII / legislation.gov.uk source URL. Falls back to the raw text if no citations.
+function renderWithCitationPills(text, citations, msgIdx) {
+  if (!text || !Array.isArray(citations) || citations.length === 0) return text;
+  const byN = new Map(citations.map((c) => [c.n, c]));
+  // Split on any [n] marker, keeping the markers
+  const parts = text.split(/(\[\d+\])/g);
+  return parts.map((part, idx) => {
+    const m = /^\[(\d+)\]$/.exec(part);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      const cite = byN.get(n);
+      if (cite && cite.url) {
+        return (
+          <a
+            key={idx}
+            href={cite.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={cite.title}
+            data-testid={`citation-pill-${msgIdx}-${n}`}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 2,
+              background: cite.source === "official" ? "var(--gold)" : "rgba(247,201,72,0.2)",
+              color: cite.source === "official" ? "#0a0a0a" : "var(--gold)",
+              border: `1px solid ${cite.source === "official" ? "var(--gold-deep)" : "var(--gold-deep)"}`,
+              borderRadius: 999,
+              padding: "1px 7px",
+              fontSize: 10.5,
+              fontWeight: 700,
+              textDecoration: "none",
+              margin: "0 1px",
+              lineHeight: 1.4,
+              verticalAlign: "baseline",
+            }}
+          >
+            [{n}]
+          </a>
+        );
+      }
+    }
+    return <React.Fragment key={idx}>{part}</React.Fragment>;
+  });
+}
+
 // ---------- Voice Recording Hook ----------
 const useRecorder = () => {
   const mr = useRef(null); const chunks = useRef([]);
@@ -1063,7 +1191,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
       // Progressive reveal: stash full response, animate body typing-in client-side so it feels live.
       // (True SSE streaming will land once Emergent SDK exposes a stream API.)
       const fullText = data.response;
-      const lexMsg = { role: "lex", content: "", _fullContent: fullText, at: new Date().toISOString(), model: data.model, replyLang: data.reply_language, connectedSessionId: data.connected_session_id || null, _typing: true };
+      const lexMsg = { role: "lex", content: "", _fullContent: fullText, at: new Date().toISOString(), model: data.model, replyLang: data.reply_language, connectedSessionId: data.connected_session_id || null, citations: data.citations || [], _typing: true };
       setMessages(m => [...m, lexMsg]);
       // Type out 30 chars per ~25ms (≈1200 wpm display speed — fast enough to read but visibly live)
       let revealed = 0;
@@ -1241,7 +1369,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                               const r = await api.get(`/lex/sessions/${targetId}`);
                               const loaded = (r.data || []).flatMap(row => [
                                 { role: "user", content: row.user_message, at: row.created_at },
-                                { role: "lex", content: row.assistant_response, at: row.created_at, model: row.model_used },
+                                { role: "lex", content: row.assistant_response, at: row.created_at, model: row.model_used, citations: row.citations || [] },
                               ]);
                               setMessages(loaded);
                               setSessionId(targetId);
@@ -1275,8 +1403,42 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                         <div className={m.role === "user" ? "bubble-user" : "bubble-lex"}
                              data-testid={`msg-${m.role}-${i}`}
                              style={{ padding: "10px 14px", borderRadius: 14, maxWidth: "82%", whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 }}>
-                          {meta.body}
+                          {m.role === "lex" && Array.isArray(m.citations) && m.citations.length > 0
+                            ? renderWithCitationPills(meta.body, m.citations, i)
+                            : meta.body}
                         </div>
+                        {/* RAG citations list — appears under the bubble when Tavily returned sources */}
+                        {m.role === "lex" && Array.isArray(m.citations) && m.citations.length > 0 && (
+                          <div data-testid={`citations-${i}`} style={{
+                            display: "flex", flexDirection: "column", gap: 4, marginTop: 6,
+                            alignSelf: "flex-start", maxWidth: "82%",
+                            background: "rgba(247,201,72,0.05)", border: "1px solid var(--line)",
+                            borderRadius: 10, padding: "8px 10px",
+                          }}>
+                            <div style={{ fontSize: 9, color: "var(--gold-soft)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
+                              📜 Sources cited above — tap to verify
+                            </div>
+                            {m.citations.map((c) => (
+                              <a key={c.n} href={c.url} target="_blank" rel="noopener noreferrer"
+                                 data-testid={`citation-row-${i}-${c.n}`}
+                                 style={{
+                                   color: "var(--gold-soft)", fontSize: 11, textDecoration: "none",
+                                   display: "flex", alignItems: "center", gap: 6, lineHeight: 1.4,
+                                 }}
+                                 onMouseEnter={(e) => { e.currentTarget.style.color = "var(--gold)"; }}
+                                 onMouseLeave={(e) => { e.currentTarget.style.color = "var(--gold-soft)"; }}>
+                                <span style={{
+                                  background: c.source === "official" ? "var(--gold)" : "var(--gold-deep)",
+                                  color: c.source === "official" ? "#0a0a0a" : "#1a1300",
+                                  borderRadius: 999, padding: "1px 6px",
+                                  fontSize: 9, fontWeight: 700, flexShrink: 0,
+                                }}>[{c.n}]</span>
+                                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</span>
+                                <ExternalLink size={10} style={{ opacity: 0.65, flexShrink: 0 }} />
+                              </a>
+                            ))}
+                          </div>
+                        )}
                         {m.role === "lex" && (meta.confidence || meta.sources.length > 0) && (
                           <div data-testid={`lex-meta-${i}`} style={{
                             display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignSelf: "flex-start", maxWidth: "82%",
@@ -3179,7 +3341,7 @@ function RecordModal({ lang, country, onClose }) {
               {/* Save the encounter recording's transcript + analysis into the Vault. */}
               <button className="btn-ghost" data-testid="record-vault-btn"
                 onClick={async () => {
-                  if (!result?.id) { alert("Save unavailable."); return; }
+                  if (!result?.id) { aaToast("Save unavailable.", "error"); return; }
                   try {
                     const bundle = JSON.stringify({ transcript: result.transcript, analysis: result.analysis, meta }, null, 2);
                     await api.post(`/legal-files/${result.id}/save-to-vault`, {
@@ -3188,8 +3350,8 @@ function RecordModal({ lang, country, onClose }) {
                       iv: "record-shim",
                       label: `Encounter — ${new Date().toLocaleDateString()}`,
                     });
-                    alert("Saved to Vault.");
-                  } catch (e) { alert(e?.response?.data?.detail || "Save failed"); }
+                    aaToast("Saved to Vault", "success");
+                  } catch (e) { aaToast(e?.response?.data?.detail || "Save failed", "error"); }
                 }}
                 style={{ flex: 1, minWidth: 120 }}>
                 <ShieldCheck size={14} style={{ display: "inline", marginRight: 6 }} />Save to Vault
@@ -3211,16 +3373,21 @@ function FilesModal({ lang, onClose }) {
   useEffect(() => { load(); }, []);
   const removeFile = async (id, e) => {
     e?.stopPropagation?.();
-    if (!window.confirm("Delete this file?\n\n(Recoverable from Recycle Bin for 30 days.)")) return;
+    const ok = await aaConfirm({
+      title: "Delete file?",
+      message: "It'll move to your Recycle Bin and stay there for 30 days. You can restore it anytime.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await api.delete(`/legal-files/${id}`);
       if (open?.id === id) setOpen(null);
-      // Optimistic: also drop from local list immediately so the UI updates even
-      // before the re-fetch completes.
       setFiles(prev => prev.filter(f => f.id !== id));
       load();
-    } catch (err) { alert(err?.response?.data?.detail || "Delete failed"); }
+      aaToast("File moved to Recycle Bin", "success");
+    } catch (err) { aaToast(err?.response?.data?.detail || "Delete failed", "error"); }
     finally { setBusy(false); }
   };
   // Save the currently-open file's content into the Vault. Encryption happens on the
@@ -3231,16 +3398,14 @@ function FilesModal({ lang, onClose }) {
     setBusy(true);
     try {
       const body = (f.content || f.analysis || f.transcript || JSON.stringify(f)).slice(0, 50000);
-      // Server-side encryption shim: we don't have a client AES key here, so we send
-      // a labelled payload tagged as `from_legal_file` and let the Vault decrypt at unlock.
       await api.post(`/legal-files/${f.id}/save-to-vault`, {
         file_id: f.id,
-        encrypted_content: btoa(unescape(encodeURIComponent(body))),  // base64 placeholder envelope
+        encrypted_content: btoa(unescape(encodeURIComponent(body))),
         iv: "legal-file-shim",
         label: f.filename || f.type || "Legal file",
       });
-      alert("Saved to Vault. Open Vault → Recently Saved to view.");
-    } catch (err) { alert(err?.response?.data?.detail || "Save to Vault failed"); }
+      aaToast("Saved to Vault", "success");
+    } catch (err) { aaToast(err?.response?.data?.detail || "Save to Vault failed", "error"); }
     finally { setBusy(false); }
   };
   return (
@@ -3347,8 +3512,16 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
   };
 
   const remove = async () => {
-    if (!window.confirm(t(lang, "deleteConfirm") + "\n\n(Recoverable from Recycle Bin for 30 days.)")) return;
-    await api.delete(`/cases/${open.id}`); setOpen(null); load();
+    const ok = await aaConfirm({
+      title: "Delete this case?",
+      message: "It'll move to your Recycle Bin and stay there for 30 days. You can restore it anytime.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
+    await api.delete(`/cases/${open.id}`);
+    aaToast("Case moved to Recycle Bin", "success");
+    setOpen(null); load();
   };
 
   // Upload an arbitrary file (doc/photo/audio/video) into the open case as a new item.
@@ -3372,13 +3545,20 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
 
   // Soft-delete a single item in the case (file/photo/recording/letter).
   const deleteItem = async (itemId) => {
-    if (!window.confirm("Delete this item?\n\n(Recoverable from Recycle Bin for 30 days.)")) return;
+    const ok = await aaConfirm({
+      title: "Delete this item?",
+      message: "It'll move to your Recycle Bin and stay there for 30 days. You can restore it anytime.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await api.delete(`/case-items/${itemId}`);
       const r = await api.get(`/cases/${open.id}`);
       setOpen(r.data);
-    } catch (err) { alert(err?.response?.data?.detail || "Delete failed"); }
+      aaToast("Item moved to Recycle Bin", "success");
+    } catch (err) { aaToast(err?.response?.data?.detail || "Delete failed", "error"); }
     finally { setBusy(false); }
   };
 
@@ -4555,8 +4735,8 @@ function CaseTimeline({ lang, onClose, onOpenChat, onOpenReminders, onOpenCase }
       await api.post("/timeline/snapshot");
       setSavedAt(new Date());
       setUnsavedChanges(false);
-      alert("Timeline saved to your Legal Files. You can export it as PDF or save it to the Vault from there.");
-    } catch (e) { alert(e?.response?.data?.detail || "Failed to save snapshot"); }
+      aaToast("Timeline saved to My Legal Files", "success");
+    } catch (e) { aaToast(e?.response?.data?.detail || "Failed to save snapshot", "error"); }
     finally { setBusy(false); }
   };
 
@@ -4564,21 +4744,29 @@ function CaseTimeline({ lang, onClose, onOpenChat, onOpenReminders, onOpenCase }
   // If the user hasn't saved a snapshot first, we prompt to save before clearing.
   const clearTimeline = async () => {
     if (unsavedChanges) {
-      const choice = window.confirm(
-        "You haven't saved this timeline yet.\n\n" +
-        "Tap OK to SAVE first, then clear.\n" +
-        "Tap Cancel to leave the timeline as-is."
-      );
-      if (!choice) return;
+      const saveFirst = await aaConfirm({
+        title: "Save before clearing?",
+        message: "You haven't saved this timeline yet. Save a copy to My Legal Files first so you can recover it later?",
+        confirmLabel: "Save & clear",
+        cancelLabel: "Cancel",
+      });
+      if (!saveFirst) return;
       try { await api.post("/timeline/snapshot"); }
-      catch (e) { alert("Save failed — aborting clear."); return; }
+      catch (e) { aaToast("Save failed — aborting clear", "error"); return; }
     }
-    if (!window.confirm("Clear timeline?\n\n(Chats & deadlines will be moved to Recycle Bin for 30 days. Cases are kept.)")) return;
+    const ok = await aaConfirm({
+      title: "Clear timeline?",
+      message: "Chats & deadlines move to Recycle Bin for 30 days. Cases are kept.",
+      confirmLabel: "Clear",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await api.delete("/timeline");
       load();
-    } catch (e) { alert(e?.response?.data?.detail || "Failed to clear"); }
+      aaToast("Timeline cleared", "success");
+    } catch (e) { aaToast(e?.response?.data?.detail || "Failed to clear", "error"); }
     finally { setBusy(false); }
   };
 
@@ -4878,25 +5066,40 @@ function RecycleBinModal({ lang, onClose }) {
     try {
       await api.post(`/recycle-bin/restore/${it.kind}/${it.id}`);
       load();
-    } catch (e) { alert(e?.response?.data?.detail || "Restore failed"); }
+      aaToast(`Restored "${it.label}"`, "success");
+    } catch (e) { aaToast(e?.response?.data?.detail || "Restore failed", "error"); }
     finally { setBusy(false); }
   };
   const purge = async (it) => {
-    if (!window.confirm(`Permanently delete "${it.label}"? This cannot be undone.`)) return;
+    const ok = await aaConfirm({
+      title: "Delete permanently?",
+      message: `"${it.label}" will be gone forever. This can't be undone.`,
+      confirmLabel: "Delete forever",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await api.delete(`/recycle-bin/${it.kind}/${it.id}`);
       load();
-    } catch (e) { alert(e?.response?.data?.detail || "Purge failed"); }
+      aaToast("Permanently deleted", "success");
+    } catch (e) { aaToast(e?.response?.data?.detail || "Delete failed", "error"); }
     finally { setBusy(false); }
   };
   const emptyAll = async () => {
-    if (!window.confirm(`Permanently delete all ${items.length} item${items.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    const ok = await aaConfirm({
+      title: "Empty Recycle Bin?",
+      message: `All ${items.length} item${items.length === 1 ? "" : "s"} will be deleted forever. This can't be undone.`,
+      confirmLabel: "Empty bin",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await api.delete("/recycle-bin");
       load();
-    } catch (e) { alert(e?.response?.data?.detail || "Empty failed"); }
+      aaToast("Recycle Bin emptied", "success");
+    } catch (e) { aaToast(e?.response?.data?.detail || "Empty failed", "error"); }
     finally { setBusy(false); }
   };
 
@@ -6243,7 +6446,7 @@ function HearingRecorderModal({ lang, country, onClose }) {
                 we re-use that to wire up save-to-vault. */}
             <button data-testid="hearing-vault-save" className="btn-ghost w-full"
               onClick={async () => {
-                if (!r?.id) { alert("Save unavailable — please re-transcribe."); return; }
+                if (!r?.id) { aaToast("Save unavailable — please re-transcribe.", "error"); return; }
                 try {
                   const bundle = JSON.stringify({ transcript: r.transcript, analysis: r.analysis }, null, 2);
                   await api.post(`/legal-files/${r.id}/save-to-vault`, {
@@ -6252,8 +6455,8 @@ function HearingRecorderModal({ lang, country, onClose }) {
                     iv: "hearing-shim",
                     label: `Hearing — ${new Date().toLocaleDateString()}`,
                   });
-                  alert("Hearing saved to Vault.");
-                } catch (e) { alert(e?.response?.data?.detail || "Save failed"); }
+                  aaToast("Hearing saved to Vault", "success");
+                } catch (e) { aaToast(e?.response?.data?.detail || "Save failed", "error"); }
               }}
               style={{ marginTop: 12, padding: "10px 14px", fontSize: 13 }}>
               <ShieldCheck size={14} style={{ display: "inline", marginRight: 6 }} />
@@ -8189,6 +8392,7 @@ function App() {
 
   return (
     <div className="App app-shell">
+      <AAConfirmHost />
       {showSplash && <SplashScreen onDone={() => { sessionStorage.setItem("aa_splash_seen", "1"); setShowSplash(false); }} />}
       {step === "lang" && <LanguagePicker lang={lang} initial={lang} onConfirm={(l) => { setLang(l); setStep("terms"); }} />}
       {step === "terms" && <TermsScreen lang={lang} onAccept={() => { localStorage.setItem("aa_terms", "1"); setStep("auth"); }} onDecline={() => setStep("lang")} onChangeLang={() => setStep("lang")} />}

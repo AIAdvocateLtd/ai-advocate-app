@@ -1,0 +1,35 @@
+{
+  "summary": "Backend-only verification of iteration 19 (Citation Pills shipped via /api/lex/chat + /api/lex/sessions/{id}, plus regression on all the soft-delete / recycle-bin / save-to-vault / timeline / case-upload / emergency-contacts endpoints that the AAConfirm-modal UI change depends on). All 10 pytest tests passed in 57.58s against the admin owner account on the live preview URL. POST /api/lex/chat correctly returns `citations: [{n,title,url,source}]` (numbered from 1, sorted, with source in {'official','web'}). GET /api/lex/sessions/{session_id} now surfaces a `citations` field on every persisted row. Emergency contact filter drops name<2 / phone<7 entries on BOTH POST and GET. All recycle-bin, vault, timeline, case-upload, and case-item-decrement flows still behave correctly — no regressions from the frontend modal swap.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter19_citations.py",
+    "/app/test_reports/pytest/iter19_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 6066 lines (was 6048 last iter). The citation-pill change is small (3 lines around line 1085-1150) but the file continues to grow — the iter18 recommendation to split routers still stands.",
+    "build_rag_context() in rag.py now returns a tuple (prompt_block, citations). One caller in server.py was updated (line 1087) — confirm no other callers exist that still expect a single string return. A quick grep shows only one call site, so this is safe today, but adding a runtime assertion or a type hint on the function would help.",
+    "/api/lex/chat persists citations as plain-text metadata on conversations while user_message/assistant_response are encrypted. This is intentional per the comment at line 1138, but if a citation URL ever leaks sensitive query terms (e.g. via the Tavily title) it will sit in the DB unencrypted. Low risk because titles come from public web search, but worth noting.",
+    "Emergency-contacts filter logic is duplicated verbatim between GET (line 1753) and POST (line 1779). Extract `_is_valid_contact()` into a helper to keep the two in sync if the validation rule ever evolves.",
+    "POST /api/emergency/contacts silently drops malformed entries without telling the client which ones were rejected. Returning a `rejected: [{index, reason}]` array would help the frontend show 'we removed 2 invalid contacts' instead of just showing a shrunken list with no explanation.",
+    "POST /api/lex/chat citation calls do not protect against Tavily rate-limit / cap exhaustion gracefully from the test's perspective — when capped, citations becomes []. The test handles this with a skip, but production users would see no pills at all. Consider returning a `citations_capped: true` flag so the UI can show a 'sources unavailable this month' hint."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter19_citations.py"
+  ],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "admin@aiadvocate.co.uk / AdminLex2026!",
+  "seed_data_creation": "Tests create TEST_-prefixed legal letters, cases, case items, emergency contact, and a vault row. Each test cleans up its own data (soft-delete + purge or empty-bin). One Tavily call was made (UK Housing Act s.21 question) — within the documented 1-2 call budget for this iteration.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New pytest suite at /app/backend/tests/test_iter19_citations.py covers the citation feature plus regression on all the endpoints touched by the AAConfirm frontend swap (delete-from-files, save-to-vault, recycle-bin restore/purge/empty, timeline snapshot/clear, case upload + case-item delete). The Tavily key is set and live — repeated runs WILL consume the monthly cap, so re-run sparingly. iter18 suite (/app/backend/tests/test_iter18_recycle_bin.py) is still valid and covers more recycle-bin edge cases.",
+  "rca of the issue": "N/A — no bugs found. The frontend window.confirm()/alert() → AAConfirm/aaToast migration is purely UI plumbing and does not touch any backend endpoint. All endpoints required by those modal flows (DELETE /legal-files/{id}, POST /legal-files/{id}/save-to-vault, GET/POST/DELETE /recycle-bin*, POST /timeline/snapshot, DELETE /timeline, DELETE /case-items/{id}) are verified working. The new citation-pills feature on /api/lex/chat is additive (existing `response` field unchanged, `citations` array appended) and is correctly persisted + surfaced on /api/lex/sessions/{id}."
+}
