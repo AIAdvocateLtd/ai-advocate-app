@@ -10,6 +10,13 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 2f — Bug-fix + Citation Pills)
+- **🛠 Replaced `window.confirm()` / `alert()` with in-app modal + toast** — root cause of "delete buttons don't work" reports was Brave/iOS suppressing native dialogs. New `<AAConfirmHost />` + `aaConfirm()` / `aaToast()` are gold-themed, always-visible, mounted at app root. Affected flows: legal-files delete + save-to-vault, case delete + case-item delete + case-item save-to-vault, recycle-bin restore + purge + empty-all, timeline save + clear, hearing/encounter save-to-vault.
+- **🗑 Recycle Bin moved from Settings to dashboard** — new gold tile (between Reminders and Letter Library) using a custom-generated `recycle.png` icon (Nano Banana, transparent BG, hue-shifted to match the existing gold palette).
+- **📜 Clickable Citation Pills** — `[1] [2]` markers in Lex responses are now tappable gold pills that open the actual BAILII / legislation.gov.uk source. Backend: `build_rag_context()` now returns `(prompt_block, citations[])`; `/api/lex/chat` exposes `citations: [{n, title, url, source}]`; conversations DB stores citations on the row so they survive reload; `/api/lex/sessions/{id}` re-hydrates them. Frontend: `renderWithCitationPills()` parses `[\d+]` markers + a Sources-Cited footer renders under each Lex bubble.
+- **🚨 Emergency Contacts cleanup** — server-side filter drops contacts with name < 2 chars OR phone < 7 digits on both GET and POST, so stale "M / +447700111" entries from earlier sessions disappear.
+- **Tested**: 10/10 backend pytest PASS — see `/app/test_reports/iteration_19.json` and `/app/backend/tests/test_iter19_citations.py`. JS lint clean.
+
 ### 2026-02 (Session 2e — Recycle Bin + Soft-delete + Merged Record tile + Timeline Save/Clear)
 - **🗑 Recycle Bin (30-day soft-delete recovery)** — every delete in the app is now non-destructive. Affects: legal_files, cases, case_items, conversations, reminders, hearings. New collection-agnostic endpoints: `GET /api/recycle-bin`, `POST /api/recycle-bin/restore/{kind}/{id}`, `DELETE /api/recycle-bin/{kind}/{id}`, `DELETE /api/recycle-bin` (empty all). Background sweeper (every 6h) hard-purges items older than 30 days. New `RecycleBinCard` collapsible in Settings shows per-item days-left, Restore + Permanently-Delete + Empty-bin.
 - **🎙 Merged Record tile** — the separate "Record Legal Interaction" and "Hearing Recorder" tiles are gone. One tile (using the Hearing/vintage-mic icon) opens a new `RecordHub` modal with two mode pills: 🚔 *Encounter* (Plus, default — panic-mic + auto-GPS) and 🏛 *Hearing* (Pro — title field + file-upload). Mode persists in localStorage.
