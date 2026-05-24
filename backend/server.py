@@ -1755,11 +1755,15 @@ async def get_emergency_contacts(user: dict = Depends(get_user)):
         phone_digits = re.sub(r"\D", "", (c.get("phone") or ""))
         return len(name) >= 2 and len(phone_digits) >= 7
     clean = [c for c in raw if _is_valid(c)]
+    # Filter dev-test sentinel strings from previously-saved SOS messages too.
+    saved_sos = doc.get("sos_message", "") or ""
+    if re.search(r"(?i)\b(test\s*iter|test[_-]?\d|TODO|XXX|placeholder)\b", saved_sos):
+        saved_sos = ""
     return {
         "contacts": clean,
         "lawyer_standby_enabled": doc.get("lawyer_standby_enabled", False),
         "lawyer_standby_radius_km": doc.get("lawyer_standby_radius_km", 25.0),
-        "sos_message": doc.get("sos_message", ""),
+        "sos_message": saved_sos,
         "watch_token": doc.get("watch_token"),
         "tracking_window_minutes": doc.get("tracking_window_minutes", 60),
     }
@@ -1781,6 +1785,14 @@ async def set_emergency_contacts(data: EmergencyContactsPayload, user: dict = De
         phone_digits = re.sub(r"\D", "", (c.get("phone") or ""))
         return len(name) >= 2 and len(phone_digits) >= 7
     contacts = [c for c in raw_contacts if _is_valid(c)]
+    # Reject dev/test sentinel strings so the testing agent's debug markers can
+    # never end up in a live user's saved SOS message (eg "TEST iter19" once
+    # leaked through during regression testing).
+    raw_sos = (data.sos_message or "")
+    if re.search(r"(?i)\b(test\s*iter|test[_-]?\d|TODO|XXX|placeholder)\b", raw_sos):
+        raw_sos = ""
+    sos_message = raw_sos[:500]
+
     await db.emergency_profile.update_one(
         {"user_id": user["id"]},
         {"$set": {
@@ -1788,7 +1800,7 @@ async def set_emergency_contacts(data: EmergencyContactsPayload, user: dict = De
             "contacts": contacts,
             "lawyer_standby_enabled": data.lawyer_standby_enabled,
             "lawyer_standby_radius_km": max(1.0, min(200.0, data.lawyer_standby_radius_km)),
-            "sos_message": (data.sos_message or "")[:500],
+            "sos_message": sos_message,
             "tracking_window_minutes": window,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }},
