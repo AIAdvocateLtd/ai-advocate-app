@@ -4726,8 +4726,20 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
   const [busy, setBusy] = useState(false);
   const [tiers, setTiers] = useState([]);
   const [picked, setPicked] = useState(presetPlan || "plus");
+  // Tabs: "subs" (recurring subscriptions) vs "topups" (one-time packs)
+  // Top-ups are hidden on native iOS to comply with Apple's Reader-App rules.
+  const [tab, setTab] = useState("subs");
+  const [topups, setTopups] = useState({ packs: [], active: null, loaded: false });
+  const [buyingPack, setBuyingPack] = useState(null);
 
   useEffect(() => { api.get("/subscription/tiers").then(r => setTiers(r.data.tiers)).catch(() => {}); }, []);
+
+  // Lazy-fetch top-up packs on first tab switch (also on mount so the badge/active state is fresh)
+  useEffect(() => {
+    if (IS_NATIVE) return;
+    api.get("/topups/packs").then(r => setTopups({ packs: r.data.packs || [], active: r.data.active, loaded: true }))
+      .catch(() => setTopups({ packs: [], active: null, loaded: true }));
+  }, []);
 
   const checkout = async (plan) => {
     setBusy(true);
@@ -4749,6 +4761,22 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
     finally { setBusy(false); }
   };
 
+  const buyTopup = async (pack) => {
+    if (!pack.configured) {
+      alert("This top-up is coming soon — Stripe price not yet configured.");
+      return;
+    }
+    setBuyingPack(pack.id);
+    try {
+      const { data } = await api.post("/topups/checkout", { pack_id: pack.id });
+      track("topup_checkout_started", { pack: pack.id, price_gbp: pack.price_gbp });
+      window.location.href = data.checkout_url;
+    } catch (e) {
+      alert(e?.response?.data?.detail || "Could not start checkout. Please try again.");
+      setBuyingPack(null);
+    }
+  };
+
   const onTier = user.tier || "free";
   const isCurrent = (id) => onTier === id || (onTier === "yearly" && id === "yearly")
                               || (onTier === "trial_pro" && id === "pro");
@@ -4767,6 +4795,99 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
           )}
         </div>
 
+        {/* Tab switcher — only show top-ups option on web (Apple Reader-App compliance) */}
+        {!IS_NATIVE && (
+          <div data-testid="subscribe-tab-switcher" style={{
+            display: "flex", gap: 6, background: "var(--bg-card)",
+            border: "1px solid var(--line)", borderRadius: 12, padding: 4, marginBottom: 12, flexShrink: 0,
+          }}>
+            <button data-testid="tab-subs-btn" onClick={() => setTab("subs")}
+              style={{
+                flex: 1, padding: "8px 10px", fontSize: 12.5, fontWeight: 700, borderRadius: 9,
+                border: "none", cursor: "pointer",
+                background: tab === "subs" ? "var(--gold)" : "transparent",
+                color: tab === "subs" ? "#1a1300" : "var(--text-dim)",
+              }}>
+              Subscriptions
+            </button>
+            <button data-testid="tab-topups-btn" onClick={() => setTab("topups")}
+              style={{
+                flex: 1, padding: "8px 10px", fontSize: 12.5, fontWeight: 700, borderRadius: 9,
+                border: "none", cursor: "pointer",
+                background: tab === "topups" ? "var(--gold)" : "transparent",
+                color: tab === "topups" ? "#1a1300" : "var(--text-dim)",
+              }}>
+              One-time top-ups
+            </button>
+          </div>
+        )}
+
+        {tab === "topups" && !IS_NATIVE ? (
+          <div data-testid="topups-panel" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+            {topups.active && (
+              <div data-testid="topup-active-banner" style={{
+                background: "linear-gradient(135deg, rgba(247,201,72,0.20), rgba(247,201,72,0.05))",
+                border: "1px solid var(--gold-deep)", borderRadius: 12, padding: "10px 12px",
+              }}>
+                <div style={{ fontSize: 11, color: "var(--gold)", fontWeight: 800, letterSpacing: "0.05em" }}>
+                  ACTIVE TOP-UP
+                </div>
+                <div style={{ fontSize: 13, color: "#fff", marginTop: 2 }}>
+                  {topups.active.label} · grants <strong style={{ color: "var(--gold)" }}>{(topups.active.grants_tier || "plus").toUpperCase()}</strong>
+                  {typeof user.topup_active?.hours_remaining === "number" && (
+                    <span style={{ color: "var(--text-muted)" }}> · {user.topup_active.hours_remaining}h remaining</span>
+                  )}
+                </div>
+              </div>
+            )}
+            <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.4 }}>
+              Need help right now but don't want to subscribe? Buy a one-off pack. No auto-renew.
+            </div>
+            {!topups.loaded && <div style={{ textAlign: "center", color: "var(--text-muted)", padding: 20 }}><span className="spinner" /></div>}
+            {topups.loaded && topups.packs.map(pack => {
+              const isPro = pack.grants_tier === "pro";
+              return (
+                <div key={pack.id} data-testid={`topup-card-${pack.id}`}
+                  style={{
+                    background: "var(--bg-card)",
+                    border: `2px solid ${isPro ? "var(--gold)" : "var(--line)"}`,
+                    borderRadius: 14, padding: 14, position: "relative",
+                    opacity: pack.configured ? 1 : 0.55,
+                  }}>
+                  {isPro && (
+                    <div style={{ position: "absolute", top: -10, right: 14, background: "var(--gold)", color: "#1a1300", padding: "2px 10px", fontSize: 10.5, borderRadius: 8, fontWeight: 800 }}>
+                      PRO FEATURES
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <div style={{ fontSize: 16, color: "var(--gold)", fontWeight: 700, fontFamily: "Cinzel, serif" }}>{pack.label}</div>
+                    <div style={{ textAlign: "right" }}>
+                      <span style={{ fontSize: 20, color: "var(--gold)", fontWeight: 600 }}>£{pack.price_gbp}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 4 }}>one-off</span>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 6, lineHeight: 1.4 }}>
+                    {pack.tagline}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                    Valid for {pack.duration_hours >= 24 ? `${Math.round(pack.duration_hours / 24)} day${pack.duration_hours >= 48 ? "s" : ""}` : `${pack.duration_hours}h`} after purchase.
+                  </div>
+                  <button
+                    data-testid={`buy-topup-${pack.id}-btn`}
+                    onClick={() => buyTopup(pack)}
+                    disabled={buyingPack === pack.id || !pack.configured}
+                    className="btn-gold w-full"
+                    style={{ marginTop: 10, padding: "8px 12px", fontSize: 13 }}>
+                    {buyingPack === pack.id ? <span className="spinner" /> : pack.configured ? `Buy — £${pack.price_gbp}` : "Coming soon"}
+                  </button>
+                </div>
+              );
+            })}
+            <div style={{ fontSize: 10.5, color: "var(--text-muted)", textAlign: "center", marginTop: 4, lineHeight: 1.4 }}>
+              Top-ups stack on top of your current plan. One-off payment — no auto-renew. Powered by Stripe.
+            </div>
+          </div>
+        ) : (
         <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
           {tiers.map(t => {
             const selected = picked === t.id;
@@ -4818,7 +4939,9 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
             );
           })}
         </div>
+        )}
 
+        {tab === "subs" && (
         <div style={{ flexShrink: 0, marginTop: 12 }}>
           {picked === "free" ? (
             <button className="btn-ghost w-full" data-testid="stay-free-btn" onClick={onClose}>
@@ -4836,6 +4959,7 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
             Cancel any time. Powered by Stripe. Subscribing on the web saves you the Apple/Google fee.
           </div>
         </div>
+        )}
       </div>
     </div>
   );
@@ -6083,6 +6207,33 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     }).catch(() => {});
   }, []);
 
+  // 🎟 Top-up success/cancel return from Stripe Checkout. We strip the params
+  // after handling so a page refresh doesn't re-fire the toast.
+  const [topupToast, setTopupToast] = useState(null); // {pack} | "cancel" | null
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const status = params.get("topup");
+      if (!status) return;
+      if (status === "success") {
+        setTopupToast({ pack: params.get("pack") || "" });
+        // Webhook may take a couple of seconds to land — re-fetch the user a few times
+        let n = 0;
+        const poll = setInterval(() => {
+          n += 1;
+          refreshUser && refreshUser();
+          if (n >= 4) clearInterval(poll);
+        }, 1500);
+      } else if (status === "cancel") {
+        setTopupToast("cancel");
+      }
+      // Clean the URL
+      params.delete("topup"); params.delete("pack");
+      const qs = params.toString();
+      window.history.replaceState({}, "", window.location.pathname + (qs ? "?" + qs : ""));
+    } catch (e) { /* no-op */ }
+  }, []);
+
   // Reminders badge — count items due within 3 days, sync to nav-dot + native app-icon
   useEffect(() => {
     let cancelled = false;
@@ -6287,6 +6438,25 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
           {t(lang, "proActiveFull", { tier: tier === "yearly" ? t(lang, "yearlyPro") : t(lang, "pro") })}
         </div>
       )}
+      {/* 🎟 Active one-off top-up status pill */}
+      {user.topup_active && user.topup_active.expires_at && (
+        <div data-testid="topup-active-pill" style={{
+          marginBottom: 14, padding: "10px 12px",
+          background: "linear-gradient(135deg, rgba(247,201,72,0.20), rgba(247,201,72,0.05))",
+          border: "1px solid var(--gold-deep)", borderRadius: 12,
+          display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
+        }}>
+          <div>
+            <div style={{ fontSize: 10.5, color: "var(--gold)", fontWeight: 800, letterSpacing: "0.05em" }}>ACTIVE TOP-UP</div>
+            <div style={{ fontSize: 12.5, color: "#fff" }}>
+              {user.topup_active.label || "Pack"} · grants <strong style={{ color: "var(--gold)" }}>{(user.topup_active.grants_tier || "plus").toUpperCase()}</strong>
+              {typeof user.topup_active.hours_remaining === "number" && (
+                <span style={{ color: "var(--text-muted)" }}> · {user.topup_active.hours_remaining}h left</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, rowGap: 18 }}>
         {tiles.map(tile => {
@@ -6387,6 +6557,22 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {showSettings && <SettingsModal lang={lang} country={country} user={user} onClose={() => setShowSettings(false)} onUpdate={(u) => refreshUser(u)} setLang={setLang} setCountry={setCountry} />}
       {showAdvertise && <AdvertiseModal lang={lang} onClose={() => setShowAdvertise(false)} />}
       {reviewPrompt && <ReviewPrompt lang={lang} daysLeft={reviewPrompt.daysLeft} onClose={() => setReviewPrompt(null)} />}
+      {topupToast && (
+        <div data-testid="topup-toast" onClick={() => setTopupToast(null)}
+          style={{
+            position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)",
+            background: topupToast === "cancel" ? "rgba(80,10,10,0.95)" : "linear-gradient(135deg, rgba(247,201,72,0.95), rgba(220,175,40,0.95))",
+            color: topupToast === "cancel" ? "#fff" : "#1a1300",
+            border: `2px solid ${topupToast === "cancel" ? "#dc2626" : "var(--gold)"}`,
+            borderRadius: 14, padding: "12px 18px", fontSize: 13, fontWeight: 700,
+            boxShadow: "0 6px 30px rgba(0,0,0,0.4)", zIndex: 9999, cursor: "pointer",
+            maxWidth: "92%", textAlign: "center",
+          }}>
+          {topupToast === "cancel"
+            ? "Top-up cancelled — no charge was made."
+            : `✓ Top-up activated! Your ${(topupToast.pack || "").replace(/_/g, " ")} is now live.`}
+        </div>
+      )}
     </div>
   );
 }

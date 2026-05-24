@@ -1,0 +1,37 @@
+{
+  "summary": "Iter 20 Phase A (Consumer Top-up Packs) — Backend verified 100% (8/8 pytest pass). Frontend smoke-tested but blocked by stacked pre-login modals (Language → Cookie → T&C → Onboarding tour → Taster) which prevented reaching the dashboard in 3 automated attempts. Main agent should manually verify frontend UI testids or pre-seed the e2e user with onboarding flags.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Automated login → dashboard", "issue": "After successful POST /api/auth/login the UI re-renders the Sign-In screen unless 5 separate modals are dismissed first (Language, Cookie, T&C, Onboarding Carousel, Taster). Selectors for these are not stable (no data-testids). Could not auto-verify comp-gift-banner, topup-toast, tab-subs-btn, tab-topups-btn, topups-panel, topup-card-*, buy-topup-*-btn, tier-card-*. They MUST be eyeballed by the main agent.", "affected_selectors": ["[data-testid=\"comp-gift-banner\"]", "[data-testid=\"topup-toast\"]", "[data-testid=\"tab-subs-btn\"]", "[data-testid=\"tab-topups-btn\"]", "[data-testid=\"topups-panel\"]", "[data-testid=\"topup-card-day_pass\"]", "[data-testid=\"topup-card-letter_pack\"]", "[data-testid=\"topup-card-weekend_pass\"]", "[data-testid=\"topup-card-crisis_pack\"]", "[data-testid=\"buy-topup-day_pass-btn\"]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter20_topups.py",
+    "/app/test_reports/pytest/iter20_results.xml"
+  ],
+  "action_items": [
+    "Main agent to manually verify frontend Phase A flows: (a) Subscribe modal shows tab-subs-btn + tab-topups-btn switcher in web preview, (b) topups-panel renders 4 cards with disabled 'Coming soon' Buy buttons, (c) ?topup=success&pack=crisis_pack shows topup-toast and cleans URL, (d) comp-gift-banner appears for the now-comped test@advocate.app user, dismissable, persisted across refresh.",
+    "Consider adding a data-testid='onboarding-skip-all-btn' or a `?e2e=1` query param that bypasses Language/Cookie/T&C/Onboarding/Taster modals when an auth token is present in localStorage — would unblock automated frontend regression.",
+    "Add data-testids to the pre-login modal buttons (lang-ok-btn, cookie-essential-btn, terms-accept-btn, onboarding-skip-btn, taster-close-btn) so future agents can reliably reach the dashboard."
+  ],
+  "critical_code_review_comments": [
+    "_get_topup_price_id reads STRIPE_PRICE_TOPUP_<PACK>.upper() from os.environ on every call — fine, but uppercasing the pack_id means env var keys must be UPPERCASE. Already the case in .env. OK.",
+    "TopupCheckoutPayload only validates `pack_id` is a string — pydantic. The 400 returns the raw pack_id verbatim in the error message ('Unknown top-up pack: <input>'). Low-risk XSS reflection in JSON error body — fine for API, but if the frontend ever renders this raw it should be escaped.",
+    "list_topup_packs response embeds `**v` from TOPUP_PACKS — exposes internal fields like duration_hours, letter_quota, contract_quota. Probably intentional for UI but worth a deliberate whitelist if any of those become sensitive in the future.",
+    "user_to_public computes `active_topup` using string comparison on ISO datetimes (line 464 `expires > now.isoformat()`). This works because both strings are timezone-aware UTC. Will silently break if a timezone-naive ISO string ever lands in topup_active. Add a defensive datetime.fromisoformat() compare instead.",
+    "server.py is now 6428 lines — the iter18/19 split-into-routers recommendation is still outstanding."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter20_topups.py"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "blocked — could not auto-reach dashboard past 5 stacked pre-login modals"},
+  "test_credentials": "test@advocate.app / Test12345!  |  admin@aiadvocate.co.uk / AdminLex2026!",
+  "seed_data_creation": "Admin POST /api/admin/users/comp called against test@advocate.app for 7 days as part of the backend test. The test user now has is_comp=true, tier=pro, comp_pro_until≈now+7d — verified via GET /api/auth/me. This persists in MongoDB. If frontend is re-tested, the gift banner should appear; if the comp needs to be revoked, hit the same admin endpoint with days=0 or use a comp-revoke endpoint.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend Phase A endpoints verified: GET /api/topups/packs returns 4 packs with correct prices (4.99/9.99/14.99/29.99) + grants_tier (plus/plus/plus/pro) + configured:false + active:null. POST /api/topups/checkout returns 503 (with STRIPE_PRICE_TOPUP_<PACK> hint) for valid-but-unconfigured packs, 400 for unknown packs, 401/403 without auth. Webhook /api/webhook/stripe rejects bad Stripe signatures with non-404. /api/admin/users/comp endpoint works and surfaces is_comp + comp_pro_until + tier=pro via /api/auth/me. The test user test@advocate.app is currently COMP'd to Pro for 7 days from 2026-05-24 — un-comp before further free/Plus-tier UI testing or skip via admin endpoint. Frontend UI testids (tab-subs-btn, tab-topups-btn, topups-panel, topup-card-*, buy-topup-*-btn, comp-gift-banner, topup-toast) NEED visual verification — see action_items.",
+  "rca of the issue": "No backend bug. Frontend automation hit Loop-Prevention threshold after 3 failed login attempts due to 5 sequential pre-login modals without stable data-testids. Backend phase-A scaffolding is correct and Stripe-ready — top-up purchases will activate as soon as the 4 STRIPE_PRICE_TOPUP_* env vars are populated."
+}
