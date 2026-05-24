@@ -4239,20 +4239,31 @@ async def firm_signup(data: FirmPortalSignup):
     if existing:
         raise HTTPException(409, "Email already registered")
     fid = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    # 🎁 Auto-14-day FEATURED trial on every new firm signup. Card NOT required up-front
+    # (we want zero-friction signup); we'll require it when they convert to paid via
+    # the existing Stripe checkout flow. The trial gives full Featured benefits — appears
+    # in the directory + can answer leads + analytics. After 14 days, tier auto-reverts
+    # to "free" unless they upgrade (handled by _firm_tier resolver on every request).
+    trial_until = now + timedelta(days=14)
     doc = {
         "id": fid, "email": data.email.lower(), "password": hash_pw(data.password),
         "firm_name": data.firm_name, "contact_name": data.contact_name,
         "sra_number": data.sra_number, "country": data.country, "city": data.city,
         "phone": data.phone, "specialties": data.specialties, "website": data.website,
         "status": "pending_review",   # pending_review | approved | rejected | suspended
-        "tier": "free",               # free | featured | verified
+        "tier": "free",               # base "paid-for" tier — `_firm_tier()` returns trial tier if trial_until is in the future
+        "trial_tier": "featured",     # what tier the active trial gives them
+        "trial_until": trial_until.isoformat(),
+        "trial_granted_by": "system_auto_signup",
+        "trial_granted_at": now.isoformat(),
         "verified": False, "featured": False,
-        "lead_count_30d": 0, "created_at": datetime.now(timezone.utc).isoformat(),
+        "lead_count_30d": 0, "created_at": now.isoformat(),
     }
     await db.firm_accounts.insert_one(doc)
     token = jwt.encode({"sub": fid, "kind": "firm", "exp": datetime.now(timezone.utc) + timedelta(days=30)}, JWT_SECRET, algorithm="HS256")
     doc.pop("_id", None); doc.pop("password", None)
-    return {"access_token": token, "firm": doc}
+    return {"access_token": token, "firm": doc, "trial_days_remaining": 14}
 
 @api_router.post("/firm/login")
 async def firm_login(data: FirmPortalLogin):
@@ -4284,6 +4295,23 @@ async def firm_me(firm: dict = Depends(get_firm)):
     async for q in db.inquiries.find({"firm_id": firm["id"]}, {"_id": 0}).sort("created_at", -1).limit(50):
         leads.append(q)
     firm["recent_leads"] = leads
+    # Trial state — surface to UI so we can render the banner with days remaining.
+    firm["effective_tier"] = _firm_tier(firm)
+    trial_until_raw = firm.get("trial_until")
+    if trial_until_raw:
+        try:
+            if isinstance(trial_until_raw, str):
+                trial_dt = datetime.fromisoformat(trial_until_raw.replace("Z", "+00:00"))
+            else:
+                trial_dt = trial_until_raw
+            secs_left = (trial_dt - datetime.now(timezone.utc)).total_seconds()
+            firm["trial_active"] = secs_left > 0
+            firm["trial_days_remaining"] = max(0, int(secs_left // 86400))
+            firm["trial_hours_remaining"] = max(0, int(secs_left // 3600))
+        except Exception:
+            firm["trial_active"] = False
+    else:
+        firm["trial_active"] = False
     return firm
 
 @api_router.patch("/firm/listing")
@@ -4336,7 +4364,27 @@ ENGAGEMENT_FILE_LIMIT = 50   # files per engagement
 ENGAGEMENT_FILE_MAX_BYTES = 12 * 1024 * 1024  # 12MB per file
 
 def _firm_tier(firm: dict) -> str:
-    t = (firm or {}).get("tier") or "free"
+    """Returns the effective tier for the firm RIGHT NOW.
+    Prefers the active trial tier over the base 'tier' as long as trial_until is
+    still in the future. Once the trial expires it falls back to the paid tier
+    (or 'free' if they never converted). Single source of truth — every paywall
+    and feature gate runs through this so trials are honoured uniformly.
+    """
+    if not firm:
+        return "free"
+    trial_until = firm.get("trial_until")
+    trial_tier = firm.get("trial_tier")
+    if trial_until and trial_tier:
+        try:
+            if isinstance(trial_until, str):
+                trial_dt = datetime.fromisoformat(trial_until.replace("Z", "+00:00"))
+            else:
+                trial_dt = trial_until
+            if trial_dt > datetime.now(timezone.utc) and trial_tier in FIRM_ENGAGEMENT_LIMITS:
+                return trial_tier
+        except Exception:
+            pass
+    t = firm.get("tier") or "free"
     return t if t in FIRM_ENGAGEMENT_LIMITS else "free"
 
 async def _count_active_engagements(firm_id: str) -> int:
@@ -5652,6 +5700,137 @@ async def admin_users_comps(_: dict = Depends(require_admin)):
         {"_id": 0, "id": 1, "email": 1, "full_name": 1, "comp_pro_until": 1, "comp_pro_granted_at": 1},
     ).sort("comp_pro_until", -1).to_list(200)
     return {"comps": users, "count": len(users)}
+
+
+# ============================================================
+# Owner-only: Firm trial / comp tools (founding firms cohort)
+# ============================================================
+class CompFirmPayload(BaseModel):
+    email: str
+    days: int = Field(30, ge=1, le=3650)
+    tier: str = Field("featured", pattern=r"^(featured|premium|practice)$")
+    reason: str = ""
+
+@api_router.post("/admin/firms/comp")
+async def admin_firms_comp(data: CompFirmPayload, admin: dict = Depends(require_admin)):
+    """Grant a free trial extension to a law firm (founding-firm cohort + goodwill).
+
+    Args.tier — what level of trial to grant (default Featured). Founding-firm
+    cohort typically receives 90 days of Featured. Hand-picked higher-tier comps
+    can request Premium / Practice.
+    """
+    target = await db.firm_accounts.find_one({"email": data.email.strip().lower()}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "Firm not found. Make sure they've signed up first.")
+    now = datetime.now(timezone.utc)
+    existing = target.get("trial_until")
+    if existing:
+        try:
+            existing_dt = datetime.fromisoformat(existing) if isinstance(existing, str) else existing
+            if existing_dt.tzinfo is None:
+                existing_dt = existing_dt.replace(tzinfo=timezone.utc)
+            base = max(now, existing_dt)
+        except Exception:
+            base = now
+    else:
+        base = now
+    new_until = base + timedelta(days=data.days)
+    await db.firm_accounts.update_one(
+        {"id": target["id"]},
+        {"$set": {
+            "trial_until": new_until.isoformat(),
+            "trial_tier": data.tier,
+            "trial_granted_by": admin["email"],
+            "trial_granted_at": now.isoformat(),
+        }},
+    )
+    # Audit
+    await db.firm_comp_audit.insert_one({
+        "id": str(uuid.uuid4()),
+        "granted_by_id": admin["id"], "granted_by_email": admin["email"],
+        "target_firm_id": target["id"], "target_firm_email": target["email"],
+        "target_firm_name": target.get("firm_name") or "",
+        "days": data.days, "tier": data.tier, "until": new_until.isoformat(),
+        "reason": (data.reason or "Founding firm / goodwill")[:300],
+        "at": now.isoformat(), "action": "grant",
+    })
+    return {
+        "ok": True,
+        "firm_id": target["id"],
+        "firm_name": target.get("firm_name"),
+        "email": target["email"],
+        "trial_until": new_until.isoformat(),
+        "trial_tier": data.tier,
+        "days_granted": data.days,
+    }
+
+
+@api_router.post("/admin/firms/uncomp")
+async def admin_firms_uncomp(data: CompFirmPayload, admin: dict = Depends(require_admin)):
+    """Revoke a firm's trial (sets trial_until to null). Used if a firm abuses the trial."""
+    target = await db.firm_accounts.find_one({"email": data.email.strip().lower()}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "Firm not found.")
+    now = datetime.now(timezone.utc)
+    await db.firm_accounts.update_one(
+        {"id": target["id"]},
+        {"$set": {
+            "trial_until": None, "trial_tier": None,
+            "trial_revoked_by": admin["email"],
+            "trial_revoked_at": now.isoformat(),
+        }},
+    )
+    await db.firm_comp_audit.insert_one({
+        "id": str(uuid.uuid4()),
+        "granted_by_id": admin["id"], "granted_by_email": admin["email"],
+        "target_firm_id": target["id"], "target_firm_email": target["email"],
+        "target_firm_name": target.get("firm_name") or "",
+        "reason": (data.reason or "Trial revoked")[:300],
+        "at": now.isoformat(), "action": "revoke",
+    })
+    return {"ok": True, "email": target["email"]}
+
+
+@api_router.get("/admin/firms/comps/active")
+async def admin_firms_active_comps(_: dict = Depends(require_admin)):
+    """List every firm currently on a trial (with days remaining)."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    firms = await db.firm_accounts.find(
+        {"trial_until": {"$gt": now_iso}},
+        {"_id": 0, "id": 1, "email": 1, "firm_name": 1, "city": 1, "country": 1,
+         "trial_until": 1, "trial_tier": 1, "trial_granted_by": 1, "trial_granted_at": 1,
+         "created_at": 1, "status": 1, "tier": 1},
+    ).sort("trial_until", 1).to_list(500)
+    # Decorate with days_remaining
+    now = datetime.now(timezone.utc)
+    out = []
+    for f in firms:
+        try:
+            until = datetime.fromisoformat(f["trial_until"].replace("Z", "+00:00"))
+            f["days_remaining"] = max(0, int((until - now).total_seconds() // 86400))
+        except Exception:
+            f["days_remaining"] = 0
+        out.append(f)
+    return {"firms": out, "count": len(out)}
+
+
+@api_router.get("/admin/firms/search")
+async def admin_firms_search(q: str = "", _: dict = Depends(require_admin)):
+    """Owner-side firm search for the comp-tool autocomplete."""
+    q = (q or "").strip().lower()
+    if not q:
+        return {"firms": []}
+    safe = re.escape(q)
+    firms = await db.firm_accounts.find(
+        {"$or": [
+            {"email": {"$regex": safe, "$options": "i"}},
+            {"firm_name": {"$regex": safe, "$options": "i"}},
+            {"city": {"$regex": safe, "$options": "i"}},
+        ]},
+        {"_id": 0, "id": 1, "email": 1, "firm_name": 1, "city": 1, "country": 1,
+         "tier": 1, "trial_until": 1, "trial_tier": 1, "status": 1, "created_at": 1},
+    ).sort("created_at", -1).to_list(40)
+    return {"firms": firms}
 
 
 # Sponsor management — flip the "In partnership with [Firm]" footer on/off without an engineer.

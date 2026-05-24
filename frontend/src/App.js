@@ -4574,6 +4574,8 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
 
         {/* 🎁 OWNER ONLY — comp Pro access for family / friends / customer service */}
         {user?.is_owner && <CompProAdminCard lang={lang} />}
+        {/* 🏛 OWNER ONLY — comp tier access for law firms (founding-firm cohort) */}
+        {user?.is_owner && <CompFirmAdminCard lang={lang} />}
 
         {/* Auto-detect language toggle */}
         <div data-testid="settings-autodetect" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
@@ -5293,6 +5295,175 @@ function RecycleBinModal({ lang, onClose }) {
     </div>
   );
 }
+
+// 🏛 CompFirmAdminCard — grant Featured/Premium/Practice trial days to law firms.
+// Same mental model as CompProAdminCard but operates on `firm_accounts` and lets
+// the owner pick which tier the trial grants (default Featured).
+function CompFirmAdminCard({ lang }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [days, setDays] = useState(30);
+  const [tier, setTier] = useState("featured");
+  const [reason, setReason] = useState("");
+  const [activeComps, setActiveComps] = useState([]);
+  const [showActive, setShowActive] = useState(false);
+
+  const search = async (q) => {
+    setQuery(q);
+    if (!q.trim()) { setResults([]); return; }
+    setSearching(true);
+    try {
+      const r = await api.get(`/admin/firms/search?q=${encodeURIComponent(q)}`);
+      setResults(r.data?.firms || []);
+    } catch (e) { setResults([]); }
+    finally { setSearching(false); }
+  };
+
+  const loadActive = async () => {
+    try {
+      const r = await api.get("/admin/firms/comps/active");
+      setActiveComps(r.data?.firms || []);
+    } catch (e) {}
+  };
+  useEffect(() => { if (showActive) loadActive(); }, [showActive]);
+
+  const grant = async (email) => {
+    setActionBusy(true);
+    try {
+      const r = await api.post("/admin/firms/comp", { email, days, tier, reason });
+      aaToast(`Trial granted: ${r.data.days_granted}d ${tier.toUpperCase()} → ${r.data.firm_name}`, "success");
+      setQuery(""); setResults([]); setReason("");
+      if (showActive) loadActive();
+    } catch (e) { aaToast(e?.response?.data?.detail || "Grant failed", "error"); }
+    finally { setActionBusy(false); }
+  };
+
+  const revoke = async (email) => {
+    const ok = await aaConfirm({ title: "Revoke firm trial?", message: `End the trial for "${email}" immediately?`, danger: true, confirmLabel: "Revoke" });
+    if (!ok) return;
+    setActionBusy(true);
+    try {
+      await api.post("/admin/firms/uncomp", { email, days: 1, tier: "featured", reason: "Owner revoked" });
+      aaToast("Trial revoked", "success");
+      loadActive();
+    } catch (e) { aaToast(e?.response?.data?.detail || "Revoke failed", "error"); }
+    finally { setActionBusy(false); }
+  };
+
+  return (
+    <div data-testid="admin-comp-firm-card" style={{
+      background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14,
+      padding: 16, marginBottom: 12,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <LawyerIcon size={20} />
+        <span style={{ color: "var(--gold)", fontWeight: 700, fontSize: 14, letterSpacing: "0.04em" }}>
+          🏛 Firm trial / founding-firm comps
+        </span>
+        <span style={{ background: "var(--gold-deep)", color: "#1a1300", fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: 999, letterSpacing: "0.05em" }}>OWNER</span>
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 12 }}>
+        Grant 30 / 60 / 90 days of Featured, Premium, or Practice tier free to selected firms.
+        New firms automatically get a <strong style={{ color: "var(--gold-soft)" }}>14-day Featured trial</strong> on signup.
+      </div>
+
+      <input data-testid="admin-firm-search"
+        placeholder="Search firm by email, name, or city…"
+        value={query} onChange={(e) => search(e.target.value)}
+        style={{ width: "100%", padding: "9px 12px", background: "rgba(0,0,0,0.4)", border: "1px solid var(--line)", borderRadius: 10, color: "var(--text)", fontSize: 13, marginBottom: 8 }} />
+
+      {searching && <div style={{ fontSize: 11, color: "var(--text-muted)", padding: 6 }}>Searching…</div>}
+      {results.length > 0 && (
+        <div style={{ marginBottom: 10, maxHeight: 240, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 10 }}>
+          {results.map(f => (
+            <div key={f.id} style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 4 }}>
+                <span style={{ color: "var(--gold)", fontWeight: 600, fontSize: 12.5 }}>{f.firm_name || "(no name)"}</span>
+                <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{f.email}</span>
+                {f.city && <span style={{ fontSize: 10, color: "var(--text-muted)" }}>· {f.city}</span>}
+                {f.trial_until && new Date(f.trial_until) > new Date() && (
+                  <span style={{ background: "rgba(247,201,72,0.18)", color: "var(--gold)", fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 6 }}>
+                    ON {(f.trial_tier || "").toUpperCase()} TRIAL
+                  </span>
+                )}
+              </div>
+              <button data-testid={`admin-firm-grant-${f.email}`} disabled={actionBusy} onClick={() => grant(f.email)}
+                className="btn-gold" style={{ padding: "6px 10px", fontSize: 11 }}>
+                + Grant {days}d {tier.charAt(0).toUpperCase()+tier.slice(1)}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 8 }}>
+        {["featured", "premium", "practice"].map(t => (
+          <button key={t} data-testid={`admin-firm-tier-${t}`} onClick={() => setTier(t)}
+            style={{
+              padding: "8px 6px", borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: "pointer",
+              background: tier === t ? "var(--gold)" : "transparent",
+              color: tier === t ? "#0a0a0a" : "var(--gold)",
+              border: `1px solid ${tier === t ? "var(--gold)" : "var(--gold-deep)"}`,
+              letterSpacing: "0.04em", textTransform: "uppercase",
+            }}>
+            {t}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+        {[14, 30, 60, 90].map(d => (
+          <button key={d} data-testid={`admin-firm-days-${d}`} onClick={() => setDays(d)}
+            style={{
+              flex: 1, padding: "8px 4px", borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: "pointer",
+              background: days === d ? "var(--gold-deep)" : "transparent",
+              color: days === d ? "#0a0a0a" : "var(--gold)",
+              border: `1px solid ${days === d ? "var(--gold-deep)" : "var(--line)"}`,
+            }}>
+            {d}d
+          </button>
+        ))}
+      </div>
+      <input data-testid="admin-firm-reason" placeholder="Reason (founding cohort / customer service…)"
+        value={reason} onChange={(e) => setReason(e.target.value)}
+        style={{ width: "100%", padding: "8px 12px", background: "rgba(0,0,0,0.3)", border: "1px solid var(--line)", borderRadius: 10, color: "var(--text)", fontSize: 12, marginBottom: 10 }} />
+
+      <button data-testid="admin-firm-active-toggle" onClick={() => setShowActive(s => !s)}
+        style={{ background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 8, padding: "6px 10px", fontSize: 11, cursor: "pointer" }}>
+        {showActive ? "▲ Hide" : "▼ Show"} active firm trials
+      </button>
+      {showActive && (
+        <div style={{ marginTop: 10, maxHeight: 280, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 10 }}>
+          {activeComps.length === 0 && (
+            <div style={{ padding: 12, fontSize: 11, color: "var(--text-muted)", textAlign: "center" }}>
+              No firms currently on trial.
+            </div>
+          )}
+          {activeComps.map(f => (
+            <div key={f.id} style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 4 }}>
+                <span style={{ color: "var(--gold)", fontWeight: 600, fontSize: 12.5, flex: 1, minWidth: 100 }}>{f.firm_name || "(no name)"}</span>
+                <span style={{ background: "var(--gold)", color: "#0a0a0a", fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 6, letterSpacing: "0.05em" }}>
+                  {(f.trial_tier || "").toUpperCase()}
+                </span>
+                <span style={{ fontSize: 10, color: f.days_remaining < 7 ? "#fca5a5" : "var(--text-muted)" }}>
+                  {f.days_remaining}d left
+                </span>
+              </div>
+              <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>{f.email}{f.city ? ` · ${f.city}` : ""}</div>
+              <button data-testid={`admin-firm-revoke-${f.email}`} disabled={actionBusy} onClick={() => revoke(f.email)}
+                style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 8, padding: "5px 10px", fontSize: 10, cursor: "pointer" }}>
+                Revoke
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 function CompProAdminCard({ lang }) {
   const [query, setQuery] = useState("");

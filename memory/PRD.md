@@ -10,6 +10,19 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 2j — Firm Free Trial + Founding Firms admin tool)
+- **Auto 14-day Featured trial** on every new firm signup (no card required up-front — convert-to-paid is a separate Stripe checkout step).
+- **`_firm_tier()`** now returns the trial tier (Featured / Premium / Practice) while `trial_until` is in the future; falls back to the paid tier or 'free' otherwise. Single source of truth for every firm-side paywall.
+- **Owner admin endpoints**:
+  - `POST /api/admin/firms/comp` — grant N days of a chosen tier (with stacking; if a trial is already active, days add on top).
+  - `POST /api/admin/firms/uncomp` — instantly revoke an active trial.
+  - `GET /api/admin/firms/comps/active` — list every firm currently on a trial with days remaining.
+  - `GET /api/admin/firms/search?q=` — autocomplete search across email / firm name / city.
+  - Full audit trail in `firm_comp_audit`.
+- **`<CompFirmAdminCard />`** rendered in Settings (owner-only, next to the user comp card). Tier picker (Featured / Premium / Practice), days picker (14 / 30 / 60 / 90), reason field, autocomplete search, active-trials list with per-firm revoke.
+- **🎁 Trial banner in Firm Portal** — gold-themed card at the top of the firm dashboard showing the active trial tier + days remaining + "Convert & lock in" upgrade CTA. Turns red below 7 days.
+- **Backend tested end-to-end**: fresh signup → 14d Featured; owner grant → stacks +90d to Premium; `effective_tier` resolves correctly through `/firm/me`. JS lint clean.
+
 ### 2026-02 (Session 2i — App Store Metadata + Reviewer Demo Account)
 - **`/app/memory/APP_STORE_METADATA.md`** — full ship-ready copy for both App Store Connect + Google Play Console: name, subtitle, keywords, 4000-char description, "What's New" v1.0 release notes, support/marketing/privacy URLs, App Privacy Nutrition Labels mapping, IAP product IDs, screenshot shot-list, App Preview video direction, TestFlight pre-launch checklist, launch-day social posts.
 - **Apple App Store reviewer account live** — `appstore.reviewer@aiadvocate.co.uk` / `Review2026!Lex`, comped Pro until 2053-10-08 (effectively permanent). Created via `/api/auth/signup` + `/api/admin/users/comp` (9999 days). Recorded in `/app/memory/test_credentials.md`.

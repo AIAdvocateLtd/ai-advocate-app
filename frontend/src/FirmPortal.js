@@ -110,6 +110,31 @@ function FirmDashboard({ firm, onLogout }) {
       </header>
 
       <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 20px" }}>
+        {/* 🎁 Trial banner — shows when the firm is on a comped/auto trial */}
+        {firm.trial_active && firm.trial_days_remaining !== undefined && (
+          <div data-testid="firm-trial-banner" style={{
+            background: "linear-gradient(135deg, rgba(247,201,72,0.18), rgba(247,201,72,0.05))",
+            border: "1px solid #f7c948", borderRadius: 14, padding: 14, marginBottom: 18,
+            display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+          }}>
+            <div style={{ fontSize: 28 }}>🎁</div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ color: "#f7c948", fontWeight: 700, fontSize: 14, marginBottom: 3 }}>
+                You're on a free <span style={{ textTransform: "uppercase" }}>{firm.trial_tier || "featured"}</span> trial
+              </div>
+              <div style={{ color: "#ddd", fontSize: 12.5, lineHeight: 1.5 }}>
+                {firm.trial_days_remaining > 0
+                  ? <><strong style={{ color: firm.trial_days_remaining < 7 ? "#fca5a5" : "#f7c948" }}>{firm.trial_days_remaining} day{firm.trial_days_remaining === 1 ? "" : "s"} remaining</strong> — convert to lock in this tier&apos;s pricing.</>
+                  : <><strong style={{ color: "#fca5a5" }}>Trial ends in less than 24 hours.</strong> Convert now to keep your leads.</>}
+              </div>
+            </div>
+            <button data-testid="firm-trial-upgrade-btn" onClick={() => setShowBilling(true)}
+              style={{ background: "#f7c948", color: "#0a0a0a", border: "none", borderRadius: 10, padding: "9px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+              Convert &amp; lock in
+            </button>
+          </div>
+        )}
+
         {/* Engagement quota meter */}
         <div style={{ background: "#0c0c0c", border: "1px solid #222", borderRadius: 14, padding: 16, marginBottom: 18 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
