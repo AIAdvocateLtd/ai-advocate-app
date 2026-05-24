@@ -96,7 +96,7 @@ export function MarketingLanding() {
           Your lawyer<br />in your pocket
         </h1>
         <p style={{ fontSize: "clamp(15px, 2vw, 18px)", color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 30, maxWidth: 620, margin: "0 auto 30px" }}>
-          Real legal answers, document drafting, contract negotiation, evidence analysis and a zero-knowledge encrypted vault — all in 11 languages, all from £14.99 / month.
+          Real legal answers, document drafting, contract negotiation, evidence analysis and a zero-knowledge encrypted vault — all in 11 languages, all from £19.99 / month.
         </p>
 
         {/* Triple CTA */}
@@ -191,7 +191,7 @@ export function MarketingLanding() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
           {[
             { name: "Free", price: "£0", period: "forever", highlight: false, bullets: ["Lex chat (limited)", "Letter & Contract reader", "Find a lawyer", "Emergency mode"] },
-            { name: "Plus", price: "£14.99", period: "/ month", highlight: false, bullets: ["Everything in Free", "All category chats", "Courtroom practice", "Record legal interactions"] },
+            { name: "Plus", price: "£19.99", period: "/ month", highlight: false, bullets: ["Everything in Free", "All category chats", "Courtroom practice", "Record legal interactions"] },
             { name: "Pro", price: "£34.99", period: "/ month", highlight: true, bullets: ["Outcome Predictor (Opus)", "Contract Drafter + Negotiate", "Hearing Recorder", "Vault — 200 items"] },
             { name: "Yearly Pro", price: "£319.99", period: "/ year", highlight: false, savings: "Save £100", bullets: ["Everything in Pro", "Bigger Deep Think cap", "12 months locked in"] },
           ].map((p, i) => (
@@ -266,7 +266,7 @@ export function TermsPage() {
 
 **5. Vault.** The Lex Vault uses end-to-end encryption with a PIN that only you know. If you lose your PIN, your vault items are PERMANENTLY UNRECOVERABLE. We do not hold a copy.
 
-**6. Subscriptions, free trial & auto-renewal.** Free 7-day trial of paid features on signup. Paid plans renew automatically at £14.99/mo (Plus), £34.99/mo (Pro), or £319.99/yr (Yearly Pro). Cancel any time 24h before renewal. Refunds via the store that processed your payment (Apple/Google/Stripe).
+**6. Subscriptions, free trial & auto-renewal.** Free 7-day trial of paid features on signup. Paid plans renew automatically at £19.99/mo (Plus), £34.99/mo (Pro), or £319.99/yr (Yearly Pro). Cancel any time 24h before renewal. Refunds via the store that processed your payment (Apple/Google/Stripe).
 
 **7. Misuse.** You may not use the App for: harassment, illegal recording, defamation, doxing, or building tools that compete with the App.
 
@@ -384,7 +384,7 @@ export function PricingPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 }}>
           {[
             { name: "Free", price: "£0", period: "forever", highlight: false, bullets: ["Lex chat (3 / day)", "Letter reader (3 / month)", "Contract reader (2 / month)", "Snap evidence (3 / month)", "Find a lawyer & legal aid finder", "Emergency Mode (unlimited)", "Lex Vault (5 items)"] },
-            { name: "Plus", price: "£14.99", period: "/ month", highlight: false, bullets: ["Everything in Free", "Unlimited Ask Lex", "All category chats (employment, property, immigration, medical, etc.)", "Courtroom practice mode", "Record legal interactions", "Lex Vault (25 items)"] },
+            { name: "Plus", price: "£19.99", period: "/ month", highlight: false, bullets: ["Everything in Free", "Unlimited Ask Lex", "All category chats (employment, property, immigration, medical, etc.)", "Courtroom practice mode", "Record legal interactions", "Lex Vault (25 items)"] },
             { name: "Pro", price: "£34.99", period: "/ month", highlight: true, bullets: ["Everything in Plus", "Outcome Predictor (Opus Deep Think)", "Contract Drafter + Contract Negotiate", "Live Hearing Recorder + transcription", "30 Deep Think reasoning queries / month", "Lex Vault (200 items)", "Priority AI processing"] },
             { name: "Yearly Pro", price: "£319.99", period: "/ year", highlight: false, savings: "Save £100", bullets: ["Everything in Pro", "50 Deep Think queries / month", "12 months locked in — no monthly faff", "Equivalent to £26.66 / month"] },
           ].map((p, i) => (

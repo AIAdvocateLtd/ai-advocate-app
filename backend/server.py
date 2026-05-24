@@ -3086,7 +3086,7 @@ async def get_tiers():
              "highlights": ["5 Lex chats / day", "1 photo evidence / month", "1 letter / month",
                             "View 31 templates", "3 files", "Emergency rights (always free)",
                             "Read-Aloud rights (20 / day)"]},
-            {"id": "plus", "name": "Plus", "price_gbp": 14.99, "period": "month",
+            {"id": "plus", "name": "Plus", "price_gbp": 19.99, "period": "month",
              "highlights": ["Unlimited Lex chats", "15 photo evidences / month",
                             "Unlimited letters", "Contract Review", "Court Prep modes",
                             "Voice in/out", "Practice Mode", "50 files", "Hey Lex wake word",

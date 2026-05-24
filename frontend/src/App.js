@@ -6347,7 +6347,7 @@ function CostEstimateModal({ lang, country, onClose }) {
             )}
             <p style={{ color: "var(--text-dim)", fontSize: 13, lineHeight: 1.6, marginBottom: 14 }}>{r.explanation}</p>
             <div style={{ background: "linear-gradient(135deg, rgba(247,201,72,0.12), rgba(247,201,72,0.02))", border: "1px solid var(--gold)", borderRadius: 12, padding: 12, fontSize: 13, color: "var(--text)" }}>
-              <strong style={{ color: "var(--gold)" }}>AI Advocate covers this for £14.99/mo</strong>
+              <strong style={{ color: "var(--gold)" }}>AI Advocate covers this from £19.99/mo</strong>
               <div style={{ color: "var(--text-dim)", marginTop: 4 }}>{r.ai_advocate_saving}</div>
             </div>
             <button className="btn-ghost w-full" onClick={() => { setR(null); setSummary(""); }} style={{ marginTop: 12 }}>Estimate another</button>
@@ -8299,7 +8299,7 @@ const TOS_TEXT = `# Terms of Service
 
 **5. Vault.** The Lex Vault uses end-to-end encryption with a PIN that only you know. If you lose your PIN, your vault items are PERMANENTLY UNRECOVERABLE. We do not hold a copy.
 
-**6. Subscriptions, free trial & auto-renewal.** Free 7-day trial of paid features on signup. Paid plans renew automatically at £14.99/mo (Plus), £34.99/mo (Pro), or £319.99/yr (Yearly Pro). Cancel any time 24h before renewal. Refunds via the store that processed your payment (Apple/Google/Stripe).
+**6. Subscriptions, free trial & auto-renewal.** Free 7-day trial of paid features on signup. Paid plans renew automatically at £19.99/mo (Plus), £34.99/mo (Pro), or £319.99/yr (Yearly Pro). Cancel any time 24h before renewal. Refunds via the store that processed your payment (Apple/Google/Stripe).
 
 **7. Misuse.** You may not use the App for: harassment, illegal recording, defamation, doxing, or building tools that compete with the App.
 
