@@ -452,6 +452,31 @@ def user_to_public(u: dict) -> dict:
         out["trial_days_remaining"] = 0
 
     out["tier"] = tier
+
+    # 🎟 TOP-UP — if the user has an active one-time top-up that grants a higher
+    # tier than their base subscription, that takes precedence while it's valid.
+    # E.g. a free user buying a £29.99 Crisis Pack gets Pro for 24h.
+    tier_order = {"free": 0, "plus": 1, "trial_pro": 2, "pro": 3, "yearly": 3}
+    active_topup = u.get("topup_active")
+    if active_topup:
+        try:
+            expires = active_topup.get("expires_at", "")
+            if expires > now.isoformat():
+                grants = active_topup.get("grants_tier") or "plus"
+                if tier_order.get(grants, 0) > tier_order.get(out["tier"], 0):
+                    out["tier"] = grants
+                    out["has_access"] = True
+                topup_expires_dt = datetime.fromisoformat(expires.replace("Z", "+00:00"))
+                out["topup_active"] = {
+                    "kind": active_topup.get("kind"),
+                    "label": active_topup.get("label"),
+                    "grants_tier": grants,
+                    "expires_at": expires,
+                    "hours_remaining": max(0, int((topup_expires_dt - now).total_seconds() // 3600)),
+                }
+        except Exception:
+            pass
+
     return out
 
 
@@ -2925,6 +2950,143 @@ async def activate_test(plan: str = "plus", user: dict = Depends(get_user)):
     fresh = await db.users.find_one({"id": user["id"]})
     return user_to_public(fresh)
 
+# ============================================================
+# Consumer Top-up Packs (one-time Stripe purchases)
+# ============================================================
+# Each pack unlocks a specific outcome (24h Pro, a letter bundle, etc.) for a
+# fixed window. Stored on the user row as `topup_active`. Designed to be additive
+# — a Day Pass while you have an active Plus subscription simply boosts you to
+# Pro for 24h. Stripe one-time prices, NOT subscriptions.
+TOPUP_PACKS = {
+    "day_pass": {
+        "label": "Day Pass",
+        "price_gbp": 4.99,
+        "duration_hours": 24,
+        "grants_tier": "plus",
+        "tagline": "Unlimited Lex chats + 5 evidence photos for 24h.",
+    },
+    "letter_pack": {
+        "label": "Letter Pack",
+        "price_gbp": 9.99,
+        "duration_hours": 30 * 24,
+        "grants_tier": "plus",
+        "letter_quota": 5,
+        "contract_quota": 1,
+        "tagline": "5 AI-drafted letters + 1 contract review · 30-day use-by.",
+    },
+    "weekend_pass": {
+        "label": "Weekend Pass",
+        "price_gbp": 14.99,
+        "duration_hours": 72,
+        "grants_tier": "plus",
+        "tagline": "Full Plus features for 72 hours.",
+    },
+    "crisis_pack": {
+        "label": "Crisis Pack",
+        "price_gbp": 29.99,
+        "duration_hours": 24,
+        "grants_tier": "pro",
+        "tagline": "Full Pro for 24h — Hearing Recorder, Deep Think, RAG priority.",
+    },
+}
+
+
+def _get_topup_price_id(pack_id: str) -> str:
+    """Maps pack ID → Stripe Price ID via env var."""
+    return os.environ.get(f"STRIPE_PRICE_TOPUP_{pack_id.upper()}", "")
+
+
+@api_router.get("/topups/packs")
+async def list_topup_packs(user: dict = Depends(get_user)):
+    """Return the catalogue + the user's currently-active top-up (if any)."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    active = user.get("topup_active")
+    if active and active.get("expires_at", "") <= now_iso:
+        active = None
+    return {
+        "packs": [{"id": k, **v, "configured": bool(_get_topup_price_id(k))} for k, v in TOPUP_PACKS.items()],
+        "active": active,
+    }
+
+
+class TopupCheckoutPayload(BaseModel):
+    pack_id: str
+
+
+@api_router.post("/topups/checkout")
+async def topup_checkout(data: TopupCheckoutPayload, request: Request, user: dict = Depends(get_user)):
+    """Create a Stripe one-time payment checkout for a top-up pack."""
+    if data.pack_id not in TOPUP_PACKS:
+        raise HTTPException(400, f"Unknown top-up pack: {data.pack_id}")
+    price_id = _get_topup_price_id(data.pack_id)
+    if not price_id:
+        raise HTTPException(503,
+            f"Top-up '{data.pack_id}' is not yet configured. "
+            f"The site admin needs to create a Stripe Price and set STRIPE_PRICE_TOPUP_{data.pack_id.upper()} in /app/backend/.env.")
+    if not stripe.api_key:
+        raise HTTPException(503, "Stripe not configured.")
+    try:
+        origin = request.headers.get("origin") or APP_PUBLIC_URL
+        session = stripe.checkout.Session.create(
+            mode="payment",                                     # one-time, NOT subscription
+            payment_method_types=["card"],
+            line_items=[{"price": price_id, "quantity": 1}],
+            customer_email=user["email"],
+            client_reference_id=user["id"],
+            success_url=f"{origin}/?topup=success&pack={data.pack_id}",
+            cancel_url=f"{origin}/?topup=cancel",
+            metadata={"user_id": user["id"], "topup_pack": data.pack_id},
+            allow_promotion_codes=True,
+        )
+        return {"checkout_url": session.url, "session_id": session.id}
+    except Exception as e:
+        logger.exception("Topup checkout error")
+        raise HTTPException(500, f"Checkout error: {str(e)}")
+
+
+async def _activate_topup_for_user(user_id: str, pack_id: str):
+    """Called from the Stripe webhook on successful checkout.session.completed
+    when the session's metadata contains `topup_pack`. Idempotent."""
+    pack = TOPUP_PACKS.get(pack_id)
+    if not pack:
+        logger.warning(f"Activate topup: unknown pack {pack_id}")
+        return
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(hours=pack["duration_hours"])
+    payload = {
+        "kind": pack_id,
+        "grants_tier": pack["grants_tier"],
+        "activated_at": now.isoformat(),
+        "expires_at": expires.isoformat(),
+        "label": pack["label"],
+        "price_gbp": pack["price_gbp"],
+    }
+    if pack_id == "letter_pack":
+        payload["letter_quota"] = pack["letter_quota"]
+        payload["contract_quota"] = pack["contract_quota"]
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"topup_active": payload},
+         "$push": {"topup_history": payload}},
+    )
+    logger.info(f"Activated top-up {pack_id} for user {user_id} until {expires.isoformat()}")
+
+
+def _effective_topup_tier(user: dict) -> Optional[str]:
+    """Returns the tier from an active top-up, or None. Paywall checks should
+    prefer max(subscription tier, topup tier)."""
+    active = (user or {}).get("topup_active")
+    if not active:
+        return None
+    try:
+        if active.get("expires_at", "") <= datetime.now(timezone.utc).isoformat():
+            return None
+        return active.get("grants_tier")
+    except Exception:
+        return None
+
+
+
 @api_router.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
     """Stripe webhook → update user subscription_status when payments happen.
@@ -2951,6 +3113,15 @@ async def stripe_webhook(request: Request):
     now_iso = datetime.now(timezone.utc).isoformat()
 
     if etype == "checkout.session.completed":
+        # 🎟 Consumer TOP-UP one-time payment — metadata.topup_pack is set by /api/topups/checkout
+        topup_pack = (obj.get("metadata") or {}).get("topup_pack")
+        if topup_pack:
+            user_id = obj.get("client_reference_id") or (obj.get("metadata") or {}).get("user_id")
+            if user_id:
+                await _activate_topup_for_user(user_id, topup_pack)
+                logger.info(f"Top-up {topup_pack} activated for {user_id} via Stripe webhook")
+                return {"ok": True, "topup_activated": topup_pack}
+
         # FIRM portal checkout — metadata.firm_id is set by /api/firm/subscribe
         firm_id = (obj.get("metadata") or {}).get("firm_id")
         if firm_id:
