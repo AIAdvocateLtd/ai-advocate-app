@@ -10,6 +10,14 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 2i — App Store Metadata + Reviewer Demo Account)
+- **`/app/memory/APP_STORE_METADATA.md`** — full ship-ready copy for both App Store Connect + Google Play Console: name, subtitle, keywords, 4000-char description, "What's New" v1.0 release notes, support/marketing/privacy URLs, App Privacy Nutrition Labels mapping, IAP product IDs, screenshot shot-list, App Preview video direction, TestFlight pre-launch checklist, launch-day social posts.
+- **Apple App Store reviewer account live** — `appstore.reviewer@aiadvocate.co.uk` / `Review2026!Lex`, comped Pro until 2053-10-08 (effectively permanent). Created via `/api/auth/signup` + `/api/admin/users/comp` (9999 days). Recorded in `/app/memory/test_credentials.md`.
+- **App Store icon generated** — `/app/frontend/public/icons/app-icon-1024.png`, 1024×1024 RGB (no alpha), dark `#0a0a0a` background, gold shield + wordmark centred with 11% margin. Apple-compliant. Verified visually.
+- **`@capacitor/assets` installed** + staged `assets/icon-foreground.png`, `assets/icon-only.png`, `assets/splash.png` (2732×2732 with centred logo). Once user picks shield-only vs wordmark variant, single `npx capacitor-assets generate` produces every iOS + Android size in one step.
+- **Plus pricing migration complete** — Stripe price ID swapped to `price_1TagTTFh8lRHrXPIerlsHVtC` (£19.99), backend `/api/subscriptions/plans` returns 19.99, all 11 i18n languages updated, terms.html + marketing-site copy updated. Old `price_1TX0CcFh8lRHrXPI3feMOlOx` archived in Stripe.
+- **Recycle Bin moved to dashboard** (gold-matched custom Nano-Banana icon, hue-shifted from copper to amber-gold to match the other tiles).
+
 ### 2026-02 (Session 2h — Legal & Compliance hardening for App Store)
 - **T&Cs v1.3** (`/app/frontend/public/terms.html`): Added Legal Services Act 2007 reference; explicit "Not a replacement for 999/112/911" in §4d Emergency SOS; 14-day cooling-off period under UK CCR 2013 in §6; two-party-consent foreign-recording warning in §4; sponsored-firms disclosure in §11; ICO registration reference + DPIA mention in §12.
 - **18+ Age Gate**: Added confirmation checkbox to `TermsScreen` — accept button disabled until both T&C agreement AND "I am 18+" boxes are ticked. App Store 17+ rating evidence.
