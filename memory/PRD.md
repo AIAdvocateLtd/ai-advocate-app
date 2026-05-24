@@ -10,6 +10,26 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 2k — Consumer Top-up Packs · Phase A · Stripe Web)
+- **One-off Stripe Checkout flow** for 4 consumer packs (no subscription, no auto-renew):
+  - Day Pass — £4.99 · grants Plus features for 24h.
+  - Letter Pack — £9.99 · 5 letters + 1 contract review · 30-day use-by.
+  - Weekend Pass — £14.99 · full Plus features for 72h.
+  - Crisis Pack — £29.99 · full Pro features for 24h (Hearing Recorder, Deep Think, RAG priority).
+- **Backend endpoints** (`server.py` lines 2954-3125):
+  - `GET /api/topups/packs` → catalogue + active top-up status + `configured` flag per pack.
+  - `POST /api/topups/checkout` → returns Stripe Checkout URL for a one-time payment; 503 with helpful message if Stripe price ID not yet set in `.env`.
+  - `POST /api/webhook/stripe` → on `checkout.session.completed` with `metadata.topup_pack`, calls `_activate_topup_for_user()` (idempotent — stores `topup_active` + `topup_history` on user row).
+  - `user_to_public()` surfaces `topup_active` (kind, label, grants_tier, expires_at, hours_remaining) and applies the higher of (subscription tier, top-up tier) to gate features.
+- **Frontend UI** (`App.js`):
+  - `SubscribeModal` now has a tab switcher: "Subscriptions" / "One-time top-ups" (hidden on native iOS — Apple Reader-App compliance).
+  - 4 pack cards with price, tagline, duration; Crisis Pack badged "PRO FEATURES". Disabled "Coming soon" state until Stripe Price IDs are populated.
+  - `?topup=success&pack=<id>` URL handler shows a gold confetti-style toast and polls `/auth/me` 4× to refresh the new tier post-webhook. URL is cleaned via `history.replaceState`.
+  - Active-top-up pill on the dashboard showing "ACTIVE TOP-UP · <label> · grants PRO · Xh left".
+- **`.env` scaffolding** added: `STRIPE_PRICE_TOPUP_DAY_PASS`, `_LETTER_PACK`, `_WEEKEND_PASS`, `_CRISIS_PACK` (empty — user populates after creating one-time prices in Stripe Dashboard).
+- **Tested**: 8/8 backend pytest PASS (`/app/test_reports/iteration_20.json`). Frontend manually verified — all 4 cards, tab switcher, gift banner, all data-testids present. Lint clean.
+- **Phase B (deferred)**: Apple IAP receipt validation — wire after TestFlight build is live. Top-ups will use Apple StoreKit on iOS, Stripe on web.
+
 ### 2026-02 (Session 2j — Firm Free Trial + Founding Firms admin tool)
 - **Auto 14-day Featured trial** on every new firm signup (no card required up-front — convert-to-paid is a separate Stripe checkout step).
 - **`_firm_tier()`** now returns the trial tier (Featured / Premium / Practice) while `trial_until` is in the future; falls back to the paid tier or 'free' otherwise. Single source of truth for every firm-side paywall.
