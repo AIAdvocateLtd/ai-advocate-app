@@ -3652,8 +3652,81 @@ function RecordModal({ lang, country, onClose }) {
   );
 }
 
+// ---------- "What's the difference?" explainer ----------
+// Shown when the user taps the small (?) icon next to "My Files" / "Case Files".
+// Same body content from both — the wording is calibrated to remove the most
+// common confusion: "I uploaded a file, why isn't it in my case?" (answer:
+// files are storage, cases are matters — they link together via case-items).
+function FilesVsCasesExplainer({ onClose }) {
+  return (
+    <div className="modal-bg" data-testid="files-vs-cases-explainer" style={{ zIndex: 200 }}>
+      <div className="modal-card" style={{ padding: 22, maxWidth: 480 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 19 }}>What's the difference?</h2>
+          <button onClick={onClose} data-testid="explainer-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
+        </div>
+
+        <div style={{
+          background: "var(--bg-card)", border: "1px solid var(--gold-deep)",
+          borderRadius: 12, padding: 14, marginBottom: 10,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <img src="/icons/files.png" alt="" style={{ width: 28, height: 28 }} />
+            <strong style={{ color: "var(--gold)", fontSize: 14, fontFamily: "Cinzel, serif" }}>My Legal Files</strong>
+          </div>
+          <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: 0, lineHeight: 1.5 }}>
+            Your <strong>library of documents</strong> — letters Lex has drafted, contracts you've uploaded for review,
+            evidence photos & videos, audio recordings, and timeline snapshots.
+            Think of it like your <em>filing cabinet</em>: everything in one searchable list, regardless of which case it belongs to.
+          </p>
+        </div>
+
+        <div style={{
+          background: "var(--bg-card)", border: "1px solid var(--gold-deep)",
+          borderRadius: 12, padding: 14, marginBottom: 14,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <img src="/icons/files.png" alt="" style={{ width: 28, height: 28, filter: "hue-rotate(15deg)" }} />
+            <strong style={{ color: "var(--gold)", fontSize: 14, fontFamily: "Cinzel, serif" }}>Case Files</strong>
+          </div>
+          <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: 0, lineHeight: 1.5 }}>
+            A <strong>named matter</strong> — like "v. Acme Ltd · Unfair Dismissal" or "Deposit Return — 12 Elm Road".
+            Each Case File is a <em>folder</em> that bundles chats, evidence, letters, deadlines and notes
+            for ONE specific legal situation.
+          </p>
+        </div>
+
+        <div style={{
+          background: "rgba(247,201,72,0.06)", border: "1px dashed var(--gold-deep)",
+          borderRadius: 10, padding: 12, marginBottom: 14,
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: "var(--gold)", letterSpacing: "0.06em", marginBottom: 6 }}>
+            💡 IN ONE SENTENCE
+          </div>
+          <p style={{ fontSize: 12.5, color: "var(--text)", margin: 0, lineHeight: 1.5 }}>
+            <strong>My Legal Files</strong> is your stuff. <strong>Case Files</strong> are the matters
+            your stuff belongs to.
+          </p>
+        </div>
+
+        <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.55 }}>
+          <strong style={{ color: "var(--gold-soft)" }}>How they connect:</strong> the same document can
+          be attached to a case — for example, an "Acme Ltd grievance" letter lives in My Legal Files,
+          AND is also attached to your "v. Acme Ltd" Case File. Editing it in one place updates both.
+        </div>
+
+        <button onClick={onClose} className="btn-gold w-full" data-testid="explainer-got-it" style={{ marginTop: 14 }}>
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
 // ---------- My Files ----------
 function FilesModal({ lang, onClose }) {
+  const [showExplain, setShowExplain] = useState(false);
   const [files, setFiles] = useState([]); const [open, setOpen] = useState(null); const [busy, setBusy] = useState(false);
   const load = () => api.get("/legal-files").then(r => setFiles(r.data)).catch(() => {});
   useEffect(() => { load(); }, []);
@@ -3698,7 +3771,16 @@ function FilesModal({ lang, onClose }) {
     <div className="modal-bg" data-testid="files-modal">
       <div className="modal-card" style={{ padding: 20 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "myFiles")}</h2>
+          <h2 className="brand-font gold" style={{ fontSize: 20, display: "inline-flex", alignItems: "center", gap: 8 }}>
+            {t(lang, "myFiles")}
+            <button onClick={() => setShowExplain(true)} data-testid="files-help-btn"
+              title="What's the difference between My Legal Files and Case Files?"
+              style={{ background: "transparent", border: "1px solid var(--gold-deep)",
+                       color: "var(--gold)", borderRadius: "50%", width: 22, height: 22,
+                       fontSize: 12, fontWeight: 700, cursor: "pointer", lineHeight: 1, padding: 0 }}>
+              ?
+            </button>
+          </h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={24} /></button>
         </div>
         {!open ? (
@@ -3741,12 +3823,14 @@ function FilesModal({ lang, onClose }) {
           </div>
         )}
       </div>
+      {showExplain && <FilesVsCasesExplainer onClose={() => setShowExplain(false)} />}
     </div>
   );
 }
 
 // ---------- Case Files (group chats / photos / videos / letters per case) ----------
 function CaseFilesModal({ lang, onClose, openCaseId }) {
+  const [showExplain, setShowExplain] = useState(false);
   const [cases, setCases] = useState([]);
   const [open, setOpen] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -3883,7 +3967,16 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
     <div className="modal-bg" data-testid="cases-modal">
       <div className="modal-card" style={{ padding: 20 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "caseFiles")}</h2>
+          <h2 className="brand-font gold" style={{ fontSize: 20, display: "inline-flex", alignItems: "center", gap: 8 }}>
+            {t(lang, "caseFiles")}
+            <button onClick={() => setShowExplain(true)} data-testid="cases-help-btn"
+              title="What's the difference between Case Files and My Legal Files?"
+              style={{ background: "transparent", border: "1px solid var(--gold-deep)",
+                       color: "var(--gold)", borderRadius: "50%", width: 22, height: 22,
+                       fontSize: 12, fontWeight: 700, cursor: "pointer", lineHeight: 1, padding: 0 }}>
+              ?
+            </button>
+          </h2>
           <button onClick={onClose} data-testid="cases-close" style={{ background: "transparent", border: "none", color: "var(--text)" }}><X size={24} /></button>
         </div>
         {!open ? (
@@ -3962,6 +4055,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
           </div>
         )}
       </div>
+      {showExplain && <FilesVsCasesExplainer onClose={() => setShowExplain(false)} />}
     </div>
   );
 }
@@ -5195,6 +5289,22 @@ function CaseTimeline({ lang, onClose, onOpenChat, onOpenReminders, onOpenCase }
     return "/icons/ask_lex.png";
   };
 
+  // 📂 Manual "Save as Case File" — calls /api/cases/from-session and reloads
+  // the timeline so the row flips from button → "✓ Filed under Case Files".
+  const saveAsCase = async (sessionId, suggestedTitle) => {
+    setBusy(true);
+    try {
+      const r = await api.post("/cases/from-session", { session_id: sessionId });
+      const caseName = r.data?.case?.name || suggestedTitle || "case";
+      aaToast(`Saved as Case File: ${caseName}`, "success");
+      load(); // refresh — row will now show "Filed under Case Files"
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Failed to save as case", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // Route a timeline tap → its source surface
   const handleItemClick = (it) => {
     if (it.kind === "chat" && onOpenChat) onOpenChat(it.id);
@@ -5318,6 +5428,34 @@ function CaseTimeline({ lang, onClose, onOpenChat, onOpenReminders, onOpenCase }
                 <div style={{ color: "var(--text)", fontSize: 13, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
                   {it.title}
                 </div>
+                {/* 📂 Save as Case File — appears for chat rows that aren't already
+                    linked to a case. Auto-promote also fires server-side at 3+ turns,
+                    so this button mostly serves shorter conversations the user wants
+                    to keep as a formal matter. */}
+                {it.kind === "chat" && !it.linked_case_id && (
+                  <button
+                    data-testid={`save-as-case-btn-${idx}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      saveAsCase(it.id, it.title);
+                    }}
+                    disabled={busy}
+                    style={{
+                      marginTop: 8, padding: "5px 10px",
+                      background: "rgba(247,201,72,0.08)",
+                      border: "1px solid var(--gold-deep)", borderRadius: 8,
+                      color: "var(--gold)", fontSize: 10.5, fontWeight: 700,
+                      letterSpacing: "0.03em", cursor: "pointer",
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                    }}>
+                    📂 Save as Case File
+                  </button>
+                )}
+                {it.kind === "chat" && it.linked_case_id && (
+                  <div style={{ marginTop: 6, fontSize: 10.5, color: "var(--text-muted)", fontStyle: "italic" }}>
+                    ✓ Filed under Case Files
+                  </div>
+                )}
               </div>
             </div>
             );

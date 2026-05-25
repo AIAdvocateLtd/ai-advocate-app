@@ -10,6 +10,17 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 2k — Iter 22 · Case Timeline ↔ Case Files wiring + landing page)
+- 🐛 **Resume chat bug fixed** — tapping "open →" on a chat row in Case Timeline now re-hydrates the full conversation history and adopts the original session_id (was broken — opened a new empty thread before).
+- 🪄 **Auto-promote chats → Case Files (Option A)**: When a session reaches 3+ turns and isn't already linked to a case, `_ensure_case_for_session()` auto-creates a Case File with a cleaned title ("I'm being bullied at work" → "Bullied at work"), inferred category, `source: "auto"` flag, and the chat thread attached as the first case item. Runs on every `GET /timeline` hit (cheap, idempotent).
+- ✋ **Manual promote endpoint (Option B)**: `POST /api/cases/from-session` — one-tap "📂 Save as Case File" button on each chat row in the timeline. Accepts optional `name_override` and `category_override` so the user can rename on the spot. Idempotent: re-calling returns the existing case (no dup).
+- 🏷️ **Timeline row now shows `linked_case_id`** — chats already filed under a case display "✓ Filed under Case Files" instead of the "Save as Case File" button.
+- 📘 **"What's the difference?" explainer** — new `FilesVsCasesExplainer` modal accessible via a small "?" icon next to both "My Files" and "Case Files" titles. Cleanly distinguishes: My Legal Files = your stuff (filing cabinet); Case Files = the matters your stuff belongs to (folders).
+- 🌐 **Pre-launch marketing landing** (`/welcome.html`) with waitlist form → backend `POST /api/waitlist/join` + admin CSV export at `/api/admin/waitlist.csv`. Root URL now redirects unauthenticated visitors to the landing page; authenticated users go straight into the app at `/`.
+- 🎨 **Landing page UX fixes**: button text contrast fixed (gold→black not gold→dark-brown), reward copy changed from "first 500" → "first 100" sign-ups (scarcity converts better than generosity).
+- 📦 **Instagram Content Pack delivered** (15 Nano Banana images + 8 Reels scripts + 5 Story sequences + bio rewrite + hashtag clusters), shipped at `/instagram-pack/`. **User feedback: visuals were too abstract — didn't show the actual app. Not used.** Pack archived in `/app/memory/INSTAGRAM_CONTENT_PACK.md` for reference, but the production strategy needs real iPhone screen-recordings to be useful.
+- 🧪 **Pytest regression suite**: 6 tests for case-promote, 5 for waitlist — all passing.
+
 ### 2026-02 (Session 2k — Iter 21 · Abuse defenses + Winback Day Pass + SSE chat + Voice + UX fixes)
 - 🐛 **CRITICAL Stripe webhook fix**: signed `checkout.session.completed` events were 500ing because `event["data"]` returned a `StripeObject` (no `.get()`). Now normalized via `json.loads(str(event))`. Resends from Stripe Dashboard will now succeed.
 - 🐛 **Stripe redirect URL fix**: replaced fragile `request.headers["origin"]` with canonical `FRONTEND_URL` env var across all checkout flows (subs, top-ups, firm subs). Previously triggered 403 Forbidden when users had stale preview-domain tabs open.

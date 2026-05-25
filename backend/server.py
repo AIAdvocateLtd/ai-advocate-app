@@ -1621,6 +1621,34 @@ async def get_timeline(user: dict = Depends(get_user)):
     user_id = user["id"]
     items = []
 
+    # 🪄 Smart Case-File auto-promote (Option A): any session with >= 3 turns
+    # that doesn't have a linked case yet gets quietly promoted. The user keeps
+    # full control — they can rename, delete, or manually promote earlier via
+    # the "Save as Case File" button in the timeline UI.
+    try:
+        promote_cursor = db.conversations.aggregate([
+            {"$match": {"user_id": user_id}},
+            {"$group": {"_id": "$session_id", "turns": {"$sum": 1}}},
+            {"$match": {"turns": {"$gte": 3}}},
+        ])
+        async for s in promote_cursor:
+            sid = s["_id"]
+            if not sid:
+                continue
+            already_linked = await db.case_items.find_one(
+                {"user_id": user_id, "item_type": "chat", "item_id": sid,
+                 "deleted_at": {"$in": [None, "", False]}},
+                {"_id": 1},
+            )
+            if already_linked:
+                continue
+            try:
+                await _ensure_case_for_session(user, sid, source="auto")
+            except Exception:
+                logger.exception(f"auto-promote failed for session {sid[:8]}")
+    except Exception:
+        logger.exception("timeline auto-promote pass failed (non-fatal)")
+
     # Chat sessions — group conversations by session, take first message as title
     try:
         cursor = db.conversations.aggregate([
@@ -1643,6 +1671,12 @@ async def get_timeline(user: dict = Depends(get_user)):
                 title = msg[:80].replace("\n", " ").strip()
                 if len(msg) > 80:
                     title += "…"
+                # Look up whether this chat is already filed under a Case
+                linked = await db.case_items.find_one(
+                    {"user_id": user_id, "item_type": "chat", "item_id": s["_id"],
+                     "deleted_at": {"$in": [None, "", False]}},
+                    {"_id": 0, "case_id": 1},
+                )
                 items.append({
                     "kind": "chat",
                     "id": s["_id"],
@@ -1651,6 +1685,7 @@ async def get_timeline(user: dict = Depends(get_user)):
                     "turns": s.get("turns", 1),
                     "started_at": s.get("first_at"),
                     "updated_at": s.get("last_at"),
+                    "linked_case_id": (linked or {}).get("case_id"),  # null if not yet a Case File
                 })
             except Exception:
                 continue
@@ -4161,6 +4196,128 @@ async def create_case(data: CaseCreate, user: dict = Depends(get_user)):
     doc.pop("_id", None)
     doc["summary"] = decrypt_text(doc["summary"])
     return doc
+
+
+# ==================== Cases ↔ Chats wiring ====================
+# Two paths to file a Lex chat as a formal Case File:
+#   • Manual: user taps "Save as Case File" in the Case Timeline (Option B).
+#   • Auto:   when a session reaches >= 3 turns AND has no linked case yet,
+#             the timeline endpoint quietly promotes it (Option A).
+# Both call _ensure_case_for_session() so the logic stays in one place.
+
+# In-memory dedupe so we never run the auto-promote check twice concurrently
+# for the same session. Per-process is fine — the DB has a uniqueness guarantee
+# via `session_id` lookup so race-safe in practice.
+_AUTO_CASE_GUARD: set = set()
+
+
+async def _ensure_case_for_session(user: dict, session_id: str,
+                                   source: str = "auto") -> Optional[dict]:
+    """Idempotent — returns the existing case if one is already linked to this
+    session, otherwise creates a new case + attaches the chat thread to it.
+
+    The case title is derived from the first user message; the category is
+    inferred via the same simple classifier the chat UI uses.
+    """
+    # Guard against concurrent calls for the same session
+    guard_key = f"{user['id']}:{session_id}"
+    if guard_key in _AUTO_CASE_GUARD:
+        return None
+    _AUTO_CASE_GUARD.add(guard_key)
+    try:
+        # Already linked? Bail.
+        existing = await db.case_items.find_one(
+            {"user_id": user["id"], "item_type": "chat", "item_id": session_id,
+             "deleted_at": {"$in": [None, "", False]}},
+            {"_id": 0, "case_id": 1},
+        )
+        if existing:
+            return await db.cases.find_one({"id": existing["case_id"]}, {"_id": 0})
+
+        # Pull the first user message + category from the conversation thread
+        first_turn = await db.conversations.find_one(
+            {"user_id": user["id"], "session_id": session_id},
+            {"_id": 0, "user_message": 1, "category": 1, "created_at": 1},
+            sort=[("created_at", 1)],
+        )
+        if not first_turn:
+            return None
+        try:
+            first_msg = decrypt_text(first_turn.get("user_message")) or ""
+        except Exception:
+            first_msg = ""
+
+        # Derive a sensible title (<= 60 chars, no line-breaks, no trailing punctuation)
+        title = " ".join(first_msg.split())[:60].rstrip(",.;:!?— ") or "New case"
+        # Strip a leading "I " or pronoun so the title reads case-file-style:
+        # "Workplace bullying" not "I feel like I'm being bullied at work"
+        lower = title.lower()
+        for lead in ("i feel like i'm being ", "i feel like i am being ",
+                     "i think i'm being ", "i'm being ", "i was ", "my ", "i "):
+            if lower.startswith(lead):
+                title = title[len(lead):]
+                break
+        title = title[:1].upper() + title[1:] if title else "New case"
+
+        category = (first_turn.get("category") or "general")
+        if category == "ask_lex":
+            category = "general"
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        case_id = str(uuid.uuid4())
+        case_doc = {
+            "id": case_id, "user_id": user["id"], "name": title,
+            "summary": encrypt_text(""),
+            "category": category, "status": "open", "items_count": 1,
+            "created_at": now_iso, "updated_at": now_iso,
+            "source": source,                # 'auto' or 'manual' — for analytics
+            "linked_session_id": session_id,  # quick deep-link back to the chat
+        }
+        await db.cases.insert_one(case_doc)
+
+        # Attach the chat thread as the first case item
+        item = {
+            "id": str(uuid.uuid4()), "case_id": case_id, "user_id": user["id"],
+            "item_type": "chat", "item_id": session_id,
+            "title": title,
+            "preview": (first_msg or "")[:300],
+            "timestamp_utc": first_turn.get("created_at") or now_iso,
+            "created_at": now_iso,
+        }
+        await db.case_items.insert_one(item)
+        case_doc.pop("_id", None)
+        case_doc["summary"] = ""
+        logger.info(f"Case auto-promoted ({source}): user={user['id']} session={session_id[:8]} -> case={case_id[:8]} ({title})")
+        return case_doc
+    finally:
+        _AUTO_CASE_GUARD.discard(guard_key)
+
+
+class CaseFromSessionReq(BaseModel):
+    session_id: str
+    name_override: Optional[str] = None
+    category_override: Optional[str] = None
+
+
+@api_router.post("/cases/from-session")
+async def case_from_session(data: CaseFromSessionReq, user: dict = Depends(get_user)):
+    """Manual one-tap promote a chat → Case File (Option B from the UI).
+    Idempotent: if a case is already linked, returns the existing one."""
+    case = await _ensure_case_for_session(user, data.session_id, source="manual")
+    if not case:
+        raise HTTPException(404, "Conversation not found — cannot promote.")
+    # Optional rename / re-categorise on the spot so the user can correct the auto-title
+    upd = {}
+    if data.name_override and data.name_override.strip():
+        upd["name"] = data.name_override.strip()[:120]
+    if data.category_override:
+        upd["category"] = data.category_override[:40]
+    if upd:
+        upd["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.cases.update_one({"id": case["id"]}, {"$set": upd})
+        case.update(upd)
+    return {"ok": True, "case": case}
+
 
 @api_router.get("/cases")
 async def list_cases(user: dict = Depends(get_user), status: Optional[str] = None):
