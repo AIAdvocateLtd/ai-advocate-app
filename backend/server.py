@@ -1198,6 +1198,206 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     }
 
 
+# ==================== Streaming Lex Chat (SSE) ====================
+# Same logic as /lex/chat but emits the LLM response token-by-token via
+# Server-Sent Events. Uses LiteLLM's stream=True (which `LlmChat` wraps).
+# Format:
+#   data: {"type":"meta","session_id":"...","citations":[...]}\n\n
+#   data: {"type":"token","text":"Hello"}\n\n
+#   data: {"type":"token","text":" world"}\n\n
+#   data: {"type":"done","connected_session_id":"...","model":"..."}\n\n
+#
+# The frontend renders tokens as they arrive (typewriter effect, but live).
+@api_router.post("/lex/chat/stream")
+async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
+    import litellm
+    import json as _json
+    from emergentintegrations.llm.utils import get_integration_proxy_url
+
+    pub = user_to_public(user)
+    tier = pub["tier"]
+
+    # Same auth / paywall / quota checks as /lex/chat
+    if data.category in ("court_prep", "employment", "property", "immigration", "medical_negligence"):
+        if not tier_has_access(tier, "court_categories"):
+            raise HTTPException(402, "This category requires Plus or Pro. Upgrade to unlock.")
+    if data.deep_think and tier not in ("pro", "yearly", "trial_pro"):
+        raise HTTPException(402, "Deep Think requires Pro. Upgrade to unlock King's Counsel-grade reasoning.")
+    if data.deep_think:
+        ok_dt, used_dt, limit_dt = await check_quota_and_increment(user["id"], tier, "deep_think", "monthly")
+        if not ok_dt:
+            raise HTTPException(429, f"Deep Think monthly limit reached ({used_dt}/{limit_dt}). Disable Deep Think for unlimited Sonnet 4.5 chats this month, or upgrade to Yearly Pro for 50/mo.")
+    ok, used, limit = await check_quota_and_increment(user["id"], tier, "lex_chat", "daily")
+    if not ok:
+        raise HTTPException(429, f"Daily limit reached ({used}/{limit} Lex messages on Free). Upgrade to Plus for unlimited.")
+
+    # Language auto-detect
+    reply_language = data.language
+    if data.auto_detect:
+        detected = detect_language(data.message, fallback=data.language)
+        if detected and detected != data.language:
+            reply_language = detected
+
+    provider, model_id, max_tok = lex_model_for_tier(tier, deep_think=data.deep_think)
+    session_id = data.session_id or str(uuid.uuid4())
+    base_system_msg = lex_system_prompt(reply_language, data.country, data.category)
+
+    # Cross-session memory (same as non-streaming)
+    cross_sessions_indexed = []
+    try:
+        cross_pipeline = [
+            {"$match": {"user_id": user["id"], "session_id": {"$ne": session_id}}},
+            {"$sort": {"created_at": -1}},
+            {"$group": {"_id": "$session_id", "first_message": {"$last": "$user_message"},
+                        "category": {"$first": "$category"}, "last_at": {"$first": "$created_at"}}},
+            {"$sort": {"last_at": -1}}, {"$limit": 4},
+        ]
+        n = 0
+        async for s in db.conversations.aggregate(cross_pipeline):
+            try:
+                txt = decrypt_text(s.get("first_message")) or ""
+                if txt:
+                    topic = txt[:90].replace("\n", " ").strip()
+                    if len(txt) > 90: topic += "…"
+                    n += 1
+                    cross_sessions_indexed.append({"n": n, "session_id": s["_id"], "topic": topic, "category": s.get("category") or "ask_lex"})
+            except Exception:
+                continue
+    except Exception:
+        cross_sessions_indexed = []
+    if cross_sessions_indexed:
+        lines = [f"#{c['n']} [{c['category']}] {c['topic']}" for c in cross_sessions_indexed]
+        cross_memory_block = (
+            "\n\nRECENT CASES THIS USER HAS DISCUSSED WITH YOU (other chat threads):\n"
+            + "\n".join(lines)
+            + "\n\nCROSS-CASE CONNECTION RULE:\n"
+              "If the user's NEW question shares a SPECIFIC entity with any case in the list above — "
+              "the same company/employer name, the same landlord, the same person, the same property address, "
+              "the same contract, or the same incident date — you MUST acknowledge it and you MUST output the "
+              "[CONNECTED_TO: #N short topic] marker, where N is the number from the list above.\n"
+              "If there is no shared specific entity, OMIT the [CONNECTED_TO:] line entirely. Never force a link."
+        )
+        system_msg = base_system_msg + cross_memory_block
+    else:
+        system_msg = base_system_msg
+
+    # RAG
+    citations: List[dict] = []
+    try:
+        rag_block, citations = await build_rag_context(data.message, country=data.country or "GB", db=db)
+        if rag_block:
+            system_msg = system_msg + rag_block
+    except Exception as e:
+        logger.warning(f"RAG context build failed (continuing without): {e}")
+
+    # Load chat history
+    history_docs = await db.conversations.find(
+        {"user_id": user["id"], "session_id": session_id},
+        {"_id": 0, "user_message": 1, "assistant_response": 1, "created_at": 1},
+    ).sort("created_at", 1).to_list(length=12)
+    messages = [{"role": "system", "content": system_msg}]
+    for doc in history_docs:
+        try:
+            um = decrypt_text(doc.get("user_message"))
+            ar = decrypt_text(doc.get("assistant_response"))
+            if um: messages.append({"role": "user", "content": um})
+            if ar: messages.append({"role": "assistant", "content": ar})
+        except Exception:
+            continue
+    messages.append({"role": "user", "content": data.message})
+
+    async def event_stream():
+        # 1) Emit metadata event first so the UI can show citations + session_id immediately
+        yield f"data: {_json.dumps({'type':'meta','session_id':session_id,'citations':citations,'model':model_id,'reply_language':reply_language})}\n\n"
+
+        full_text_parts: List[str] = []
+        try:
+            # LiteLLM with stream=True. Routes through the Emergent proxy when
+            # api_key starts with sk-emergent-, mirroring LlmChat._execute_completion.
+            params = {
+                "model": model_id,
+                "messages": messages,
+                "api_key": EMERGENT_LLM_KEY,
+                "max_tokens": max_tok,
+                "stream": True,
+            }
+            if EMERGENT_LLM_KEY.startswith("sk-emergent-"):
+                params["api_base"] = get_integration_proxy_url() + "/llm"
+                params["custom_llm_provider"] = "openai"
+
+            response = await litellm.acompletion(**params)
+            async for chunk in response:
+                try:
+                    delta = chunk.choices[0].delta
+                    token = getattr(delta, "content", None)
+                    if token:
+                        full_text_parts.append(token)
+                        # Stream the raw token. We strip [CONNECTED_TO:...] from the *final* assembled
+                        # text, not per-chunk, so the marker is never visible to the user mid-stream.
+                        yield f"data: {_json.dumps({'type':'token','text':token})}\n\n"
+                except Exception:
+                    continue
+        except Exception as e:
+            logger.exception("Streaming completion failed — falling back to non-streaming sonnet 4.5")
+            # Non-streaming fallback so user is never blocked
+            try:
+                chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=system_msg,
+                               initial_messages=messages[:-1] if len(messages) > 1 else None
+                               ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2048)
+                fallback_resp = await chat.send_message(UserMessage(text=data.message))
+                full_text_parts = [fallback_resp]
+                # Emit the whole thing as one token chunk for the UI
+                yield f"data: {_json.dumps({'type':'token','text':fallback_resp})}\n\n"
+            except Exception as e2:
+                logger.exception("Streaming fallback also failed")
+                yield f"data: {_json.dumps({'type':'error','message':str(e2)})}\n\n"
+                yield f"data: {_json.dumps({'type':'done'})}\n\n"
+                return
+
+        # Assemble full response and resolve [CONNECTED_TO: #N]
+        full_text = "".join(full_text_parts)
+        connected_session_id = None
+        try:
+            m = re.search(r"\[CONNECTED_TO:\s*#(\d+)", full_text, re.IGNORECASE)
+            if m:
+                idx = int(m.group(1)) - 1
+                if 0 <= idx < len(cross_sessions_indexed):
+                    connected_session_id = cross_sessions_indexed[idx]["session_id"]
+        except Exception:
+            connected_session_id = None
+
+        # Persist the conversation (sensitive content encrypted at rest)
+        try:
+            await db.conversations.insert_one({
+                "id": str(uuid.uuid4()),
+                "user_id": user["id"],
+                "session_id": session_id,
+                "category": data.category,
+                "user_message": encrypt_text(data.message),
+                "assistant_response": encrypt_text(full_text),
+                "language": reply_language,
+                "model_used": model_id,
+                "deep_think": data.deep_think,
+                "citations": citations,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:
+            logger.exception("Failed to persist streamed conversation — user already saw the response")
+
+        # Final event with metadata that needed the full text to compute
+        yield f"data: {_json.dumps({'type':'done','connected_session_id':connected_session_id,'full_text':full_text})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",  # disable nginx/proxy buffering
+            "Connection": "keep-alive",
+        },
+    )
+
+
 # ==================== FREE TASTER LEX (no auth, 1 question per device) ====================
 class TasterMessage(BaseModel):
     message: str

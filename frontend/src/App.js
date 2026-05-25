@@ -1248,71 +1248,187 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
   const send = async (text) => {
     if (!text.trim()) return;
     setMessages(m => [...m, { role: "user", content: text, at: new Date().toISOString() }]); setInput(""); setBusy(true);
+
+    const autoDetect = localStorage.getItem("aa_autodetect") !== "0";
+    // 🚀 Real SSE streaming — tokens render as the LLM produces them.
+    // We use fetch + ReadableStream (EventSource doesn't support POST).
+    // If the stream fails for any reason we fall back to the buffered endpoint.
+    let streamed = false;
     try {
-      const autoDetect = localStorage.getItem("aa_autodetect") !== "0";
-      const { data } = await api.post("/lex/chat", {
-        message: text, session_id: sessionId, language: lang, country, category,
-        deep_think: deepThink && isPro,
-        auto_detect: autoDetect,
+      const token = localStorage.getItem("aa_token");
+      const resp = await fetch(`${API}/lex/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "text/event-stream",
+                   ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          message: text, session_id: sessionId, language: lang, country, category,
+          deep_think: deepThink && isPro, auto_detect: autoDetect,
+        }),
       });
-      setSessionId(data.session_id);
-      // Progressive reveal: stash full response, animate body typing-in client-side so it feels live.
-      // (True SSE streaming will land once Emergent SDK exposes a stream API.)
-      const fullText = data.response;
-      const lexMsg = { role: "lex", content: "", _fullContent: fullText, at: new Date().toISOString(), model: data.model, replyLang: data.reply_language, connectedSessionId: data.connected_session_id || null, citations: data.citations || [], _typing: true };
-      setMessages(m => [...m, lexMsg]);
-      // Type out 30 chars per ~25ms (≈1200 wpm display speed — fast enough to read but visibly live)
-      let revealed = 0;
-      const step = 30;
-      const tick = () => {
-        if (revealed >= fullText.length) {
-          setMessages(ms => ms.map((mm, idx) => idx === ms.length - 1 && mm._typing ? { ...mm, content: fullText, _typing: false, _fullContent: undefined } : mm));
+      if (!resp.ok || !resp.body) throw new Error(`stream ${resp.status}`);
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let lexMsgIndex = -1;          // index of the in-flight assistant bubble
+      let assembled = "";            // running accumulated text (raw)
+      let finalMeta = null;          // meta event payload
+      let finalDone = null;          // done event payload
+
+      // Helper to strip Lex's internal markers from displayed text.
+      // The full marker block is at the END of the response, so we cut from
+      // the first occurrence of any of these onwards.
+      const stripMarkers = (s) => {
+        if (!s) return s;
+        const cuts = ["[CONFIDENCE:", "[SOURCES:", "[CONNECTED_TO:", "\nDisclaimer:"];
+        let earliest = s.length;
+        for (const c of cuts) {
+          const i = s.indexOf(c);
+          if (i >= 0 && i < earliest) earliest = i;
+        }
+        return s.slice(0, earliest).trimEnd();
+      };
+
+      // Insert the placeholder Lex bubble immediately so the user sees "typing…"
+      setMessages(ms => {
+        const next = [...ms, { role: "lex", content: "", at: new Date().toISOString(), _typing: true, citations: [], model: null, replyLang: null, connectedSessionId: null }];
+        lexMsgIndex = next.length - 1;
+        return next;
+      });
+
+      // Client-side typewriter reveal that runs IN PARALLEL with token arrival.
+      // Why? Emergent's LLM proxy currently buffers the full response — even with
+      // stream=True, all tokens arrive as one burst at the end. The typewriter
+      // gives us a smooth reveal regardless of whether tokens trickle (true SSE,
+      // once Emergent enables it) or land in a burst (current proxy behaviour).
+      let displayed = 0;
+      let revealTimer = null;
+      let streamDone = false;
+      const stepChars = 30;
+      const stepMs = 25;
+      const tickReveal = () => {
+        const visible = stripMarkers(assembled);
+        if (displayed >= visible.length) {
+          if (streamDone) {
+            setMessages(ms => ms.map((mm, idx) => idx === lexMsgIndex
+              ? { ...mm, content: visible, _typing: false, connectedSessionId: finalDone?.connected_session_id || null }
+              : mm));
+            return;
+          }
+          // Waiting for more tokens — re-check soon
+          revealTimer = setTimeout(tickReveal, stepMs);
           return;
         }
-        revealed += step;
-        const slice = fullText.slice(0, revealed);
-        setMessages(ms => ms.map((mm, idx) => idx === ms.length - 1 && mm._typing ? { ...mm, content: slice } : mm));
-        setTimeout(tick, 25);
+        displayed = Math.min(visible.length, displayed + stepChars);
+        const slice = visible.slice(0, displayed);
+        setMessages(ms => ms.map((mm, idx) => idx === lexMsgIndex ? { ...mm, content: slice } : mm));
+        revealTimer = setTimeout(tickReveal, stepMs);
       };
-      tick();
+      tickReveal();
 
-      // Smart category routing — only on first user message in general "ask_lex" chat
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // SSE events are separated by \n\n
+        let nlIdx;
+        while ((nlIdx = buffer.indexOf("\n\n")) >= 0) {
+          const chunk = buffer.slice(0, nlIdx).trim();
+          buffer = buffer.slice(nlIdx + 2);
+          if (!chunk.startsWith("data:")) continue;
+          let payload;
+          try { payload = JSON.parse(chunk.slice(5).trim()); } catch { continue; }
+
+          if (payload.type === "meta") {
+            finalMeta = payload;
+            setSessionId(payload.session_id);
+            setMessages(ms => ms.map((mm, idx) => idx === lexMsgIndex
+              ? { ...mm, citations: payload.citations || [], model: payload.model, replyLang: payload.reply_language }
+              : mm));
+          } else if (payload.type === "token") {
+            // Just accumulate — the typewriter loop drives the visual reveal.
+            // (Currently Emergent's proxy buffers and emits the whole response
+            // as one chunk, but if real streaming ever lands, this still works.)
+            assembled += payload.text || "";
+          } else if (payload.type === "done") {
+            finalDone = payload;
+            // If `done` arrived before any tokens (rare error path), make sure
+            // we still surface the full_text the backend computed.
+            if (!assembled && payload.full_text) assembled = payload.full_text;
+          } else if (payload.type === "error") {
+            throw new Error(payload.message || "stream error");
+          }
+        }
+      }
+
+      // Signal the typewriter that no more tokens are coming — it will finish
+      // revealing whatever's left then mark the bubble as no longer typing.
+      streamDone = true;
+      streamed = true;
+
+      // Post-stream side effects (smart category, deep-think usage, reminders/deadlines)
+      const finalText = stripMarkers(finalDone?.full_text || assembled);
+      const data = { response: finalText, reply_language: finalMeta?.reply_language, model: finalMeta?.model };
       if (category === "ask_lex" && !classifiedRef.current && onSwitchCategory) {
         classifiedRef.current = true;
         api.post("/lex/classify", { text }).then(rc => {
           const d = rc?.data;
           const known = { employment: "employment", property: "property", immigration: "immigration", medical: "medical_negligence" };
-          if (d && d.confidence !== "low" && known[d.category]) {
-            setSmartCat({ category: d.category, mapped: known[d.category] });
-          }
+          if (d && d.confidence !== "low" && known[d.category]) setSmartCat({ category: d.category, mapped: known[d.category] });
         }).catch(() => {});
       }
-      // Refresh Deep Think usage counter after each chat (Pro only)
       if (isPro && deepThink) {
         api.get("/subscription/usage").then(r => {
           const u = r.data?.usage?.deep_think;
           if (u) setDtUsed({ used: u.used, limit: u.limit });
         }).catch(() => {});
       }
-      // ⏰ Limitation-period detector — fire-and-forget; if Lex finds a deadline, surface a one-tap "Add reminder" chip.
       const fd = new FormData();
-      fd.append("message", text);
-      fd.append("language", lang);
-      fd.append("country", country);
+      fd.append("message", text); fd.append("language", lang); fd.append("country", country);
       api.post("/reminders/detect", fd).then(r => {
         const dls = r.data?.deadlines || [];
-        if (dls.length) {
-          setMessages(m => [...m, { role: "deadlines", content: "", at: new Date().toISOString(), deadlines: dls }]);
-        }
+        if (dls.length) setMessages(m => [...m, { role: "deadlines", content: "", at: new Date().toISOString(), deadlines: dls }]);
       }).catch(() => {});
-      // TTS playback
       try {
-        const r = await api.post("/voice/tts", { text: data.response.slice(0, 1500), voice: "fable", language: data.reply_language }, { responseType: "blob" });
+        const r = await api.post("/voice/tts", { text: finalText.slice(0, 1500), voice: "fable", language: data.reply_language }, { responseType: "blob" });
         const url = URL.createObjectURL(r.data);
         if (audioRef.current) { audioRef.current.src = url; audioRef.current.play().catch(() => {}); }
       } catch {}
-    } catch (e) {
-      setMessages(m => [...m, { role: "lex", content: e?.response?.data?.detail || "Error: try again" }]);
+    } catch (streamErr) {
+      // Streaming failed — fall back to the buffered endpoint with the original
+      // typewriter animation. User sees a tiny delay but never a broken chat.
+      if (streamed) { setBusy(false); return; }
+      console.warn("Streaming chat failed, falling back to buffered:", streamErr);
+      try {
+        const { data } = await api.post("/lex/chat", {
+          message: text, session_id: sessionId, language: lang, country, category,
+          deep_think: deepThink && isPro, auto_detect: autoDetect,
+        });
+        setSessionId(data.session_id);
+        const fullText = data.response;
+        const lexMsg = { role: "lex", content: "", _fullContent: fullText, at: new Date().toISOString(), model: data.model, replyLang: data.reply_language, connectedSessionId: data.connected_session_id || null, citations: data.citations || [], _typing: true };
+        setMessages(m => [...m, lexMsg]);
+        let revealed = 0;
+        const step = 30;
+        const tick = () => {
+          if (revealed >= fullText.length) {
+            setMessages(ms => ms.map((mm, idx) => idx === ms.length - 1 && mm._typing ? { ...mm, content: fullText, _typing: false, _fullContent: undefined } : mm));
+            return;
+          }
+          revealed += step;
+          const slice = fullText.slice(0, revealed);
+          setMessages(ms => ms.map((mm, idx) => idx === ms.length - 1 && mm._typing ? { ...mm, content: slice } : mm));
+          setTimeout(tick, 25);
+        };
+        tick();
+        try {
+          const r = await api.post("/voice/tts", { text: data.response.slice(0, 1500), voice: "fable", language: data.reply_language }, { responseType: "blob" });
+          const url = URL.createObjectURL(r.data);
+          if (audioRef.current) { audioRef.current.src = url; audioRef.current.play().catch(() => {}); }
+        } catch {}
+      } catch (e) {
+        setMessages(m => [...m, { role: "lex", content: e?.response?.data?.detail || "Error: try again" }]);
+      }
     } finally { setBusy(false); }
   };
 
