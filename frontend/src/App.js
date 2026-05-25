@@ -3836,6 +3836,10 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
+  // "items" tab = current view (uploads + chats list). "timeline" tab = new merged feed.
+  const [tab, setTab] = useState("items");
+  const [feed, setFeed] = useState(null);
+  const [feedLoading, setFeedLoading] = useState(false);
 
   const load = () => api.get("/cases").then(r => setCases(r.data.cases || [])).catch(() => {});
   useEffect(() => { load(); }, []);
@@ -3862,7 +3866,19 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
   const openCase = async (c) => {
     const r = await api.get(`/cases/${c.id}`);
     setOpen(r.data);
+    setTab("items");        // reset tab whenever a new case is opened
+    setFeed(null);
   };
+
+  // 🕘 Load the merged chronological timeline (chats + items + deadlines) on demand
+  useEffect(() => {
+    if (tab !== "timeline" || !open?.id) return;
+    setFeedLoading(true);
+    api.get(`/cases/${open.id}/timeline`)
+      .then(r => setFeed(r.data))
+      .catch(() => setFeed({ events: [], total_events: 0 }))
+      .finally(() => setFeedLoading(false));
+  }, [tab, open?.id]);
 
   const createCase = async () => {
     if (!newName.trim() && !creating) return;
@@ -4018,6 +4034,29 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
               <button className="btn-ghost" onClick={shareCase} data-testid="share-case-btn" style={{ flex: 1, fontSize: 12 }}>Share</button>
               <button className="btn-ghost" onClick={remove} data-testid="delete-case-btn" style={{ flex: 0.7, fontSize: 12, color: "#fca5a5" }}><Trash2 size={14} /></button>
             </div>
+
+            {/* Items / Timeline tab switcher */}
+            <div data-testid="case-tab-switcher" style={{
+              display: "flex", gap: 4, background: "var(--bg-card)", border: "1px solid var(--line)",
+              borderRadius: 10, padding: 3, marginBottom: 12,
+            }}>
+              <button data-testid="tab-items-btn" onClick={() => setTab("items")}
+                style={{ flex: 1, padding: "7px 10px", fontSize: 12, fontWeight: 700, borderRadius: 7,
+                         border: "none", cursor: "pointer",
+                         background: tab === "items" ? "var(--gold)" : "transparent",
+                         color: tab === "items" ? "#1a1300" : "var(--text-dim)" }}>
+                📂 Files & uploads
+              </button>
+              <button data-testid="tab-timeline-btn" onClick={() => setTab("timeline")}
+                style={{ flex: 1, padding: "7px 10px", fontSize: 12, fontWeight: 700, borderRadius: 7,
+                         border: "none", cursor: "pointer",
+                         background: tab === "timeline" ? "var(--gold)" : "transparent",
+                         color: tab === "timeline" ? "#1a1300" : "var(--text-dim)" }}>
+                🕘 Timeline
+              </button>
+            </div>
+
+            {tab === "items" && <>
             {/* Upload to case — accepts document/photo/audio/video. Stored as a case_item with SHA256 + timestamp. */}
             <input ref={uploadRef} type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt"
                    onChange={onUpload} style={{ display: "none" }} data-testid="case-upload-input" />
@@ -4052,6 +4091,86 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
                 </div>
               </div>
             ))}
+            </>}
+
+            {/* 🕘 TIMELINE TAB — Chronological feed: case opening + every Lex turn + uploads + deadlines.
+                This is the "solicitor handover" view — read it top-to-bottom, you've read the whole matter. */}
+            {tab === "timeline" && (
+              <div data-testid="case-timeline-feed">
+                {feedLoading && <div style={{ textAlign: "center", padding: 30, color: "var(--text-muted)" }}><span className="spinner" /> Loading timeline…</div>}
+                {!feedLoading && feed && feed.events.length === 0 && (
+                  <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 14, fontSize: 13 }}>
+                    No events yet. Upload evidence or chat with Lex about this matter to populate the timeline.
+                  </p>
+                )}
+                {!feedLoading && feed && feed.events.length > 0 && (
+                  <div style={{ position: "relative", paddingLeft: 26 }}>
+                    {/* The continuous vertical "gold thread" running down the left margin */}
+                    <div style={{
+                      position: "absolute", left: 10, top: 8, bottom: 8,
+                      width: 2, background: "linear-gradient(180deg, var(--gold) 0%, var(--gold-deep) 100%)",
+                      borderRadius: 1, opacity: 0.7,
+                    }} />
+                    {feed.events.map((ev, i) => (
+                      <div key={i} data-testid={`timeline-event-${i}`}
+                        style={{ position: "relative", marginBottom: 14 }}>
+                        {/* The icon "node" on the gold thread */}
+                        <div style={{
+                          position: "absolute", left: -22, top: 10,
+                          width: 22, height: 22, borderRadius: "50%",
+                          background: "var(--bg-card)",
+                          border: "2px solid var(--gold)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 11, lineHeight: 1, zIndex: 2,
+                        }}>{ev.icon}</div>
+
+                        <div style={{
+                          background: ev.kind === "case_opened"
+                            ? "linear-gradient(135deg, rgba(247,201,72,0.16), rgba(247,201,72,0.04))"
+                            : "var(--bg-card)",
+                          border: ev.kind === "case_opened" ? "1px solid var(--gold)" : "1px solid var(--line)",
+                          borderRadius: 10, padding: "10px 12px",
+                        }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
+                            <div style={{ color: "var(--gold)", fontSize: 12.5, fontWeight: 700 }}>
+                              {ev.title}
+                            </div>
+                            <div style={{ fontSize: 10, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                              {ev.at ? new Date(ev.at).toLocaleString() : ""}
+                            </div>
+                          </div>
+                          {ev.kind === "lex_turn" && (
+                            <>
+                              {ev.user_message && (
+                                <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4, lineHeight: 1.45 }}>
+                                  <strong style={{ color: "var(--gold-soft)" }}>You: </strong>
+                                  {ev.user_message}
+                                </div>
+                              )}
+                              {ev.lex_reply && (
+                                <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4, lineHeight: 1.45 }}>
+                                  <strong style={{ color: "var(--gold-soft)" }}>Lex: </strong>
+                                  {ev.lex_reply}
+                                </div>
+                              )}
+                            </>
+                          )}
+                          {ev.kind === "deadline" && (
+                            <>
+                              {ev.summary && <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 2 }}>{ev.summary}</div>}
+                              {ev.due_at && <div style={{ fontSize: 11, color: "#fbbf24", marginTop: 4, fontWeight: 700 }}>Due: {new Date(ev.due_at).toLocaleDateString()} · {ev.status?.toUpperCase()}</div>}
+                            </>
+                          )}
+                          {ev.kind !== "lex_turn" && ev.kind !== "deadline" && ev.preview && (
+                            <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 2, whiteSpace: "pre-wrap" }}>{ev.preview}</div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

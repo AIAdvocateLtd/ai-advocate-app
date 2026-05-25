@@ -10,6 +10,20 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 2k — Iter 23 · Per-case Timeline + Solicitor-handover PDF)
+- 🆕 **New endpoint `GET /api/cases/{case_id}/timeline`** — merges 4 sources into one chronological feed: `case_opened` anchor, `case_items` (chats/photos/uploads/notes), every Lex chat `turn` from linked sessions (decrypted), and `deadlines`. Server-side sort, ready to render.
+- 🎨 **In-app Timeline tab** — new tab switcher inside the case detail view ("📂 Files & uploads" vs "🕘 Timeline"). Timeline displays a vertical **gold thread** with icon nodes per event type, alternating layout, You:/Lex: formatting on turns, highlighted "case opened" anchor card.
+- 📄 **Enhanced PDF export** at `GET /api/cases/{case_id}/export-pdf` — completely rewritten:
+  - Cover header with "AI ADVOCATE · CASE FILE" eyebrow
+  - Summary table (filed by, account, opened, total events, exported)
+  - UPL disclaimer paragraph
+  - Full chronological timeline (case opening + every Lex turn + uploads + deadlines)
+  - SHA256 evidence hash per item
+  - **Solicitor handover panel** on its own page — signature fields for client + solicitor + SRA number, designed to be torn off and handed over
+  - Safe filename: `ai-advocate-{slug}-{caseid8}.pdf`
+- 🧪 **Pytest regression** — 4 tests in `/app/backend/tests/test_case_timeline_feed.py`, all passing.
+- ♻️ **Refactor**: extracted `_build_case_timeline()` helper so the JSON endpoint and PDF generator share one source of truth.
+
 ### 2026-02 (Session 2k — Iter 22 · Case Timeline ↔ Case Files wiring + landing page)
 - 🐛 **Resume chat bug fixed** — tapping "open →" on a chat row in Case Timeline now re-hydrates the full conversation history and adopts the original session_id (was broken — opened a new empty thread before).
 - 🪄 **Auto-promote chats → Case Files (Option A)**: When a session reaches 3+ turns and isn't already linked to a case, `_ensure_case_for_session()` auto-creates a Case File with a cleaned title ("I'm being bullied at work" → "Bullied at work"), inferred category, `source: "auto"` flag, and the chat thread attached as the first case item. Runs on every `GET /timeline` hit (cheap, idempotent).

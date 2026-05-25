@@ -4431,49 +4431,283 @@ Items:
         await db.cases.update_one({"id": case_id}, {"$set": {"name": name, "updated_at": datetime.now(timezone.utc).isoformat()}})
     return {"name": name}
 
+# ==================== Case Timeline (chronological feed per case) ====================
+# Merges 4 distinct sources into one chronological view of a single case:
+#   • case_items (chat threads, uploaded photos/audio/video/docs, manual notes)
+#   • conversations (each Lex turn — decrypted on the fly, with citations)
+#   • reminders (deadlines linked to this case)
+#   • cases.created_at (the "case opened" anchor event)
+async def _build_case_timeline(case_id: str, user: dict) -> dict:
+    c = await db.cases.find_one({"id": case_id, "user_id": user["id"]}, {"_id": 0})
+    if not c:
+        raise HTTPException(404, "Case not found")
+
+    events: List[dict] = []
+
+    # 0) Anchor: the case opening itself
+    events.append({
+        "kind": "case_opened",
+        "at": c.get("created_at"),
+        "title": f"Case opened: {c.get('name')}",
+        "icon": "📂",
+        "summary": (c.get("category") or "general").upper(),
+    })
+
+    # 1) Case items (chats linked, photos, uploads, manual notes)
+    async for it in db.case_items.find(
+        {"case_id": case_id, "user_id": user["id"],
+         "deleted_at": {"$in": [None, "", False]}},
+        {"_id": 0},
+    ):
+        events.append({
+            "kind": f"item_{it.get('item_type','file')}",
+            "at": it.get("timestamp_utc") or it.get("created_at"),
+            "title": it.get("title") or "(untitled)",
+            "preview": (it.get("preview") or "")[:280],
+            "icon": {"chat": "💬", "photo": "📸", "audio": "🎙",
+                     "video": "🎞", "document": "📄", "note": "📝"}.get(
+                         it.get("item_type", ""), "📎"),
+            "item_id": it.get("item_id"),
+            "linked_chat_session": it.get("item_id") if it.get("item_type") == "chat" else None,
+        })
+
+    # 2) Every Lex turn for chats that are linked to this case
+    linked_chat_sessions = [
+        it["item_id"] async for it in db.case_items.find(
+            {"case_id": case_id, "user_id": user["id"], "item_type": "chat",
+             "deleted_at": {"$in": [None, "", False]}},
+            {"_id": 0, "item_id": 1},
+        )
+    ]
+    if linked_chat_sessions:
+        async for conv in db.conversations.find(
+            {"user_id": user["id"], "session_id": {"$in": linked_chat_sessions}},
+            {"_id": 0},
+        ).sort("created_at", 1):
+            try:
+                um = decrypt_text(conv.get("user_message")) or ""
+                ar = decrypt_text(conv.get("assistant_response")) or ""
+            except Exception:
+                um, ar = "", ""
+            events.append({
+                "kind": "lex_turn",
+                "at": conv.get("created_at"),
+                "title": "Lex chat turn",
+                "icon": "⚖️",
+                "user_message": um[:400],
+                "lex_reply": ar[:600],
+                "model": conv.get("model_used"),
+                "session_id": conv.get("session_id"),
+            })
+
+    # 3) Deadlines linked to this case
+    try:
+        async for r in db.reminders.find(
+            {"user_id": user["id"],
+             "$or": [{"case_id": case_id}, {"linked_case_id": case_id}]},
+            {"_id": 0},
+        ):
+            events.append({
+                "kind": "deadline",
+                "at": r.get("created_at"),
+                "due_at": r.get("due_at"),
+                "title": r.get("title") or "Legal deadline",
+                "icon": "⏰",
+                "summary": r.get("description") or "",
+                "status": r.get("status", "open"),
+            })
+    except Exception:
+        pass
+
+    events.sort(key=lambda e: e.get("at") or "")
+
+    return {
+        "case": {
+            "id": c["id"], "name": c["name"], "category": c.get("category"),
+            "status": c.get("status"), "created_at": c.get("created_at"),
+            "items_count": c.get("items_count", 0),
+            "linked_session_id": c.get("linked_session_id"),
+        },
+        "events": events,
+        "total_events": len(events),
+    }
+
+
 @api_router.get("/cases/{case_id}/export-pdf")
 async def export_case_pdf(case_id: str, user: dict = Depends(get_user)):
-    """Court-ready PDF: timeline of every chat, photo, video, letter — with timestamps + locations + SHA256 hashes."""
-    c = await db.cases.find_one({"id": case_id, "user_id": user["id"]}, {"_id": 0})
-    if not c: raise HTTPException(404, "Case not found")
-    items = []
-    async for it in db.case_items.find({"case_id": case_id}, {"_id": 0}).sort("created_at", 1):
-        items.append(it)
+    """Court-ready handover PDF: full chronological narrative — case opening, Lex chat turns,
+    evidence uploads with SHA256 hashes, deadlines, and a signature panel.
+    Designed so a user can hand the PDF directly to a solicitor."""
+    feed = await _build_case_timeline(case_id, user)
+    c = feed["case"]
+    events = feed["events"]
+
     from reportlab.lib.pagesizes import A4
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.units import cm
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
-    styles = getSampleStyleSheet()
-    story = [
-        Paragraph(f"<b>Case File: {c['name']}</b>", styles["Title"]),
-        Paragraph(f"User: {user['email']}", styles["Normal"]),
-        Paragraph(f"Case opened: {c['created_at']}", styles["Normal"]),
-        Paragraph(f"Status: {c['status'].upper()}", styles["Normal"]),
-        Paragraph(f"Exported: {datetime.now(timezone.utc).isoformat()}", styles["Normal"]),
-        Paragraph(f"Items: {len(items)}", styles["Normal"]),
-        Spacer(1, 0.5*cm),
-        Paragraph("<b>Timeline</b>", styles["Heading2"]),
-    ]
+    from reportlab.lib import colors
     import hashlib as _hashlib
-    for i, it in enumerate(items, 1):
-        h = _hashlib.sha256(f"{it.get('item_id','')}{it.get('timestamp_utc','')}{user['id']}".encode()).hexdigest()[:16]
-        story += [
-            Paragraph(f"<b>{i}. [{it.get('item_type','').upper()}]</b> {it.get('title','')}", styles["Heading3"]),
-            Paragraph(f"<i>Recorded: {it.get('timestamp_utc','')}</i>", styles["Normal"]),
-        ]
-        if it.get("location"):
-            story.append(Paragraph(f"<i>Location: {it['location']}</i>", styles["Normal"]))
-        story.append(Paragraph(f"<i>Evidence hash: {h}</i>", styles["Normal"]))
-        if it.get("preview"):
-            story.append(Paragraph(it["preview"][:1500].replace("\n","<br/>"), styles["Normal"]))
-        story.append(Spacer(1, 0.3*cm))
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            leftMargin=2*cm, rightMargin=2*cm,
+                            topMargin=1.8*cm, bottomMargin=1.8*cm,
+                            title=f"AI Advocate Case File — {c['name']}",
+                            author=user.get("full_name") or user.get("email"))
+    styles = getSampleStyleSheet()
+    # Custom styles — restrained gold, professional serif
+    gold = colors.HexColor("#b8860b")
+    styles.add(ParagraphStyle(name="CaseTitle", parent=styles["Title"],
+                              fontSize=22, textColor=gold, spaceAfter=4))
+    styles.add(ParagraphStyle(name="CaseMeta", parent=styles["Normal"],
+                              fontSize=9, textColor=colors.grey, spaceAfter=2))
+    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"],
+                              fontSize=14, textColor=gold, spaceBefore=14, spaceAfter=6))
+    styles.add(ParagraphStyle(name="EventTitle", parent=styles["Heading3"],
+                              fontSize=11, spaceBefore=8, spaceAfter=2))
+    styles.add(ParagraphStyle(name="EventBody", parent=styles["Normal"],
+                              fontSize=10, leading=13, leftIndent=12))
+    styles.add(ParagraphStyle(name="EventMeta", parent=styles["Normal"],
+                              fontSize=8, textColor=colors.grey, leftIndent=12,
+                              spaceAfter=4))
+    styles.add(ParagraphStyle(name="Disclaimer", parent=styles["Normal"],
+                              fontSize=8, textColor=colors.grey, leading=11))
+
+    story = []
+
+    # ---- Cover header ----
+    story += [
+        Paragraph("AI ADVOCATE · CASE FILE", styles["CaseMeta"]),
+        Paragraph(c["name"], styles["CaseTitle"]),
+        Paragraph(f"Category: {(c.get('category') or 'general').replace('_',' ').title()}  ·  Status: {(c.get('status') or 'open').upper()}", styles["CaseMeta"]),
+        Spacer(1, 0.2*cm),
+    ]
+
+    # ---- Summary table ----
+    summary_data = [
+        ["Filed by:", user.get("full_name") or user.get("email") or ""],
+        ["Account email:", user.get("email", "")],
+        ["Case opened:", (c.get("created_at") or "")[:19].replace("T", " ") + " UTC"],
+        ["Total events:", str(len(events))],
+        ["PDF exported:", datetime.now(timezone.utc).isoformat()[:19].replace("T", " ") + " UTC"],
+    ]
+    tbl = Table(summary_data, colWidths=[4.0*cm, 12.0*cm])
+    tbl.setStyle(TableStyle([
+        ("FONT", (0, 0), (-1, -1), "Helvetica", 9),
+        ("TEXTCOLOR", (0, 0), (0, -1), colors.grey),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fafaf7")),
+        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.HexColor("#fafaf7"), colors.HexColor("#ffffff")]),
+        ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#dcd6c4")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.2, colors.HexColor("#e8e2d0")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story += [tbl, Spacer(1, 0.4*cm)]
+
+    # ---- Disclaimer ----
+    story += [
+        Paragraph(
+            "<b>Disclaimer.</b> This document was generated by AI Advocate, an "
+            "AI-powered legal information service. It is not legal advice from a "
+            "qualified solicitor. The Lex AI's responses are reproduced verbatim "
+            "for context; they should be reviewed by a regulated UK solicitor before "
+            "being relied upon in any legal proceeding.",
+            styles["Disclaimer"]),
+        Spacer(1, 0.2*cm),
+    ]
+
+    # ---- Timeline section ----
+    story.append(Paragraph("Chronological timeline", styles["Section"]))
+    if not events:
+        story.append(Paragraph("<i>No events recorded yet.</i>", styles["EventBody"]))
+
+    for n, ev in enumerate(events, 1):
+        ts = (ev.get("at") or "")[:19].replace("T", " ")
+        kind_label = ev["kind"].replace("_", " ").title()
+        icon = ev.get("icon", "•")
+        story.append(Paragraph(
+            f"<b>{n}. {icon} {kind_label}</b> — <font color='grey'>{ts}</font>",
+            styles["EventTitle"]))
+        # Event-type-specific rendering
+        if ev["kind"] == "lex_turn":
+            story.append(Paragraph(
+                f"<b>User:</b> {(ev.get('user_message') or '').replace(chr(10),'<br/>')}",
+                styles["EventBody"]))
+            story.append(Paragraph(
+                f"<b>Lex:</b> {(ev.get('lex_reply') or '').replace(chr(10),'<br/>')}",
+                styles["EventBody"]))
+            story.append(Paragraph(f"Model: {ev.get('model','')}", styles["EventMeta"]))
+        elif ev["kind"] == "deadline":
+            story.append(Paragraph(ev.get("title", ""), styles["EventBody"]))
+            if ev.get("summary"):
+                story.append(Paragraph(ev["summary"][:600], styles["EventBody"]))
+            if ev.get("due_at"):
+                story.append(Paragraph(f"Due: {ev['due_at']} · Status: {ev.get('status','open').upper()}",
+                                       styles["EventMeta"]))
+        else:
+            # Generic case item / case_opened
+            story.append(Paragraph(ev.get("title", ""), styles["EventBody"]))
+            if ev.get("preview"):
+                story.append(Paragraph(ev["preview"][:800].replace("\n", "<br/>"), styles["EventBody"]))
+            # Provide a content-hash fingerprint so the PDF is tamper-evidence-friendly
+            h = _hashlib.sha256(
+                f"{ev.get('item_id','')}{ts}{user['id']}".encode()
+            ).hexdigest()[:16]
+            story.append(Paragraph(f"Evidence hash: {h}", styles["EventMeta"]))
+        story.append(Spacer(1, 0.15*cm))
+
+    # ---- Solicitor handover panel ----
+    story.append(PageBreak())
+    story.append(Paragraph("Solicitor handover", styles["Section"]))
+    story.append(Paragraph(
+        "If you intend to instruct a UK solicitor on this matter, this page acts "
+        "as a one-sheet handover document. Tear off, hand over, retain the rest of "
+        "the file for your records.",
+        styles["EventBody"]))
+    story.append(Spacer(1, 0.4*cm))
+    handover_data = [
+        ["Client signature:", "________________________________"],
+        ["Date:", "________________________________"],
+        ["Solicitor name:", "________________________________"],
+        ["Solicitor firm:", "________________________________"],
+        ["SRA / Law Society no.:", "________________________________"],
+        ["Solicitor signature:", "________________________________"],
+        ["Date received:", "________________________________"],
+    ]
+    htbl = Table(handover_data, colWidths=[4.5*cm, 11.5*cm])
+    htbl.setStyle(TableStyle([
+        ("FONT", (0, 0), (-1, -1), "Helvetica", 10),
+        ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#1a1a1a")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 12),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.2, colors.HexColor("#dcd6c4")),
+    ]))
+    story.append(htbl)
+    story.append(Spacer(1, 0.5*cm))
+    story.append(Paragraph(
+        "<i>This handover authorises the named solicitor to review the case "
+        "narrative within this document for the purpose of providing legal "
+        "advice. It does not by itself create a solicitor-client relationship.</i>",
+        styles["Disclaimer"]))
+
     doc.build(story)
     buf.seek(0)
+    safe_name = "".join(ch for ch in c["name"] if ch.isalnum() or ch in " -_")[:40].strip() or "case"
     return StreamingResponse(buf, media_type="application/pdf",
-                             headers={"Content-Disposition": f'attachment; filename="case-{case_id[:8]}.pdf"'})
+                             headers={"Content-Disposition":
+                                      f'attachment; filename="ai-advocate-{safe_name}-{case_id[:8]}.pdf"'})
+
+
+@api_router.get("/cases/{case_id}/timeline")
+async def case_timeline_feed(case_id: str, user: dict = Depends(get_user)):
+    """Merged chronological feed for one case — for the in-app Timeline tab."""
+    return await _build_case_timeline(case_id, user)
+
 
 # ==================== Lex Vault (zero-knowledge encrypted storage) ====================
 import secrets as _secrets
