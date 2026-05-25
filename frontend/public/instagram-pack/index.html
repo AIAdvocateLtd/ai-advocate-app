@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>AI Advocate · Instagram Content Pack</title>
+<style>
+  :root { --bg:#0a0a0a; --card:#161410; --line:#2a2620; --gold:#f7c948; --gold-soft:#d4a93a; --text:#f5f0e6; --dim:#cfc7b8; --muted:#8a8478; }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:20px 16px 60px;max-width:1100px;margin:0 auto}
+  h1{font-family:'Cinzel',serif;color:var(--gold);font-size:26px;margin:0 0 4px;letter-spacing:.5px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:18px;line-height:1.5}
+  .actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;background:linear-gradient(135deg,var(--gold),var(--gold-soft));color:#000;border-radius:10px;font-weight:700;font-size:12.5px;text-decoration:none;letter-spacing:.02em;box-shadow:0 2px 12px rgba(247,201,72,.3)}
+  .btn.ghost{background:var(--card);color:var(--gold);border:1px solid var(--line);box-shadow:none}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;transition:transform .2s,border-color .2s}
+  .card:hover{transform:translateY(-2px);border-color:var(--gold-soft)}
+  .card img{display:block;width:100%;aspect-ratio:1/1;object-fit:cover}
+  .meta{padding:10px 12px}
+  .num{font-family:'Cinzel',serif;color:var(--gold);font-size:12px;letter-spacing:.08em;font-weight:700}
+  .slug{font-size:11px;color:var(--muted);margin-top:2px;word-break:break-all}
+  .save{display:block;text-align:center;padding:7px;background:var(--bg);color:var(--gold);font-size:11px;font-weight:700;text-decoration:none;border-top:1px solid var(--line)}
+  .save:active{background:var(--gold);color:#000}
+  .video-row{margin-top:36px;padding-top:24px;border-top:1px solid var(--line)}
+  .video-row h2{font-family:'Cinzel',serif;color:var(--gold);font-size:18px;margin:0 0 8px}
+  .empty{padding:30px;text-align:center;color:var(--muted);font-size:13px;background:var(--card);border:1px dashed var(--line);border-radius:14px}
+</style>
+</head>
+<body>
+<h1>📱 Instagram Pack</h1>
+<div class="sub">15 posts · 8 Reels scripts · ready to schedule.<br>Long-press any image → Save to Photos.</div>
+<div class="actions">
+  <a href="/instagram-pack/" class="btn ghost">📂 Browse files directly</a>
+  <a href="https://buffer.com" target="_blank" rel="noopener" class="btn ghost">📅 Open Buffer</a>
+  <a href="https://business.facebook.com" target="_blank" rel="noopener" class="btn ghost">📅 Meta Business Suite</a>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<div class="video-row">
+  <h2>🎬 Sora 2 video clips</h2>
+  <div id="videos"></div>
+</div>
+
+<script>
+  const posts = [
+    ["01_palm_of_hand","Brand intro · hero"],
+    ["02_uk_courthouse_silhouette","Brand · authority"],
+    ["03_gold_scales_macro","Brand · macro"],
+    ["04_landlord_keys","Pain · deposit"],
+    ["05_employment_envelope","Pain · dismissal"],
+    ["06_evidence_phone_photos","Pain · evidence"],
+    ["07_chat_conversation_screen","Feature · Lex"],
+    ["08_letter_drafting","Feature · letters"],
+    ["09_emergency_rights_panic","Feature · SOS"],
+    ["10_uk_languages_globe","Trust · 11 langs"],
+    ["11_vault_lock_biometric","Trust · privacy"],
+    ["12_solicitor_handover","Trust · network"],
+    ["13_phone_app_store_launch","Launch · countdown"],
+    ["14_clock_countdown","Launch · urgency"],
+    ["15_waitlist_gift_box","CTA · waitlist gift"],
+  ];
+  const grid = document.getElementById("grid");
+  posts.forEach((p, i) => {
+    const [slug, label] = p;
+    const num = String(i+1).padStart(2,'0');
+    grid.insertAdjacentHTML("beforeend", `
+      <div class="card">
+        <img src="/instagram-pack/images/${slug}.png" alt="${label}" loading="lazy">
+        <div class="meta">
+          <div class="num">POST ${num} · ${label}</div>
+          <div class="slug">${slug}.png</div>
+        </div>
+        <a class="save" href="/instagram-pack/images/${slug}.png" download="aiadvocate-ig-${num}-${slug}.png">⬇ Download</a>
+      </div>
+    `);
+  });
+
+  // Videos
+  const videos = ["hero_phone_reveal","scales_brand_loop"];
+  const vidBox = document.getElementById("videos");
+  let any = false;
+  Promise.all(videos.map(v => fetch(`/instagram-pack/videos/${v}.mp4`, {method:'HEAD'})
+    .then(r => r.ok ? v : null).catch(() => null)))
+  .then(found => {
+    found.filter(Boolean).forEach(v => {
+      any = true;
+      vidBox.insertAdjacentHTML("beforeend", `
+        <div class="card" style="max-width:340px;margin:0 auto 14px">
+          <video src="/instagram-pack/videos/${v}.mp4" controls playsinline style="width:100%;aspect-ratio:16/9;background:#000"></video>
+          <div class="meta">
+            <div class="num">REEL · ${v}</div>
+          </div>
+          <a class="save" href="/instagram-pack/videos/${v}.mp4" download="aiadvocate-reel-${v}.mp4">⬇ Download</a>
+        </div>
+      `);
+    });
+    if (!any) {
+      vidBox.innerHTML = `<div class="empty">⏳ Sora 2 video clips not yet generated.<br>Top up your Emergent LLM Key and re-run <code>/app/scripts/gen_instagram_videos.py</code> — they'll appear here automatically.</div>`;
+    }
+  });
+</script>
+</body>
+</html>
