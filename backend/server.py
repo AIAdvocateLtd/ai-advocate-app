@@ -2907,7 +2907,9 @@ async def create_checkout(data: CheckoutRequest, request: Request, user: dict = 
     if not price_id:
         raise HTTPException(400, f"Unknown plan '{plan}'. Use 'plus', 'pro', or 'yearly'.")
     try:
-        origin = request.headers.get("origin") or APP_PUBLIC_URL
+        # Prefer canonical FRONTEND_URL so users always return to the live app,
+        # not whatever stale preview tab they had open. Falls back to origin header.
+        origin = (os.environ.get("FRONTEND_URL") or request.headers.get("origin") or APP_PUBLIC_URL).rstrip("/")
         session = stripe.checkout.Session.create(
             mode="subscription",
             payment_method_types=["card"],
@@ -2930,7 +2932,7 @@ async def billing_portal(request: Request, user: dict = Depends(get_user)):
     cust_id = user.get("stripe_customer_id")
     if not cust_id:
         raise HTTPException(400, "No active subscription to manage.")
-    origin = request.headers.get("origin") or APP_PUBLIC_URL
+    origin = (os.environ.get("FRONTEND_URL") or request.headers.get("origin") or APP_PUBLIC_URL).rstrip("/")
     try:
         sess = stripe.billing_portal.Session.create(customer=cust_id, return_url=f"{origin}/")
         return {"portal_url": sess.url}
@@ -3026,7 +3028,10 @@ async def topup_checkout(data: TopupCheckoutPayload, request: Request, user: dic
     if not stripe.api_key:
         raise HTTPException(503, "Stripe not configured.")
     try:
-        origin = request.headers.get("origin") or APP_PUBLIC_URL
+        # Prefer the canonical FRONTEND_URL from .env so the user always returns
+        # to the live app — not whatever stale preview tab they happened to be
+        # on when they tapped Buy. Falls back to origin header, then APP_PUBLIC_URL.
+        origin = (os.environ.get("FRONTEND_URL") or request.headers.get("origin") or APP_PUBLIC_URL).rstrip("/")
         session = stripe.checkout.Session.create(
             mode="payment",                                     # one-time, NOT subscription
             payment_method_types=["card"],
@@ -3108,8 +3113,19 @@ async def stripe_webhook(request: Request):
         logger.exception("Webhook signature verify failed")
         raise HTTPException(400, f"Webhook verification failed: {str(e)}")
 
-    etype = event.get("type") if isinstance(event, dict) else event["type"]
-    obj = (event.get("data") if isinstance(event, dict) else event["data"]).get("object", {})
+    # event may be a dict (un-verified path) OR a stripe.Event (verified path).
+    # stripe.Event behaves like dict-of-StripeObjects via __getitem__ but does NOT
+    # support .get() on nested StripeObjects. Use str() → json round-trip to get
+    # a plain nested-dict we can safely .get() through.
+    if not isinstance(event, dict):
+        import json as _json
+        try:
+            event = _json.loads(str(event))
+        except Exception:
+            logger.exception("Could not normalize Stripe event to dict — falling back to attribute access")
+            event = {"type": getattr(event, "type", None), "data": {"object": {}}}
+    etype = event.get("type")
+    obj = (event.get("data") or {}).get("object") or {}
     now_iso = datetime.now(timezone.utc).isoformat()
 
     if etype == "checkout.session.completed":
