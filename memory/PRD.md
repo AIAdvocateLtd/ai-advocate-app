@@ -10,6 +10,10 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 2k — Iter 24 · Context-aware explainer + mailto suggestion flow)
+- 🐛 **Files-vs-Cases explainer modal**: previously showed both sections regardless of where the user tapped the (?) icon, AND the explainer was hidden behind the underlying modal because of an inline `zIndex: 200` that overrode the `.modal-bg` z-index 9999. Fix: explainer now takes a `focus` prop (`"files"` or `"cases"`), renders only the section relevant to where the user tapped the (?), has a compact "vs."-style comparison line for the other concept, and an inner scroll container so the "Got it" button is always visible on any screen. z-index raised to 20000.
+- ✉️ **"Missing a legal area?" suggestion modal** previously alerted "Could not send. Try again later." on any backend hiccup. Fix: now does best-effort backend POST + opens user's native email app (mailto:) pre-filled to `support@aiadvocate.co.uk` with subject "AI Advocate — Missing legal area suggestion". Success state explicitly tells the user to hit send in their email app.
+
 ### 2026-02 (Session 2k — Iter 23 · Per-case Timeline + Solicitor-handover PDF)
 - 🆕 **New endpoint `GET /api/cases/{case_id}/timeline`** — merges 4 sources into one chronological feed: `case_opened` anchor, `case_items` (chats/photos/uploads/notes), every Lex chat `turn` from linked sessions (decrypted), and `deadlines`. Server-side sort, ready to render.
 - 🎨 **In-app Timeline tab** — new tab switcher inside the case detail view ("📂 Files & uploads" vs "🕘 Timeline"). Timeline displays a vertical **gold thread** with icon nodes per event type, alternating layout, You:/Lex: formatting on turns, highlighted "case opened" anchor card.

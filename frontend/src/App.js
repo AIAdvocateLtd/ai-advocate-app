@@ -3654,68 +3654,76 @@ function RecordModal({ lang, country, onClose }) {
 
 // ---------- "What's the difference?" explainer ----------
 // Shown when the user taps the small (?) icon next to "My Files" / "Case Files".
-// Same body content from both — the wording is calibrated to remove the most
-// common confusion: "I uploaded a file, why isn't it in my case?" (answer:
-// files are storage, cases are matters — they link together via case-items).
-function FilesVsCasesExplainer({ onClose }) {
+// Context-aware: `focus="files"` highlights My Legal Files; `focus="cases"`
+// highlights Case Files. The other section is shown as a compact one-liner so
+// the modal fits on a phone screen without scrolling past the close button.
+function FilesVsCasesExplainer({ onClose, focus = "files" }) {
+  const filesBlock = (
+    <div style={{
+      background: "var(--bg-card)", border: "1px solid var(--gold-deep)",
+      borderRadius: 12, padding: 14, marginBottom: 10,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <img src="/icons/files.png" alt="" style={{ width: 28, height: 28 }} />
+        <strong style={{ color: "var(--gold)", fontSize: 14, fontFamily: "Cinzel, serif" }}>My Legal Files</strong>
+      </div>
+      <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: 0, lineHeight: 1.5 }}>
+        Your <strong>library of documents</strong> — letters Lex has drafted, contracts you've uploaded for review,
+        evidence photos & videos, audio recordings, and timeline snapshots.
+        Think of it like your <em>filing cabinet</em>: everything in one searchable list, regardless of which case it belongs to.
+      </p>
+    </div>
+  );
+
+  const casesBlock = (
+    <div style={{
+      background: "var(--bg-card)", border: "1px solid var(--gold-deep)",
+      borderRadius: 12, padding: 14, marginBottom: 10,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <img src="/icons/files.png" alt="" style={{ width: 28, height: 28, filter: "hue-rotate(15deg)" }} />
+        <strong style={{ color: "var(--gold)", fontSize: 14, fontFamily: "Cinzel, serif" }}>Case Files</strong>
+      </div>
+      <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: 0, lineHeight: 1.5 }}>
+        A <strong>named matter</strong> — like "v. Acme Ltd · Unfair Dismissal" or "Deposit Return — 12 Elm Road".
+        Each Case File is a <em>folder</em> that bundles chats, evidence, letters, deadlines and notes
+        for ONE specific legal situation.
+      </p>
+    </div>
+  );
+
+  const isCases = focus === "cases";
+  const title = isCases ? "What are Case Files?" : "What are My Legal Files?";
+  const compareLine = isCases
+    ? <>vs. <strong style={{ color: "var(--gold-soft)" }}>My Legal Files</strong> — your full library of documents across <em>all</em> cases.</>
+    : <>vs. <strong style={{ color: "var(--gold-soft)" }}>Case Files</strong> — named matters (folders) that group documents, chats and deadlines for one situation.</>;
+
   return (
-    <div className="modal-bg" data-testid="files-vs-cases-explainer" style={{ zIndex: 200 }}>
-      <div className="modal-card" style={{ padding: 22, maxWidth: 480 }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="brand-font gold" style={{ fontSize: 19 }}>What's the difference?</h2>
+    <div className="modal-bg" data-testid="files-vs-cases-explainer" style={{ zIndex: 20000 }}>
+      <div className="modal-card" style={{ padding: 22, maxWidth: 460, maxHeight: "85vh", display: "flex", flexDirection: "column" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14, flexShrink: 0 }}>
+          <h2 className="brand-font gold" style={{ fontSize: 18 }}>{title}</h2>
           <button onClick={onClose} data-testid="explainer-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
         </div>
 
-        <div style={{
-          background: "var(--bg-card)", border: "1px solid var(--gold-deep)",
-          borderRadius: 12, padding: 14, marginBottom: 10,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-            <img src="/icons/files.png" alt="" style={{ width: 28, height: 28 }} />
-            <strong style={{ color: "var(--gold)", fontSize: 14, fontFamily: "Cinzel, serif" }}>My Legal Files</strong>
+        <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
+          {isCases ? casesBlock : filesBlock}
+
+          <div style={{
+            background: "rgba(247,201,72,0.06)", border: "1px dashed var(--gold-deep)",
+            borderRadius: 10, padding: 12, marginBottom: 6,
+          }}>
+            <p style={{ fontSize: 12, color: "var(--text-dim)", margin: 0, lineHeight: 1.5 }}>
+              {compareLine}
+            </p>
           </div>
-          <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: 0, lineHeight: 1.5 }}>
-            Your <strong>library of documents</strong> — letters Lex has drafted, contracts you've uploaded for review,
-            evidence photos & videos, audio recordings, and timeline snapshots.
-            Think of it like your <em>filing cabinet</em>: everything in one searchable list, regardless of which case it belongs to.
-          </p>
-        </div>
 
-        <div style={{
-          background: "var(--bg-card)", border: "1px solid var(--gold-deep)",
-          borderRadius: 12, padding: 14, marginBottom: 14,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-            <img src="/icons/files.png" alt="" style={{ width: 28, height: 28, filter: "hue-rotate(15deg)" }} />
-            <strong style={{ color: "var(--gold)", fontSize: 14, fontFamily: "Cinzel, serif" }}>Case Files</strong>
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.55, marginTop: 10 }}>
+            <strong style={{ color: "var(--gold-soft)" }}>How they connect:</strong> the same document can live in My Legal Files AND be attached to a Case File. Editing it in one place updates both.
           </div>
-          <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: 0, lineHeight: 1.5 }}>
-            A <strong>named matter</strong> — like "v. Acme Ltd · Unfair Dismissal" or "Deposit Return — 12 Elm Road".
-            Each Case File is a <em>folder</em> that bundles chats, evidence, letters, deadlines and notes
-            for ONE specific legal situation.
-          </p>
         </div>
 
-        <div style={{
-          background: "rgba(247,201,72,0.06)", border: "1px dashed var(--gold-deep)",
-          borderRadius: 10, padding: 12, marginBottom: 14,
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 800, color: "var(--gold)", letterSpacing: "0.06em", marginBottom: 6 }}>
-            💡 IN ONE SENTENCE
-          </div>
-          <p style={{ fontSize: 12.5, color: "var(--text)", margin: 0, lineHeight: 1.5 }}>
-            <strong>My Legal Files</strong> is your stuff. <strong>Case Files</strong> are the matters
-            your stuff belongs to.
-          </p>
-        </div>
-
-        <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.55 }}>
-          <strong style={{ color: "var(--gold-soft)" }}>How they connect:</strong> the same document can
-          be attached to a case — for example, an "Acme Ltd grievance" letter lives in My Legal Files,
-          AND is also attached to your "v. Acme Ltd" Case File. Editing it in one place updates both.
-        </div>
-
-        <button onClick={onClose} className="btn-gold w-full" data-testid="explainer-got-it" style={{ marginTop: 14 }}>
+        <button onClick={onClose} className="btn-gold w-full" data-testid="explainer-got-it" style={{ marginTop: 14, flexShrink: 0 }}>
           Got it
         </button>
       </div>
@@ -3823,7 +3831,7 @@ function FilesModal({ lang, onClose }) {
           </div>
         )}
       </div>
-      {showExplain && <FilesVsCasesExplainer onClose={() => setShowExplain(false)} />}
+      {showExplain && <FilesVsCasesExplainer focus="files" onClose={() => setShowExplain(false)} />}
     </div>
   );
 }
@@ -4174,7 +4182,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
           </div>
         )}
       </div>
-      {showExplain && <FilesVsCasesExplainer onClose={() => setShowExplain(false)} />}
+      {showExplain && <FilesVsCasesExplainer focus="cases" onClose={() => setShowExplain(false)} />}
     </div>
   );
 }
@@ -7900,11 +7908,24 @@ function SuggestFeatureModal({ lang, onClose }) {
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const submit = async () => {
-    if (text.trim().length < 5) return;
+    const body = text.trim();
+    if (body.length < 5) return;
     setBusy(true);
-    try { await api.post("/feedback/suggest", { text: text.trim() }); setSent(true); }
-    catch { alert("Could not send. Try again later."); }
-    finally { setBusy(false); }
+    // Best-effort: save to backend so the team has a record even if email never opens.
+    // We deliberately don't fail the user-flow if this fails — they'll still get a mailto.
+    try { await api.post("/feedback/suggest", { text: body }); } catch { /* non-fatal */ }
+    // Primary path: open the user's email client pre-filled to support@aiadvocate.co.uk.
+    // This gives them a copy in their Sent folder and means we don't have to run an
+    // inbound mailbox for early reviewers.
+    try {
+      const subject = encodeURIComponent("AI Advocate — Missing legal area suggestion");
+      const mailBody = encodeURIComponent(
+        `${body}\n\n— Sent from AI Advocate (suggestion form)`
+      );
+      window.location.href = `mailto:support@aiadvocate.co.uk?subject=${subject}&body=${mailBody}`;
+    } catch { /* ignore — we still show success below */ }
+    setSent(true);
+    setBusy(false);
   };
   return (
     <div className="modal-bg" data-testid="suggest-modal">
@@ -7916,13 +7937,19 @@ function SuggestFeatureModal({ lang, onClose }) {
         {sent ? (
           <div style={{ textAlign: "center", padding: 30 }}>
             <Check size={48} style={{ color: "#86efac", margin: "0 auto 14px", display: "block" }} />
-            <div style={{ color: "var(--text)", fontSize: 14 }}>{t(lang, "suggestThanks")}</div>
+            <div style={{ color: "var(--text)", fontSize: 14, marginBottom: 8 }}>{t(lang, "suggestThanks")}</div>
+            <div style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.5 }}>
+              We've opened your email app addressed to <strong style={{ color: "var(--gold-soft)" }}>support@aiadvocate.co.uk</strong> — just hit send to share with the team.
+            </div>
             <button className="btn-ghost w-full" onClick={onClose} style={{ marginTop: 18 }}>Close</button>
           </div>
         ) : (
           <>
             <textarea className="input" rows={5} value={text} onChange={(e) => setText(e.target.value)}
-                      placeholder={t(lang, "suggestPlaceholder")} data-testid="suggest-input" style={{ marginBottom: 12 }} />
+                      placeholder={t(lang, "suggestPlaceholder")} data-testid="suggest-input" style={{ marginBottom: 8 }} />
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 12, lineHeight: 1.4 }}>
+              We'll open your email app to send this to <strong style={{ color: "var(--gold-soft)" }}>support@aiadvocate.co.uk</strong>.
+            </div>
             <button className="btn-gold w-full" onClick={submit} disabled={busy || text.trim().length < 5} data-testid="suggest-submit">
               {busy ? <span className="spinner" /> : t(lang, "suggestSubmit")}
             </button>
