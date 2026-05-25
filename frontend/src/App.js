@@ -9041,6 +9041,35 @@ function App() {
   // Splash plays once per browser-tab session (not on every screen change)
   const [showSplash, setShowSplash] = useState(() => !sessionStorage.getItem("aa_splash_seen"));
 
+  // 🌐 Marketing-site routing — these public paths bypass the React app entirely
+  // and serve static HTML. We do this in a useEffect (not at render time) so the
+  // current path is checked AFTER initial mount but BEFORE any auth bootstrap.
+  // - `/`             → marketing landing for unauth, app for authed
+  // - `/welcome`      → always marketing landing (so "View landing page" link from
+  //                     the app works for logged-in users too)
+  // - `/for-firms`    → static B2B landing (founding-firm-pitch.html)
+  // - `/sign-in` `/login` → force the auth flow regardless of stored token
+  // The "always-static" paths are handled here on mount.
+  useEffect(() => {
+    const p = (window.location.pathname || "/").replace(/\/+$/, "") || "/";
+    if (p === "/welcome") { window.location.replace("/welcome.html"); return; }
+    if (p === "/for-firms" || p === "/for-law-firms") { window.location.replace("/founding-firm-pitch.html"); return; }
+    // Signal-clear: if user explicitly navigated to /app or /signin, mark a
+    // session flag so they never get bounced back to marketing on subsequent
+    // re-renders (e.g. after a login redirect).
+    if (p === "/app" || p === "/sign-in" || p === "/signin" || p === "/login" || p === "/signup") {
+      sessionStorage.setItem("aa_skip_marketing", "1");
+    }
+    // Unauthenticated visitors at root → marketing landing. We skip this for any
+    // sub-path (so /signup, /login, /engage/x, etc. still work) and for users
+    // who already have a token (they get the app dashboard as before).
+    const hasToken = !!localStorage.getItem("aa_token");
+    if (p === "/" && !hasToken && !sessionStorage.getItem("aa_skip_marketing")) {
+      window.location.replace("/welcome.html");
+      return;
+    }
+  }, []);
+
   useEffect(() => { localStorage.setItem("aa_lang", lang); document.documentElement.dir = RTL_LANGS.includes(lang) ? "rtl" : "ltr"; }, [lang]);
   useEffect(() => { localStorage.setItem("aa_country", country); }, [country]);
 

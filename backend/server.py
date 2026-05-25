@@ -230,6 +230,14 @@ class FeatureSuggestion(BaseModel):
     category_hint: Optional[str] = ""
     user_email_optional: Optional[str] = ""
 
+
+class WaitlistSignup(BaseModel):
+    email: EmailStr
+    full_name: Optional[str] = ""
+    country: Optional[str] = "GB"
+    source: Optional[str] = ""             # 'instagram' | 'press' | 'direct' | 'firms' etc.
+    interests: List[str] = []              # e.g. ["renter", "employee", "small business"]
+    device_id: Optional[str] = ""
 class FirmPortalSignup(BaseModel):
     firm_name: str
     contact_name: str
@@ -826,6 +834,79 @@ async def _enforce_device_signup_limit(device_id: Optional[str], request: Reques
     if count >= 2:
         logger.warning(f"Device-fingerprint signup limit hit: device={device_id[:12]}... count={count}")
         raise HTTPException(429, "Too many signups from this device. Please try again tomorrow or use a different device.")
+
+
+# ==================== Pre-launch Waitlist ====================
+# Captures emails from the marketing landing page (`aiadvocate.co.uk/`) before
+# the app is publicly available. Stored separately from `users` because these
+# people haven't actually signed up yet — they just want to be told when launch
+# happens. On launch day, owner can export the list and send a single email
+# with a "Welcome — here's your free Day Pass" promo code.
+@api_router.post("/waitlist/join")
+async def waitlist_join(data: WaitlistSignup, request: Request):
+    if _is_disposable_email(data.email):
+        raise HTTPException(400, "Please use a real email address — disposable / temporary email providers are not accepted.")
+    # Don't double-add — idempotent join. If the email is already on the list,
+    # we just acknowledge with the existing record so the UI shows success either way.
+    existing = await db.waitlist.find_one({"email": data.email}, {"_id": 0})
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if existing:
+        return {"ok": True, "already_registered": True, "joined_at": existing.get("created_at")}
+    doc = {
+        "id": str(uuid.uuid4()),
+        "email": data.email,
+        "full_name": (data.full_name or "").strip()[:120],
+        "country": data.country or "GB",
+        "source": (data.source or "direct")[:60],
+        "interests": [i.strip()[:40] for i in (data.interests or [])][:8],
+        "device_id": (data.device_id or "")[:64],
+        "ip": (request.client.host if request.client else None),
+        "user_agent": (request.headers.get("user-agent") or "")[:200],
+        "created_at": now_iso,
+        "notified_at": None,                                                # set when launch email goes out
+    }
+    await db.waitlist.insert_one(doc)
+    logger.info(f"Waitlist join: {data.email} (source={data.source})")
+    return {"ok": True, "already_registered": False, "joined_at": now_iso}
+
+
+@api_router.get("/admin/waitlist")
+async def admin_waitlist_list(user: dict = Depends(get_user)):
+    """Owner-only — list everyone on the launch waitlist (sorted newest first)."""
+    admin_emails = [e.strip().lower() for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",") if e.strip()]
+    if user.get("email", "").lower() not in admin_emails:
+        raise HTTPException(403, "Owner only")
+    rows = await db.waitlist.find({}, {"_id": 0, "ip": 0, "user_agent": 0, "device_id": 0}).sort("created_at", -1).to_list(2000)
+    by_source: dict = {}
+    by_country: dict = {}
+    for r in rows:
+        by_source[r.get("source") or "direct"] = by_source.get(r.get("source") or "direct", 0) + 1
+        by_country[r.get("country") or "GB"] = by_country.get(r.get("country") or "GB", 0) + 1
+    return {"total": len(rows), "by_source": by_source, "by_country": by_country, "rows": rows}
+
+
+@api_router.get("/admin/waitlist.csv")
+async def admin_waitlist_csv(user: dict = Depends(get_user)):
+    """Owner-only — CSV export of the launch waitlist for one-off email blasts."""
+    admin_emails = [e.strip().lower() for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",") if e.strip()]
+    if user.get("email", "").lower() not in admin_emails:
+        raise HTTPException(403, "Owner only")
+    import csv as _csv, io as _io
+    from fastapi.responses import Response as _Response
+    buf = _io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(["email", "full_name", "country", "source", "interests", "joined_at"])
+    async for r in db.waitlist.find({}, {"_id": 0}).sort("created_at", -1):
+        w.writerow([
+            r.get("email", ""),
+            r.get("full_name", ""),
+            r.get("country", ""),
+            r.get("source", ""),
+            "|".join(r.get("interests", []) or []),
+            r.get("created_at", ""),
+        ])
+    return _Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": 'attachment; filename="aiadvocate-waitlist.csv"'})
 
 
 # ==================== Auth Routes ====================
