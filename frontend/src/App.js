@@ -1307,7 +1307,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
       }).catch(() => {});
       // TTS playback
       try {
-        const r = await api.post("/voice/tts", { text: data.response.slice(0, 1500), voice: "onyx", language: data.reply_language }, { responseType: "blob" });
+        const r = await api.post("/voice/tts", { text: data.response.slice(0, 1500), voice: "fable", language: data.reply_language }, { responseType: "blob" });
         const url = URL.createObjectURL(r.data);
         if (audioRef.current) { audioRef.current.src = url; audioRef.current.play().catch(() => {}); }
       } catch {}

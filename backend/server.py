@@ -143,7 +143,7 @@ class ChatMessage(BaseModel):
 
 class TTSRequest(BaseModel):
     text: str
-    voice: str = "onyx"
+    voice: str = "fable"  # Warm British male — best UK fit for AI Advocate. Owner-picked default 2026-02.
     language: Optional[str] = None  # optional — passed for voice consistency tracking
 
 class LegalLetterRequest(BaseModel):
