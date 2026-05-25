@@ -406,7 +406,19 @@ function AuthScreen({ lang, country, onAuth }) {
     e.preventDefault(); setBusy(true); setErr("");
     try {
       const path = mode === "signup" ? "/auth/signup" : "/auth/login";
-      const body = mode === "signup" ? { email, password, full_name: name, language: lang, country } : { email, password };
+      // Stable per-device fingerprint — prevents trivial farming of free accounts
+      // (the backend caps signups at 2 per device per 24h).
+      let deviceId = "";
+      try {
+        deviceId = localStorage.getItem("aa_device_id") || "";
+        if (!deviceId) {
+          deviceId = (crypto.randomUUID && crypto.randomUUID()) || Math.random().toString(36).slice(2) + Date.now().toString(36);
+          localStorage.setItem("aa_device_id", deviceId);
+        }
+      } catch { /* localStorage blocked — pass empty, backend is permissive */ }
+      const body = mode === "signup"
+        ? { email, password, full_name: name, language: lang, country, device_id: deviceId }
+        : { email, password };
       const { data } = await api.post(path, body);
       onAuth(data);
     } catch (e) { setErr(e?.response?.data?.detail || "Auth failed"); }
@@ -6272,6 +6284,84 @@ function CompGiftBanner({ user, lang }) {
   );
 }
 
+// 🎁 Winback Day Pass banner — fires for free users who've hit the chat cap AND
+// dismissed the upgrade modal twice. Lifetime once per account (backend enforces).
+// Goal: turn a frustrated user into a paying user. Pampered users don't convert.
+function WinbackGiftBanner({ user, lang, refreshUser }) {
+  const [eligible, setEligible] = useState(false);
+  const [claiming, setClaiming] = useState(false);
+  const [dismissed, setDismissed] = useState(() => sessionStorage.getItem("aa_winback_dismissed") === "1");
+
+  useEffect(() => {
+    // Only check for free-tier users — saves a network call for everyone else.
+    if (!user || user.tier !== "free" || dismissed) return;
+    if (user.winback_gifted_at) return;  // already claimed once — never refire
+    api.get("/winback/eligibility").then(r => {
+      if (r.data?.eligible) setEligible(true);
+    }).catch(() => {});
+  }, [user, dismissed]);
+
+  if (!eligible || dismissed) return null;
+
+  const claim = async () => {
+    setClaiming(true);
+    try {
+      await api.post("/winback/claim");
+      sessionStorage.setItem("aa_winback_dismissed", "1");
+      setDismissed(true);
+      try { refreshUser && refreshUser(); } catch {}
+    } catch (e) {
+      alert(e?.response?.data?.detail || "Could not claim the gift. Please try again.");
+    } finally { setClaiming(false); }
+  };
+
+  const dismiss = () => {
+    sessionStorage.setItem("aa_winback_dismissed", "1");
+    setDismissed(true);
+  };
+
+  return (
+    <div data-testid="winback-gift-banner" style={{
+      position: "relative",
+      background: "linear-gradient(135deg, rgba(247,201,72,0.35), rgba(247,201,72,0.10) 60%, rgba(34,197,94,0.15))",
+      border: "2px solid var(--gold)",
+      borderRadius: 14, padding: "14px 16px", marginBottom: 14,
+      boxShadow: "0 0 30px rgba(247,201,72,0.35)",
+      overflow: "hidden",
+    }}>
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
+        background: "radial-gradient(ellipse at top right, rgba(255,255,255,0.18), transparent 60%)",
+      }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative" }}>
+        <div style={{ fontSize: 30, lineHeight: 1, flexShrink: 0 }}>🎁</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: "var(--gold)", letterSpacing: "0.05em", marginBottom: 2 }}>
+            ON US — 24h DAY PASS, FREE
+          </div>
+          <div style={{ fontSize: 12.5, color: "#fff", lineHeight: 1.45 }}>
+            Looks like you've been hitting the free limit. Here's a free 24h Plus pass — no card, no catch.
+          </div>
+          <div style={{ fontSize: 10.5, color: "var(--gold-soft)", marginTop: 4, opacity: 0.85 }}>
+            ✓ Unlimited Lex chats · ✓ 5 evidence photos · ✓ Voice mode
+          </div>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <button data-testid="winback-claim-btn" onClick={claim} disabled={claiming}
+          className="btn-gold" style={{ flex: 1, padding: "8px 12px", fontSize: 13 }}>
+          {claiming ? <span className="spinner" /> : "Claim free Day Pass"}
+        </button>
+        <button data-testid="winback-dismiss-btn" onClick={dismiss}
+          style={{ background: "transparent", border: "1px solid var(--gold-deep)",
+                   color: "var(--gold)", borderRadius: 10, padding: "5px 12px",
+                   fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+          No thanks
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refreshUser }) {
   const [modal, setModal] = useState(null); // {type, title, category}
   const [showLang, setShowLang] = useState(false);
@@ -6536,6 +6626,9 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {/* 🎁 Comp-Pro gift banner — fires once for users who've been comped by the owner.
           Tied to the specific `comp_pro_until` timestamp so re-comping shows it again. */}
       <CompGiftBanner user={user} lang={lang} />
+      {/* 🎁 Winback Day Pass — fires once-per-account for free users who've hit the
+          chat cap AND dismissed the upgrade modal twice. Goal: rescue a frustrated user. */}
+      <WinbackGiftBanner user={user} lang={lang} refreshUser={refreshUser} />
       {tier === "trial_pro" && (
         <div className="trial-banner" data-testid="trial-banner" style={{ marginBottom: 14 }}>
           {t(lang, "trialDays", { n: user.trial_days_remaining })}
@@ -6669,7 +6762,12 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {showEmergency && <EmergencyModal lang={lang} country={country} user={user} onClose={() => setShowEmergency(false)} />}
       {voiceMode && <VoiceModeOverlay lang={lang} country={country} category="ask_lex" initialText={voiceMode.initialText} onClose={() => setVoiceMode(null)} />}
       {showLang && <LanguagePicker initial={lang} lang={lang} onConfirm={(l) => { setLang(l); setShowLang(false); api.patch("/auth/preferences", { language: l }).catch(() => {}); }} />}
-      {showSub && <SubscribeModal lang={lang} user={user} presetPlan={subPreset} onClose={() => setShowSub(false)} onActivated={(u) => { refreshUser(u); setShowSub(false); }} />}
+      {showSub && <SubscribeModal lang={lang} user={user} presetPlan={subPreset} onClose={() => {
+        // Tally the dismissal so the winback Day Pass can fire after the 2nd one.
+        // Fire-and-forget — the backend just $incs a counter.
+        api.post("/winback/dismiss-upgrade").catch(() => {});
+        setShowSub(false);
+      }} onActivated={(u) => { refreshUser(u); setShowSub(false); }} />}
       {showSettings && <SettingsModal lang={lang} country={country} user={user} onClose={() => setShowSettings(false)} onUpdate={(u) => refreshUser(u)} setLang={setLang} setCountry={setCountry} />}
       {showAdvertise && <AdvertiseModal lang={lang} onClose={() => setShowAdvertise(false)} />}
       {reviewPrompt && <ReviewPrompt lang={lang} daysLeft={reviewPrompt.daysLeft} onClose={() => setReviewPrompt(null)} />}
@@ -6833,7 +6931,7 @@ function CostEstimateModal({ lang, country, onClose }) {
 
 // ---------- Legal Aid Finder ----------
 function LegalAidModal({ lang, country, onClose }) {
-  const [form, setForm] = useState({ monthly_income_gbp: "", savings_gbp: "", household_size: 1, case_category: "" });
+  const [form, setForm] = useState({ monthly_income_gbp: "", savings_gbp: "", household_size: "", case_category: "" });
   const [busy, setBusy] = useState(false);
   const [r, setR] = useState(null);
   const run = async () => {

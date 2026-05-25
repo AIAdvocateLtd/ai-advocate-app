@@ -10,6 +10,24 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Session 2k — Iter 21 · Abuse defenses + Winback Day Pass + SSE chat + Voice + UX fixes)
+- 🐛 **CRITICAL Stripe webhook fix**: signed `checkout.session.completed` events were 500ing because `event["data"]` returned a `StripeObject` (no `.get()`). Now normalized via `json.loads(str(event))`. Resends from Stripe Dashboard will now succeed.
+- 🐛 **Stripe redirect URL fix**: replaced fragile `request.headers["origin"]` with canonical `FRONTEND_URL` env var across all checkout flows (subs, top-ups, firm subs). Previously triggered 403 Forbidden when users had stale preview-domain tabs open.
+- 🎙️ **Lex voice changed to Fable** (warm British male) across backend default and all frontend TTS calls. Voice sample comparison page kept at `/voice-samples/` for future reference.
+- ⚡ **SSE streaming for Lex Chat** (`POST /api/lex/chat/stream`): emits `meta` event with citations + session_id INSTANTLY (~0.5s), then streams LiteLLM chunks, then `done` event with `connected_session_id` + full text. Frontend uses fetch + ReadableStream + smart client-side typewriter that handles either real token streaming OR proxy buffering (current Emergent proxy behaviour). Net UX: citations visible during "thinking", not just after the reply lands. Auto-fallback to `/lex/chat` if stream fails.
+- 🛡️ **Anti-abuse defenses** (cheap, no-friction):
+  - **Disposable email blocklist** (28 most-common throw-away domains rejected at signup with helpful error).
+  - **Device-fingerprint signup cap**: max 2 signups per `device_id` per 24h → 429. Stable per-device UUID stored in `localStorage["aa_device_id"]`.
+  - All other tightening (phone verify, account-age throttling, IP rate limiting) deliberately deferred — premature for pre-launch.
+- 🎁 **Winback Day Pass** (lifetime once per account):
+  - Fires when a free user has hit the daily chat cap (≥5) AND dismissed the upgrade modal ≥2 times.
+  - `GET /api/winback/eligibility`, `POST /api/winback/dismiss-upgrade`, `POST /api/winback/claim`.
+  - Claim activates a real Day Pass `topup_active` payload (24h Plus features) with `price_gbp:0` and `source:"winback"`. Marked `winback_gifted_at` so it can NEVER refire — even on reinstall.
+  - `WinbackGiftBanner` UI on dashboard with gold gradient + 🎁 emoji + "Claim free Day Pass" CTA. Session-dismissible.
+- 🐛 **Household size placeholder bug**: Legal Aid Finder no longer pre-fills `1` in the household-size input. Empty state → placeholder visible. Submit still defaults to 1 if blank.
+- **Pytest regression suite** at `/app/backend/tests/test_winback_and_abuse.py` (6 tests, all passing).
+- **All Phase A Stripe Top-up Price IDs configured** (Day £4.99, Letter £9.99, Weekend £14.99, Crisis £29.99). User completed one £14.99 purchase end-to-end before the webhook bug was found → manually activated their Day Pass in DB; webhook now fixed for all future purchases.
+
 ### 2026-02 (Session 2k — Consumer Top-up Packs · Phase A · Stripe Web)
 - **One-off Stripe Checkout flow** for 4 consumer packs (no subscription, no auto-renew):
   - Day Pass — £4.99 · grants Plus features for 24h.

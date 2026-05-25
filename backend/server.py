@@ -109,6 +109,7 @@ class UserSignup(BaseModel):
     full_name: str = ""
     language: str = "en-GB"
     country: str = "GB"
+    device_id: Optional[str] = None  # client-side UUID for abuse fingerprinting
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -787,11 +788,54 @@ def detect_language(text: str, fallback: str = "en-GB") -> str:
         return best_lang
     return fallback
 
+# ==================== Anti-abuse defenses ====================
+# Public list of throw-away email providers. NOT a moral statement — just blocks
+# the trivial "create 50 accounts from mailinator.com" farming pattern.
+# We only block the *most common* ones; if a determined user wants to game us,
+# they'll find a way. This is the 80/20 hedge.
+DISPOSABLE_EMAIL_DOMAINS = {
+    "mailinator.com", "guerrillamail.com", "guerrillamail.net", "guerrillamail.org",
+    "yopmail.com", "tempmail.com", "temp-mail.org", "10minutemail.com", "10minutemail.net",
+    "throwawaymail.com", "trashmail.com", "trashmail.de", "fakeinbox.com", "dispostable.com",
+    "maildrop.cc", "getairmail.com", "mintemail.com", "mohmal.com", "sharklasers.com",
+    "spamgourmet.com", "tempr.email", "tmail.ws", "tmailinator.com", "discard.email",
+    "emailondeck.com", "burnermail.io", "anonbox.net", "spambog.com",
+}
+
+
+def _is_disposable_email(email: str) -> bool:
+    try:
+        domain = (email or "").split("@", 1)[1].lower().strip()
+        return domain in DISPOSABLE_EMAIL_DOMAINS
+    except Exception:
+        return False
+
+
+async def _enforce_device_signup_limit(device_id: Optional[str], request: Request):
+    """Reject signups when >2 accounts have been created from the same device_id
+    in the last 24h. This blocks the most obvious 'spin up 10 free accounts
+    to dodge the 5/day chat cap' farming pattern, without adding friction to
+    real users (they'll be well under 2/day)."""
+    if not device_id:
+        return  # client didn't send a device_id — be permissive rather than break legit signups
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    count = await db.users.count_documents({
+        "signup_device_id": device_id,
+        "created_at": {"$gte": cutoff},
+    })
+    if count >= 2:
+        logger.warning(f"Device-fingerprint signup limit hit: device={device_id[:12]}... count={count}")
+        raise HTTPException(429, "Too many signups from this device. Please try again tomorrow or use a different device.")
+
+
 # ==================== Auth Routes ====================
 @api_router.post("/auth/signup", response_model=TokenResp)
-async def signup(data: UserSignup):
+async def signup(data: UserSignup, request: Request):
+    if _is_disposable_email(data.email):
+        raise HTTPException(400, "Please use a real email address — disposable / temporary email providers are not accepted.")
     if await db.users.find_one({"email": data.email}):
         raise HTTPException(400, "Email already registered")
+    await _enforce_device_signup_limit(data.device_id, request)
     user_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     user_doc = {
@@ -809,6 +853,8 @@ async def signup(data: UserSignup):
         "stripe_customer_id": None,
         "stripe_subscription_id": None,
         "terms_accepted": True,
+        "signup_device_id": data.device_id,  # for abuse fingerprinting (1 user per device per 24h max ≈ 2)
+        "signup_ip": (request.client.host if request.client else None),
     }
     await db.users.insert_one(user_doc)
     return TokenResp(access_token=make_token(user_id, data.email), user=user_to_public(user_doc))
@@ -3290,6 +3336,82 @@ def _effective_topup_tier(user: dict) -> Optional[str]:
     except Exception:
         return None
 
+
+# ==================== Winback: free Day Pass (lifetime, once per user) ====================
+# When a free user hits the chat cap and has dismissed the upgrade modal at least
+# twice, we gift them a free 24h Day Pass (Plus features). Goal: turn a frustrated
+# user into a paying user — pampered users don't convert, blocked users churn.
+# Hard-capped at 1 gift per account, ever. Stored in `winback_gifted_at`.
+class WinbackEligibilityResp(BaseModel):
+    eligible: bool
+    reason: str  # for debugging: "already_gifted", "not_free", "not_blocked_yet", "ok"
+
+
+@api_router.get("/winback/eligibility")
+async def winback_eligibility(user: dict = Depends(get_user)):
+    """Frontend calls this once per dashboard render. Returns eligible:true ONLY
+    if (a) the user is on free tier, (b) has dismissed the upgrade modal ≥2 times,
+    (c) has hit the daily chat cap at least once in the last 24h, and
+    (d) has NEVER been gifted before. The frontend then renders a 'gift' toast."""
+    if user.get("winback_gifted_at"):
+        return WinbackEligibilityResp(eligible=False, reason="already_gifted")
+    pub = user_to_public(user)
+    if pub.get("tier") != "free":
+        return WinbackEligibilityResp(eligible=False, reason="not_free")
+    dismiss_count = int(user.get("upgrade_modal_dismissed_count") or 0)
+    if dismiss_count < 2:
+        return WinbackEligibilityResp(eligible=False, reason="not_blocked_yet")
+    # Check whether they've actually hit the daily chat cap recently
+    bucket_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    usage = await db.usage.find_one({"user_id": user["id"], "bucket": bucket_key, "feature": "lex_chat"}, {"_id": 0})
+    used = (usage or {}).get("count", 0)
+    if used < 5:  # 5 is the free daily cap
+        return WinbackEligibilityResp(eligible=False, reason="not_blocked_yet")
+    return WinbackEligibilityResp(eligible=True, reason="ok")
+
+
+@api_router.post("/winback/dismiss-upgrade")
+async def winback_dismiss_upgrade(user: dict = Depends(get_user)):
+    """Called whenever the user dismisses an upgrade modal. We count these so
+    we can fire the winback gift on the second dismissal AFTER they've also
+    hit the chat cap. Pure tally — no rate-limit needed."""
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$inc": {"upgrade_modal_dismissed_count": 1}},
+    )
+    return {"ok": True}
+
+
+@api_router.post("/winback/claim")
+async def winback_claim(user: dict = Depends(get_user)):
+    """User accepted the offered Day Pass gift. Activate it just like a paid
+    top-up would, but mark `winback_gifted_at` so this can NEVER fire again."""
+    if user.get("winback_gifted_at"):
+        raise HTTPException(409, "Day Pass gift has already been claimed.")
+    # Re-verify eligibility server-side (defence in depth — never trust the client)
+    pub = user_to_public(user)
+    if pub.get("tier") != "free":
+        raise HTTPException(409, "You already have a paid plan — no winback gift needed.")
+    # Activate the Day Pass payload (same shape as a real Stripe purchase)
+    now = datetime.now(timezone.utc)
+    pack = TOPUP_PACKS["day_pass"]
+    expires = now + timedelta(hours=pack["duration_hours"])
+    payload = {
+        "kind": "day_pass",
+        "grants_tier": pack["grants_tier"],
+        "activated_at": now.isoformat(),
+        "expires_at": expires.isoformat(),
+        "label": pack["label"] + " (Gifted)",
+        "price_gbp": 0,
+        "source": "winback",
+    }
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"topup_active": payload, "winback_gifted_at": now.isoformat()},
+         "$push": {"topup_history": payload}},
+    )
+    logger.info(f"Winback Day Pass gifted to user {user['id']} ({user.get('email')})")
+    return {"ok": True, "topup_active": payload}
 
 
 @api_router.post("/webhook/stripe")
