@@ -1202,7 +1202,7 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
 }
 
 // ---------- Lex Chat ----------
-function LexChat({ lang, country, category, title, onClose, autoMic = false, tier = "free", onSwitchCategory, initialSeed = "" }) {
+function LexChat({ lang, country, category, title, onClose, autoMic = false, tier = "free", onSwitchCategory, initialSeed = "", resumeSessionId = null }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1226,6 +1226,35 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
   const isPro = tier === "pro" || tier === "yearly" || tier === "trial_pro";
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: 1e9, behavior: "smooth" }); }, [messages, busy]);
+
+  // 📜 Resume a previous session from Case Timeline.
+  // When the user taps "open" on a chat row, we re-hydrate the full message history
+  // so they can pick up where they left off. Backend returns the conversation
+  // turns in chronological order; we map them into the local message shape and
+  // adopt the session_id so subsequent sends append to the same thread.
+  const resumedRef = useRef(false);
+  useEffect(() => {
+    if (!resumeSessionId || resumedRef.current) return;
+    resumedRef.current = true;
+    setBusy(true);
+    api.get(`/lex/sessions/${resumeSessionId}`).then(r => {
+      const turns = r.data || [];
+      const hydrated = [];
+      for (const t of turns) {
+        if (t.user_message) hydrated.push({ role: "user", content: t.user_message, at: t.created_at });
+        if (t.assistant_response) hydrated.push({
+          role: "lex", content: t.assistant_response, at: t.created_at,
+          model: t.model_used, replyLang: t.language, citations: t.citations || [],
+        });
+      }
+      setMessages(hydrated);
+      setSessionId(resumeSessionId);
+      // Don't auto-classify or re-fire the seed for a resumed conversation
+      classifiedRef.current = true;
+      seedSentRef.current = true;
+    }).catch(() => { aaToast("Could not load previous chat", "error"); })
+      .finally(() => setBusy(false));
+  }, [resumeSessionId]);
 
   // Load Deep Think usage so the user sees their counter (Pro-only)
   useEffect(() => {
@@ -6734,7 +6763,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
           else if (k === "legal_aid") setModal({ type: "legal_aid" });
         }} hasAccess={true} requireSub={() => setShowSub(true)} />
 
-      {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} initialSeed={modal._initialSeed || ""} tier={tier} onClose={() => setModal(null)} onSwitchCategory={(newCat) => {
+      {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} initialSeed={modal._initialSeed || ""} resumeSessionId={modal._resumeSession || null} tier={tier} onClose={() => setModal(null)} onSwitchCategory={(newCat) => {
         const labelByCat = { employment: t(lang, "employment"), property: t(lang, "property"), immigration: t(lang, "immigration"), medical_negligence: t(lang, "medical") };
         if (!hasTier("plus")) { setSubPreset("plus"); setShowSub(true); return; }
         setModal({ type: "chat", category: newCat, title: labelByCat[newCat] || "Lex" });
