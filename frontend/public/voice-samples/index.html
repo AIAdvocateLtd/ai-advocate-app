@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lex Voice Picker — Listen & Choose</title>
+<style>
+  :root {
+    --bg: #0a0a0a; --card: #161410; --line: #2a2620;
+    --gold: #f7c948; --gold-deep: #b8860b; --gold-soft: #d4a93a;
+    --text: #f5f0e6; --text-dim: #cfc7b8; --text-muted: #8a8478;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { padding: 24px 18px 60px; max-width: 540px; margin: 0 auto; min-height: 100vh; }
+  h1 { font-family: "Cinzel", "Times New Roman", serif; color: var(--gold); font-size: 26px; margin: 0 0 6px; letter-spacing: 0.5px; }
+  .subtitle { color: var(--text-muted); font-size: 13px; margin-bottom: 24px; line-height: 1.5; }
+  .sample-text { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font-size: 12.5px; color: var(--text-dim); line-height: 1.5; margin-bottom: 20px; font-style: italic; }
+  .voice-card { background: var(--card); border: 1.5px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 14px; transition: border-color 0.25s, box-shadow 0.25s; }
+  .voice-card.recommended { border-color: var(--gold); box-shadow: 0 0 24px rgba(247,201,72,0.18); }
+  .voice-card.playing { border-color: var(--gold-soft); }
+  .voice-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .voice-name { font-family: "Cinzel", serif; font-size: 19px; color: var(--gold); font-weight: 700; letter-spacing: 0.5px; }
+  .flag { font-size: 18px; }
+  .badge { display: inline-block; background: var(--gold); color: #1a1300; padding: 2px 9px; font-size: 10px; border-radius: 8px; font-weight: 800; margin-left: 8px; vertical-align: middle; letter-spacing: 0.5px; }
+  .voice-desc { font-size: 13px; color: var(--text-dim); margin-bottom: 12px; line-height: 1.45; }
+  .play-btn { width: 100%; padding: 12px 14px; background: linear-gradient(135deg, var(--gold), var(--gold-soft)); color: #1a1300; border: none; border-radius: 12px; font-size: 14px; font-weight: 800; cursor: pointer; letter-spacing: 0.3px; transition: transform 0.15s, opacity 0.15s; }
+  .play-btn:active { transform: scale(0.98); }
+  .play-btn.playing { background: var(--card); color: var(--gold); border: 1.5px solid var(--gold); }
+  .vote-section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 16px; margin-top: 28px; }
+  .vote-section h2 { font-family: "Cinzel", serif; color: var(--gold); margin: 0 0 10px; font-size: 18px; }
+  .vote-section p { font-size: 13px; color: var(--text-dim); margin: 0 0 4px; line-height: 1.55; }
+  .vote-section .tag { color: var(--gold-soft); font-weight: 700; }
+  audio { width: 100%; margin-top: 8px; }
+  .footer-note { text-align: center; color: var(--text-muted); font-size: 11px; margin-top: 30px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<h1>🎙 Lex Voice Picker</h1>
+<p class="subtitle">Tap each voice to hear the same sample. The recommended pick for AI Advocate (UK legal app) is highlighted in gold.</p>
+
+<div class="sample-text">
+  "Hello, I'm Lex — your AI legal advocate. If you've been treated unfairly, dismissed at work, or your landlord won't return your deposit, I'm here to help. How can I assist you today?"
+</div>
+
+<!-- Voice cards -->
+<div class="voice-card recommended" data-voice="fable">
+  <div class="voice-head">
+    <div class="voice-name">Fable <span class="flag">🇬🇧</span> <span class="badge">RECOMMENDED</span></div>
+  </div>
+  <div class="voice-desc">Warm British male. Like an experienced solicitor explaining the law over a cup of tea. Best UK fit.</div>
+  <button class="play-btn" data-src="/voice-samples/fable.mp3">▶ Play Fable</button>
+</div>
+
+<div class="voice-card" data-voice="onyx">
+  <div class="voice-head">
+    <div class="voice-name">Onyx <span class="flag">🇺🇸</span></div>
+  </div>
+  <div class="voice-desc">Deep, authoritative American male. Currently the default. Trustworthy but feels more "corporate AI".</div>
+  <button class="play-btn" data-src="/voice-samples/onyx.mp3">▶ Play Onyx</button>
+</div>
+
+<div class="voice-card" data-voice="alloy">
+  <div class="voice-head">
+    <div class="voice-name">Alloy <span class="flag">🌐</span></div>
+  </div>
+  <div class="voice-desc">Neutral, gender-ambiguous, modern. Works for any audience — no accent loyalty.</div>
+  <button class="play-btn" data-src="/voice-samples/alloy.mp3">▶ Play Alloy</button>
+</div>
+
+<div class="voice-card" data-voice="echo">
+  <div class="voice-head">
+    <div class="voice-name">Echo <span class="flag">🇺🇸</span></div>
+  </div>
+  <div class="voice-desc">Soft American male. Friendly, less authoritative. Better for casual chat than legal weight.</div>
+  <button class="play-btn" data-src="/voice-samples/echo.mp3">▶ Play Echo</button>
+</div>
+
+<div class="voice-card" data-voice="nova">
+  <div class="voice-head">
+    <div class="voice-name">Nova <span class="flag">🇺🇸</span></div>
+  </div>
+  <div class="voice-desc">Bright American female. Approachable and energetic — good for emergency rights reads where you want clarity, not gravitas.</div>
+  <button class="play-btn" data-src="/voice-samples/nova.mp3">▶ Play Nova</button>
+</div>
+
+<div class="voice-card" data-voice="shimmer">
+  <div class="voice-head">
+    <div class="voice-name">Shimmer <span class="flag">🇺🇸</span></div>
+  </div>
+  <div class="voice-desc">Soft American female. Calming and gentle — works well for distressed users reading emergency content.</div>
+  <button class="play-btn" data-src="/voice-samples/shimmer.mp3">▶ Play Shimmer</button>
+</div>
+
+<div class="vote-section">
+  <h2>🤔 Help me decide</h2>
+  <p>When you've listened to all 6, reply with one of:</p>
+  <p>• <span class="tag">"Fable"</span> — Go British, default it for all users</p>
+  <p>• <span class="tag">"Onyx"</span> — Keep the current pick</p>
+  <p>• <span class="tag">"Picker"</span> — Add a Settings page so users can choose their own</p>
+  <p>• <span class="tag">"Mixed"</span> — Default to Fable + give users option in Settings</p>
+</div>
+
+<div class="footer-note">
+  All voices powered by OpenAI TTS-1 via your Emergent LLM Key.<br>
+  Sample text was generated once — total cost: about £0.001.
+</div>
+
+<script>
+  // Single-audio playback so tapping a new voice stops the previous one
+  let currentAudio = null;
+  let currentBtn = null;
+  document.querySelectorAll(".play-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (currentAudio && !currentAudio.paused) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+        if (currentBtn) {
+          currentBtn.classList.remove("playing");
+          currentBtn.parentElement.classList.remove("playing");
+          currentBtn.textContent = currentBtn.textContent.replace("⏸", "▶");
+        }
+        if (currentBtn === btn) { currentAudio = null; currentBtn = null; return; }
+      }
+      currentAudio = new Audio(btn.dataset.src);
+      currentBtn = btn;
+      btn.classList.add("playing");
+      btn.parentElement.classList.add("playing");
+      btn.textContent = btn.textContent.replace("▶", "⏸");
+      currentAudio.play();
+      currentAudio.onended = () => {
+        btn.classList.remove("playing");
+        btn.parentElement.classList.remove("playing");
+        btn.textContent = btn.textContent.replace("⏸", "▶");
+        currentAudio = null; currentBtn = null;
+      };
+    });
+  });
+</script>
+
+</body>
+</html>
