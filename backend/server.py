@@ -6869,6 +6869,36 @@ async def admin_delete_suggestion(sid: str, _: dict = Depends(require_admin)):
 
 
 
+
+
+# ==================== Admin: Solicitor Brief download ====================
+# Static PDF served from /app/memory. Admin-only because it's a privileged
+# document the owner sends to their solicitor. The PDF is regenerated on each
+# call from /app/backend/tools/generate_solicitor_brief.py so the date in the
+# document is always today.
+
+@api_router.get("/admin/solicitor-brief.pdf")
+async def admin_solicitor_brief(_: dict = Depends(require_admin)):
+    """Generate (fresh) and return the AI Advocate solicitor engagement brief."""
+    from fastapi.responses import FileResponse
+    import subprocess
+    pdf_path = "/app/memory/AI_Advocate_Solicitor_Brief.pdf"
+    try:
+        subprocess.run(
+            ["python", "/app/backend/tools/generate_solicitor_brief.py"],
+            check=True, capture_output=True, timeout=30,
+        )
+    except Exception:
+        # Fall through to whatever file is on disk; only fail if it's missing.
+        pass
+    if not os.path.exists(pdf_path):
+        raise HTTPException(500, "Brief not available — regeneration failed.")
+    return FileResponse(
+        pdf_path, media_type="application/pdf",
+        filename="AI_Advocate_Solicitor_Brief.pdf",
+    )
+
+
 # ==================== Admin: Comp Pro Access (gift free Pro) ====================
 # Owner-only tool to grant free Pro access to family, friends, or unhappy customers.
 # Every grant is logged in db.comp_audit for accountability.

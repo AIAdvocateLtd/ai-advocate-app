@@ -4985,6 +4985,8 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
         {user?.is_owner && <CompProAdminCard lang={lang} />}
         {/* 📬 OWNER ONLY — Suggestions inbox from "Missing a legal area?" submissions */}
         {user?.is_owner && <AdminSuggestionsCard lang={lang} />}
+        {/* 📄 OWNER ONLY — Solicitor brief download */}
+        {user?.is_owner && <AdminSolicitorBriefCard lang={lang} />}
         {/* 🏛 OWNER ONLY — comp tier access for law firms (founding-firm cohort) */}
         {user?.is_owner && <CompFirmAdminCard lang={lang} />}
 
@@ -6103,6 +6105,57 @@ function AdminSuggestionsCard({ lang }) {
     </div>
   );
 }
+
+
+// 📄 AdminSolicitorBriefCard — one-tap download of the pre-launch legal-review
+// brief PDF that you send to your UK solicitor. Regenerated server-side on
+// every download so the date is always current.
+function AdminSolicitorBriefCard({ lang }) {
+  const [busy, setBusy] = useState(false);
+
+  const download = async () => {
+    setBusy(true);
+    try {
+      const r = await api.get("/admin/solicitor-brief.pdf", { responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "AI_Advocate_Solicitor_Brief.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      aaToast("Solicitor brief downloaded", "success");
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Download failed", "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div data-testid="admin-solicitor-brief-card" style={{
+      background: "var(--bg-card)", border: "1px solid var(--gold-deep)",
+      borderRadius: 14, padding: 16, marginBottom: 12,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <span style={{ fontFamily: "'Cinzel', serif", color: "var(--gold)", fontSize: 14, letterSpacing: "0.04em" }}>
+          📄 Solicitor Brief
+        </span>
+      </div>
+      <p style={{ fontSize: 12, color: "var(--text-dim)", margin: "0 0 12px", lineHeight: 1.5 }}>
+        Ready-to-send PDF to email your UK solicitor for the pre-launch legal opinion (Terms, Privacy Policy, DPIA sign-off, UPL compliance).
+      </p>
+      <button data-testid="admin-download-solicitor-brief"
+              disabled={busy}
+              onClick={download}
+              className="btn-gold w-full"
+              style={{ fontSize: 13 }}>
+        {busy ? <span className="spinner" /> : "⬇️ Download brief (PDF)"}
+      </button>
+    </div>
+  );
+}
+
+
 
 
 
