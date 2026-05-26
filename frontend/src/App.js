@@ -539,6 +539,37 @@ function AuthScreen({ lang, country, onAuth }) {
         <Sparkles size={14} /> {t(lang, "tryLexFree")}
       </button>
 
+      {/* Try Sample Case — full demo mode, no signup. Designed for App Store reviewers. */}
+      <button data-testid="try-sample-case-btn"
+              onClick={async () => {
+                setBusy(true); setErr("");
+                try {
+                  const { data } = await api.post("/auth/demo");
+                  onAuth(data);
+                } catch (e) {
+                  setErr(e?.response?.data?.detail || "Could not start demo");
+                } finally { setBusy(false); }
+              }}
+              disabled={busy}
+              style={{
+                marginTop: 10,
+                padding: "10px 18px",
+                background: "linear-gradient(135deg, rgba(247,201,72,0.10), rgba(247,201,72,0.02))",
+                color: "var(--gold)",
+                border: "1px solid var(--gold)",
+                borderRadius: 12,
+                cursor: busy ? "not-allowed" : "pointer",
+                fontSize: 13,
+                letterSpacing: "0.02em",
+                fontWeight: 600,
+                display: "inline-flex", alignItems: "center", gap: 8,
+              }}>
+        <img src="/icons/files.png" alt="" style={{ width: 14, height: 14, objectFit: "contain" }} /> Try a sample case
+      </button>
+      <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)", maxWidth: 320, textAlign: "center", lineHeight: 1.4 }}>
+        Explore a real Unfair Dismissal case — no signup needed.
+      </div>
+
       {showWelcome && (
         <WelcomeTour lang={lang} onDone={() => { localStorage.setItem("aa_welcomed", "1"); setShowWelcome(false); setShowTaster(true); }} />
       )}
@@ -4952,6 +4983,8 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
 
         {/* 🎁 OWNER ONLY — comp Pro access for family / friends / customer service */}
         {user?.is_owner && <CompProAdminCard lang={lang} />}
+        {/* 📬 OWNER ONLY — Suggestions inbox from "Missing a legal area?" submissions */}
+        {user?.is_owner && <AdminSuggestionsCard lang={lang} />}
         {/* 🏛 OWNER ONLY — comp tier access for law firms (founding-firm cohort) */}
         {user?.is_owner && <CompFirmAdminCard lang={lang} />}
 
@@ -5845,6 +5878,166 @@ function RecycleBinModal({ lang, onClose }) {
 // 🏛 CompFirmAdminCard — grant Featured/Premium/Practice trial days to law firms.
 // Same mental model as CompProAdminCard but operates on `firm_accounts` and lets
 // the owner pick which tier the trial grants (default Featured).
+
+// 📬 AdminSuggestionsCard — inbox for user-submitted "Missing a legal area?" suggestions.
+// Reads from /api/admin/suggestions. Owner can mark resolved, delete, or
+// pop open their email client to reply.
+function AdminSuggestionsCard({ lang }) {
+  const [items, setItems] = useState([]);
+  const [openCount, setOpenCount] = useState(0);
+  const [filter, setFilter] = useState("open"); // open | resolved | all
+  const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const load = async () => {
+    setBusy(true);
+    try {
+      const q = filter === "all" ? "" : `?status=${filter}`;
+      const r = await api.get(`/admin/suggestions${q}`);
+      setItems(r.data?.suggestions || []);
+      setOpenCount(r.data?.open_count || 0);
+    } catch (e) { /* non-fatal */ }
+    finally { setBusy(false); }
+  };
+  useEffect(() => { if (expanded) load(); }, [filter, expanded]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Always fetch the badge count on first mount, even before expanding.
+  useEffect(() => {
+    api.get("/admin/suggestions?status=open")
+       .then(r => setOpenCount(r.data?.open_count || 0))
+       .catch(() => {});
+  }, []);
+
+  const toggleResolved = async (item) => {
+    setBusy(true);
+    try {
+      const resolved = !item.resolved_at;
+      await api.patch(`/admin/suggestions/${item.id}`, { resolved });
+      await load();
+    } catch (e) { /* non-fatal */ }
+    finally { setBusy(false); }
+  };
+
+  const removeItem = async (item) => {
+    if (!window.confirm("Delete this suggestion permanently?")) return;
+    setBusy(true);
+    try {
+      await api.delete(`/admin/suggestions/${item.id}`);
+      await load();
+    } catch (e) { /* non-fatal */ }
+    finally { setBusy(false); }
+  };
+
+  const replyViaEmail = (item) => {
+    const to = item.user_email || "";
+    const subject = encodeURIComponent("Re: your AI Advocate suggestion");
+    const body = encodeURIComponent(
+      `Hi,\n\nThanks for your suggestion to AI Advocate:\n\n"${(item.text || "").slice(0, 500)}"\n\n— The AI Advocate team`
+    );
+    window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
+  };
+
+  return (
+    <div data-testid="admin-suggestions-card" style={{
+      background: "var(--bg-card)", border: "1px solid var(--gold-deep)",
+      borderRadius: 14, padding: 16, marginBottom: 12,
+    }}>
+      <button onClick={() => setExpanded(e => !e)} data-testid="admin-suggestions-toggle"
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                       width: "100%", background: "transparent", border: "none", color: "var(--text)",
+                       cursor: "pointer", padding: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontFamily: "'Cinzel', serif", color: "var(--gold)", fontSize: 14, letterSpacing: "0.04em" }}>
+            📬 Suggestions Inbox
+          </span>
+          {openCount > 0 && (
+            <span style={{ background: "#ef4444", color: "#fff", borderRadius: 999, padding: "2px 8px",
+                           fontSize: 11, fontWeight: 700 }}>{openCount} new</span>
+          )}
+        </div>
+        <span style={{ color: "var(--gold-soft)", fontSize: 12 }}>{expanded ? "▾" : "▸"}</span>
+      </button>
+
+      {expanded && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+            {["open", "resolved", "all"].map(f => (
+              <button key={f} data-testid={`admin-sugg-filter-${f}`}
+                      onClick={() => setFilter(f)}
+                      style={{ flex: 1, padding: "6px 10px",
+                               background: filter === f ? "var(--gold)" : "transparent",
+                               color: filter === f ? "#1a1300" : "var(--text)",
+                               border: "1px solid " + (filter === f ? "var(--gold)" : "var(--line)"),
+                               borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                               textTransform: "capitalize" }}>{f}</button>
+            ))}
+          </div>
+
+          {busy && <div style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", padding: 12 }}>Loading…</div>}
+          {!busy && items.length === 0 && (
+            <div style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", padding: 18 }}>
+              {filter === "open" ? "Inbox zero — no open suggestions." : `No ${filter} suggestions yet.`}
+            </div>
+          )}
+
+          {items.map(item => (
+            <div key={item.id} data-testid={`admin-sugg-${item.id}`}
+                 style={{ background: "rgba(0,0,0,0.4)", border: "1px solid var(--line)",
+                          borderRadius: 10, padding: 12, marginBottom: 8,
+                          opacity: item.resolved_at ? 0.55 : 1 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
+                <span style={{ color: "var(--gold-soft)", fontSize: 11, fontWeight: 600 }}>
+                  {item.user_email || "(anonymous)"}
+                </span>
+                <span style={{ color: "var(--text-muted)", fontSize: 10 }}>
+                  {item.created_at ? new Date(item.created_at).toLocaleString() : ""}
+                </span>
+              </div>
+              <div style={{ color: "var(--text)", fontSize: 13, lineHeight: 1.4, marginBottom: 8, whiteSpace: "pre-wrap" }}>
+                {item.text}
+              </div>
+              {item.resolved_at && (
+                <div style={{ color: "#86efac", fontSize: 10, marginBottom: 6 }}>
+                  ✓ Resolved by {item.resolved_by || "admin"} on {new Date(item.resolved_at).toLocaleDateString()}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 6 }}>
+                <button data-testid={`admin-sugg-resolve-${item.id}`}
+                        disabled={busy}
+                        onClick={() => toggleResolved(item)}
+                        style={{ flex: 1, padding: "6px 10px", fontSize: 11,
+                                 background: item.resolved_at ? "transparent" : "var(--gold)",
+                                 color: item.resolved_at ? "var(--text)" : "#1a1300",
+                                 border: "1px solid " + (item.resolved_at ? "var(--line)" : "var(--gold)"),
+                                 borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>
+                  {item.resolved_at ? "Reopen" : "Mark resolved"}
+                </button>
+                {item.user_email && (
+                  <button data-testid={`admin-sugg-reply-${item.id}`}
+                          onClick={() => replyViaEmail(item)}
+                          style={{ padding: "6px 10px", fontSize: 11, background: "transparent",
+                                   color: "var(--gold)", border: "1px solid var(--gold-deep)",
+                                   borderRadius: 8, cursor: "pointer" }}>
+                    Reply
+                  </button>
+                )}
+                <button data-testid={`admin-sugg-delete-${item.id}`}
+                        disabled={busy}
+                        onClick={() => removeItem(item)}
+                        style={{ padding: "6px 10px", fontSize: 11, background: "transparent",
+                                 color: "#fca5a5", border: "1px solid #7f1d1d",
+                                 borderRadius: 8, cursor: "pointer" }}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function CompFirmAdminCard({ lang }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
@@ -9345,6 +9538,42 @@ function ManageDataModal({ lang, onClose, onAccountDeleted }) {
   );
 }
 
+// ---------- Demo banner ----------
+// Shown at the top of the app shell whenever user.is_demo === true. Tells the
+// user they're in sample/demo mode and gives them a one-tap path to create a
+// real account (which logs them out of the demo).
+function DemoBanner({ lang, onSignup }) {
+  return (
+    <div data-testid="demo-banner"
+         style={{
+           background: "linear-gradient(135deg, rgba(247,201,72,0.18), rgba(247,201,72,0.06))",
+           borderBottom: "1px solid var(--gold-deep)",
+           padding: "10px 14px",
+           display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+           position: "sticky", top: 0, zIndex: 50,
+           backdropFilter: "blur(6px)",
+         }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+        <span style={{
+          background: "var(--gold)", color: "#1a1300", borderRadius: 999, padding: "2px 8px",
+          fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", flexShrink: 0,
+        }}>DEMO</span>
+        <span style={{ color: "var(--text)", fontSize: 12.5, lineHeight: 1.35 }}>
+          Sample case — sign up to save your own.
+        </span>
+      </div>
+      <button data-testid="demo-signup-btn" onClick={onSignup}
+              style={{
+                background: "var(--gold)", color: "#1a1300",
+                border: "none", borderRadius: 10, padding: "8px 14px",
+                fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0,
+              }}>
+        Sign up
+      </button>
+    </div>
+  );
+}
+
 function App() {
   const [lang, setLang] = useState(localStorage.getItem("aa_lang") || "en-GB");
   const [country, setCountry] = useState(localStorage.getItem("aa_country") || "GB");
@@ -9431,7 +9660,9 @@ function App() {
 
   const onAuth = (data) => {
     localStorage.setItem("aa_token", data.access_token); setToken(data.access_token); setAuthHeader(data.access_token);
-    setUser(data.user); setSentryUser(data.user); identifyAnalytics(data.user); track("user_signed_in"); setStep("app");
+    setUser(data.user); setSentryUser(data.user); identifyAnalytics(data.user);
+    track(data.user?.is_demo ? "demo_started" : "user_signed_in");
+    setStep("app");
   };
   const onLogout = () => { localStorage.removeItem("aa_token"); setToken(null); setUser(null); setAuthHeader(null); clearSentryUser(); resetAnalytics(); setStep("auth"); };
 
@@ -9445,7 +9676,12 @@ function App() {
       {step === "lang" && <LanguagePicker lang={lang} initial={lang} onConfirm={(l) => { setLang(l); setStep("terms"); }} />}
       {step === "terms" && <TermsScreen lang={lang} onAccept={() => { localStorage.setItem("aa_terms", "1"); setStep("auth"); }} onDecline={() => setStep("lang")} onChangeLang={() => setStep("lang")} />}
       {step === "auth" && <AuthScreen lang={lang} country={country} onAuth={onAuth} />}
-      {step === "app" && user && !showSplash && <Dashboard user={user} lang={lang} country={country} setLang={setLang} setCountry={setCountry} onLogout={onLogout} refreshUser={(u) => setUser(u)} />}
+      {step === "app" && user && !showSplash && (
+        <>
+          {user.is_demo && <DemoBanner lang={lang} onSignup={() => { onLogout(); /* lands them on auth screen */ }} />}
+          <Dashboard user={user} lang={lang} country={country} setLang={setLang} setCountry={setCountry} onLogout={onLogout} refreshUser={(u) => setUser(u)} />
+        </>
+      )}
     </div>
   );
 }

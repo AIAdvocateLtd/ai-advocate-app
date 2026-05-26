@@ -10,7 +10,29 @@
 
 ## Completed Implementation (rolling)
 
-### 2026-02 (Session 2k — Iter 24 · Context-aware explainer + mailto suggestion flow)
+### 2026-02 (Session 2k — Iter 26 · Admin Suggestions Inbox)
+- 📬 **New backend endpoints** (admin-only):
+  - `GET /api/admin/suggestions?status=open|resolved|all` — list with `open_count` badge
+  - `PATCH /api/admin/suggestions/{id}` — mark resolved / reopen (with optional `admin_note`)
+  - `DELETE /api/admin/suggestions/{id}` — permanent delete
+- 🎨 **AdminSuggestionsCard** in Settings → owner-only. Collapsed shows "📬 Suggestions Inbox · N new" red badge. Expanded shows Open/Resolved/All filter pills + per-suggestion card with: user email, timestamp, message, "Mark resolved", "Reply" (mailto pre-filled), "Delete".
+- 🔄 Suggestions are still also saved to the user's email app via mailto (best-effort backup), so the inbox is purely additive — no behavior change for end-users.
+- 🧪 **5 pytest regression tests** in `/app/backend/tests/test_admin_suggestions.py`, all passing. Full suite: 32 passing.
+
+
+- 🎭 **New endpoint `POST /api/auth/demo`** — one-tap login to a shared demo account with freshly-seeded sample data on every call. Returns a JWT and a user object with `is_demo: true`. No signup required.
+- 🌱 **Seeded sample case**: "Sarah v. Acme Ltd — Unfair Dismissal" (employment, whistleblowing). Includes:
+  - 3-turn Lex chat thread with realistic dialogue about whistleblowing protection under ERA 1996 s.103A
+  - Lex-drafted formal grievance letter (encrypted in `legal_files`)
+  - Witness statement note
+  - Two reminders: ACAS Early Conciliation (in 7 days) + ET1 tribunal deadline (90 days from dismissal)
+- 🪟 **"Try a sample case" button** on the auth screen (below the "Try Lex Free" taster) — gold-outlined CTA with subtitle "Explore a real Unfair Dismissal case — no signup needed."
+- 🏷️ **Persistent demo banner** at top of app shell when `user.is_demo === true` — sticky, gold-tinted, with `DEMO` chip on the left and "Sign up" CTA on the right (logs user out, lands them on auth screen).
+- 🔄 **Idempotent reset**: every call to `/auth/demo` wipes the demo user's data across 11 collections and reseeds — so every new demo session starts fresh (App Store reviewer #2 sees the same case as reviewer #1).
+- 📊 **Analytics**: `track("demo_started")` fires on demo entry (PostHog).
+- 🧪 **6 pytest regression tests** in `/app/backend/tests/test_demo_mode.py`, all passing.
+
+
 - 🐛 **Files-vs-Cases explainer modal**: previously showed both sections regardless of where the user tapped the (?) icon, AND the explainer was hidden behind the underlying modal because of an inline `zIndex: 200` that overrode the `.modal-bg` z-index 9999. Fix: explainer now takes a `focus` prop (`"files"` or `"cases"`), renders only the section relevant to where the user tapped the (?), has a compact "vs."-style comparison line for the other concept, and an inner scroll container so the "Got it" button is always visible on any screen. z-index raised to 20000.
 - ✉️ **"Missing a legal area?" suggestion modal** previously alerted "Could not send. Try again later." on any backend hiccup. Fix: now does best-effort backend POST + opens user's native email app (mailto:) pre-filled to `support@aiadvocate.co.uk` with subject "AI Advocate — Missing legal area suggestion". Success state explicitly tells the user to hit send in their email app.
 
