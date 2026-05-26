@@ -5881,13 +5881,19 @@ function RecycleBinModal({ lang, onClose }) {
 
 // 📬 AdminSuggestionsCard — inbox for user-submitted "Missing a legal area?" suggestions.
 // Reads from /api/admin/suggestions. Owner can mark resolved, delete, or
-// pop open their email client to reply.
+// pop open their preferred mail client to reply (Zoho / Gmail / Outlook / default).
 function AdminSuggestionsCard({ lang }) {
   const [items, setItems] = useState([]);
   const [openCount, setOpenCount] = useState(0);
   const [filter, setFilter] = useState("open"); // open | resolved | all
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // User-selected reply provider — persisted so the admin's preference sticks.
+  // "zoho" by default since the user's company mail is on Zoho.
+  const [mailProvider, setMailProvider] = useState(
+    () => localStorage.getItem("aa_admin_mail_provider") || "zoho"
+  );
+  useEffect(() => { localStorage.setItem("aa_admin_mail_provider", mailProvider); }, [mailProvider]);
 
   const load = async () => {
     setBusy(true);
@@ -5918,22 +5924,62 @@ function AdminSuggestionsCard({ lang }) {
   };
 
   const removeItem = async (item) => {
-    if (!window.confirm("Delete this suggestion permanently?")) return;
+    // aaConfirm uses an in-app modal — works on iOS Safari + Capacitor wraps
+    // where window.confirm() is silently blocked by Safari's "Suppress Alerts"
+    // mode after the user dismisses one alert.
+    const ok = await aaConfirm({
+      title: "Delete suggestion?",
+      message: "This permanently removes the message from your inbox.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await api.delete(`/admin/suggestions/${item.id}`);
       await load();
-    } catch (e) { /* non-fatal */ }
-    finally { setBusy(false); }
+      aaToast("Suggestion deleted", "success");
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Delete failed", "error");
+    } finally { setBusy(false); }
   };
 
+  // Open the user's chosen mail provider with a reply pre-filled.
+  // Each provider exposes a "compose" URL that accepts query-string params.
   const replyViaEmail = (item) => {
     const to = item.user_email || "";
-    const subject = encodeURIComponent("Re: your AI Advocate suggestion");
-    const body = encodeURIComponent(
-      `Hi,\n\nThanks for your suggestion to AI Advocate:\n\n"${(item.text || "").slice(0, 500)}"\n\n— The AI Advocate team`
-    );
-    window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
+    const subject = "Re: your AI Advocate suggestion";
+    const body =
+      `Hi,\n\nThanks for your suggestion to AI Advocate:\n\n"${(item.text || "").slice(0, 500)}"\n\n— The AI Advocate team`;
+    const sEnc = encodeURIComponent(subject);
+    const bEnc = encodeURIComponent(body);
+    let url;
+    switch (mailProvider) {
+      case "zoho":
+        url = `https://mail.zoho.com/zm/#compose?to=${encodeURIComponent(to)}&subject=${sEnc}&body=${bEnc}`;
+        break;
+      case "gmail":
+        url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${sEnc}&body=${bEnc}`;
+        break;
+      case "outlook":
+        url = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to)}&subject=${sEnc}&body=${bEnc}`;
+        break;
+      default:
+        url = `mailto:${to}?subject=${sEnc}&body=${bEnc}`;
+    }
+    // Open in a new tab for webmail providers so the inbox stays open.
+    if (mailProvider === "zoho" || mailProvider === "gmail" || mailProvider === "outlook") {
+      window.open(url, "_blank", "noopener,noreferrer");
+    } else {
+      window.location.href = url;
+    }
+  };
+
+  const copyEmail = async (item) => {
+    try {
+      await navigator.clipboard.writeText(item.user_email || "");
+      aaToast("Email copied", "success");
+    } catch { aaToast("Copy failed", "error"); }
   };
 
   return (
@@ -5959,6 +6005,22 @@ function AdminSuggestionsCard({ lang }) {
 
       {expanded && (
         <div style={{ marginTop: 14 }}>
+          {/* Reply-with selector — persisted to localStorage. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, fontSize: 11, color: "var(--text-muted)" }}>
+            <span>Reply with:</span>
+            <select data-testid="admin-sugg-mail-provider"
+                    value={mailProvider}
+                    onChange={(e) => setMailProvider(e.target.value)}
+                    style={{ background: "var(--bg-card)", color: "var(--text)",
+                             border: "1px solid var(--line)", borderRadius: 6,
+                             padding: "4px 8px", fontSize: 11 }}>
+              <option value="zoho">Zoho Mail (web)</option>
+              <option value="gmail">Gmail (web)</option>
+              <option value="outlook">Outlook (web)</option>
+              <option value="system">System default (mailto)</option>
+            </select>
+          </div>
+
           <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
             {["open", "resolved", "all"].map(f => (
               <button key={f} data-testid={`admin-sugg-filter-${f}`}
@@ -5985,9 +6047,14 @@ function AdminSuggestionsCard({ lang }) {
                           borderRadius: 10, padding: 12, marginBottom: 8,
                           opacity: item.resolved_at ? 0.55 : 1 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
-                <span style={{ color: "var(--gold-soft)", fontSize: 11, fontWeight: 600 }}>
+                <button onClick={() => copyEmail(item)}
+                        data-testid={`admin-sugg-copy-email-${item.id}`}
+                        style={{ background: "transparent", border: "none", color: "var(--gold-soft)",
+                                 fontSize: 11, fontWeight: 600, cursor: "pointer", padding: 0,
+                                 textDecoration: "underline dotted" }}
+                        title="Click to copy email">
                   {item.user_email || "(anonymous)"}
-                </span>
+                </button>
                 <span style={{ color: "var(--text-muted)", fontSize: 10 }}>
                   {item.created_at ? new Date(item.created_at).toLocaleString() : ""}
                 </span>
@@ -6000,11 +6067,11 @@ function AdminSuggestionsCard({ lang }) {
                   ✓ Resolved by {item.resolved_by || "admin"} on {new Date(item.resolved_at).toLocaleDateString()}
                 </div>
               )}
-              <div style={{ display: "flex", gap: 6 }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 <button data-testid={`admin-sugg-resolve-${item.id}`}
                         disabled={busy}
                         onClick={() => toggleResolved(item)}
-                        style={{ flex: 1, padding: "6px 10px", fontSize: 11,
+                        style={{ flex: "1 1 auto", padding: "6px 10px", fontSize: 11,
                                  background: item.resolved_at ? "transparent" : "var(--gold)",
                                  color: item.resolved_at ? "var(--text)" : "#1a1300",
                                  border: "1px solid " + (item.resolved_at ? "var(--line)" : "var(--gold)"),
@@ -6036,6 +6103,7 @@ function AdminSuggestionsCard({ lang }) {
     </div>
   );
 }
+
 
 
 function CompFirmAdminCard({ lang }) {
