@@ -34,28 +34,38 @@
   <h2>What we collect</h2>
   <ul>
     <li><strong>Account data:</strong> email, name, password hash (bcrypt), country, language preference.</li>
-    <li><strong>Usage data:</strong> which features you use, error logs, anonymous analytics (if enabled).</li>
-    <li><strong>Lex chat content:</strong> your messages and Lex's responses. <strong>Encrypted at rest</strong> in our database using AES-128 + HMAC.</li>
+    <li><strong>Usage data:</strong> which features you use, error logs, anonymous product analytics (cookie-consent gated).</li>
+    <li><strong>Lex chat content:</strong> your messages and Lex's responses. <strong>Encrypted at rest</strong> in our database using Fernet (AES-128 + HMAC).</li>
     <li><strong>Case files:</strong> titles, summaries, uploaded documents. Summaries encrypted at rest.</li>
     <li><strong>Vault items:</strong> encrypted on YOUR device with your PIN. We cannot read them.</li>
     <li><strong>Recording features:</strong> audio files you record are sent to OpenAI Whisper for transcription, then DELETED from our servers. Transcript text is kept in your case files.</li>
-    <li><strong>Payment data:</strong> handled entirely by Stripe (PCI-DSS Level 1). We never see your card number.</li>
+    <li><strong>Payment data:</strong> handled entirely by Stripe (PCI-DSS Level 1) or by Apple / Google billing. We never see your card number.</li>
+    <li><strong>Device fingerprint:</strong> a pseudonymous, non-cryptographic identifier per browser / device, used solely to throttle abusive signups (max 2 free accounts per device per 24h). Not linked to your real identity. See Terms §16.</li>
+    <li><strong>Feedback &amp; suggestions:</strong> any text you submit via "Missing a legal area?" or other feedback forms — including your email address (so we can reply) — is stored to help us improve the service. See Terms §15.</li>
+    <li><strong>SOS / location data:</strong> only when you actively trigger the Emergency SOS button. Live-tracking window is user-selected (max 24h) and the audit log is deleted after 30 days. See Terms §4d.</li>
   </ul>
 
   <h2>Why we collect it</h2>
   <ul>
-    <li>To provide the legal-information service you signed up for (lawful basis: contract).</li>
-    <li>To improve the product (lawful basis: legitimate interest, anonymised aggregates only).</li>
-    <li>To comply with tax/legal record-keeping (lawful basis: legal obligation, retention 6 years).</li>
+    <li>To provide the legal-information service you signed up for (lawful basis: <strong>contract</strong>, UK GDPR Article 6(1)(b)).</li>
+    <li>To prevent fraud, abuse, and account farming (lawful basis: <strong>legitimate interest</strong>, UK GDPR Article 6(1)(f)).</li>
+    <li>To improve the product through anonymised aggregate analytics (lawful basis: <strong>consent</strong> via cookie banner, UK GDPR Article 6(1)(a) and PECR Reg 6).</li>
+    <li>For Emergency SOS (lawful basis: <strong>vital interests</strong>, UK GDPR Article 6(1)(d) — you have actively triggered it yourself).</li>
+    <li>To comply with tax / billing record-keeping (lawful basis: <strong>legal obligation</strong>, retention 6 years).</li>
   </ul>
 
   <h2>Third parties we share with</h2>
   <ul>
     <li><strong>Anthropic</strong> (Claude) — your messages are sent to Claude for processing. Anthropic does NOT train on Universal-Key API traffic.</li>
-    <li><strong>OpenAI</strong> — Whisper for audio transcription; data deleted after processing.</li>
-    <li><strong>Google</strong> — Gemini for vision / extraction of contracts / photos.</li>
-    <li><strong>Stripe</strong> — payment processing.</li>
-    <li><strong>Apple / Google</strong> — if you use their sign-in: name, email, sub identifier.</li>
+    <li><strong>OpenAI</strong> — Whisper for audio transcription, GPT-5.2 for Plus-tier Lex responses, GPT Image for image generation. Audio deleted after processing.</li>
+    <li><strong>Google</strong> — Gemini for vision / extraction of contracts &amp; photos.</li>
+    <li><strong>Tavily</strong> — real-time legal web-search grounding (RAG) for Lex citations. Only your query text is shared, not your identity.</li>
+    <li><strong>Stripe</strong> — payment processing for web subscriptions and one-time Top-ups.</li>
+    <li><strong>Apple / Google</strong> — if you use their sign-in: name, email, sub identifier. If you subscribe via the App Store / Play Store, billing is processed entirely by them.</li>
+    <li><strong>MongoDB Atlas</strong> (UK / EU regions) — our managed database provider.</li>
+    <li><strong>PostHog</strong> (EU region) — anonymous product analytics, <strong>cookie-consent gated</strong>. Honours browser Do-Not-Track.</li>
+    <li><strong>Sentry</strong> (EU region) — error monitoring and crash reporting, used only to fix bugs.</li>
+    <li><strong>Resend</strong> (if enabled) — transactional emails (password reset, receipts, security alerts).</li>
     <li>We do NOT sell your data to advertisers or data brokers, ever.</li>
   </ul>
 
@@ -65,7 +75,7 @@
     <li><strong>Erasure:</strong> delete your account and all personal data (Settings → Delete My Account).</li>
     <li><strong>Rectification:</strong> edit your profile.</li>
     <li><strong>Portability:</strong> export as JSON.</li>
-    <li><strong>Objection / restriction:</strong> email <a href="mailto:support@aiadvocate.app">support@aiadvocate.app</a>.</li>
+    <li><strong>Objection / restriction:</strong> email <a href="mailto:support@aiadvocate.co.uk">support@aiadvocate.co.uk</a>.</li>
     <li><strong>Complaint:</strong> lodge a complaint with the ICO at <a href="https://ico.org.uk" target="_blank" rel="noopener">ico.org.uk</a>.</li>
   </ul>
 
@@ -83,11 +93,11 @@
 
   <h2>Contact</h2>
   <p>
-    For any privacy question: <a href="mailto:privacy@aiadvocate.app">privacy@aiadvocate.app</a><br/>
-    Data Protection Officer: <a href="mailto:dpo@aiadvocate.app">dpo@aiadvocate.app</a>
+    For any privacy question: <a href="mailto:support@aiadvocate.co.uk">support@aiadvocate.co.uk</a><br/>
+    Data Protection Officer: <a href="mailto:dpo@aiadvocate.co.uk">dpo@aiadvocate.co.uk</a>
   </p>
 
-  <div class="meta">Last updated: 2026-02-19 · © AI Advocate</div>
+  <div class="meta">Last updated: 2026-05-26 · <strong>v1.1</strong> (added device-fingerprint, feedback &amp; SOS data categories; expanded subprocessor list to include PostHog, Sentry, Tavily, MongoDB Atlas, Resend; explicit Art 6 lawful bases per data category; PECR cookie-consent gating note) · © AI Advocate</div>
 </div>
 </body>
 </html>
