@@ -1873,6 +1873,56 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
 }
 
 // ---------- Emergency Mode ("I've Been Arrested") ----------
+// Minimal markdown renderer for the Emergency rights script.
+// Lex returns Claude-generated markdown with `# Headings`, `**bold**`, and
+// occasional bullets. We don't want to pull in `react-markdown` (~50KB) for one
+// surface, so this tiny helper handles the three patterns that actually appear:
+//   - lines starting with `# ` or `## ` → gold heading
+//   - `**bold**` segments inline → <strong>
+//   - blank lines → paragraph breaks
+function renderRightsScript(md) {
+  if (!md) return null;
+  const lines = String(md).split("\n");
+  const out = [];
+  lines.forEach((raw, i) => {
+    let line = raw.replace(/\r$/, "");
+    // Trim **leading-only** ** if a line is wholly emphasised (Claude does this).
+    if (/^\*\*[^*]+\*\*$/.test(line.trim())) {
+      out.push(
+        <div key={i} style={{ fontWeight: 700, color: "var(--gold-soft)", marginTop: 6, marginBottom: 6 }}>
+          {line.trim().replace(/^\*\*|\*\*$/g, "")}
+        </div>
+      );
+      return;
+    }
+    // Headings
+    const m = line.match(/^(#{1,3})\s+(.*)$/);
+    if (m) {
+      const size = m[1].length === 1 ? 16 : m[1].length === 2 ? 14 : 13;
+      out.push(
+        <div key={i} style={{ fontSize: size, fontWeight: 800, color: "var(--gold)",
+                              marginTop: i === 0 ? 0 : 12, marginBottom: 6, letterSpacing: "0.02em" }}>
+          {m[2]}
+        </div>
+      );
+      return;
+    }
+    if (line.trim() === "") { out.push(<div key={i} style={{ height: 6 }} />); return; }
+    // Inline bold inside a line: split on **…**.
+    const parts = line.split(/(\*\*[^*]+\*\*)/g);
+    out.push(
+      <div key={i} style={{ marginBottom: 2 }}>
+        {parts.map((p, j) =>
+          p.startsWith("**") && p.endsWith("**")
+            ? <strong key={j} style={{ color: "var(--text)", fontWeight: 700 }}>{p.slice(2, -2)}</strong>
+            : <span key={j}>{p}</span>
+        )}
+      </div>
+    );
+  });
+  return out;
+}
+
 function EmergencyModal({ lang, country, user, onClose }) {
   const [rights, setRights] = useState("");
   const [busy, setBusy] = useState(true);
@@ -2237,20 +2287,33 @@ function EmergencyModal({ lang, country, user, onClose }) {
         <button data-testid="emergency-sos-fire" onClick={fireSilentSOS} disabled={sosBusy}
           style={{
             width: "100%", padding: "14px 16px", marginBottom: 8,
-            background: sosResult ? "rgba(34,197,94,0.15)" : "linear-gradient(135deg,#dc2626,#7f1d1d)",
-            border: sosResult ? "1px solid #22c55e" : "1px solid #fca5a5",
-            color: sosResult ? "#86efac" : "#fff",
+            background: sosResult?.error ? "rgba(220,38,38,0.20)"
+                       : (sosResult && sosResult.notified > 0) ? "rgba(34,197,94,0.15)"
+                       : (sosResult && sosResult.notified === 0) ? "rgba(247,201,72,0.15)"
+                       : "linear-gradient(135deg,#dc2626,#7f1d1d)",
+            border: sosResult?.error ? "1px solid #fca5a5"
+                   : (sosResult && sosResult.notified > 0) ? "1px solid #22c55e"
+                   : (sosResult && sosResult.notified === 0) ? "1px solid var(--gold)"
+                   : "1px solid #fca5a5",
+            color: sosResult?.error ? "#fca5a5"
+                  : (sosResult && sosResult.notified > 0) ? "#86efac"
+                  : (sosResult && sosResult.notified === 0) ? "var(--gold)"
+                  : "#fff",
             borderRadius: 12, fontWeight: 800, fontSize: 14, letterSpacing: "0.04em",
             cursor: sosBusy ? "wait" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            textAlign: "center",
           }}>
           {sosBusy ? <span className="spinner" /> : sosResult ? <Check size={18} /> : <AlertTriangle size={18} />}
           {sosBusy ? "Recording SOS…"
             : sosResult?.error ? sosResult.error
-            : sosResult ? `✓ SOS recorded — your SMS app opened with ${sosResult.notified} contact(s) pre-loaded. Tap Send.`
+            : (sosResult && sosResult.notified === 0)
+              ? "⚠ SOS recorded but NO contacts notified — add Emergency Contacts in Settings."
+              : sosResult ? `✓ SOS recorded — SMS app opened with ${sosResult.notified} contact(s). Tap Send.`
             : "🚨 SEND SOS TO MY CONTACTS"}
         </button>
-        {/* Re-open native SMS / email composer if user accidentally cancelled the OS popup */}
-        {sosResult && !sosResult.error && (
+        {/* Re-open native SMS / email composer if user accidentally cancelled the OS popup.
+            Only show when SMS actually had recipients — otherwise these buttons are confusing. */}
+        {sosResult && !sosResult.error && sosResult.notified > 0 && (
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
             <button data-testid="sos-reopen-sms" onClick={() => {
               const s = window.__aaLastSos; if (s?.phones?.length) openNativeSms(s.phones, s.body);
@@ -2356,11 +2419,25 @@ function EmergencyModal({ lang, country, user, onClose }) {
           </div>
         )}
 
-        <div style={{ fontSize: 12, color: "#fca5a5", marginBottom: 8 }}>{t(lang, "emergencyStayCalm", { country })}</div>
-        <div data-testid="rights-script" style={{ overflowY: "auto", maxHeight: "40vh", padding: 14, background: "#0a0000",
+        {/* Country line: show the full localised country name (e.g. "United Kingdom"
+            instead of just "GB"). Falls back to the ISO code if Intl.DisplayNames
+            isn't available (very old browsers). */}
+        <div style={{ fontSize: 12, color: "#fca5a5", marginBottom: 8 }}>
+          {t(lang, "emergencyStayCalm", { country: (() => {
+            try {
+              if (!country) return "";
+              const dn = new Intl.DisplayNames([lang || "en-GB"], { type: "region" });
+              return dn.of(country) || country;
+            } catch { return country; }
+          })() })}
+        </div>
+        {/* Rights script: render very lightweight markdown (`# heading`, `**bold**`)
+            so the user reads a styled, scannable script instead of literal #/**.
+            Box auto-grows up to ~60vh so most rights fit without scrolling. */}
+        <div data-testid="rights-script" style={{ overflowY: "auto", maxHeight: "60vh", padding: 14, background: "#0a0000",
                      borderRadius: 12, border: "1px solid #7f1d1d", fontSize: 14, color: "var(--text)",
-                     lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
-          {busy ? <span className="spinner" /> : rights}
+                     lineHeight: 1.65 }}>
+          {busy ? <span className="spinner" /> : renderRightsScript(rights)}
         </div>
         <button data-testid="emergency-read-aloud" onClick={readAloud} disabled={busy || !rights}
           style={{ width: "100%", marginTop: 10, padding: "10px 14px",
