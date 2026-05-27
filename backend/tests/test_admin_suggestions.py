@@ -17,8 +17,8 @@ import requests
 
 API = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001").rstrip("/") + "/api"
 
-ADMIN_EMAIL = "admin@aiadvocate.co.uk"
-ADMIN_PASSWORD = "AdminLex2026!"
+ADMIN_EMAIL = os.environ.get("AA_TEST_ADMIN_EMAIL", "admin@aiadvocate.co.uk")
+ADMIN_PASSWORD = os.environ.get("AA_TEST_ADMIN_PASSWORD", "AdminLex2026!")
 
 
 def _admin_token() -> str:

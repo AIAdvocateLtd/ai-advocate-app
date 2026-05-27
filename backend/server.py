@@ -1694,7 +1694,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                         yield f"data: {_json.dumps({'type':'token','text':token})}\n\n"
                 except Exception:
                     continue
-        except Exception as e:
+        except Exception:
             logger.exception("Streaming completion failed — falling back to non-streaming sonnet 4.5")
             # Non-streaming fallback so user is never blocked
             try:
@@ -6156,7 +6156,7 @@ No greetings, no preamble — just the tip itself."""
         .with_model("anthropic", "claude-haiku-4-5-20251001").with_params(max_tokens=80)
     try:
         tip = (await chat.send_message(UserMessage(text="Today's tip please."))).strip()
-    except Exception as e:
+    except Exception:
         logger.exception("daily tip failed"); tip = "Always ask for an officer's badge number — you have the right to record it."
     await db.tips_cache.insert_one({"key": cache_key, "tip": tip,
                                      "created_at": datetime.now(timezone.utc).isoformat()})
