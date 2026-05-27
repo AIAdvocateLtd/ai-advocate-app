@@ -72,6 +72,46 @@ const setAuthHeader = (token) => {
   else delete api.defaults.headers.common["Authorization"];
 };
 
+// 401 interceptor — when a token expires or is invalid:
+//   • Demo users: silently re-login as demo and retry the request once
+//   • Real users: clear the stale token + redirect to auth screen
+// This stops the user seeing raw "Not authenticated" alerts from native fetch in
+// long-lived demo sessions (the JWT expires after 24h).
+let _refreshingDemo = null;
+api.interceptors.response.use(
+  (r) => r,
+  async (error) => {
+    const status = error?.response?.status;
+    const cfg = error?.config || {};
+    const url = cfg.url || "";
+    if (status !== 401 || cfg.__aaRetried) return Promise.reject(error);
+    // Never retry auth endpoints themselves (avoid loops)
+    if (url.startsWith("/auth/")) return Promise.reject(error);
+    const isDemo = localStorage.getItem("aa_is_demo") === "1";
+    if (isDemo) {
+      try {
+        _refreshingDemo = _refreshingDemo || api.post("/auth/demo");
+        const { data } = await _refreshingDemo;
+        _refreshingDemo = null;
+        localStorage.setItem("aa_token", data.access_token);
+        setAuthHeader(data.access_token);
+        cfg.headers = { ...(cfg.headers || {}), Authorization: `Bearer ${data.access_token}` };
+        cfg.__aaRetried = true;
+        return api.request(cfg);
+      } catch (e) {
+        _refreshingDemo = null;
+        localStorage.removeItem("aa_token");
+        window.location.reload();
+      }
+    } else {
+      // Real user — token expired. Boot to auth screen.
+      localStorage.removeItem("aa_token");
+      window.location.reload();
+    }
+    return Promise.reject(error);
+  }
+);
+
 // ---------- In-app confirm + toast (replaces window.confirm/alert) ----------
 // Why: native window.confirm() is suppressed in some mobile browsers (Brave/iOS,
 // preview iframes) so users tap delete and nothing seems to happen. These render
@@ -6676,7 +6716,7 @@ function EmergencyContactsCard({ lang, user }) {
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e) {
-      alert(e?.response?.data?.detail || "Could not save.");
+      aaToast(e?.response?.data?.detail || "Could not save. Try again.", "error");
     } finally { setBusy(false); }
   };
   const generateWatchToken = async () => {
@@ -6684,7 +6724,8 @@ function EmergencyContactsCard({ lang, user }) {
       const { data } = await api.post("/emergency/watch-token");
       setWatchToken(data.watch_token);
       setShowWatch(true);
-    } catch (e) { alert("Could not generate token."); }
+      aaToast("Watch link generated", "success");
+    } catch (e) { aaToast(e?.response?.data?.detail || "Could not generate watch link. Try again.", "error"); }
   };
 
   const apiOrigin = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
@@ -9837,8 +9878,12 @@ function App() {
   useEffect(() => {
     if (token) {
       setAuthHeader(token);
-      api.get("/auth/me").then(r => { setUser(r.data); setSentryUser(r.data); identifyAnalytics(r.data); setLang(r.data.language || lang); setCountry(r.data.country || country); setStep("app"); })
-        .catch(() => { localStorage.removeItem("aa_token"); setToken(null); setStep(localStorage.getItem("aa_terms") ? "auth" : "lang"); });
+      api.get("/auth/me").then(r => {
+        if (r.data?.is_demo) localStorage.setItem("aa_is_demo", "1");
+        else localStorage.removeItem("aa_is_demo");
+        setUser(r.data); setSentryUser(r.data); identifyAnalytics(r.data); setLang(r.data.language || lang); setCountry(r.data.country || country); setStep("app");
+      })
+        .catch(() => { localStorage.removeItem("aa_token"); localStorage.removeItem("aa_is_demo"); setToken(null); setStep(localStorage.getItem("aa_terms") ? "auth" : "lang"); });
     } else {
       setStep(localStorage.getItem("aa_terms") ? "auth" : "lang");
     }
@@ -9878,11 +9923,14 @@ function App() {
 
   const onAuth = (data) => {
     localStorage.setItem("aa_token", data.access_token); setToken(data.access_token); setAuthHeader(data.access_token);
+    // Mark demo sessions so the 401 interceptor can silently re-login them.
+    if (data.user?.is_demo) localStorage.setItem("aa_is_demo", "1");
+    else localStorage.removeItem("aa_is_demo");
     setUser(data.user); setSentryUser(data.user); identifyAnalytics(data.user);
     track(data.user?.is_demo ? "demo_started" : "user_signed_in");
     setStep("app");
   };
-  const onLogout = () => { localStorage.removeItem("aa_token"); setToken(null); setUser(null); setAuthHeader(null); clearSentryUser(); resetAnalytics(); setStep("auth"); };
+  const onLogout = () => { localStorage.removeItem("aa_token"); localStorage.removeItem("aa_is_demo"); setToken(null); setUser(null); setAuthHeader(null); clearSentryUser(); resetAnalytics(); setStep("auth"); };
 
   if (step === "loading") return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}><span className="spinner" /></div>;
 
