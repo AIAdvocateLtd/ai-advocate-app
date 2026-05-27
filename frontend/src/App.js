@@ -6831,7 +6831,7 @@ function EmergencyContactsCard({ lang, user }) {
       <button onClick={save} disabled={busy} className="btn-gold w-full" data-testid="ec-save"
         style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 12 }}>
         {busy ? <span className="spinner" /> : saved ? <Check size={14} /> : null}
-        {saved ? "Saved ✓" : "Save emergency settings"}
+        {saved ? "Saved" : "Save emergency settings"}
       </button>
 
       {/* WATCH SOS — covert smartwatch trigger */}
