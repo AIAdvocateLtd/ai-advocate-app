@@ -1923,7 +1923,7 @@ function renderRightsScript(md) {
   return out;
 }
 
-function EmergencyModal({ lang, country, user, onClose }) {
+function EmergencyModal({ lang, country, user, onClose, onAddContact }) {
   const [rights, setRights] = useState("");
   const [busy, setBusy] = useState(true);
   const [note, setNote] = useState("");
@@ -2382,8 +2382,23 @@ function EmergencyModal({ lang, country, user, onClose }) {
           </div>
         )}
         {(!profile?.contacts || profile.contacts.length === 0) && !sosResult && (
-          <div style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 8, padding: 8, marginBottom: 12, fontSize: 11.5, color: "var(--gold)" }}>
-            ⚠ No emergency contacts saved yet. Go to Settings → Emergency Contacts to add family + your lawyer for instant SOS.
+          <div data-testid="emergency-no-contacts-banner"
+               style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 11.5, color: "var(--gold)" }}>
+            <div style={{ marginBottom: 8 }}>
+              ⚠ No emergency contacts saved yet. Add family + your lawyer so SOS reaches someone instantly.
+            </div>
+            {onAddContact && (
+              <button data-testid="emergency-add-contact-shortcut"
+                      onClick={onAddContact}
+                      style={{
+                        width: "100%", padding: "8px 12px",
+                        background: "var(--gold)", color: "#1a1300",
+                        border: "none", borderRadius: 8,
+                        fontSize: 12, fontWeight: 700, cursor: "pointer",
+                      }}>
+                + Add emergency contact now
+              </button>
+            )}
           </div>
         )}
 
@@ -7444,7 +7459,12 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
           modal route above stays for any external aa:open-modal events that still target it. */}
       {modal?.type === "legal_aid" && <LegalAidModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "lawyers" && <LawyersModal lang={lang} country={country} user={user} onClose={() => setModal(null)} openAdvertise={() => { setModal(null); setShowAdvertise(true); }} />}
-      {showEmergency && <EmergencyModal lang={lang} country={country} user={user} onClose={() => setShowEmergency(false)} />}
+      {showEmergency && <EmergencyModal lang={lang} country={country} user={user}
+          onClose={() => setShowEmergency(false)}
+          onAddContact={() => { setShowEmergency(false); setShowSettings(true); setTimeout(() => {
+            const el = document.querySelector('[data-testid="settings-emergency-contacts"]');
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 350); }} />}
       {voiceMode && <VoiceModeOverlay lang={lang} country={country} category="ask_lex" initialText={voiceMode.initialText} onClose={() => setVoiceMode(null)} />}
       {showLang && <LanguagePicker initial={lang} lang={lang} onConfirm={(l) => { setLang(l); setShowLang(false); api.patch("/auth/preferences", { language: l }).catch(() => {}); }} />}
       {showSub && <SubscribeModal lang={lang} user={user} presetPlan={subPreset} onClose={() => {
