@@ -1,0 +1,38 @@
+{
+  "summary": "Pre-launch backend smoke test for AI Advocate: 16/16 critical user-facing flows PASS on LIVE backend (https://ai-law-guide-1.preview.emergentagent.com). Stripe LIVE checkout URLs now produced (cs_live_*), Lex chat returns Anthropic response in <30s, demo mode seeds Sarah v. Acme case with 3 items, admin endpoints (suggestions inbox PATCH/DELETE, solicitor-brief.pdf, waitlist) all functional, terms v1.4 + privacy v1.1 served. NO 5xx encountered. SAFE TO DEPLOY from a backend standpoint.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/waitlist/join (NOT /api/waitlist)", "issue": "Review request listed POST /api/waitlist but actual endpoint is POST /api/waitlist/join. Admin export is GET /api/admin/waitlist (and /api/admin/waitlist.csv), not /api/waitlist/export. Frontend already uses the correct paths, but worth noting for docs."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_prelaunch_smoke.py",
+    "/app/test_reports/pytest/prelaunch_smoke.xml"
+  ],
+  "action_items": [
+    "Item 7 (Files-vs-Cases explainer modal — 'What are My Legal Files?' only, with 'vs.' comparison line, Got It button) was NOT verified because testing scope was backend-only. Main agent should self-verify in the web preview OR request a separate frontend pass.",
+    "Optional: align review-request endpoint names with actual server paths (waitlist join + admin waitlist export) in any external API docs."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 7551 lines — the router-split recommendation from iter18/19/20 is still outstanding. Pre-launch is not the time to refactor, but flag for post-launch.",
+    "TokenResp field is `access_token` (not `token` as the review-request implied). Frontend already uses the correct field. Tests had to be corrected during this run.",
+    "GET /api/cases returns {cases: [...]} envelope while many other list endpoints return raw arrays — minor inconsistency, low priority.",
+    "Demo case items_count=3 matches the requirement. Seed is idempotent per /api/auth/demo call (collections wiped + reseeded each time per test_credentials.md)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_prelaunch_smoke.py (new file — 16 smoke tests)"
+  ],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "not_tested (out of scope)"},
+  "test_credentials": "admin@aiadvocate.co.uk / AdminLex2026!  (verified is_owner=true)  |  Demo via POST /api/auth/demo (no body)",
+  "seed_data_creation": "Each pytest run creates: 1 demo user session (auto-reseeded), 1 TEST_smoke_<uuid>@advocate.app signup user (persists), 1 TEST_wl_<uuid>@advocate.app waitlist entry (persists), 1 suggestion that is auto-deleted by the test (PATCH then DELETE). Net DB growth per run: 1 user + 1 waitlist row. Safe.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 16 launch-blocker smoke checks pass: demo mode + signup + admin login + Lex chat (Anthropic live, ~5-15s) + emergency contacts CRUD + watch token + feedback suggest + admin suggestions (GET/PATCH/DELETE) + solicitor-brief.pdf (%PDF-1.x bytes) + 401 interceptor + Stripe topup LIVE checkout URL (cs_live_*) + case timeline + case export-pdf + waitlist join + admin waitlist + terms v1.4 + privacy v1.1. Stripe is now CONFIGURED (was unconfigured in iter20). Backend is GREEN for deploy. The only remaining unverified item is review-request #7 (Files-vs-Cases explainer modal) which is a pure frontend modal-content check — main agent can eyeball this in 30 seconds in the web preview.",
+  "rca of the issue": "No blockers. Initial test failures were test-code bugs (field name was access_token not token, /api/cases returns {cases:[]} envelope, case.name not case.title) — all corrected. Product code is healthy."
+}
