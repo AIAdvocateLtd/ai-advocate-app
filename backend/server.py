@@ -3819,10 +3819,11 @@ async def winback_claim(user: dict = Depends(get_user)):
 
 
 @api_router.post("/webhook/stripe")
+@api_router.post("/stripe/webhook")  # Alias — matches production Stripe destination URL
 async def stripe_webhook(request: Request):
     """Stripe webhook → update user subscription_status when payments happen.
     Configure: Stripe Dashboard → Developers → Webhooks → Add endpoint
-    URL: {your_domain}/api/webhook/stripe
+    URL: {your_domain}/api/webhook/stripe  (alias: /api/stripe/webhook also accepted)
     Events: checkout.session.completed, customer.subscription.updated, customer.subscription.deleted
     Then set STRIPE_WEBHOOK_SECRET in /app/backend/.env"""
     payload = await request.body()
