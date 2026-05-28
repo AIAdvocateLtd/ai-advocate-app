@@ -9645,7 +9645,7 @@ const TOS_TEXT = `# Terms of Service
 
 **10. Governing law.** These terms are governed by the laws of England & Wales. Disputes are subject to the exclusive jurisdiction of the English courts, unless your local consumer-protection law provides otherwise.
 
-**11. Contact.** support@aiadvocate.app
+**11. Contact.** support@aiadvocate.co.uk
 
 Last updated: 2026-02-18.`;
 
@@ -9698,8 +9698,8 @@ Active accounts: indefinitely while you remain a user. Deleted accounts: persona
 Our servers are in the EU. LLM processing may be in the US under Standard Contractual Clauses.
 
 ## Contact
-For any privacy question: privacy@aiadvocate.app
-Data Protection Officer: dpo@aiadvocate.app
+For any privacy question: privacy@aiadvocate.co.uk
+Data Protection Officer: dpo@aiadvocate.co.uk
 
 Last updated: 2026-02-18.`;
 
@@ -9747,7 +9747,7 @@ function ManageDataModal({ lang, onClose, onAccountDeleted }) {
       await api.delete("/users/me");
       localStorage.removeItem("aa_token");
       onAccountDeleted && onAccountDeleted();
-    } catch (e) { alert("Could not delete account. Email support@aiadvocate.app"); }
+    } catch (e) { alert("Could not delete account. Email support@aiadvocate.co.uk"); }
     finally { setBusy(false); }
   };
 

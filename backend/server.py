@@ -68,7 +68,7 @@ APPLE_SERVICES_ID = os.environ.get('APPLE_SERVICES_ID', '')
 APPLE_TEAM_ID = os.environ.get('APPLE_TEAM_ID', '')
 APPLE_KEY_ID = os.environ.get('APPLE_KEY_ID', '')
 APPLE_PRIVATE_KEY = os.environ.get('APPLE_PRIVATE_KEY', '').replace('\\n', '\n')
-APP_PUBLIC_URL = os.environ.get('APP_PUBLIC_URL', 'https://aiadvocate.app')
+APP_PUBLIC_URL = os.environ.get('APP_PUBLIC_URL', 'https://aiadvocate.co.uk')
 STRIPE_PRICE_PLUS = os.environ.get('STRIPE_PRICE_PLUS', '')
 STRIPE_PRICE_PRO = os.environ.get('STRIPE_PRICE_PRO', '')
 STRIPE_PRICE_YEARLY_PRO = os.environ.get('STRIPE_PRICE_YEARLY_PRO', '')
@@ -2957,7 +2957,7 @@ TERMS_BODY_EN = """TERMS OF SERVICE
 
 17. EU / UK Consumer Rights. If you are a consumer resident in the EU, UK, or another jurisdiction whose mandatory consumer-protection laws cannot be waived, nothing in these Terms limits any rights you have under those laws.
 
-18. California Residents (CCPA/CPRA Notice). California residents have specific privacy rights including the right to know, delete, correct, and opt out of "sale" or "sharing" of personal information. To exercise these rights, email privacy@aiadvocate.app. We do not sell personal information for monetary consideration.
+18. California Residents (CCPA/CPRA Notice). California residents have specific privacy rights including the right to know, delete, correct, and opt out of "sale" or "sharing" of personal information. To exercise these rights, email privacy@aiadvocate.co.uk. We do not sell personal information for monetary consideration.
 
 19. Changes to These Terms. We may update these Terms from time to time. Material changes will be notified in-app or by email at least 14 days before they take effect.
 

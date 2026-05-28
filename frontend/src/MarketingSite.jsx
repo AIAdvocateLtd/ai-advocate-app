@@ -68,8 +68,8 @@ function MarketingFooter() {
         <div>
           <div style={{ color: GOLD, fontSize: 11, fontWeight: 700, textTransform: "uppercase", marginBottom: 10, letterSpacing: "0.05em" }}>Contact</div>
           <ul style={{ listStyle: "none", padding: 0, fontSize: 13, lineHeight: 2, color: "var(--text-dim)" }}>
-            <li><a href="mailto:support@aiadvocate.app" style={{ color: "var(--text-dim)", textDecoration: "none" }}>support@aiadvocate.app</a></li>
-            <li><a href="mailto:privacy@aiadvocate.app" style={{ color: "var(--text-dim)", textDecoration: "none" }}>privacy@aiadvocate.app</a></li>
+            <li><a href="mailto:support@aiadvocate.co.uk" style={{ color: "var(--text-dim)", textDecoration: "none" }}>support@aiadvocate.co.uk</a></li>
+            <li><a href="mailto:privacy@aiadvocate.co.uk" style={{ color: "var(--text-dim)", textDecoration: "none" }}>privacy@aiadvocate.co.uk</a></li>
           </ul>
         </div>
       </div>
@@ -276,7 +276,7 @@ export function TermsPage() {
 
 **10. Governing law.** These terms are governed by the laws of England & Wales. Disputes are subject to the exclusive jurisdiction of the English courts, unless your local consumer-protection law provides otherwise.
 
-**11. Contact.** support@aiadvocate.app
+**11. Contact.** support@aiadvocate.co.uk
 
 Last updated: 2026-02-18.`;
   return <StaticDocPage title="Terms of Service" content={TOS} testid="page-terms" />;
@@ -314,7 +314,7 @@ export function PrivacyPage() {
 - **Erasure**: delete your account and all personal data (Settings → Delete My Account).
 - **Rectification**: edit your profile.
 - **Portability**: export as JSON.
-- **Objection / restriction**: email support@aiadvocate.app.
+- **Objection / restriction**: email support@aiadvocate.co.uk.
 - **Complaint**: lodge a complaint with the ICO at ico.org.uk.
 
 ## Security
@@ -330,8 +330,8 @@ Active accounts: indefinitely while you remain a user. Deleted accounts: persona
 Our servers are in the EU. LLM processing may be in the US under Standard Contractual Clauses.
 
 ## Contact
-For any privacy question: privacy@aiadvocate.app
-Data Protection Officer: dpo@aiadvocate.app
+For any privacy question: privacy@aiadvocate.co.uk
+Data Protection Officer: dpo@aiadvocate.co.uk
 
 Last updated: 2026-02-18.`;
   return <StaticDocPage title="Privacy Policy" content={PRIVACY} testid="page-privacy" />;
@@ -364,7 +364,7 @@ Card data NEVER touches our servers. Stripe (PCI-DSS Level 1) handles all card s
 We use Anthropic Claude, Google Gemini and OpenAI Whisper via Emergent's Universal Key. Anthropic and OpenAI have confirmed they do NOT train on Universal Key API traffic.
 
 ## Reporting a vulnerability
-If you find a security issue, please email security@aiadvocate.app. We aim to acknowledge within 48 hours. We do not currently run a paid bug-bounty programme, but we will publicly credit responsible disclosures.
+If you find a security issue, please email security@aiadvocate.co.uk. We aim to acknowledge within 48 hours. We do not currently run a paid bug-bounty programme, but we will publicly credit responsible disclosures.
 
 ## Compliance
 UK-GDPR / EU-GDPR. ICO registration in progress.
@@ -427,10 +427,10 @@ export function ContactPage() {
 
         <div style={{ display: "grid", gap: 12 }}>
           {[
-            { Icon: Mail, label: "General support", href: "mailto:support@aiadvocate.app", text: "support@aiadvocate.app" },
-            { Icon: ShieldCheck, label: "Privacy & data requests", href: "mailto:privacy@aiadvocate.app", text: "privacy@aiadvocate.app" },
-            { Icon: KeyRound, label: "Security reports", href: "mailto:security@aiadvocate.app", text: "security@aiadvocate.app" },
-            { Icon: Briefcase, label: "Law-firm partnerships", href: "mailto:partners@aiadvocate.app", text: "partners@aiadvocate.app" },
+            { Icon: Mail, label: "General support", href: "mailto:support@aiadvocate.co.uk", text: "support@aiadvocate.co.uk" },
+            { Icon: ShieldCheck, label: "Privacy & data requests", href: "mailto:privacy@aiadvocate.co.uk", text: "privacy@aiadvocate.co.uk" },
+            { Icon: KeyRound, label: "Security reports", href: "mailto:security@aiadvocate.co.uk", text: "security@aiadvocate.co.uk" },
+            { Icon: Briefcase, label: "Law-firm partnerships", href: "mailto:partners@aiadvocate.co.uk", text: "partners@aiadvocate.co.uk" },
           ].map(({ Icon, label, href, text }, i) => (
             <a key={i} href={href} style={{ display: "flex", alignItems: "center", gap: 14, padding: 16, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 12, textDecoration: "none", color: "var(--text)" }}>
               <div style={{ width: 40, height: 40, borderRadius: 10, background: "rgba(247,201,72,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
