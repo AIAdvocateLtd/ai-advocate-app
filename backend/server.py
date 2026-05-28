@@ -5,7 +5,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os, logging, uuid, jwt, bcrypt, base64, io, tempfile, re
+import os, logging, uuid, jwt, bcrypt, base64, io, tempfile, re, asyncio
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Literal, Tuple
@@ -462,6 +462,24 @@ def user_to_public(u: dict) -> dict:
 
     out["tier"] = tier
 
+    # 🎁 LAUNCH DAY-PASS — first 100 signups got a 24h Plus pass. If still
+    # active, upgrade them to "plus" for the remainder of the window.
+    launch_pass_until = u.get("launch_day_pass_until")
+    if launch_pass_until:
+        try:
+            lp_dt = datetime.fromisoformat(launch_pass_until.replace("Z", "+00:00")) if isinstance(launch_pass_until, str) else launch_pass_until
+            if lp_dt.tzinfo is None:
+                lp_dt = lp_dt.replace(tzinfo=timezone.utc)
+            if now < lp_dt:
+                # Promote to plus if their current tier is lower
+                if (out["tier"] or "free") in ("free", "trial_pro"):
+                    out["tier"] = "plus"
+                out["has_access"] = True
+                out["launch_day_pass_active"] = True
+                out["launch_day_pass_hours_remaining"] = max(0, int((lp_dt - now).total_seconds() // 3600))
+        except Exception:
+            pass
+
     # 🎟 TOP-UP — if the user has an active one-time top-up that grants a higher
     # tier than their base subscription, that takes precedence while it's valid.
     # E.g. a free user buying a £29.99 Crisis Pack gets Pro for 24h.
@@ -867,6 +885,12 @@ async def waitlist_join(data: WaitlistSignup, request: Request):
     }
     await db.waitlist.insert_one(doc)
     logger.info(f"Waitlist join: {data.email} (source={data.source})")
+    # Fire acknowledgement email (best-effort — never blocks signup if it fails).
+    try:
+        from email_helper import send_waitlist_ack
+        asyncio.create_task(send_waitlist_ack(data.email, data.full_name or ""))
+    except Exception:
+        logger.exception("waitlist ack email dispatch failed")
     return {"ok": True, "already_registered": False, "joined_at": now_iso}
 
 
@@ -919,6 +943,20 @@ async def signup(data: UserSignup, request: Request):
     await _enforce_device_signup_limit(data.device_id, request)
     user_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
+
+    # ── First-100 Day Pass mechanic ──────────────────────────────────────
+    # Count real (non-demo, non-admin) signups so far. If we're within the
+    # first 100, the user gets an automatic 24-hour Day Pass (Plus tier).
+    # Signup #101+ gets a 20% off welcome code instead — both reactions are
+    # delivered via Resend transactional emails further down.
+    DAY_PASS_LIMIT = 100
+    real_signup_count = await db.users.count_documents({
+        "auth_provider": {"$nin": ["demo"]},
+        "email": {"$ne": "admin@aiadvocate.co.uk"},
+    })
+    awarded_day_pass = real_signup_count < DAY_PASS_LIMIT
+    day_pass_until = (now + timedelta(hours=24)).isoformat() if awarded_day_pass else None
+
     user_doc = {
         "id": user_id,
         "email": data.email,
@@ -936,8 +974,23 @@ async def signup(data: UserSignup, request: Request):
         "terms_accepted": True,
         "signup_device_id": data.device_id,  # for abuse fingerprinting (1 user per device per 24h max ≈ 2)
         "signup_ip": (request.client.host if request.client else None),
+        # Launch-promo fields
+        "signup_position": real_signup_count + 1,         # 1-indexed signup number
+        "launch_day_pass_until": day_pass_until,           # null if missed offer
+        "launch_promo_code": None if awarded_day_pass else "WELCOME20",
     }
     await db.users.insert_one(user_doc)
+
+    # Fire the welcome email (best-effort — never blocks signup if it fails).
+    try:
+        from email_helper import send_welcome_with_daypass, send_welcome_missed_offer
+        if awarded_day_pass:
+            asyncio.create_task(send_welcome_with_daypass(data.email, data.full_name or ""))
+        else:
+            asyncio.create_task(send_welcome_missed_offer(data.email, data.full_name or ""))
+    except Exception:
+        logger.exception("welcome email dispatch failed")
+
     return TokenResp(access_token=make_token(user_id, data.email), user=user_to_public(user_doc))
 
 @api_router.post("/auth/login", response_model=TokenResp)

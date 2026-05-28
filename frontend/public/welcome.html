@@ -238,6 +238,51 @@
   .plan li::before { content: '✓'; position: absolute; left: 0; color: var(--gold); font-weight: 700; }
   .plan-foot { font-size: 11.5px; color: var(--text-muted); margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); text-align: center; }
 
+  /* Yearly variant — even louder than 'most popular' */
+  .plan-yearly { border-color: var(--gold); position: relative; }
+  .plan-yearly .badge-best {
+    position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+    background: linear-gradient(135deg,#f7c948,#b8860b); color: #1a1300;
+    padding: 5px 14px; border-radius: 999px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.1em;
+    box-shadow: 0 4px 14px rgba(247,201,72,0.45);
+  }
+  .yearly-line {
+    font-size: 13px; color: var(--gold); margin: -4px 0 6px;
+    background: rgba(247,201,72,0.08); border: 1px solid rgba(247,201,72,0.25);
+    padding: 6px 10px; border-radius: 8px; text-align: center;
+  }
+  .yearly-line strong { color: var(--text); }
+
+  /* ============ Law-firm CTA section ============ */
+  .firms-section {
+    background: linear-gradient(180deg, rgba(247,201,72,0.04), rgba(0,0,0,0));
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    padding: 70px 0;
+  }
+  .firms-card {
+    max-width: 760px; margin: 0 auto;
+    background: var(--bg-card); border: 1.5px solid var(--gold);
+    border-radius: 18px; padding: 36px 32px; text-align: center;
+    box-shadow: 0 4px 30px rgba(247,201,72,0.10);
+  }
+  .firms-card h2 { font-family: 'Cinzel', serif; color: var(--gold); font-size: 26px; margin: 0 0 6px; }
+  .firms-card .sub { font-size: 14.5px; color: var(--text-dim); margin: 0 0 22px; }
+  .firms-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 20px 0 22px; }
+  @media (max-width: 640px) { .firms-grid { grid-template-columns: 1fr; } }
+  .firms-tile {
+    background: #0a0a0a; border: 1px solid var(--line); border-radius: 12px; padding: 16px 14px;
+    text-align: left;
+  }
+  .firms-tile .label { font-size: 10.5px; color: var(--gold); letter-spacing: 0.08em; font-weight: 700; }
+  .firms-tile .value { font-size: 22px; color: var(--text); font-family: 'Cinzel', serif; margin: 4px 0 2px; font-weight: 700; }
+  .firms-tile .note { font-size: 11px; color: var(--text-muted); }
+  .firms-cta-row { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
+  .firms-cta { background: var(--gold); color: #1a1300; padding: 12px 22px; border-radius: 999px;
+    font-weight: 700; text-decoration: none; font-size: 14px; transition: transform 0.15s, box-shadow 0.15s; }
+  .firms-cta:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(247,201,72,0.5); }
+  .firms-cta-secondary { background: transparent; color: var(--gold); border: 1px solid var(--gold-deep); padding: 12px 22px;
+    border-radius: 999px; font-weight: 600; text-decoration: none; font-size: 14px; }
+
   /* ============ Trust strip ============ */
   .trust {
     background: var(--bg-card); border: 1px solid var(--line);
@@ -467,9 +512,11 @@
         </ul>
         <div class="plan-foot">Or get a Day Pass for £4.99 — pay only when you need it.</div>
       </div>
-      <div class="plan">
+      <div class="plan plan-yearly">
+        <div class="badge-best">🏆 BEST VALUE</div>
         <div class="plan-name">Pro</div>
         <div class="plan-price">£34.99 <small>/month</small></div>
+        <div class="yearly-line">or <strong>£319.99/year</strong> · save <strong>£100</strong></div>
         <ul>
           <li>Everything in Plus</li>
           <li>Hearing Recorder</li>
@@ -478,7 +525,41 @@
           <li>Lawyer Standby network</li>
           <li>200 files</li>
         </ul>
-        <div class="plan-foot">For serious legal matters. Yearly: £319.99 (save 24%).</div>
+        <div class="plan-foot">For serious legal matters. Yearly commitment unlocks £100 off.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOR LAW FIRMS ============ -->
+<section class="firms-section" id="for-firms-cta">
+  <div class="container">
+    <div class="firms-card">
+      <div class="eyebrow" style="color: var(--gold); margin-bottom: 8px;">For UK Law Firms</div>
+      <h2>Be the firm AI Advocate sends users to.</h2>
+      <p class="sub">When our users need a real solicitor, we route them to firms in our directory. Founding firms lock in launch pricing — for life.</p>
+
+      <div class="firms-grid">
+        <div class="firms-tile">
+          <div class="label">FOUNDING TRIAL</div>
+          <div class="value">90 days free</div>
+          <div class="note">No card needed, full directory listing</div>
+        </div>
+        <div class="firms-tile">
+          <div class="label">FOUNDING RATE</div>
+          <div class="value">£199<small style="font-size:13px;">/mo</small></div>
+          <div class="note">Locked-in for life, even if rates rise</div>
+        </div>
+        <div class="firms-tile">
+          <div class="label">FIRM PORTAL</div>
+          <div class="value">Lex&nbsp;AI for lawyers</div>
+          <div class="note">Case threads, citation library, drafting</div>
+        </div>
+      </div>
+
+      <div class="firms-cta-row">
+        <a href="/for-firms" class="firms-cta" data-testid="firms-learn-more">See the pitch →</a>
+        <a href="mailto:firms@aiadvocate.co.uk?subject=Founding%20Firm%20Application" class="firms-cta-secondary">Email us directly</a>
       </div>
     </div>
   </div>
