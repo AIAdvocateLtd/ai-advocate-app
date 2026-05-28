@@ -9653,6 +9653,8 @@ const PRIVACY_TEXT = `# Privacy Policy
 
 **AI Advocate** is committed to protecting your privacy. This policy explains what data we collect, why, and your rights under UK-GDPR and EU-GDPR.
 
+**Data Controller**: AI Advocate Ltd. · **ICO Registration Number**: ZC158457 (verifiable at ico.org.uk/ESDWebPages/Search) · **Contact**: support@aiadvocate.co.uk
+
 ## What we collect
 - **Account data**: email, name, password hash (bcrypt), country, language preference.
 - **Usage data**: which features you use, error logs, anonymous analytics (if enabled).
@@ -9680,8 +9682,8 @@ const PRIVACY_TEXT = `# Privacy Policy
 - **Erasure**: delete your account and all personal data (Settings → Delete My Account).
 - **Rectification**: edit your profile.
 - **Portability**: export as JSON.
-- **Objection / restriction**: email support@aiadvocate.app.
-- **Complaint**: lodge a complaint with the ICO at ico.org.uk.
+- **Objection / restriction**: email support@aiadvocate.co.uk.
+- **Complaint**: lodge a complaint with the ICO at ico.org.uk — quote our registration number **ZC158457**.
 
 ## Security
 TLS 1.3 in transit. Bcrypt for passwords. Fernet (AES-128 + HMAC) for sensitive fields at rest. Vault uses client-side AES-GCM-256 with PIN-derived keys (PBKDF2 250k iterations).
