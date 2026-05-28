@@ -74,7 +74,13 @@
     box-shadow: 0 2px 12px rgba(247,201,72,0.35);
   }
   .nav-cta:hover { transform: translateY(-1px); box-shadow: 0 4px 18px rgba(247,201,72,0.55); }
-  @media (max-width: 720px) { .nav-links a:not(.nav-cta) { display: none; } }
+  .nav-signin {
+    color: var(--gold) !important; font-weight: 600; font-size: 14px;
+    border: 1px solid rgba(247,201,72,0.4); padding: 8px 16px; border-radius: 999px;
+    transition: all 0.2s; text-decoration: none;
+  }
+  .nav-signin:hover { background: rgba(247,201,72,0.08); border-color: var(--gold); }
+  @media (max-width: 720px) { .nav-links a:not(.nav-cta) { display: none; } .nav-links a.nav-signin { display: inline-block; padding: 6px 12px; font-size: 12.5px; } }
 
   /* ============ Hero ============ */
   .hero { padding: 70px 0 60px; text-align: center; position: relative; }
@@ -273,6 +279,7 @@
       <a href="#features">Features</a>
       <a href="#pricing">Pricing</a>
       <a href="/for-firms">For Law Firms</a>
+      <a href="/app" class="nav-signin" data-testid="header-signin-link">Sign in</a>
       <a href="#waitlist" class="nav-cta">Join Waitlist</a>
     </div>
   </div>
@@ -304,6 +311,14 @@
         when we launch. No spam, ever — one email at launch.
       </p>
     </form>
+
+    <div style="text-align: center; margin-top: 10px; font-size: 13.5px; color: var(--text-dim);">
+      Already a member?
+      <a href="/app" data-testid="hero-signin-link"
+         style="color: var(--gold); font-weight: 600; text-decoration: underline; margin-left: 4px;">
+        Sign in to the app →
+      </a>
+    </div>
 
     <div class="store-badges">
       <div class="store-badge">
