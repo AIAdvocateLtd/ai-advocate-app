@@ -885,10 +885,14 @@ async def waitlist_join(data: WaitlistSignup, request: Request):
     }
     await db.waitlist.insert_one(doc)
     logger.info(f"Waitlist join: {data.email} (source={data.source})")
-    # Fire acknowledgement email (best-effort — never blocks signup if it fails).
+    # Fire acknowledgement email. We await it directly (rather than
+    # asyncio.create_task) because background tasks created from inside a
+    # FastAPI handler can be garbage-collected before they complete. Resend
+    # responds in ~200-500ms — the small latency hit on the response is worth
+    # the guarantee that the email actually goes out.
     try:
         from email_helper import send_waitlist_ack
-        asyncio.create_task(send_waitlist_ack(data.email, data.full_name or ""))
+        await send_waitlist_ack(data.email, data.full_name or "")
     except Exception:
         logger.exception("waitlist ack email dispatch failed")
     return {"ok": True, "already_registered": False, "joined_at": now_iso}
@@ -981,13 +985,14 @@ async def signup(data: UserSignup, request: Request):
     }
     await db.users.insert_one(user_doc)
 
-    # Fire the welcome email (best-effort — never blocks signup if it fails).
+    # Fire the welcome email. We await directly (not asyncio.create_task) so
+    # the task isn't garbage-collected before completion. Resend is fast (~300ms).
     try:
         from email_helper import send_welcome_with_daypass, send_welcome_missed_offer
         if awarded_day_pass:
-            asyncio.create_task(send_welcome_with_daypass(data.email, data.full_name or ""))
+            await send_welcome_with_daypass(data.email, data.full_name or "")
         else:
-            asyncio.create_task(send_welcome_missed_offer(data.email, data.full_name or ""))
+            await send_welcome_missed_offer(data.email, data.full_name or "")
     except Exception:
         logger.exception("welcome email dispatch failed")
 
