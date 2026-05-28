@@ -21,20 +21,28 @@ import os
 from typing import Optional
 
 import resend
+from dotenv import load_dotenv
+
+# Ensure .env is loaded even if this module is imported before server.py
+# completes its own load_dotenv() call (e.g. via uvicorn auto-reload).
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Module-level config — read at import time. The `or None` shim treats blank
-# strings the same as missing variables, so an unset key is detected reliably.
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY") or None
-FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL") or "no-reply@aiadvocate.co.uk"
-REPLY_TO = os.environ.get("RESEND_REPLY_TO") or "support@aiadvocate.co.uk"
 
-if RESEND_API_KEY:
-    resend.api_key = RESEND_API_KEY
-    logger.info(f"Resend email enabled — from {FROM_EMAIL}")
-else:
-    logger.warning("Resend not configured (RESEND_API_KEY missing) — transactional emails will be skipped")
+def _api_key() -> Optional[str]:
+    """Read RESEND_API_KEY on every call so a redeploy / .env update is picked
+    up without restarting Python. Returns None for empty/missing values."""
+    v = os.environ.get("RESEND_API_KEY") or ""
+    return v.strip() or None
+
+
+def _from_email() -> str:
+    return (os.environ.get("RESEND_FROM_EMAIL") or "").strip() or "no-reply@aiadvocate.co.uk"
+
+
+def _reply_to() -> str:
+    return (os.environ.get("RESEND_REPLY_TO") or "").strip() or "support@aiadvocate.co.uk"
 
 
 def _wrap(html_body: str, preview: str = "") -> str:
@@ -65,16 +73,18 @@ def _wrap(html_body: str, preview: str = "") -> str:
 
 async def _send(to_email: str, subject: str, html: str) -> bool:
     """Low-level async send. Returns False (never raises) so callers can fire-and-forget safely."""
-    if not RESEND_API_KEY:
-        logger.info(f"[email-skip] {to_email} | {subject!r}")
+    api_key = _api_key()
+    if not api_key:
+        logger.info(f"[email-skip] {to_email} | {subject!r} (no RESEND_API_KEY)")
         return False
     try:
+        resend.api_key = api_key
         params = {
-            "from": FROM_EMAIL,
+            "from": _from_email(),
             "to": [to_email],
             "subject": subject,
             "html": html,
-            "reply_to": [REPLY_TO],
+            "reply_to": [_reply_to()],
         }
         result = await asyncio.to_thread(resend.Emails.send, params)
         eid = result.get("id") if isinstance(result, dict) else None
