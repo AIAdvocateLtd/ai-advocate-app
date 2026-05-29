@@ -667,7 +667,7 @@ def build():
     # ───── KEY CONTACTS ─────────────────────────────────────────────────
     story.append(Paragraph("Key contacts & links", H1))
     story.append(kv_table([
-        ["Founder", "Samuel Malick · samuel_malick@hotmail.com"],
+        ["Founder", "Samuel Malick · firms@aiadvocate.co.uk"],
         ["Web app (live)", "https://aiadvocate.co.uk"],
         ["Firm sign-up page", "https://aiadvocate.co.uk/for-firms"],
         ["Privacy Policy", "https://aiadvocate.co.uk/privacy.html"],

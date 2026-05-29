@@ -1938,10 +1938,10 @@ function renderRightsScript(md) {
     // Headings
     const m = line.match(/^(#{1,3})\s+(.*)$/);
     if (m) {
-      const size = m[1].length === 1 ? 16 : m[1].length === 2 ? 14 : 13;
+      const size = m[1].length === 1 ? 19 : m[1].length === 2 ? 17 : 15;
       out.push(
         <div key={i} style={{ fontSize: size, fontWeight: 800, color: "var(--gold)",
-                              marginTop: i === 0 ? 0 : 12, marginBottom: 6, letterSpacing: "0.02em" }}>
+                              marginTop: i === 0 ? 0 : 14, marginBottom: 8, letterSpacing: "0.02em" }}>
           {m[2]}
         </div>
       );
@@ -2488,10 +2488,12 @@ function EmergencyModal({ lang, country, user, onClose, onAddContact }) {
         </div>
         {/* Rights script: render very lightweight markdown (`# heading`, `**bold**`)
             so the user reads a styled, scannable script instead of literal #/**.
-            Box auto-grows up to ~60vh so most rights fit without scrolling. */}
-        <div data-testid="rights-script" style={{ overflowY: "auto", maxHeight: "60vh", padding: 14, background: "#0a0000",
-                     borderRadius: 12, border: "1px solid #7f1d1d", fontSize: 14, color: "var(--text)",
-                     lineHeight: 1.65 }}>
+            Box auto-grows up to ~75vh — readability in an arrest situation is critical,
+            so we let the box dominate the screen rather than cap it small. Larger font
+            (15px) for low-stress / panic-state reading. */}
+        <div data-testid="rights-script" style={{ overflowY: "auto", minHeight: 280, maxHeight: "75vh", padding: 18, background: "#0a0000",
+                     borderRadius: 12, border: "1px solid #7f1d1d", fontSize: 15, color: "var(--text)",
+                     lineHeight: 1.7, fontWeight: 500 }}>
           {busy ? <span className="spinner" /> : renderRightsScript(rights)}
         </div>
         <button data-testid="emergency-read-aloud" onClick={readAloud} disabled={busy || !rights}
@@ -6571,10 +6573,17 @@ function CompProAdminCard({ lang }) {
   const loadComps = () => {
     api.get("/admin/users/comps").then(r => setActiveComps(r.data?.comps || [])).catch(() => {});
   };
-  useEffect(() => { loadComps(); }, []);
+  const loadRecent = async () => {
+    try {
+      const r = await api.get("/admin/users/recent?limit=30");
+      setResults(r.data?.users || []);
+    } catch (e) { /* no-op */ }
+  };
+  useEffect(() => { loadComps(); loadRecent(); }, []);
 
   const search = async () => {
-    if (!query.trim() || query.trim().length < 2) { setResults([]); return; }
+    if (!query.trim()) { loadRecent(); return; }
+    if (query.trim().length < 2) { return; }
     setSearching(true);
     try {
       const r = await api.get(`/admin/users/search?q=${encodeURIComponent(query.trim())}`);
@@ -6582,6 +6591,12 @@ function CompProAdminCard({ lang }) {
     } catch (e) { setResults([]); }
     finally { setSearching(false); }
   };
+  // Live search — debounce keystrokes so we hit the API at most every 350ms
+  useEffect(() => {
+    const t = setTimeout(() => search(), 350);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line
+  }, [query]);
 
   const grantComp = async (email) => {
     setActionBusy(true); setFeedback(null);
@@ -6591,8 +6606,8 @@ function CompProAdminCard({ lang }) {
         ? `✓ Lifetime Pro granted to ${email}`
         : `✓ ${r.data.days_granted} days Pro granted to ${email} (until ${r.data.comp_pro_until.slice(0,10)})` });
       loadComps();
-      // Refresh search to show new status
-      if (query) search();
+      // Refresh visible list with the new status
+      if (query) search(); else loadRecent();
     } catch (e) {
       setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not grant." });
     } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
@@ -6605,7 +6620,7 @@ function CompProAdminCard({ lang }) {
       await api.post("/admin/users/uncomp", { email, reason: "Owner revoked" });
       setFeedback({ ok: true, msg: `✓ Comp revoked for ${email}` });
       loadComps();
-      if (query) search();
+      if (query) search(); else loadRecent();
     } catch (e) {
       setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not revoke." });
     } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
@@ -6618,7 +6633,7 @@ function CompProAdminCard({ lang }) {
         <span style={{ fontWeight: 600, color: "var(--gold)" }}>Owner tool — Comp Pro Access</span>
       </div>
       <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 12 }}>
-        Grant free Pro access to family, friends, or unhappy customers. Every grant is logged. Tap a preset, search a user by email, then tap "Grant".
+        Grant free Pro access to family, friends, or unhappy customers. Every grant is logged. Pick a duration, then tap "Grant" next to any user — or use the search to filter.
       </div>
 
       {/* Days preset row */}
@@ -6644,21 +6659,35 @@ function CompProAdminCard({ lang }) {
 
       {/* User search */}
       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-        <input className="input" data-testid="comp-search" placeholder="Search user by email…"
+        <input className="input" data-testid="comp-search" placeholder="Filter by email or name…"
           value={query} onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && search()} style={{ flex: 1 }} />
-        <button className="btn-gold" data-testid="comp-search-btn" onClick={search} disabled={searching || query.length < 2}>
-          {searching ? <span className="spinner" /> : "🔍"}
-        </button>
+        {query && (
+          <button className="btn-ghost" data-testid="comp-search-clear" onClick={() => setQuery("")}
+            style={{ padding: "0 10px", fontSize: 12 }}>✕</button>
+        )}
       </div>
 
-      {/* Search results */}
-      {results.length > 0 && (
-        <div data-testid="comp-search-results" style={{ marginBottom: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+      {/* Results header */}
+      <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginBottom: 6, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", display: "flex", justifyContent: "space-between" }}>
+        <span>{query ? `${results.length} match${results.length === 1 ? "" : "es"}` : `Recent users · ${results.length}`}</span>
+        {searching && <span style={{ color: "var(--gold)" }}>Searching…</span>}
+      </div>
+
+      {/* Search / recent results — tappable list */}
+      {results.length > 0 ? (
+        <div data-testid="comp-search-results" style={{ marginBottom: 12, display: "flex", flexDirection: "column", gap: 6, maxHeight: 360, overflowY: "auto", paddingRight: 4 }}>
           {results.map(u => {
             const hasComp = u.comp_pro_until && new Date(u.comp_pro_until) > new Date();
             return (
-              <div key={u.id} style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--line)", borderRadius: 10, padding: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div key={u.id} data-testid={`comp-row-${u.id}`}
+                onClick={(e) => {
+                  // Tapping the row body fills the search box with the email so the user knows what's selected
+                  if (e.target.tagName !== "BUTTON") setQuery(u.email);
+                }}
+                style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, cursor: "pointer", transition: "background 120ms" }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(247,201,72,0.08)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.3)"; }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.email}</div>
                   <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>
@@ -6667,12 +6696,12 @@ function CompProAdminCard({ lang }) {
                   </div>
                 </div>
                 {hasComp ? (
-                  <button data-testid={`comp-revoke-${u.id}`} onClick={() => revokeComp(u.email)} disabled={actionBusy}
+                  <button data-testid={`comp-revoke-${u.id}`} onClick={(e) => { e.stopPropagation(); revokeComp(u.email); }} disabled={actionBusy}
                     style={{ background: "transparent", border: "1px solid #fca5a5", color: "#fca5a5", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                     Revoke
                   </button>
                 ) : (
-                  <button data-testid={`comp-grant-${u.id}`} onClick={() => grantComp(u.email)} disabled={actionBusy}
+                  <button data-testid={`comp-grant-${u.id}`} onClick={(e) => { e.stopPropagation(); grantComp(u.email); }} disabled={actionBusy}
                     style={{ background: "var(--gold)", border: "none", color: "#1a1300", borderRadius: 8, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                     Grant {days === 0 ? "lifetime" : `${days}d`}
                   </button>
@@ -6680,6 +6709,10 @@ function CompProAdminCard({ lang }) {
               </div>
             );
           })}
+        </div>
+      ) : (
+        <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "14px 8px", marginBottom: 12, textAlign: "center", border: "1px dashed var(--line)", borderRadius: 8 }}>
+          {query ? `No users match "${query}"` : "No users found"}
         </div>
       )}
 

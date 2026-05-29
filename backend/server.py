@@ -7420,6 +7420,19 @@ async def admin_users_search(q: str, _: dict = Depends(require_admin)):
     return {"users": users}
 
 
+@api_router.get("/admin/users/recent")
+async def admin_users_recent(_: dict = Depends(require_admin), limit: int = 30):
+    """Return the most recently signed-up users. Used by the comp UI to show a
+    default tappable list before any search is performed."""
+    limit = max(1, min(int(limit or 30), 100))
+    users = await db.users.find(
+        {"deleted": {"$ne": True}, "is_demo": {"$ne": True}},
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "tier": 1, "subscription_status": 1,
+         "trial_end_date": 1, "comp_pro_until": 1, "created_at": 1},
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+    return {"users": users}
+
+
 @api_router.post("/admin/users/comp")
 async def admin_users_comp(data: CompUserPayload, admin: dict = Depends(require_admin)):
     """Grant the named user free Pro access for `days` days (0 = lifetime)."""
