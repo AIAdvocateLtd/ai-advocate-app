@@ -69,7 +69,9 @@ function MarketingFooter() {
           <div style={{ color: GOLD, fontSize: 11, fontWeight: 700, textTransform: "uppercase", marginBottom: 10, letterSpacing: "0.05em" }}>Contact</div>
           <ul style={{ listStyle: "none", padding: 0, fontSize: 13, lineHeight: 2, color: "var(--text-dim)" }}>
             <li><a href="mailto:support@aiadvocate.co.uk" style={{ color: "var(--text-dim)", textDecoration: "none" }}>support@aiadvocate.co.uk</a></li>
+            <li><a href="mailto:firms@aiadvocate.co.uk" style={{ color: "var(--text-dim)", textDecoration: "none" }}>firms@aiadvocate.co.uk</a></li>
             <li><a href="mailto:privacy@aiadvocate.co.uk" style={{ color: "var(--text-dim)", textDecoration: "none" }}>privacy@aiadvocate.co.uk</a></li>
+            <li><a href="mailto:dpo@aiadvocate.co.uk" style={{ color: "var(--text-dim)", textDecoration: "none" }}>dpo@aiadvocate.co.uk</a></li>
           </ul>
         </div>
       </div>
@@ -428,9 +430,10 @@ export function ContactPage() {
         <div style={{ display: "grid", gap: 12 }}>
           {[
             { Icon: Mail, label: "General support", href: "mailto:support@aiadvocate.co.uk", text: "support@aiadvocate.co.uk" },
+            { Icon: Briefcase, label: "Law-firm partnerships", href: "mailto:firms@aiadvocate.co.uk", text: "firms@aiadvocate.co.uk" },
             { Icon: ShieldCheck, label: "Privacy & data requests", href: "mailto:privacy@aiadvocate.co.uk", text: "privacy@aiadvocate.co.uk" },
+            { Icon: ShieldCheck, label: "Data Protection Officer (GDPR)", href: "mailto:dpo@aiadvocate.co.uk", text: "dpo@aiadvocate.co.uk" },
             { Icon: KeyRound, label: "Security reports", href: "mailto:security@aiadvocate.co.uk", text: "security@aiadvocate.co.uk" },
-            { Icon: Briefcase, label: "Law-firm partnerships", href: "mailto:partners@aiadvocate.co.uk", text: "partners@aiadvocate.co.uk" },
           ].map(({ Icon, label, href, text }, i) => (
             <a key={i} href={href} style={{ display: "flex", alignItems: "center", gap: 14, padding: 16, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 12, textDecoration: "none", color: "var(--text)" }}>
               <div style={{ width: 40, height: 40, borderRadius: 10, background: "rgba(247,201,72,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
