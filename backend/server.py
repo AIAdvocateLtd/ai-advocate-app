@@ -1119,6 +1119,13 @@ async def signup(data: UserSignup, request: Request):
     }
     await db.users.insert_one(user_doc)
 
+    # 🎁 Claim any pending gifts addressed to this email (e.g. parent bought
+    # a Crisis Pack while the user hadn't signed up yet — activates instantly here)
+    try:
+        await _claim_pending_gifts_for(data.email, user_id)
+    except Exception:
+        logger.exception("Pending-gift claim during signup failed")
+
     # Fire the welcome email. We await directly (not asyncio.create_task) so
     # the task isn't garbage-collected before completion. Resend is fast (~300ms).
     try:
@@ -3803,6 +3810,203 @@ class TopupCheckoutPayload(BaseModel):
     pack_id: str
 
 
+# ============= Gift-a-Pack — buy a top-up for someone else (e.g. backpacker family) =============
+class GiftCheckoutPayload(BaseModel):
+    """Public endpoint (no auth) — anyone can buy a pack for someone else's account.
+    The recipient is identified by email. If they already have an account → instantly
+    activated on payment. If not yet signed up → stored as a pending gift and auto-claimed
+    when they sign up with the same email."""
+    recipient_email: EmailStr
+    pack_id: str
+    gifter_name: str = ""               # who's sending it
+    gifter_email: Optional[EmailStr] = None  # so we send the gifter a receipt
+    message: str = ""                   # personal note (up to 280 chars)
+
+
+@api_router.post("/topups/gift/checkout")
+async def gift_checkout(data: GiftCheckoutPayload, request: Request):
+    """Create a Stripe checkout for a gifted top-up pack. No login required.
+    Recipient is identified by email; pack activates instantly on payment
+    if the recipient has an account, otherwise stored as pending."""
+    if data.pack_id not in TOPUP_PACKS:
+        raise HTTPException(400, f"Unknown pack: {data.pack_id}")
+    price_id = _get_topup_price_id(data.pack_id)
+    if not price_id:
+        raise HTTPException(503, f"Pack '{data.pack_id}' not configured.")
+    if not stripe.api_key:
+        raise HTTPException(503, "Stripe not configured.")
+    recipient_email = data.recipient_email.lower().strip()
+    gifter_email = (data.gifter_email or "").lower().strip() or recipient_email
+    if gifter_email == recipient_email:
+        raise HTTPException(400, "You can't gift a pack to yourself. Use the normal purchase flow.")
+    origin = (os.environ.get("FRONTEND_URL") or request.headers.get("origin") or APP_PUBLIC_URL).rstrip("/")
+    msg = (data.message or "")[:280]
+    gifter_name = (data.gifter_name or "")[:80].strip() or "Someone who cares"
+    try:
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            payment_method_types=["card"],
+            line_items=[{"price": price_id, "quantity": 1}],
+            customer_email=gifter_email,                    # bill the gifter
+            success_url=f"{origin}/gift.html?status=success&pack={data.pack_id}",
+            cancel_url=f"{origin}/gift.html?status=cancel",
+            metadata={
+                "is_gift": "1",
+                "recipient_email": recipient_email,
+                "topup_pack": data.pack_id,
+                "gifter_name": gifter_name,
+                "gifter_email": gifter_email,
+                "gift_message": msg,
+            },
+            allow_promotion_codes=True,
+        )
+        return {"checkout_url": session.url, "session_id": session.id}
+    except Exception as e:
+        logger.exception("Gift checkout error")
+        raise HTTPException(500, f"Checkout error: {e}")
+
+
+async def _activate_gifted_topup(metadata: dict):
+    """Stripe webhook calls this for `is_gift=1` checkouts. Activates the pack
+    on the recipient's account (if it exists) or stores a pending gift otherwise.
+    Idempotent: uses Stripe session_id to dedupe."""
+    pack_id = metadata.get("topup_pack")
+    recipient_email = (metadata.get("recipient_email") or "").lower().strip()
+    pack = TOPUP_PACKS.get(pack_id)
+    if not pack or not recipient_email:
+        logger.warning(f"Gift activation: missing fields {metadata}")
+        return
+
+    gifter_name = metadata.get("gifter_name", "")
+    gifter_email = (metadata.get("gifter_email") or "").lower().strip()
+    message = metadata.get("gift_message", "")
+    now = datetime.now(timezone.utc)
+
+    recipient = await db.users.find_one({"email": recipient_email}, {"_id": 0})
+    if recipient:
+        # Recipient has an account — activate immediately
+        await _activate_topup_for_user(recipient["id"], pack_id)
+        # Stamp a gift note on the activation
+        await db.users.update_one(
+            {"id": recipient["id"]},
+            {"$set": {"topup_active.gift": {
+                "gifter_name": gifter_name, "gifter_email": gifter_email,
+                "message": message, "received_at": now.isoformat(),
+            }}},
+        )
+        # Audit log
+        await db.gift_topups.insert_one({
+            "id": str(uuid.uuid4()),
+            "recipient_email": recipient_email,
+            "recipient_user_id": recipient["id"],
+            "pack_id": pack_id, "label": pack["label"], "price_gbp": pack["price_gbp"],
+            "gifter_name": gifter_name, "gifter_email": gifter_email, "message": message,
+            "status": "delivered",
+            "created_at": now.isoformat(),
+        })
+        # Email both parties (best-effort)
+        try:
+            from email_helper import send_email
+            await send_email(
+                to=recipient_email,
+                subject=f"You've been gifted a {pack['label']} on AI Advocate",
+                body_html=f"""<p>Hi,</p>
+                <p><strong>{gifter_name}</strong> has just gifted you a <strong>{pack['label']}</strong> on AI Advocate.</p>
+                {f'<blockquote style="border-left:3px solid #f7c948;padding:10px 14px;background:#fff8e0;color:#1a1300;font-style:italic;">{message}</blockquote>' if message else ''}
+                <p>It's active right now — just open the app and start asking Lex.</p>
+                <p style="color:#666;font-size:12px;">If you need help, just reply to this email or contact support@aiadvocate.co.uk.</p>""",
+            )
+            if gifter_email:
+                await send_email(
+                    to=gifter_email,
+                    subject=f"Your gift to {recipient_email} has been delivered",
+                    body_html=f"""<p>Hi {gifter_name},</p>
+                    <p>Your gift of a <strong>{pack['label']}</strong> (£{pack['price_gbp']:.2f}) to <strong>{recipient_email}</strong> has been delivered. They can use it right now.</p>
+                    {f'<p>Your message:</p><blockquote style="border-left:3px solid #f7c948;padding:10px 14px;background:#fff8e0;color:#1a1300;font-style:italic;">{message}</blockquote>' if message else ''}
+                    <p>Thank you for looking out for them.</p>""",
+                )
+        except Exception:
+            logger.exception("Gift email failed")
+        logger.info(f"Gift {pack_id} delivered to {recipient_email}")
+    else:
+        # No account — store pending; activates on signup
+        pending = {
+            "id": str(uuid.uuid4()),
+            "recipient_email": recipient_email,
+            "pack_id": pack_id, "label": pack["label"], "price_gbp": pack["price_gbp"],
+            "gifter_name": gifter_name, "gifter_email": gifter_email, "message": message,
+            "status": "pending",
+            "created_at": now.isoformat(),
+        }
+        await db.gift_topups.insert_one(pending)
+        try:
+            from email_helper import send_email
+            signup_url = f"{(os.environ.get('APP_PUBLIC_URL') or 'https://aiadvocate.co.uk').rstrip('/')}/?gift_pending=1&email={recipient_email}"
+            await send_email(
+                to=recipient_email,
+                subject=f"{gifter_name} has gifted you a {pack['label']} — sign up to claim",
+                body_html=f"""<p>Hi,</p>
+                <p><strong>{gifter_name}</strong> has gifted you a <strong>{pack['label']}</strong> (£{pack['price_gbp']:.2f}) on AI Advocate — a UK legal help app.</p>
+                {f'<blockquote style="border-left:3px solid #f7c948;padding:10px 14px;background:#fff8e0;color:#1a1300;font-style:italic;">{message}</blockquote>' if message else ''}
+                <p><a href="{signup_url}" style="display:inline-block;background:#1a1300;color:#f7c948;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700;">Claim my gift</a></p>
+                <p>Just sign up with this email address ({recipient_email}) and your gift activates instantly.</p>""",
+            )
+            if gifter_email:
+                await send_email(
+                    to=gifter_email,
+                    subject=f"Your gift to {recipient_email} is waiting",
+                    body_html=f"""<p>Hi {gifter_name},</p>
+                    <p>Your gift of a <strong>{pack['label']}</strong> (£{pack['price_gbp']:.2f}) to <strong>{recipient_email}</strong> has been received.</p>
+                    <p>They don't have an AI Advocate account yet — we've emailed them a signup link, and the pack will activate the moment they create an account with that email. Their gift will wait for them.</p>""",
+                )
+        except Exception:
+            logger.exception("Gift pending email failed")
+        logger.info(f"Gift {pack_id} pending for unsigned {recipient_email}")
+
+
+async def _claim_pending_gifts_for(email: str, user_id: str):
+    """Called on signup. Looks up any pending gift_topups for this email and
+    activates them on the new user's account."""
+    email = (email or "").lower().strip()
+    claimed = 0
+    async for g in db.gift_topups.find({"recipient_email": email, "status": "pending"}):
+        try:
+            await _activate_topup_for_user(user_id, g["pack_id"])
+            await db.users.update_one(
+                {"id": user_id},
+                {"$set": {"topup_active.gift": {
+                    "gifter_name": g.get("gifter_name", ""),
+                    "gifter_email": g.get("gifter_email", ""),
+                    "message": g.get("message", ""),
+                    "received_at": datetime.now(timezone.utc).isoformat(),
+                    "claimed_on_signup": True,
+                }}},
+            )
+            await db.gift_topups.update_one(
+                {"id": g["id"]},
+                {"$set": {"status": "delivered", "recipient_user_id": user_id,
+                          "claimed_at": datetime.now(timezone.utc).isoformat()}},
+            )
+            claimed += 1
+        except Exception:
+            logger.exception(f"Pending-gift claim failed: {g.get('id')}")
+    if claimed:
+        logger.info(f"Claimed {claimed} pending gift(s) for {email}")
+    return claimed
+
+
+@api_router.get("/topups/pending-gifts")
+async def list_pending_gifts(email: str):
+    """Public — looks up pending gifts for an email. Used by the /gift.html success
+    page so the gifter can confirm delivery, and (with a banner) on the signup screen
+    to encourage someone who's been gifted to register."""
+    rx = email.lower().strip()
+    out = []
+    async for g in db.gift_topups.find({"recipient_email": rx, "status": "pending"}, {"_id": 0}):
+        out.append({"label": g["label"], "gifter_name": g.get("gifter_name", ""), "created_at": g.get("created_at")})
+    return {"pending": out}
+
+
 @api_router.post("/topups/checkout")
 async def topup_checkout(data: TopupCheckoutPayload, request: Request, user: dict = Depends(get_user)):
     """Create a Stripe one-time payment checkout for a top-up pack."""
@@ -3994,10 +4198,16 @@ async def stripe_webhook(request: Request):
     now_iso = datetime.now(timezone.utc).isoformat()
 
     if etype == "checkout.session.completed":
+        meta = obj.get("metadata") or {}
+        # 🎁 GIFTED top-up — metadata.is_gift=1 set by /api/topups/gift/checkout
+        if meta.get("is_gift") == "1":
+            await _activate_gifted_topup(meta)
+            return {"ok": True, "gift_processed": meta.get("recipient_email")}
+
         # 🎟 Consumer TOP-UP one-time payment — metadata.topup_pack is set by /api/topups/checkout
-        topup_pack = (obj.get("metadata") or {}).get("topup_pack")
+        topup_pack = meta.get("topup_pack")
         if topup_pack:
-            user_id = obj.get("client_reference_id") or (obj.get("metadata") or {}).get("user_id")
+            user_id = obj.get("client_reference_id") or meta.get("user_id")
             if user_id:
                 await _activate_topup_for_user(user_id, topup_pack)
                 logger.info(f"Top-up {topup_pack} activated for {user_id} via Stripe webhook")

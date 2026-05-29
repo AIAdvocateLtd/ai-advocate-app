@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gift a Pack — AI Advocate</title>
+<meta name="description" content="Gift a Day Pass, Letter Pack, Weekend Pass or Crisis Pack to someone who needs legal help right now. Instantly activated on their account.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --bg-card: #141414;
+    --bg-elevated: #1a1a1a;
+    --line: #2a2a2a;
+    --gold: #f7c948;
+    --gold-deep: #b8860b;
+    --text: #f0f0f0;
+    --text-dim: #888;
+    --danger: #ef4444;
+    --success: #22c55e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0; font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.5; min-height: 100vh;
+  }
+  .container { max-width: 720px; margin: 0 auto; padding: 24px 18px 64px; }
+  .hero {
+    text-align: center; padding: 22px 16px 32px;
+    border-bottom: 1px solid var(--line); margin-bottom: 30px;
+  }
+  .brand {
+    font-family: 'Cinzel', serif; color: var(--gold); font-size: 22px;
+    letter-spacing: 0.08em; margin-bottom: 6px;
+  }
+  h1 {
+    font-family: 'Cinzel', serif; font-size: clamp(28px, 5vw, 38px);
+    color: var(--text); margin: 14px 0 8px; line-height: 1.2;
+  }
+  .lede {
+    font-size: 15.5px; color: var(--text-dim); max-width: 520px;
+    margin: 0 auto;
+  }
+  .story {
+    background: linear-gradient(135deg, rgba(247,201,72,0.06), rgba(247,201,72,0.02));
+    border: 1px solid rgba(247,201,72,0.25); border-radius: 14px;
+    padding: 18px 20px; margin-bottom: 28px; font-size: 14.5px;
+  }
+  .story strong { color: var(--gold); }
+  /* Pack picker */
+  .picker-label {
+    text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px;
+    color: var(--gold); font-weight: 700; margin-bottom: 10px;
+  }
+  .packs { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; margin-bottom: 28px; }
+  @media (max-width: 480px) { .packs { grid-template-columns: 1fr; } }
+  .pack {
+    background: var(--bg-card); border: 2px solid var(--line);
+    border-radius: 14px; padding: 16px 14px; cursor: pointer;
+    transition: all 180ms; position: relative;
+  }
+  .pack:hover { border-color: var(--gold-deep); }
+  .pack.selected {
+    border-color: var(--gold); background: rgba(247,201,72,0.05);
+    box-shadow: 0 0 0 4px rgba(247,201,72,0.08);
+  }
+  .pack-name {
+    font-family: 'Cinzel', serif; font-size: 15px; color: var(--text);
+    margin-bottom: 4px;
+  }
+  .pack-price {
+    font-size: 22px; font-weight: 700; color: var(--gold);
+    margin-bottom: 4px;
+  }
+  .pack-dur { font-size: 11.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+  .pack-desc { font-size: 12.5px; color: var(--text-dim); margin-top: 8px; line-height: 1.45; }
+  .pack-badge {
+    position: absolute; top: 8px; right: 8px;
+    background: var(--gold); color: #1a1300;
+    font-size: 9.5px; font-weight: 700; padding: 2px 7px;
+    border-radius: 999px; letter-spacing: 0.04em;
+  }
+  /* Form */
+  form { background: var(--bg-card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  .field { margin-bottom: 16px; }
+  label {
+    display: block; font-size: 12px; color: var(--gold);
+    text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;
+    margin-bottom: 6px;
+  }
+  input, textarea {
+    width: 100%; padding: 12px 14px; background: var(--bg-elevated);
+    border: 1px solid var(--line); border-radius: 8px; color: var(--text);
+    font-size: 14.5px; font-family: inherit;
+  }
+  input:focus, textarea:focus { outline: none; border-color: var(--gold); }
+  textarea { resize: vertical; min-height: 80px; }
+  .hint { font-size: 11.5px; color: var(--text-dim); margin-top: 4px; line-height: 1.4; }
+  button[type="submit"] {
+    width: 100%; padding: 16px; background: var(--gold); color: #1a1300;
+    border: none; border-radius: 10px; font-size: 15.5px; font-weight: 700;
+    cursor: pointer; letter-spacing: 0.03em; font-family: 'Cinzel', serif;
+    margin-top: 8px;
+  }
+  button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }
+  button[type="submit"]:hover:not(:disabled) { background: #ffd862; }
+  .error { color: #fca5a5; font-size: 13px; margin-top: 12px; padding: 10px 12px; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25); border-radius: 8px; }
+  .success-card {
+    background: linear-gradient(135deg, rgba(34,197,94,0.10), rgba(34,197,94,0.04));
+    border: 1px solid var(--success); border-radius: 14px; padding: 24px; text-align: center;
+  }
+  .success-card .check { font-size: 48px; line-height: 1; margin-bottom: 12px; }
+  .success-card h2 { color: var(--success); margin: 0 0 8px; font-family: 'Cinzel', serif; }
+  .cancel-card {
+    background: rgba(239,68,68,0.06); border: 1px solid #7f1d1d;
+    border-radius: 14px; padding: 20px; text-align: center; margin-bottom: 20px;
+  }
+  .footer {
+    text-align: center; color: var(--text-dim); font-size: 11.5px;
+    margin-top: 32px; padding-top: 18px; border-top: 1px solid var(--line);
+  }
+  .footer a { color: var(--gold-deep); }
+  a.back-home {
+    display: inline-block; margin-top: 16px; color: var(--gold);
+    text-decoration: none; font-size: 13px; font-weight: 600;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="hero">
+    <div class="brand">AI ADVOCATE</div>
+    <h1>Gift a pack to someone who needs help</h1>
+    <p class="lede">Travelling family member out of cash? Friend in a tight spot? Send them legal AI support instantly — they don't need an account first.</p>
+  </div>
+
+  <div id="banner" style="display:none;"></div>
+
+  <div id="form-area">
+
+    <div class="story">
+      <strong>How it works:</strong> Pay below → we activate the pack on their account the moment payment clears →
+      they get an email + push notification. If they don't have an account yet,
+      we'll save the gift and activate it the moment they sign up with that email.
+    </div>
+
+    <div class="picker-label">1 · Choose a pack</div>
+    <div class="packs" id="packs"></div>
+
+    <form id="gift-form">
+      <div class="picker-label">2 · Who's it for?</div>
+
+      <div class="field">
+        <label for="recipient_email">Their email address</label>
+        <input type="email" id="recipient_email" name="recipient_email" required
+               placeholder="them@example.com" data-testid="gift-recipient-email">
+        <div class="hint">Same email they'll use (or already use) on AI Advocate.</div>
+      </div>
+
+      <div class="field">
+        <label for="gifter_name">Your name</label>
+        <input type="text" id="gifter_name" name="gifter_name" required maxlength="80"
+               placeholder="Mum / Dad / Sarah" data-testid="gift-from-name">
+      </div>
+
+      <div class="field">
+        <label for="gifter_email">Your email (for the receipt)</label>
+        <input type="email" id="gifter_email" name="gifter_email" required
+               placeholder="you@example.com" data-testid="gift-from-email">
+      </div>
+
+      <div class="field">
+        <label for="message">Personal message (optional)</label>
+        <textarea id="message" name="message" maxlength="280"
+                  placeholder="Stay safe — call me when you can. xx" data-testid="gift-message"></textarea>
+        <div class="hint">We'll include this in the email they receive.</div>
+      </div>
+
+      <button type="submit" id="submit-btn" data-testid="gift-submit-btn">Continue to payment</button>
+      <div id="error-msg" class="error" style="display:none"></div>
+    </form>
+  </div>
+
+  <div class="footer">
+    AI Advocate Ltd. · Co. No. 16612244 · ICO Reg ZC158457<br>
+    <a href="/">Back to homepage</a> · <a href="/terms.html">Terms</a> · <a href="/privacy.html">Privacy</a>
+  </div>
+
+</div>
+
+<script>
+  const PACKS = [
+    {id: "day_pass",      name: "Day Pass",      price: "£4.99",  dur: "24 hours",            desc: "One urgent question. Full Plus features for 24h."},
+    {id: "letter_pack",   name: "Letter Pack",   price: "£9.99",  dur: "30 days",             desc: "Up to 5 AI-drafted formal letters + 1 contract review."},
+    {id: "weekend_pass",  name: "Weekend Pass",  price: "£14.99", dur: "72 hours",            desc: "Whole-weekend coverage — tenancy rows, family disputes, anything."},
+    {id: "crisis_pack",   name: "Crisis Pack",   price: "£29.99", dur: "Pro for 24 hours",    desc: "Family emergency, arrest, court tomorrow — full Pro power for 24h.", badge: "RECOMMENDED"},
+  ];
+
+  function renderPacks() {
+    const grid = document.getElementById("packs");
+    grid.innerHTML = PACKS.map(p => `
+      <div class="pack" data-pack="${p.id}" data-testid="gift-pack-${p.id}">
+        ${p.badge ? `<div class="pack-badge">${p.badge}</div>` : ""}
+        <div class="pack-name">${p.name}</div>
+        <div class="pack-price">${p.price}</div>
+        <div class="pack-dur">${p.dur}</div>
+        <div class="pack-desc">${p.desc}</div>
+      </div>
+    `).join("");
+    grid.querySelectorAll(".pack").forEach(el => {
+      el.addEventListener("click", () => {
+        grid.querySelectorAll(".pack").forEach(x => x.classList.remove("selected"));
+        el.classList.add("selected");
+        window.__selectedPack = el.dataset.pack;
+      });
+    });
+    // Pre-select Crisis Pack (the empathetic default)
+    grid.querySelector("[data-pack='crisis_pack']").click();
+  }
+
+  function showBanner(html, kind) {
+    const b = document.getElementById("banner");
+    b.style.display = "block";
+    if (kind === "success") {
+      b.innerHTML = `<div class="success-card"><div class="check">✓</div><h2>Gift sent</h2><p>${html}</p><a href="/" class="back-home">← Back to homepage</a></div>`;
+      document.getElementById("form-area").style.display = "none";
+    } else {
+      b.innerHTML = `<div class="cancel-card"><strong>Payment cancelled.</strong><br><span style="color:#aaa;font-size:13px;">No charge was made. You can try again whenever you're ready.</span></div>`;
+    }
+  }
+
+  // Handle return from Stripe
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("status") === "success") {
+    const pack = params.get("pack");
+    const packLabel = (PACKS.find(p => p.id === pack) || {}).name || "pack";
+    showBanner(`Your <strong>${packLabel}</strong> has been delivered. They'll get an email & in-app notification within seconds.`, "success");
+  } else if (params.get("status") === "cancel") {
+    showBanner("", "cancel");
+  }
+
+  renderPacks();
+
+  document.getElementById("gift-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById("error-msg");
+    errEl.style.display = "none";
+    const btn = document.getElementById("submit-btn");
+    btn.disabled = true;
+    btn.textContent = "Redirecting to Stripe…";
+
+    const payload = {
+      pack_id: window.__selectedPack || "crisis_pack",
+      recipient_email: document.getElementById("recipient_email").value.trim(),
+      gifter_name: document.getElementById("gifter_name").value.trim(),
+      gifter_email: document.getElementById("gifter_email").value.trim(),
+      message: document.getElementById("message").value.trim(),
+    };
+    try {
+      const r = await fetch("/api/topups/gift/checkout", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.detail || "Could not start checkout.");
+      window.location.href = data.checkout_url;
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = "Continue to payment";
+    }
+  });
+</script>
+</body>
+</html>

@@ -323,9 +323,9 @@ def build():
     topup_rows = [
         ["Pack", "Price", "Duration", "Use case"],
         ["Day Pass", "£4.99", "24 hours", "User has one urgent question and wants Pro-quality answer right now"],
-        ["Letter Pack", "£7.99", "1 letter + 24h reread", "Need to send one formal legal letter today"],
-        ["Weekend Pass", "£9.99", "Fri 5pm → Mon 9am", "Whole-weekend coverage for a tenancy dispute, ex-partner row, etc."],
-        ["Crisis Pack", "£14.99", "7 days", "Family-emergency / arrest / eviction window"],
+        ["Letter Pack", "£9.99", "30 days", "5 AI-drafted letters + 1 contract review · valid for 30 days"],
+        ["Weekend Pass", "£14.99", "72 hours", "Whole-weekend coverage for a tenancy dispute, ex-partner row, etc."],
+        ["Crisis Pack", "£29.99", "24 hours of Pro", "Family-emergency / arrest / eviction / hearing tomorrow"],
     ]
     topup_table = Table(_wrap_rows(topup_rows), colWidths=[28 * mm, 22 * mm, 35 * mm, 85 * mm], repeatRows=1)
     topup_table.setStyle(TableStyle([
@@ -340,6 +340,18 @@ def build():
         ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
     story.append(topup_table)
+
+    story.append(Paragraph("Gift-a-Pack (public, no login required)", H3))
+    story.append(Paragraph(
+        "Anyone can buy a top-up for someone else from <b>/gift.html</b> — recipient is identified by "
+        "email. If they already have an account, the pack activates instantly via Stripe webhook and "
+        "both parties get an email (recipient: <i>'Your Mum just bought you a Crisis Pack'</i>; gifter: "
+        "<i>'Your gift has been delivered'</i>). If the recipient hasn't signed up yet, the gift is stored "
+        "and auto-claimed the moment they sign up with that email. Built for the parent-of-the-backpacker "
+        "use case: traveller out of cash + needs urgent legal help → family gifts a Crisis Pack from the UK "
+        "in 60 seconds. This is a major safety differentiator and a viral story-hook.",
+        BODY,
+    ))
 
     story.append(PageBreak())
 
@@ -360,9 +372,9 @@ def build():
         ["Premium", "£199 / mo",
          "3 fee-earner seats · Multi-postcode listing · Priority routing · Quarterly performance reports",
          "✅ Live (25 concurrent engagements)"],
-        ["Practice", "£399 / mo",
+        ["Practice", "£499 / mo",
          "5 fee-earner seats · Region-wide listing · Custom branding · Roadmap input · Partner success manager",
-         "⚠️ Partial — see Operational gaps below"],
+         "✅ Live — seats + branding + tier enforcement"],
         ["Founding Partner", "Bespoke",
          "Regional or practice-area exclusivity · App Store launch quote · 50% rev-share on direct referrals · Logo lockup · 12-mo term",
          "✅ Manual (your call)"],
