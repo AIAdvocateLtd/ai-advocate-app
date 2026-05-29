@@ -237,7 +237,8 @@ def build():
         BODY,
     ))
     story.append(Paragraph(
-        '<b>Domain:</b> aiadvocate.co.uk · <b>ICO Reg:</b> ZC158457 · <b>Company:</b> AI Advocate Ltd.',
+        '<b>Company:</b> AI Advocate Ltd. (Company No. 16612244, registered in England &amp; Wales)<br/>'
+        '<b>Domain:</b> aiadvocate.co.uk · <b>ICO Reg:</b> ZC158457',
         BODY,
     ))
     story.append(PageBreak())
@@ -254,24 +255,26 @@ def build():
 
     story.append(Paragraph("The 90-second version", H2))
     body90 = (
-        "70% of UK adults can't afford £300/hour solicitor fees, so they Google. They land on outdated "
+        "Most UK adults can't easily afford private solicitor fees, so they Google. They land on outdated "
         "Citizens Advice pages, Reddit threads, or AI hallucinations. The conversion path from "
         "<i>'I have a problem'</i> to <i>'I instruct a solicitor'</i> is broken on both sides — consumers "
         "don't know what they need; firms can't find the right clients.<br/><br/>"
         "AI Advocate fixes the discovery layer. Consumers get genuine, source-cited legal information grounded "
         "in legislation.gov.uk and BAILII. When their issue needs a real lawyer, we route them — pre-qualified "
         "and ready to instruct — to a firm in our directory. Firms get warm leads with full context. "
-        "Consumers get £20/month answers that used to cost £300/hour."
+        "Consumers get £20/month answers that used to cost hundreds of pounds per hour."
     )
     story.append(Paragraph(body90, BODY))
 
     # Why now
     story.append(Paragraph("Why now?", H2))
     why_now = [
-        "<b>UK access-to-justice gap:</b> 1 in 3 adults has had a legal issue in the last 12 months; 60% didn't act because of cost.",
-        "<b>LLM capability:</b> Claude Sonnet 4.5 + GPT-5.2 now match or exceed junior-paralegal accuracy on UK statute Q&A — verified by our own internal tests.",
-        "<b>Regulatory clarity:</b> SRA confirmed (2024) that AI legal-information tools don't require regulation provided they don't provide reserved legal services. Our disclaimers + 'general information not advice' framing keeps us compliant.",
-        "<b>Smartphone-native:</b> 95% of low-income UK adults have a smartphone but only 12% have a solicitor's number. We meet them where they are.",
+        "<b>UK access-to-justice gap:</b> 66% of adults in England &amp; Wales experienced a legal issue in the last 4 years; 32% of those with legal needs had unmet need. <i>(Source: LSB Legal Needs Survey 2023.)</i>",
+        "<b>Cost is a barrier:</b> 26% of those with contentious legal issues who didn't seek help cited the assumption that help would be too expensive. <i>(Source: LSB Legal Needs Survey 2023.)</i>",
+        "<b>Price discovery is broken:</b> 24% of those looking for legal help found it difficult to compare prices. <i>(Source: LSB 2023.)</i>",
+        "<b>LLM capability:</b> Claude Sonnet 4.5 + GPT-5.2 now match or exceed junior-paralegal accuracy on UK statute Q&amp;A — verified by our own internal QA testing.",
+        "<b>Regulatory clarity:</b> Per current SRA guidance (Nov 2023 'Risks of harm from generative AI'), AI tools that provide general legal information — not reserved legal services — sit outside the regulated perimeter. Our disclaimers and 'general information not advice' framing keep us compliant.",
+        "<b>Smartphone-native:</b> Smartphone penetration is near-universal in the UK (~95% adults, ONS Internet Access 2023). We meet users where they are.",
         "<b>Travel-friendly:</b> Lex auto-detects the user's country and offers to switch jurisdiction. UK customer holidaying in Spain with a rental dispute? Lex handles it. Polish migrant moving to London? Same app, same login, different jurisdiction. No other UK-first legal app does this.",
     ]
     for b in why_now:
@@ -503,7 +506,7 @@ def build():
         "<b>Zero-knowledge Vault</b> — even if our servers were subpoenaed, we cannot decrypt user case files. Major trust signal for domestic-abuse / immigration users.",
         "<b>Grounded in real law</b> — Lex cites <i>actual</i> statute sections (s.213 Housing Act 2004, etc.) not made-up case law. Verifiable. Anti-hallucination.",
         "<b>UK-first</b> — we know our jurisdiction. Most US legal-AI tools mis-handle UK statute. We don't.",
-        "<b>11 languages</b> — opens us to UK's 22% non-native-English population. Immigration / refugee / migrant communities especially under-served by traditional firms.",
+        "<b>11 languages</b> — opens us to UK communities under-served by traditional firms — particularly immigration, refugee and migrant clients (~9% of England &amp; Wales residents do not have English as their main language, per ONS Census 2021).",
     ]
     for s in sales:
         story.append(Paragraph(f"▸ {s}", BULLET))
@@ -531,7 +534,7 @@ def build():
     story.append(Paragraph(
         "Three protections: <b>(1)</b> every output explicitly states it's general information not advice. "
         "<b>(2)</b> Our Terms of Service cap liability at £50 or 3 months' fees, whichever is greater (clause 8, "
-        "v1.4.1). <b>(3)</b> We carry professional indemnity insurance (£1m) and AI-specific liability cover. "
+        "v1.4.1). <b>(3)</b> Professional indemnity insurance is being arranged for the launch window. "
         "Importantly — Lex is designed to refer users to real solicitors for any matter with real consequences. "
         "It's a triage tool, not a replacement.",
         BODY,
@@ -548,9 +551,10 @@ def build():
 
     story.append(Paragraph("Q: Does the AI 'train on' my data?", H3))
     story.append(Paragraph(
-        "No. We use Anthropic, OpenAI and Google's enterprise endpoints — they've confirmed in writing that "
-        "API traffic via these endpoints is not used to train their models. Each user's chats stay private to "
-        "that user. We can prove this with the providers' published data-handling policies.",
+        "No. We use Anthropic, OpenAI and Google's enterprise endpoints — per their <i>published</i> "
+        "API data-handling policies, traffic via these endpoints is not used to train their models. "
+        "Each user's chats stay private to that user. We can demonstrate this with the providers' "
+        "publicly-stated data-handling commitments.",
         BODY,
     ))
 
@@ -688,7 +692,7 @@ def build():
         ("\"What stops a 16-year-old using this for a serious case?\"",
          "Hard 18+ age-gate at sign-up. UK law-of-contract enforces minor protection separately. We refer minors to Childline / NSPCC where appropriate."),
         ("\"What happens if the AI gives wrong info and someone loses £100k?\"",
-         "Liability is capped to £50 or 3 months' fees per our Terms (v1.4.1, cl.8). We carry £1m PI insurance. Critically — Lex always says 'verify with a qualified solicitor' for anything material. We're a triage, not a substitute."),
+         "Liability is capped to £50 or 3 months' fees per our Terms (v1.4.1, cl.8). Professional indemnity cover is being arranged for the launch window. Critically — Lex always says 'verify with a qualified solicitor' for anything material. We're a triage, not a substitute."),
     ]
     qa_rows = []
     for q, a in qa:

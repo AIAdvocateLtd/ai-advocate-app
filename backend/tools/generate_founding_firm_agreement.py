@@ -117,7 +117,7 @@ def build(firm_name="[FIRM NAME]",
     # ───── PARTIES ─────────────────────────────────────────────────────
     parties_table = Table([
         ["BETWEEN:",
-         Paragraph(f"<b>AI Advocate Ltd.</b><br/>(Company No. [tbd], ICO Registration ZC158457)<br/>"
+         Paragraph(f"<b>AI Advocate Ltd.</b><br/>(Company No. 16612244, ICO Registration ZC158457)<br/>"
                    f"Registered in England &amp; Wales<br/>"
                    f'<font color="#666">Hereinafter <b>"AI Advocate"</b></font>',
                    BODY)],
@@ -155,15 +155,15 @@ def build(firm_name="[FIRM NAME]",
     # ───── BENEFITS ─────────────────────────────────────────────────────
     story.append(Paragraph("1. FOUNDING FIRM BENEFITS", H2))
     benefits = [
-        "<b>Lifetime £199/month rate</b> — the Firm is granted the Founding Premium tier at £199 per month, locked-in for the lifetime of the Firm's subscription. AI Advocate will not increase this rate even when public Premium pricing rises (currently £199, anticipated public rate £249–£299 within 12 months of launch).",
+        "<b>Founding £199/month rate, lock-in survival</b> — the Firm is granted the Premium tier at £199 per month. If AI Advocate raises the public Premium rate above £199 at any point during the Firm's continuous subscription, the Firm's rate stays at £199 (or the then-current Premium rate, whichever is lower) for the duration of that continuous subscription. Subject to clause 3.4.",
         "<b>90-day free trial</b> — the first 90 days are entirely complimentary. No card required. The Firm may cancel at any time during this period with no obligation.",
-        "<b>Founding Firm badge</b> — displayed on the Firm's directory listing in perpetuity, signalling early-partner status to all AI Advocate users.",
+        "<b>Founding Firm badge</b> — displayed on the Firm's directory listing while the Firm remains an active Founding Firm subscriber, signalling early-partner status to all AI Advocate users.",
         "<b>Ranking boost</b> — the Firm's listing receives priority placement in the postcode and specialism searches relevant to its practice.",
-        "<b>App Store launch marketing</b> — featured in screenshots and promotional collateral for the AI Advocate iOS / Android launch.",
-        "<b>50% revenue-share on direct referrals</b> — when an AI Advocate user instructs the Firm and pays a fee, the standard referral arrangement is 30%. Founding Firms receive 50%.",
+        "<b>App Store launch marketing</b> — subject to App Store approval and successful platform launch, the Firm is featured in screenshots and promotional collateral for the AI Advocate iOS / Android release within 12 months of agreement signing.",
+        "<b>Enhanced revenue-share on direct referrals</b> — when an AI Advocate user instructs the Firm and pays a fee, the Founding Firm referral rate is 50% (vs. AI Advocate's then-current standard rate, which will not be less favourable than 30% for a minimum of 24 months from launch).",
         "<b>Two-way Lex integration</b> — clients may share their full AI Advocate chat history with the Firm upon engagement, dramatically reducing initial consultation time.",
-        "<b>Quarterly roadmap input</b> — a 30-minute call each quarter with the AI Advocate product team, with binding influence on roadmap priorities.",
-        "<b>Direct success-manager contact</b> — a named contact at AI Advocate for any service issues; response time guarantee under 24 hours, Monday–Friday.",
+        "<b>Quarterly roadmap input</b> — a 30-minute call each quarter with the AI Advocate product team. The Firm's feedback is logged and influences roadmap priorities (non-binding but materially considered).",
+        "<b>Direct success-manager contact</b> — a named contact at AI Advocate for any service issues; target response within 24 working hours, Monday–Friday.",
     ]
     for b in benefits:
         story.append(Paragraph(f"▸ {b}", BULLET))
@@ -173,8 +173,8 @@ def build(firm_name="[FIRM NAME]",
     commits = [
         "Maintain a complete firm profile (logo, specialties, opening hours, photo) within the AI Advocate Firm Portal.",
         "Respond to qualified client invites received via AI Advocate within <b>48 working hours</b>.",
-        "Provide a 1–2 sentence testimonial after 60 days of the trial, if it is working for the Firm. The Firm reserves the right to decline if the trial is unsatisfactory; AI Advocate may publish the testimonial in marketing collateral with the Firm's name and logo.",
-        "Compliance with AI Advocate's Solicitor Code of Conduct (see Schedule A). All SRA / LSS / LSNI numbers will be verified.",
+        "Provide a 1–2 sentence testimonial after 60 days of the trial, if it is working for the Firm. The Firm reserves the right to decline if the trial is unsatisfactory; AI Advocate may publish the testimonial in marketing collateral with the Firm's name and logo, subject to the Firm's prior approval.",
+        "Operate in accordance with the regulatory rules applicable to the Firm (SRA / LSS / LSNI). All SRA / LSS / LSNI numbers will be verified by AI Advocate at onboarding.",
         "Notify AI Advocate within 5 working days of any material change to the Firm's regulatory status (e.g. SRA intervention, name change, merger).",
     ]
     for c in commits:
@@ -186,11 +186,13 @@ def build(firm_name="[FIRM NAME]",
         "3.1 <b>Initial term</b> — 12 months from the date of the first paid month (i.e. after the 90-day trial). "
         "Auto-renews monthly thereafter unless terminated.<br/>"
         "3.2 <b>Cancellation</b> — the Firm may cancel at any time with 30 days' written notice, no fees, no penalty. "
-        "If cancelled, the Firm's £199 lifetime rate is forfeit; re-onboarding would be at then-current public pricing.<br/>"
-        "3.3 <b>Termination by AI Advocate</b> — only for cause (loss of SRA regulation, material breach of the Solicitor Code of Conduct, "
+        "If cancelled, the Firm's £199 rate is forfeit; re-onboarding would be at then-current public pricing.<br/>"
+        "3.3 <b>Termination by AI Advocate</b> — only for cause (loss of regulatory authorisation, material breach of these terms, "
         "or 60+ days of unanswered client invites). 30 days' notice and cure period.<br/>"
-        "3.4 <b>£199 lifetime survival</b> — provided the Firm has not cancelled or been terminated for cause, the £199 rate "
-        "remains in force regardless of any future public-pricing changes. This commitment binds AI Advocate and its successors.",
+        "3.4 <b>£199 rate survival</b> — provided the Firm has not cancelled or been terminated for cause, the £199 rate "
+        "remains in force during the Firm's continuous subscription. This commitment is binding on AI Advocate Ltd. (Company No. 16612244). "
+        "In the event of a sale, merger, or change of control of AI Advocate, the acquirer or successor entity shall be required to honour "
+        "the Founding Firm rate for the remainder of the Firm's then-current annual term.",
         BODY,
     ))
 
