@@ -263,6 +263,26 @@ class FirmListingUpdate(BaseModel):
     bio: Optional[str] = None
     languages: Optional[List[str]] = None
 
+# ===== Custom branding (Practice tier perk) =====
+class FirmBrandingUpdate(BaseModel):
+    logo_url: Optional[str] = None       # public URL to firm logo (PNG/SVG, recommended <500KB)
+    brand_color: Optional[str] = None    # hex like "#1a4d8f"
+    accent_color: Optional[str] = None   # hex for secondary accent
+
+# ===== Multi-user firm seats (Premium / Practice tier perk) =====
+class FirmUserInvite(BaseModel):
+    email: EmailStr
+    full_name: str
+    role: str = "fee_earner"            # fee_earner | admin (admin can also manage users)
+
+class FirmUserAcceptInvite(BaseModel):
+    invite_token: str
+    password: str                       # accept and set their own password
+
+class FirmUserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
 class AdminFirmAction(BaseModel):
     firm_id: str
     action: str  # approve | reject | suspend | verify | unverify
@@ -328,17 +348,35 @@ def _ip_country(req: Request) -> str:
 async def _check_geo_anomaly(user: dict, req: Request) -> Optional[dict]:
     """Compare current sign-in country to the user's last-seen country.
     On mismatch, record a security_event and return an alert dict the client can show.
-    NOTE: country info comes from CDN headers — if absent, we silently skip (avoid false positives)."""
+    NOTE: country info comes from CDN headers — if absent, we silently skip (avoid false positives).
+
+    ALSO: drives the auto-jurisdiction-switching feature. We detect the country from
+    CDN headers and if it differs from the user's current profile country AND the user
+    hasn't manually pinned their country, we surface a switch-prompt via the returned alert.
+    """
     cc = _ip_country(req)
     if not cc:
         return None
     last_cc = user.get("last_login_country") or ""
+    profile_country = (user.get("country") or "GB").upper()
+    country_pinned = bool(user.get("country_manually_set"))
     now_iso = datetime.now(timezone.utc).isoformat()
     # Always update last-seen
     await db.users.update_one(
         {"id": user["id"]},
         {"$set": {"last_login_country": cc, "last_login_ip": _client_ip(req), "last_login_at": now_iso}}
     )
+    # Auto-jurisdiction prompt: if detected country differs from profile country and
+    # the user hasn't manually pinned, surface a one-tap prompt to switch. We do NOT
+    # silently switch — legal jurisdiction is too important to change without consent.
+    jurisdiction_prompt = None
+    if cc != profile_country and not country_pinned:
+        jurisdiction_prompt = {
+            "kind": "auto_jurisdiction_offer",
+            "detected_country": cc,
+            "current_country": profile_country,
+            "message": f"It looks like you're in {cc}. Switch Lex to apply {cc} law instead of {profile_country}?",
+        }
     if last_cc and last_cc != cc:
         evt = {
             "id": str(uuid.uuid4()),
@@ -352,8 +390,71 @@ async def _check_geo_anomaly(user: dict, req: Request) -> Optional[dict]:
             "acknowledged": False,
         }
         await db.security_events.insert_one(evt)
-        return {"kind": "login_country_change", "from_country": last_cc, "to_country": cc, "id": evt["id"]}
+        result = {"kind": "login_country_change", "from_country": last_cc, "to_country": cc, "id": evt["id"]}
+        if jurisdiction_prompt:
+            result["jurisdiction_prompt"] = jurisdiction_prompt
+        return result
+    # No country change anomaly, but still surface the jurisdiction prompt if applicable
+    if jurisdiction_prompt:
+        return {"kind": "jurisdiction_offer_only", "jurisdiction_prompt": jurisdiction_prompt}
     return None
+
+
+# ==================== Auto-jurisdiction detection endpoints ====================
+# Frontend calls /api/profile/auto-jurisdiction on every app boot (and post-login)
+# to find out if the user has travelled and should be offered to switch jurisdiction.
+# We never silently change jurisdiction — too important. User must accept the prompt.
+
+@api_router.get("/profile/auto-jurisdiction")
+async def auto_jurisdiction(request: Request, creds: Optional[HTTPAuthorizationCredentials] = Depends(security)):
+    """Detect the user's current country from CDN headers + compare to their profile
+    country. If different and they haven't manually pinned their country, return a
+    suggestion the UI can render as a one-tap banner.
+
+    Auth is optional — works for guests too (helpful before login to pre-select country).
+    Auth users get profile-state-aware suggestions; guests just get the detected country.
+    """
+    detected = _ip_country(request)
+    if not detected:
+        # Couldn't detect — no suggestion to make
+        return {"detected_country": "", "suggestion": None}
+
+    if not creds:
+        return {"detected_country": detected, "suggestion": None}
+
+    try:
+        payload = jwt.decode(creds.credentials, JWT_SECRET, algorithms=["HS256"])
+        user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+    except Exception:
+        return {"detected_country": detected, "suggestion": None}
+    if not user:
+        return {"detected_country": detected, "suggestion": None}
+
+    profile_country = (user.get("country") or "GB").upper()
+    country_pinned = bool(user.get("country_manually_set"))
+    if detected == profile_country:
+        return {"detected_country": detected, "suggestion": None, "profile_country": profile_country}
+    if country_pinned:
+        # User has explicitly chosen their country — respect that. Don't pester.
+        return {"detected_country": detected, "suggestion": None, "profile_country": profile_country, "pinned": True}
+    return {
+        "detected_country": detected,
+        "profile_country": profile_country,
+        "suggestion": {
+            "kind": "switch_jurisdiction",
+            "detected_country": detected,
+            "current_country": profile_country,
+            "message": f"You appear to be in {detected}. Switch Lex to apply {detected} law?",
+        },
+    }
+
+
+class JurisdictionAcceptPayload(BaseModel):
+    country: str   # 2-letter ISO
+
+# NOTE: /profile/jurisdiction/accept and /profile/jurisdiction/decline are defined
+# below get_user() because they depend on it as a FastAPI dependency.
+
 
 async def get_user(creds: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     if not creds:
@@ -392,6 +493,39 @@ async def get_user_optional(
     except Exception:
         pass
     return None
+
+
+# ==================== Auto-jurisdiction accept/decline ====================
+# (placed here because they depend on the get_user dependency above)
+
+@api_router.post("/profile/jurisdiction/accept")
+async def accept_jurisdiction_change(data: JurisdictionAcceptPayload, user: dict = Depends(get_user)):
+    """User accepted the prompt — switch their profile country. We mark as 'auto-switched'
+    (not country_manually_set) so if they travel again we'll prompt them again."""
+    cc = (data.country or "").upper().strip()
+    if len(cc) != 2:
+        raise HTTPException(400, "country must be a 2-letter ISO code")
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {
+            "country": cc,
+            "country_auto_switched_at": datetime.now(timezone.utc).isoformat(),
+            "country_manually_set": False,
+        }},
+    )
+    return {"ok": True, "country": cc}
+
+@api_router.post("/profile/jurisdiction/decline")
+async def decline_jurisdiction_change(user: dict = Depends(get_user)):
+    """User declined the prompt — pin their current country so we stop asking."""
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {
+            "country_manually_set": True,
+            "country_decline_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"ok": True, "pinned": True}
 
 
 def user_to_public(u: dict) -> dict:
@@ -1416,6 +1550,10 @@ async def update_prefs(data: dict, user: dict = Depends(get_user)):
               "emergency_contact_name", "emergency_contact_phone"):
         if k in data:
             update[k] = data[k]
+    # If the user explicitly set their country here, mark it as manually-pinned so
+    # the auto-jurisdiction detector stops offering to switch it.
+    if "country" in data:
+        update["country_manually_set"] = True
     if update:
         await db.users.update_one({"id": user["id"]}, {"$set": update})
     fresh = await db.users.find_one({"id": user["id"]})
@@ -5545,6 +5683,12 @@ async def firm_login(data: FirmPortalLogin):
     return {"access_token": token, "firm": f}
 
 async def get_firm(authorization: Optional[str] = Header(None)) -> dict:
+    """Resolve the parent firm account from either:
+      • a firm-owner JWT (kind=firm, sub=firm_id), or
+      • a firm-user JWT (kind=firm_user, firm_id=…)
+    Both grant the same firm-portal access; firm_users inherit the parent firm's tier.
+    The firm dict gets `acting_user` set to the firm_user record when applicable,
+    so per-user audit logging is possible."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "No token")
     token = authorization.split(" ", 1)[1]
@@ -5552,11 +5696,28 @@ async def get_firm(authorization: Optional[str] = Header(None)) -> dict:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
     except Exception:
         raise HTTPException(401, "Invalid token")
-    if payload.get("kind") != "firm":
-        raise HTTPException(403, "Not a firm account")
-    f = await db.firm_accounts.find_one({"id": payload["sub"]}, {"_id": 0, "password": 0})
-    if not f: raise HTTPException(401, "Firm not found")
-    return f
+
+    kind = payload.get("kind")
+    if kind == "firm":
+        f = await db.firm_accounts.find_one({"id": payload["sub"]}, {"_id": 0, "password": 0})
+        if not f: raise HTTPException(401, "Firm not found")
+        f["acting_user"] = None  # owner is acting
+        f["acting_role"] = "owner"
+        return f
+    if kind == "firm_user":
+        firm_user = await db.firm_users.find_one(
+            {"id": payload["sub"], "status": "active"},
+            {"_id": 0, "password": 0},
+        )
+        if not firm_user:
+            raise HTTPException(401, "Firm user not found or inactive")
+        f = await db.firm_accounts.find_one({"id": firm_user["firm_id"]}, {"_id": 0, "password": 0})
+        if not f:
+            raise HTTPException(401, "Parent firm not found")
+        f["acting_user"] = firm_user
+        f["acting_role"] = firm_user.get("role", "fee_earner")
+        return f
+    raise HTTPException(403, "Not a firm account")
 
 @api_router.get("/firm/me")
 async def firm_me(firm: dict = Depends(get_firm)):
@@ -5593,6 +5754,220 @@ async def firm_update_listing(data: FirmListingUpdate, firm: dict = Depends(get_
     await db.lawfirms.update_one({"firm_account_id": firm["id"]}, {"$set": upd})
     return {"updated": True}
 
+
+# ==================== FIRM — Custom branding (Premium/Practice tier perk) ====================
+# Lets firms upload a logo URL + brand colours that render in:
+#   • the firm portal navigation
+#   • client-facing engagement chats / cards (instead of generic AI Advocate gold)
+#   • engagement email footers
+# Hex validation is permissive (3 or 6 chars). Logo URL must be https.
+
+_HEX_RE = __import__("re").compile(r"^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+
+def _validate_hex(c: Optional[str]) -> Optional[str]:
+    if not c:
+        return None
+    c = c.strip()
+    if not _HEX_RE.match(c):
+        raise HTTPException(400, f"Invalid hex colour: {c!r} — use format #1a4d8f")
+    return c if c.startswith("#") else f"#{c}"
+
+@api_router.get("/firm/branding")
+async def firm_get_branding(firm: dict = Depends(get_firm)):
+    """Return the firm's current branding so the portal can render it."""
+    return {
+        "logo_url": firm.get("logo_url") or "",
+        "brand_color": firm.get("brand_color") or "",
+        "accent_color": firm.get("accent_color") or "",
+        "tier_allows": _firm_tier(firm) in ("premium", "practice"),
+    }
+
+@api_router.patch("/firm/branding")
+async def firm_update_branding(data: FirmBrandingUpdate, firm: dict = Depends(get_firm)):
+    """Update a firm's custom branding. Restricted to Premium + Practice tiers."""
+    tier = _firm_tier(firm)
+    if tier not in ("premium", "practice"):
+        raise HTTPException(402, "Custom branding is available on Premium and Practice tiers. Upgrade to unlock.")
+    if firm.get("acting_role") not in (None, "owner", "admin"):
+        raise HTTPException(403, "Only firm owners or admins can edit branding")
+
+    upd = {}
+    if data.logo_url is not None:
+        u = (data.logo_url or "").strip()
+        if u and not u.startswith(("https://", "http://")):
+            raise HTTPException(400, "logo_url must be a full https:// URL")
+        upd["logo_url"] = u
+    if data.brand_color is not None:
+        upd["brand_color"] = _validate_hex(data.brand_color) or ""
+    if data.accent_color is not None:
+        upd["accent_color"] = _validate_hex(data.accent_color) or ""
+    upd["branding_updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.firm_accounts.update_one({"id": firm["id"]}, {"$set": upd})
+    return {"updated": True, **{k: v for k, v in upd.items() if k != "branding_updated_at"}}
+
+
+# ==================== FIRM — Multi-user seats (Premium/Practice tier perk) ====================
+# A firm account can invite N additional fee-earners to log in under the same firm.
+# Limits enforced by FIRM_SEAT_LIMITS. Invites are token-based: firm owner generates an
+# invite, owner shares the link/token with the colleague, colleague POSTs accept with
+# their chosen password. No email sending dependency in the critical path.
+
+def _count_active_seats(firm_id: str) -> int:
+    """Return: parent owner (always 1) + count of active firm_users."""
+    return 1  # owner is always 1; firm_users counted async below
+
+@api_router.get("/firm/users")
+async def firm_list_users(firm: dict = Depends(get_firm)):
+    """List all fee-earner seats under this firm (owner + invited users)."""
+    tier = _firm_tier(firm)
+    users = []
+    async for u in db.firm_users.find({"firm_id": firm["id"]}, {"_id": 0, "password": 0, "invite_token": 0}).sort("created_at", 1):
+        users.append(u)
+    seat_limit = FIRM_SEAT_LIMITS.get(tier, 1)
+    active_count = 1 + len([u for u in users if u.get("status") == "active"])  # +1 for owner
+    return {
+        "owner": {
+            "id": firm["id"], "email": firm["email"],
+            "full_name": firm.get("contact_name", ""), "role": "owner",
+            "status": "active", "is_owner": True,
+        },
+        "users": users,                       # invited / pending / removed
+        "seat_limit": seat_limit,
+        "active_count": active_count,
+        "tier": tier,
+        "can_invite_more": active_count < seat_limit,
+    }
+
+@api_router.post("/firm/users/invite")
+async def firm_invite_user(data: FirmUserInvite, firm: dict = Depends(get_firm)):
+    """Owner / admin invites a new fee-earner. Returns an invite token the owner shares."""
+    if firm.get("acting_role") not in (None, "owner", "admin"):
+        raise HTTPException(403, "Only firm owners or admins can invite users")
+    tier = _firm_tier(firm)
+    seat_limit = FIRM_SEAT_LIMITS.get(tier, 1)
+    # count current active + pending
+    active_count = 1  # owner
+    async for u in db.firm_users.find({"firm_id": firm["id"], "status": {"$in": ["active", "pending"]}}, {"_id": 0, "id": 1}):
+        active_count += 1
+    if active_count >= seat_limit:
+        raise HTTPException(402, f"Seat limit reached for {tier} tier ({seat_limit} seats). Upgrade to add more fee-earners.")
+
+    email = data.email.lower().strip()
+    # Same email can't be both firm owner AND firm_user
+    if email == firm["email"]:
+        raise HTTPException(400, "That email is already the firm owner")
+    existing = await db.firm_users.find_one({"firm_id": firm["id"], "email": email})
+    if existing and existing.get("status") in ("active", "pending"):
+        raise HTTPException(409, "User already invited or active under this firm")
+
+    invite_token = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    user_id = str(uuid.uuid4())
+    doc = {
+        "id": user_id,
+        "firm_id": firm["id"],
+        "email": email,
+        "full_name": data.full_name.strip()[:120],
+        "role": data.role if data.role in ("fee_earner", "admin") else "fee_earner",
+        "status": "pending",
+        "invite_token": invite_token,
+        "invite_expires_at": (now + timedelta(days=14)).isoformat(),
+        "invited_by": firm["email"],
+        "created_at": now.isoformat(),
+        "password": None,                        # set on acceptance
+    }
+    await db.firm_users.insert_one(doc)
+    doc.pop("_id", None); doc.pop("password", None)
+    return {
+        "ok": True,
+        "invite_token": invite_token,
+        "invite_url": f"{os.environ.get('APP_PUBLIC_URL', 'https://aiadvocate.co.uk')}/firm-accept-invite?token={invite_token}",
+        "user_id": user_id,
+        "expires_at": doc["invite_expires_at"],
+    }
+
+@api_router.post("/firm/users/accept")
+async def firm_accept_invite(data: FirmUserAcceptInvite):
+    """Invitee accepts: sets their password, status flips to active, returns a firm_user JWT."""
+    record = await db.firm_users.find_one({"invite_token": data.invite_token})
+    if not record:
+        raise HTTPException(404, "Invitation not found or already used")
+    if record.get("status") != "pending":
+        raise HTTPException(400, f"Invitation already {record.get('status')}")
+    # Check expiry
+    try:
+        exp = datetime.fromisoformat(record["invite_expires_at"].replace("Z", "+00:00"))
+        if exp < datetime.now(timezone.utc):
+            raise HTTPException(400, "Invitation has expired — ask the firm owner to resend")
+    except (ValueError, KeyError):
+        pass
+
+    if len(data.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+
+    now = datetime.now(timezone.utc)
+    await db.firm_users.update_one(
+        {"id": record["id"]},
+        {"$set": {
+            "password": hash_pw(data.password),
+            "status": "active",
+            "accepted_at": now.isoformat(),
+        }, "$unset": {"invite_token": ""}},
+    )
+    token = jwt.encode(
+        {"sub": record["id"], "kind": "firm_user", "firm_id": record["firm_id"],
+         "exp": now + timedelta(days=30)},
+        JWT_SECRET, algorithm="HS256",
+    )
+    # Return firm context too so UI can route them
+    firm = await db.firm_accounts.find_one({"id": record["firm_id"]}, {"_id": 0, "password": 0})
+    return {
+        "access_token": token,
+        "firm_user": {"id": record["id"], "email": record["email"],
+                      "full_name": record["full_name"], "role": record["role"]},
+        "firm": firm,
+    }
+
+@api_router.post("/firm/users/login")
+async def firm_user_login(data: FirmUserLogin):
+    """Fee-earner login (separate from firm-owner login)."""
+    record = await db.firm_users.find_one({"email": data.email.lower().strip()})
+    if not record or not record.get("password"):
+        raise HTTPException(401, "Invalid credentials")
+    if record.get("status") != "active":
+        raise HTTPException(403, f"Account is {record.get('status')} — contact your firm admin")
+    if not verify_pw(data.password, record["password"]):
+        raise HTTPException(401, "Invalid credentials")
+    firm = await db.firm_accounts.find_one({"id": record["firm_id"]}, {"_id": 0, "password": 0})
+    if not firm:
+        raise HTTPException(401, "Parent firm not found")
+    token = jwt.encode(
+        {"sub": record["id"], "kind": "firm_user", "firm_id": record["firm_id"],
+         "exp": datetime.now(timezone.utc) + timedelta(days=30)},
+        JWT_SECRET, algorithm="HS256",
+    )
+    return {
+        "access_token": token,
+        "firm_user": {"id": record["id"], "email": record["email"],
+                      "full_name": record["full_name"], "role": record["role"]},
+        "firm": firm,
+    }
+
+@api_router.delete("/firm/users/{user_id}")
+async def firm_remove_user(user_id: str, firm: dict = Depends(get_firm)):
+    """Owner / admin removes a fee-earner from the firm."""
+    if firm.get("acting_role") not in (None, "owner", "admin"):
+        raise HTTPException(403, "Only firm owners or admins can remove users")
+    record = await db.firm_users.find_one({"id": user_id, "firm_id": firm["id"]}, {"_id": 0})
+    if not record:
+        raise HTTPException(404, "Firm user not found")
+    await db.firm_users.update_one(
+        {"id": user_id},
+        {"$set": {"status": "removed", "removed_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"removed": True, "user_id": user_id}
+
+
 @api_router.post("/firm/subscribe")
 async def firm_subscribe(plan: str = "featured", firm: dict = Depends(get_firm)):
     """Stripe checkout for firms — £49/mo Featured, £199/mo Premium, £399/mo Practice."""
@@ -5624,6 +5999,15 @@ FIRM_ENGAGEMENT_LIMITS = {
     "featured": 0,           # directory listing only
     "premium": 25,
     "practice": 999999,      # effectively unlimited
+}
+# === Multi-user fee-earner seats per firm tier (Practice tier perk) ===
+# A "seat" = one solicitor / fee-earner who can log in under the firm account.
+# The primary firm account itself always counts as 1 seat. So Practice = 5 total logins.
+FIRM_SEAT_LIMITS = {
+    "free": 1,
+    "featured": 1,
+    "premium": 3,
+    "practice": 5,
 }
 # Lex-AI per-month allowance for a firm (for draft-reply / summarise / explain on threads)
 FIRM_LEX_MONTHLY_LIMITS = {
@@ -6977,6 +7361,40 @@ async def admin_founder_briefing(_: dict = Depends(require_admin)):
     return FileResponse(
         pdf_path, media_type="application/pdf",
         filename="AI_Advocate_Founder_Briefing.pdf",
+    )
+
+
+@api_router.get("/admin/founding-firm-agreement.pdf")
+async def admin_founding_firm_agreement(
+    firm_name: str = "",
+    sra: str = "",
+    address: str = "",
+    contact: str = "",
+    email: str = "",
+    _: dict = Depends(require_admin),
+):
+    """Generate (fresh) and return the FOUNDING FIRM AGREEMENT PDF, personalised with
+    the firm's details if provided. Empty fields fall back to bracketed placeholders
+    you can manually fill before sending. Used to onboard the first 20 founding firms."""
+    from fastapi.responses import FileResponse
+    import subprocess
+    pdf_path = "/app/memory/AI_Advocate_Founding_Firm_Agreement.pdf"
+    args = ["python", "/app/backend/tools/generate_founding_firm_agreement.py"]
+    if firm_name: args += ["--firm-name", firm_name]
+    if sra:       args += ["--sra", sra]
+    if address:   args += ["--address", address]
+    if contact:   args += ["--contact", contact]
+    if email:     args += ["--email", email]
+    try:
+        subprocess.run(args, check=True, capture_output=True, timeout=30)
+    except Exception:
+        pass
+    if not os.path.exists(pdf_path):
+        raise HTTPException(500, "Agreement not available — regeneration failed.")
+    safe_firm = (firm_name or "Template").replace(" ", "_").replace("/", "_")[:60]
+    return FileResponse(
+        pdf_path, media_type="application/pdf",
+        filename=f"AI_Advocate_Founding_Firm_Agreement_{safe_firm}.pdf",
     )
 
 

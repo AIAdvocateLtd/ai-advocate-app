@@ -10,6 +10,16 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 27 — Auto-jurisdiction, Multi-seat firms, Custom branding, Founding Firm Agreement)
+- 🌍 **Auto country/jurisdiction detection** — `GET /api/profile/auto-jurisdiction` reads CDN headers (cf-ipcountry, x-vercel-ip-country, x-country-code) and surfaces a one-tap banner if the user has travelled. **Never silently switches** — too important. `POST /api/profile/jurisdiction/accept` switches; `/decline` pins to stop asking. The existing `_check_geo_anomaly` was also upgraded to drive this prompt on login. `country_manually_set=True` is now stamped on every manual preference update so the auto-detector respects user choice.
+- 👥 **Multi-user firm seats (firm_users collection)** — Premium/Practice/Practice tiers now support multiple fee-earners under one firm. New endpoints: `GET /api/firm/users`, `POST /api/firm/users/invite` (returns invite URL + token, 14-day expiry), `POST /api/firm/users/accept` (sets password + returns JWT), `POST /api/firm/users/login`, `DELETE /api/firm/users/{id}`. Seat limits enforced: free/featured = 1, premium = 3, practice = 5. Owner always counts as 1 seat. `get_firm` dependency now accepts firm-user JWTs (kind="firm_user") and resolves to the parent firm with `acting_user`/`acting_role` populated.
+- 🎨 **Custom firm branding** — `GET/PATCH /api/firm/branding` for logo_url + brand_color + accent_color. Tier-gated to Premium/Practice (402 if Featured). Validates hex format and https-only URLs. Audit timestamp stored on update.
+- 📄 **Founding Firm Agreement PDF** — `/app/backend/tools/generate_founding_firm_agreement.py` — one-page personalisable lifetime-£199 contract template. CLI args for firm_name/sra/address/contact/email. Exposed via `GET /api/admin/founding-firm-agreement.pdf` with same query params. Admin Solicitor Brief card now includes a 3rd download section with form fields.
+- 🎯 **Founder Briefing PDF** — `/app/backend/tools/generate_founder_briefing.py` — 8-page internal briefing covering elevator pitch, all tiers, automation honesty table, tech stack, compliance Q&A, 30/60/90 roadmap, competitive landscape, tough-questions cheat sheet. Exposed at `GET /api/admin/founder-briefing.pdf`.
+- 🧪 12 new pytest tests in `/app/backend/tests/test_firm_seats_branding_jurisdiction.py`, all passing.
+
+
+
 ### 2026-02 (Session 2k — Iter 26 · Admin Suggestions Inbox)
 - 📬 **New backend endpoints** (admin-only):
   - `GET /api/admin/suggestions?status=open|resolved|all` — list with `open_count` badge

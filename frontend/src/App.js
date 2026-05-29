@@ -6247,6 +6247,12 @@ function AdminSuggestionsCard({ lang }) {
 function AdminSolicitorBriefCard({ lang }) {
   const [busy, setBusy] = useState(false);
   const [busyFounder, setBusyFounder] = useState(false);
+  const [busyAgr, setBusyAgr] = useState(false);
+  const [agrFirm, setAgrFirm] = useState("");
+  const [agrSra, setAgrSra] = useState("");
+  const [agrAddress, setAgrAddress] = useState("");
+  const [agrContact, setAgrContact] = useState("");
+  const [agrEmail, setAgrEmail] = useState("");
 
   const download = async () => {
     setBusy(true);
@@ -6320,6 +6326,62 @@ function AdminSolicitorBriefCard({ lang }) {
                 className="btn-gold w-full"
                 style={{ fontSize: 13 }}>
           {busyFounder ? <span className="spinner" /> : "⬇️ Download founder briefing (PDF)"}
+        </button>
+      </div>
+
+      <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+          <span style={{ fontFamily: "'Cinzel', serif", color: "var(--gold)", fontSize: 14, letterSpacing: "0.04em" }}>
+            ⭐ Founding Firm Agreement
+          </span>
+        </div>
+        <p style={{ fontSize: 12, color: "var(--text-dim)", margin: "0 0 10px", lineHeight: 1.5 }}>
+          One-page lifetime-£199 contract to send each of the first 20 founding firms. Fill in their details below or leave blank for a template.
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+          <input data-testid="agr-firm-name" placeholder="Firm name"
+                 value={agrFirm} onChange={(e) => setAgrFirm(e.target.value)}
+                 style={{ padding: 8, borderRadius: 6, border: "1px solid var(--line)", background: "var(--bg-2)", color: "var(--text)", fontSize: 12 }} />
+          <input data-testid="agr-sra" placeholder="SRA number"
+                 value={agrSra} onChange={(e) => setAgrSra(e.target.value)}
+                 style={{ padding: 8, borderRadius: 6, border: "1px solid var(--line)", background: "var(--bg-2)", color: "var(--text)", fontSize: 12 }} />
+          <input data-testid="agr-address" placeholder="Firm address" style={{ gridColumn: "1 / -1", padding: 8, borderRadius: 6, border: "1px solid var(--line)", background: "var(--bg-2)", color: "var(--text)", fontSize: 12 }}
+                 value={agrAddress} onChange={(e) => setAgrAddress(e.target.value)} />
+          <input data-testid="agr-contact" placeholder="Primary contact (Name, Job Title)"
+                 value={agrContact} onChange={(e) => setAgrContact(e.target.value)}
+                 style={{ padding: 8, borderRadius: 6, border: "1px solid var(--line)", background: "var(--bg-2)", color: "var(--text)", fontSize: 12 }} />
+          <input data-testid="agr-email" placeholder="Firm email"
+                 value={agrEmail} onChange={(e) => setAgrEmail(e.target.value)}
+                 style={{ padding: 8, borderRadius: 6, border: "1px solid var(--line)", background: "var(--bg-2)", color: "var(--text)", fontSize: 12 }} />
+        </div>
+        <button data-testid="admin-download-founding-agreement"
+                disabled={busyAgr}
+                onClick={async () => {
+                  setBusyAgr(true);
+                  try {
+                    const params = new URLSearchParams();
+                    if (agrFirm) params.set("firm_name", agrFirm);
+                    if (agrSra) params.set("sra", agrSra);
+                    if (agrAddress) params.set("address", agrAddress);
+                    if (agrContact) params.set("contact", agrContact);
+                    if (agrEmail) params.set("email", agrEmail);
+                    const r = await api.get(`/admin/founding-firm-agreement.pdf?${params.toString()}`, { responseType: "blob" });
+                    const url = window.URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `AI_Advocate_Founding_Firm_Agreement_${(agrFirm || "Template").replace(/\s/g, "_")}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(url);
+                    aaToast("Founding firm agreement downloaded", "success");
+                  } catch (e) {
+                    aaToast(e?.response?.data?.detail || "Download failed", "error");
+                  } finally { setBusyAgr(false); }
+                }}
+                className="btn-gold w-full"
+                style={{ fontSize: 13 }}>
+          {busyAgr ? <span className="spinner" /> : "⬇️ Download agreement (PDF)"}
         </button>
       </div>
     </div>
@@ -9931,6 +9993,33 @@ function App() {
   // eslint-disable-next-line
   }, []);
 
+  // 🌍 Auto-jurisdiction detection — once user is loaded, check if they've travelled.
+  // We surface a one-tap banner offering to switch their legal jurisdiction. We never
+  // silently switch — legal jurisdiction is too important to change without user consent.
+  const [jurisdictionPrompt, setJurisdictionPrompt] = useState(null);
+  useEffect(() => {
+    if (!user || user.is_demo) return;
+    if (sessionStorage.getItem("aa_jurisdiction_dismissed_this_session")) return;
+    api.get("/profile/auto-jurisdiction").then(r => {
+      if (r.data?.suggestion) setJurisdictionPrompt(r.data.suggestion);
+    }).catch(() => {});
+  }, [user?.id]);
+  const acceptJurisdictionSwitch = async () => {
+    if (!jurisdictionPrompt) return;
+    try {
+      await api.post("/profile/jurisdiction/accept", { country: jurisdictionPrompt.detected_country });
+      setCountry(jurisdictionPrompt.detected_country);
+      setUser((u) => u ? { ...u, country: jurisdictionPrompt.detected_country } : u);
+      aaToast(`Jurisdiction switched to ${jurisdictionPrompt.detected_country}`, "success");
+    } catch (e) { /* no-op */ }
+    setJurisdictionPrompt(null);
+  };
+  const declineJurisdictionSwitch = async () => {
+    try { await api.post("/profile/jurisdiction/decline"); } catch (e) { /* no-op */ }
+    sessionStorage.setItem("aa_jurisdiction_dismissed_this_session", "1");
+    setJurisdictionPrompt(null);
+  };
+
   // 📱 Hide the native Capacitor splash once React has rendered + auth resolved. No-op on web.
   useEffect(() => {
     if (step !== "loading") { hideSplash().catch(() => {}); }
@@ -9986,6 +10075,44 @@ function App() {
       {step === "app" && user && !showSplash && (
         <>
           {user.is_demo && <DemoBanner lang={lang} onSignup={() => { onLogout(); /* lands them on auth screen */ }} />}
+          {jurisdictionPrompt && (
+            <div data-testid="jurisdiction-banner" style={{
+              position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999,
+              background: "linear-gradient(135deg, #1a1300 0%, #2a2010 100%)",
+              borderBottom: "2px solid #f7c948",
+              color: "#f7c948", padding: "12px 18px",
+              display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+              fontSize: 14, lineHeight: 1.4,
+              boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
+            }}>
+              <span style={{ fontSize: 18 }}>🌍</span>
+              <span style={{ flex: "1 1 240px" }}>
+                <strong>{jurisdictionPrompt.message}</strong>
+                <br/>
+                <span style={{ fontSize: 12, color: "#d4af37" }}>
+                  Lex will apply {jurisdictionPrompt.detected_country} law to your next questions.
+                </span>
+              </span>
+              <button data-testid="jurisdiction-accept"
+                      onClick={acceptJurisdictionSwitch}
+                      style={{
+                        background: "#f7c948", color: "#1a1300",
+                        border: "none", padding: "8px 14px", borderRadius: 6,
+                        fontWeight: 700, cursor: "pointer", fontSize: 13,
+                      }}>
+                Switch to {jurisdictionPrompt.detected_country}
+              </button>
+              <button data-testid="jurisdiction-decline"
+                      onClick={declineJurisdictionSwitch}
+                      style={{
+                        background: "transparent", color: "#d4af37",
+                        border: "1px solid #d4af37", padding: "8px 14px", borderRadius: 6,
+                        cursor: "pointer", fontSize: 13,
+                      }}>
+                Keep {jurisdictionPrompt.current_country}
+              </button>
+            </div>
+          )}
           <Dashboard user={user} lang={lang} country={country} setLang={setLang} setCountry={setCountry} onLogout={onLogout} refreshUser={(u) => setUser(u)} />
         </>
       )}
