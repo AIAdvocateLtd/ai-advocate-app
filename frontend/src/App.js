@@ -5632,7 +5632,7 @@ function CaseTimeline({ lang, onClose, onOpenChat, onOpenReminders, onOpenCase }
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <img src="/icons/files.png" alt="" style={{ width: 36, height: 36, objectFit: "contain" }} />
             <div>
-              <h2 style={{ fontFamily: "'Cinzel', serif", color: "var(--gold)", fontSize: 17, margin: 0, letterSpacing: "0.06em" }}>Case Timeline</h2>
+              <h2 style={{ fontFamily: "'Cinzel', serif", color: "var(--gold)", fontSize: 17, margin: 0, letterSpacing: "0.06em" }}>{t(lang, "caseTimeline")}</h2>
               <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>Your whole legal life in one view</div>
             </div>
           </div>
@@ -5957,7 +5957,7 @@ function RecycleBinModal({ lang, onClose }) {
         <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20, display: "flex", alignItems: "center", gap: 10 }}>
             <RecycleIcon size={26} />
-            Recycle Bin
+            {t(lang, "recycleBin")}
           </h2>
           <button onClick={onClose} data-testid="recycle-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
         </div>
@@ -6620,16 +6620,41 @@ function CompProAdminCard({ lang }) {
   };
 
   const revokeComp = async (email) => {
-    if (!window.confirm(`Revoke Pro comp for ${email}?`)) return;
+    if (!window.confirm(`Revoke Pro for ${email} AND remove them from the list?\n\nThe user will lose Pro access immediately and their row will be permanently removed from the admin lists. Use Delete if they were never comped.`)) return;
     setActionBusy(true); setFeedback(null);
+    // Optimistic — pull from local state immediately
+    setResults(rs => rs.filter(u => u.email !== email));
+    setActiveComps(cs => cs.filter(c => c.email !== email));
     try {
+      // uncomp endpoint now auto-soft-deletes by default (keep:false)
       await api.post("/admin/users/uncomp", { email, reason: "Owner revoked" });
-      setFeedback({ ok: true, msg: `✓ Comp revoked for ${email}` });
+      setFeedback({ ok: true, msg: `✓ ${email} revoked & removed from list` });
       loadComps();
       loadFounding();
-      if (query) search(); else loadRecent();
     } catch (e) {
       setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not revoke." });
+      // Re-fetch on error to restore
+      if (query) search(); else loadRecent();
+      loadComps();
+    } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
+  };
+
+  // 🗑 Permanently remove a user from every admin list (soft delete server-side).
+  // Used for cleaning up test accounts / family-test signups. Protected emails
+  // (admin, reviewer, demo) are blocked server-side.
+  const deleteUser = async (email) => {
+    if (!window.confirm(`Permanently remove ${email} from all admin lists?\n\nThis hides them from every comp/recent/founding view. They can still log in if they have an account — this is purely a list-cleanup action.`)) return;
+    setActionBusy(true); setFeedback(null);
+    setResults(rs => rs.filter(u => u.email !== email));
+    setActiveComps(cs => cs.filter(c => c.email !== email));
+    setFounding(f => ({ ...f, users: f.users.filter(u => u.email !== email), pending: Math.max(0, (f.pending || 0) - 1) }));
+    try {
+      await api.post("/admin/users/delete", { email, reason: "List cleanup" });
+      setFeedback({ ok: true, msg: `✓ ${email} removed from all lists` });
+    } catch (e) {
+      setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not delete." });
+      if (query) search(); else loadRecent();
+      loadComps(); loadFounding();
     } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
   };
 
@@ -6746,6 +6771,15 @@ function CompProAdminCard({ lang }) {
                                    cursor: "pointer", whiteSpace: "nowrap" }}>
                     Skip
                   </button>
+                  <button data-testid={`founding-delete-${u.id}`}
+                          onClick={() => deleteUser(u.email)} disabled={actionBusy}
+                          title="Permanently remove from all admin lists (test signups)"
+                          style={{ background: "transparent", border: "1px solid #ef4444",
+                                   color: "#ef4444", borderRadius: 8,
+                                   padding: "5px 9px", fontSize: 10.5, fontWeight: 700,
+                                   cursor: "pointer", whiteSpace: "nowrap" }}>
+                    Delete
+                  </button>
                 </div>
               );
             })}
@@ -6823,6 +6857,11 @@ function CompProAdminCard({ lang }) {
                     Grant {days === 0 ? "lifetime" : `${days}d`}
                   </button>
                 )}
+                <button data-testid={`comp-delete-${u.id}`} onClick={(e) => { e.stopPropagation(); deleteUser(u.email); }} disabled={actionBusy}
+                  title="Permanently remove from all admin lists (test accounts, family signups, etc.)"
+                  style={{ background: "transparent", border: "1px solid #ef4444", color: "#ef4444", borderRadius: 8, padding: "5px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer", marginLeft: 4 }}>
+                  Delete
+                </button>
               </div>
             );
           })}
@@ -6872,6 +6911,16 @@ function CompProAdminCard({ lang }) {
                                    fontSize: 11.5, fontWeight: 700, cursor: "pointer",
                                    whiteSpace: "nowrap" }}>
                     Revoke
+                  </button>
+                  <button data-testid={`active-comp-delete-${c.id}`}
+                          onClick={() => deleteUser(c.email)}
+                          disabled={actionBusy}
+                          title="Permanently remove from all admin lists"
+                          style={{ background: "transparent", border: "1px solid #ef4444",
+                                   color: "#ef4444", borderRadius: 8, padding: "6px 10px",
+                                   fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                                   whiteSpace: "nowrap", marginLeft: 4 }}>
+                    Delete
                   </button>
                 </div>
               );
@@ -7508,7 +7557,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "files", label: t(lang, "myFiles"), Icon: FilesIcon, req: "free" },
     { id: "cases", label: t(lang, "caseFiles"), Icon: FilesIcon, req: "free" },
     { id: "reminders", label: t(lang, "reminders"), Icon: ReminderIcon, req: "free" },
-    { id: "recycle", label: "Recycle Bin", Icon: RecycleIcon, req: "free" },
+    { id: "recycle", label: t(lang, "recycleBin"), Icon: RecycleIcon, req: "free" },
     { id: "letter", label: t(lang, "letterLibrary"), Icon: LetterIcon, req: "free" },
     { id: "immigration", label: t(lang, "immigration"), Icon: ImmigrationIcon, cat: "immigration", req: "plus" },
     { id: "employment", label: t(lang, "employment"), Icon: EmploymentIcon, cat: "employment", req: "plus" },
@@ -7705,7 +7754,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       <div style={{ textAlign: "center", padding: "20px 16px 16px", display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
         <button data-testid="open-timeline-btn" onClick={() => setShowTimeline(true)}
                 style={{ background: "linear-gradient(135deg, rgba(247,201,72,0.10), rgba(247,201,72,0.02))", border: "1px solid var(--gold)", borderRadius: 12, padding: "12px 22px", color: "var(--gold)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 10, letterSpacing: "0.04em" }}>
-          <img src="/icons/files.png" alt="" style={{ width: 18, height: 18, objectFit: "contain" }} /> Case Timeline
+          <img src="/icons/files.png" alt="" style={{ width: 18, height: 18, objectFit: "contain" }} /> {t(lang, "caseTimeline")}
         </button>
         <button data-testid="suggest-feature-btn" onClick={() => setShowSuggest(true)}
                 style={{ background: "transparent", border: "1px dashed var(--gold-deep)", borderRadius: 10, padding: "10px 18px", color: "var(--gold)", fontSize: 12, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8 }}>

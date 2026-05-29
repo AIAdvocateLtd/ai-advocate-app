@@ -7615,6 +7615,7 @@ class CompUserPayload(BaseModel):
     email: str
     days: int = 30                       # 0 = lifetime (sets ~30 years)
     reason: Optional[str] = "Goodwill"
+    keep: Optional[bool] = False         # uncomp: if True, revoke but don't soft-delete
 
 @api_router.get("/admin/users/search")
 async def admin_users_search(q: str, _: dict = Depends(require_admin)):
@@ -7695,22 +7696,62 @@ async def admin_users_comp(data: CompUserPayload, admin: dict = Depends(require_
 
 @api_router.post("/admin/users/uncomp")
 async def admin_users_uncomp(data: CompUserPayload, admin: dict = Depends(require_admin)):
-    """Revoke comp Pro for a user (sets comp_pro_until to null)."""
+    """Revoke comp Pro for a user. By default we ALSO soft-delete them from the
+    admin list so the row disappears (founder request). Pass `keep:true` in the
+    payload to revoke without deleting (legitimate users who shouldn't vanish)."""
     target = await db.users.find_one({"email": data.email.strip().lower()}, {"_id": 0})
     if not target:
         raise HTTPException(404, "User not found.")
-    await db.users.update_one(
-        {"id": target["id"]},
-        {"$set": {"comp_pro_until": None, "comp_pro_revoked_at": datetime.now(timezone.utc).isoformat()}},
-    )
+    now_iso = datetime.now(timezone.utc).isoformat()
+    update = {"comp_pro_until": None, "comp_pro_revoked_at": now_iso}
+    keep = bool(getattr(data, "keep", False))
+    if not keep:
+        update["deleted"] = True
+        update["deleted_at"] = now_iso
+        update["deleted_by"] = admin["email"]
+    await db.users.update_one({"id": target["id"]}, {"$set": update})
     await db.comp_audit.insert_one({
         "id": str(uuid.uuid4()),
         "granted_by_id": admin["id"], "granted_by_email": admin["email"],
         "target_id": target["id"], "target_email": target["email"],
         "reason": (data.reason or "Revoked")[:300],
-        "at": datetime.now(timezone.utc).isoformat(), "action": "revoke",
+        "at": now_iso, "action": ("revoke_and_delete" if not keep else "revoke"),
     })
-    return {"ok": True, "email": target["email"], "revoked": True}
+    return {"ok": True, "email": target["email"], "revoked": True, "deleted": not keep}
+
+
+class DeleteUserPayload(BaseModel):
+    email: str
+    reason: Optional[str] = None
+
+
+@api_router.post("/admin/users/delete")
+async def admin_users_delete(data: DeleteUserPayload, admin: dict = Depends(require_admin)):
+    """Permanently remove a user from every admin list (soft-delete: sets
+    deleted=true). Used for cleaning up test accounts, family-test signups,
+    and other rows the founder wants gone. Cannot delete the admin account
+    itself or the App Store reviewer account."""
+    email_lc = data.email.strip().lower()
+    PROTECTED = {"admin@aiadvocate.co.uk", "appstore.reviewer@aiadvocate.co.uk", "demo@aiadvocate.co.uk"}
+    if email_lc in PROTECTED:
+        raise HTTPException(400, f"Cannot delete protected account: {email_lc}")
+    target = await db.users.find_one({"email": email_lc}, {"_id": 0, "id": 1, "email": 1})
+    if not target:
+        raise HTTPException(404, "User not found.")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.users.update_one(
+        {"id": target["id"]},
+        {"$set": {"deleted": True, "deleted_at": now_iso, "deleted_by": admin["email"],
+                  "comp_pro_until": None}},
+    )
+    await db.comp_audit.insert_one({
+        "id": str(uuid.uuid4()),
+        "granted_by_id": admin["id"], "granted_by_email": admin["email"],
+        "target_id": target["id"], "target_email": target["email"],
+        "reason": (data.reason or "Removed by founder")[:300],
+        "at": now_iso, "action": "delete",
+    })
+    return {"ok": True, "email": target["email"], "deleted": True}
 
 
 @api_router.get("/admin/users/comps")

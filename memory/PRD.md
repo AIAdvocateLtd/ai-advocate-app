@@ -10,6 +10,12 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 29 — Permanent Delete + Chinese mojibake fix + Translation gaps)
+- 🗑 **Permanent Delete in Admin Comp Pro card** — new `POST /api/admin/users/delete` (soft-delete: `deleted: true`). Per-row red "Delete" button in Recent Users, Active Comps, and Founding 100 lists. Protected: `admin@`, `appstore.reviewer@`, `demo@` (server returns 400). Hides the user from every admin list permanently with one click.
+- 🔄 **Revoke now auto-deletes** — `POST /api/admin/users/uncomp` defaults to `keep:false`, which both revokes Pro AND soft-deletes from the lists in one action. Pass `keep:true` to revoke without deleting (for legitimate users whose comp you want to end but still keep visible). Optimistic UI removes the row instantly.
+- 🈯 **Chinese mojibake repair** — ~91 strings in `/app/frontend/src/i18n.js` (`zh-CN` ROUND12 block, lines 2700–2920) were UTF-8 bytes corrupted into Latin-1 (e.g., `ç¼ºå°æä¸ªæ³å¾é¢åï¼` → 缺少某个法律领域？). Repaired via deterministic `s.encode('latin-1').decode('utf-8')` with CJK-validation guard.
+- 🌍 **Translation gap fix** — `Recycle Bin` + `Case Timeline` were hardcoded English on the dashboard tile and Case Timeline modal heading. Added `recycleBin` + `caseTimeline` keys to all 11 languages in ROUND12 block, wired via `t(lang, …)`.
+
 ### 2026-02 (Iter 28 — Founding-100 Admin Queue + Thank-You email)
 - 🌟 **Founding 100 — Free Day Pass Queue** in Admin Comp Pro card. The landing-page promise ("first 100 signups get a free 24h Day Pass") is auto-honoured at signup (`launch_day_pass_until`), but the founder now has a visible queue to review each one.
   - `GET /api/admin/founding-100` — first-100 signups by `signup_position`, with day-pass status + dismiss flag + thanked flag. Filters out test/demo emails. Returns `slots_taken`/`slots_total`/`pending`.
