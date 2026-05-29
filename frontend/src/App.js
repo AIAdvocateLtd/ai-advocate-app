@@ -6725,23 +6725,37 @@ function CompProAdminCard({ lang }) {
         }}>{feedback.msg}</div>
       )}
 
-      {/* Active comps dashboard */}
+      {/* Active comps dashboard — clearer list with prominent Revoke buttons, matches the firm trial UI pattern */}
       {activeComps.length > 0 && (
-        <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6, fontWeight: 600, letterSpacing: "0.04em" }}>
-            ACTIVE COMPS ({activeComps.length})
+        <div style={{ borderTop: "1px solid var(--line)", paddingTop: 14, marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: "var(--gold)", marginBottom: 8, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            ⭐ Active Pro comps ({activeComps.length})
           </div>
-          <div data-testid="comp-active-list" style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 160, overflowY: "auto" }}>
+          <div data-testid="comp-active-list" style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 280, overflowY: "auto" }}>
             {activeComps.map(c => {
-              const isLifetime = new Date(c.comp_pro_until).getFullYear() > 2050;
+              const isLifetime = c.comp_pro_until && new Date(c.comp_pro_until).getFullYear() > 2050;
               return (
-                <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "4px 0" }}>
-                  <div style={{ fontSize: 11.5, color: "var(--text-dim)", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {c.email}
+                <div key={c.id} data-testid={`active-comp-${c.id}`}
+                     style={{ background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)",
+                              borderRadius: 10, padding: 10, display: "flex", alignItems: "center",
+                              justifyContent: "space-between", gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {c.email}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: isLifetime ? "var(--gold)" : "var(--text-muted)" }}>
+                      {isLifetime ? "Lifetime access" : `Pro until ${(c.comp_pro_until || "").slice(0,10)}`}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 10.5, color: isLifetime ? "var(--gold)" : "var(--text-muted)", whiteSpace: "nowrap" }}>
-                    {isLifetime ? "Lifetime" : `until ${c.comp_pro_until.slice(0,10)}`}
-                  </div>
+                  <button data-testid={`active-comp-revoke-${c.id}`}
+                          onClick={() => revokeComp(c.email)}
+                          disabled={actionBusy}
+                          style={{ background: "transparent", border: "1px solid #fca5a5",
+                                   color: "#fca5a5", borderRadius: 8, padding: "6px 12px",
+                                   fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                                   whiteSpace: "nowrap" }}>
+                    Revoke
+                  </button>
                 </div>
               );
             })}

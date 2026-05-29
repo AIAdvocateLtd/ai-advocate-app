@@ -7631,12 +7631,18 @@ async def admin_users_search(q: str, _: dict = Depends(require_admin)):
 
 
 @api_router.get("/admin/users/recent")
-async def admin_users_recent(_: dict = Depends(require_admin), limit: int = 30):
+async def admin_users_recent(_: dict = Depends(require_admin), limit: int = 30, include_test: bool = False):
     """Return the most recently signed-up users. Used by the comp UI to show a
-    default tappable list before any search is performed."""
+    default tappable list before any search is performed.
+    By default we exclude @advocate.app test-account emails (used by pytest)
+    so the admin UI isn't polluted. Set include_test=true to include them."""
     limit = max(1, min(int(limit or 30), 100))
+    query = {"deleted": {"$ne": True}, "is_demo": {"$ne": True}}
+    if not include_test:
+        # Hide pytest-fixture emails ending in @advocate.app and obvious test prefixes
+        query["email"] = {"$not": {"$regex": r"(@advocate\.app$|^firmpytest|^giftclaim_|^recipient_|^firmtest|^shottest|^pytest|^test_)"}}
     users = await db.users.find(
-        {"deleted": {"$ne": True}, "is_demo": {"$ne": True}},
+        query,
         {"_id": 0, "id": 1, "email": 1, "full_name": 1, "tier": 1, "subscription_status": 1,
          "trial_end_date": 1, "comp_pro_until": 1, "created_at": 1},
     ).sort("created_at", -1).limit(limit).to_list(limit)
