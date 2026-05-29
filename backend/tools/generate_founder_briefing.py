@@ -93,14 +93,15 @@ def status_badge(text, color):
 
 
 def kv_table(rows, col_widths=None):
-    """Two-column key/value table with subtle borders."""
+    """Two-column key/value table with subtle borders. Wraps text in Paragraphs."""
     col_widths = col_widths or [50 * mm, 120 * mm]
-    t = Table(rows, colWidths=col_widths, hAlign="LEFT")
+    # Wrap each cell in a Paragraph so long values flow correctly across multiple lines.
+    KV_KEY = ParagraphStyle("kvk", parent=CELL, fontName="Helvetica-Bold",
+                            textColor=GOLD_DEEP, fontSize=9, leading=11.5)
+    KV_VAL = ParagraphStyle("kvv", parent=CELL, fontSize=9, leading=12, textColor=INK)
+    wrapped = [[_p(str(r[0]), KV_KEY), _p(str(r[1]), KV_VAL)] for r in rows]
+    t = Table(wrapped, colWidths=col_widths, hAlign="LEFT")
     t.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9.5),
-        ("TEXTCOLOR", (0, 0), (0, -1), GOLD_DEEP),
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
         ("BACKGROUND", (0, 0), (0, -1), BG),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("BOX", (0, 0), (-1, -1), 0.5, LINE),
@@ -111,6 +112,44 @@ def kv_table(rows, col_widths=None):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
     ]))
     return t
+
+
+# Cell-text styles for tables (small + tight leading so multi-line cells stay compact)
+CELL = ParagraphStyle(
+    "Cell", parent=styles["Normal"], fontName="Helvetica",
+    fontSize=8.5, leading=11, textColor=INK, alignment=TA_LEFT, spaceAfter=0,
+)
+CELL_BOLD = ParagraphStyle(
+    "CellBold", parent=CELL, fontName="Helvetica-Bold",
+)
+CELL_HEAD = ParagraphStyle(
+    "CellHead", parent=CELL, fontName="Helvetica-Bold",
+    fontSize=9, textColor=GOLD, alignment=TA_LEFT,
+)
+CELL_CENTER = ParagraphStyle(
+    "CellCenter", parent=CELL, alignment=TA_CENTER,
+)
+
+def _p(text, style=CELL):
+    """Wrap text in a Paragraph so ReportLab wraps it to column width."""
+    return Paragraph(text, style)
+
+def _wrap_rows(rows, first_row_is_header=True, bold_first_col=False):
+    """Convert a list-of-strings rows into list-of-Paragraph rows so all cells wrap."""
+    out = []
+    for ri, row in enumerate(rows):
+        new_row = []
+        for ci, cell in enumerate(row):
+            if isinstance(cell, Paragraph) or not isinstance(cell, str):
+                new_row.append(cell); continue
+            if ri == 0 and first_row_is_header:
+                new_row.append(_p(cell, CELL_HEAD))
+            elif bold_first_col and ci == 0:
+                new_row.append(_p(cell, CELL_BOLD))
+            else:
+                new_row.append(_p(cell, CELL))
+        out.append(new_row)
+    return out
 
 
 def status_table(rows):
@@ -262,7 +301,7 @@ def build():
          "Everything in Pro · Save £100 vs monthly · Bigger Deep Think cap · 12 months locked-in",
          "Claude Sonnet 4.5"],
     ]
-    consumer_table = Table(consumer_rows, colWidths=[22 * mm, 28 * mm, 90 * mm, 30 * mm], repeatRows=1)
+    consumer_table = Table(_wrap_rows(consumer_rows), colWidths=[22 * mm, 28 * mm, 90 * mm, 30 * mm], repeatRows=1)
     consumer_table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, -1), 8.5),
@@ -285,7 +324,7 @@ def build():
         ["Weekend Pass", "£9.99", "Fri 5pm → Mon 9am", "Whole-weekend coverage for a tenancy dispute, ex-partner row, etc."],
         ["Crisis Pack", "£14.99", "7 days", "Family-emergency / arrest / eviction window"],
     ]
-    topup_table = Table(topup_rows, colWidths=[28 * mm, 22 * mm, 35 * mm, 85 * mm], repeatRows=1)
+    topup_table = Table(_wrap_rows(topup_rows), colWidths=[28 * mm, 22 * mm, 35 * mm, 85 * mm], repeatRows=1)
     topup_table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, -1), 8.5),
@@ -325,7 +364,7 @@ def build():
          "Regional or practice-area exclusivity · App Store launch quote · 50% rev-share on direct referrals · Logo lockup · 12-mo term",
          "✅ Manual (your call)"],
     ]
-    firm_table = Table(firm_rows, colWidths=[26 * mm, 23 * mm, 75 * mm, 46 * mm], repeatRows=1)
+    firm_table = Table(_wrap_rows(firm_rows), colWidths=[26 * mm, 23 * mm, 75 * mm, 46 * mm], repeatRows=1)
     firm_table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, -1), 8.5),
@@ -423,7 +462,7 @@ def build():
         ["2FA / TOTP for users", "❌ Not built", "P2 post-launch."],
         ["Apple in-app purchase", "❌ Not built", "P2. Required if/when Apple insists subscription payments go through them on iOS."],
     ]
-    auto_table = Table(auto_rows, colWidths=[60 * mm, 22 * mm, 88 * mm], repeatRows=1)
+    auto_table = Table(_wrap_rows(auto_rows), colWidths=[60 * mm, 22 * mm, 88 * mm], repeatRows=1)
     auto_table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
@@ -593,7 +632,7 @@ def build():
          "General-purpose AI; users ask it legal questions.",
          "Hallucinates UK case law. No source citation. No directory of regulated solicitors. No emergency mode. No vault."],
     ]
-    comp_table = Table(comp_rows, colWidths=[28 * mm, 65 * mm, 77 * mm], repeatRows=1)
+    comp_table = Table(_wrap_rows(comp_rows), colWidths=[28 * mm, 65 * mm, 77 * mm], repeatRows=1)
     comp_table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, -1), 8.5),
