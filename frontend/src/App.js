@@ -6620,7 +6620,13 @@ function CompProAdminCard({ lang }) {
   };
 
   const revokeComp = async (email) => {
-    if (!window.confirm(`Revoke Pro for ${email} AND remove them from the list?\n\nThe user will lose Pro access immediately and their row will be permanently removed from the admin lists. Use Delete if they were never comped.`)) return;
+    const ok = await aaConfirm({
+      title: "Revoke & remove?",
+      message: `Revoke Pro for ${email} AND permanently remove them from the admin lists?\n\nUse Delete instead if they were never comped.`,
+      confirmLabel: "Revoke & remove",
+      danger: true,
+    });
+    if (!ok) return;
     setActionBusy(true); setFeedback(null);
     // Optimistic — pull from local state immediately
     setResults(rs => rs.filter(u => u.email !== email));
@@ -6643,7 +6649,13 @@ function CompProAdminCard({ lang }) {
   // Used for cleaning up test accounts / family-test signups. Protected emails
   // (admin, reviewer, demo) are blocked server-side.
   const deleteUser = async (email) => {
-    if (!window.confirm(`Permanently remove ${email} from all admin lists?\n\nThis hides them from every comp/recent/founding view. They can still log in if they have an account — this is purely a list-cleanup action.`)) return;
+    const ok = await aaConfirm({
+      title: "Delete from all lists?",
+      message: `Permanently remove ${email} from every admin list?\n\nHides them from comp / recent / founding views. They can still log in if they have an account — this is purely list-cleanup.`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     setActionBusy(true); setFeedback(null);
     setResults(rs => rs.filter(u => u.email !== email));
     setActiveComps(cs => cs.filter(c => c.email !== email));
