@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reset password · AI Advocate</title>
+  <link rel="icon" href="/icons/favicon.png" />
+  <style>
+    :root { --gold: #f7c948; --gold-deep: #b8860b; --bg: #000; --card: #0c0c0c; --line: #222; --text: #fff; --muted: #888; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .card { width: 100%; max-width: 440px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 32px 28px; }
+    .brand { font-family: "Cinzel", serif; color: var(--gold); font-size: 26px; letter-spacing: 0.08em; text-align: center; }
+    .sub { color: var(--muted); font-size: 11.5px; letter-spacing: 0.2em; text-align: center; margin-top: 4px; text-transform: uppercase; }
+    h1 { font-size: 19px; margin: 28px 0 6px; }
+    p.lead { color: var(--muted); font-size: 13.5px; line-height: 1.55; margin: 0 0 22px; }
+    label { display: block; font-size: 11.5px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px; }
+    input { width: 100%; padding: 12px 14px; background: #080808; border: 1px solid var(--line); border-radius: 10px; color: #fff; font-size: 14px; margin-bottom: 14px; }
+    input:focus { outline: 2px solid var(--gold); outline-offset: -1px; }
+    .btn { width: 100%; padding: 13px; background: linear-gradient(135deg, var(--gold), var(--gold-deep)); color: #1a1300; border: none; border-radius: 10px; font-weight: 700; font-size: 14px; cursor: pointer; margin-top: 6px; }
+    .btn:disabled { opacity: 0.6; cursor: wait; }
+    .err { color: #fca5a5; font-size: 12.5px; margin: 4px 0 12px; }
+    .ok { color: #86efac; font-size: 13px; margin: 4px 0 12px; line-height: 1.5; }
+    .meta { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px; text-align: center; line-height: 1.5; }
+    .meta a { color: var(--gold); text-decoration: none; }
+    .hint { font-size: 11.5px; color: var(--muted); margin-top: -8px; margin-bottom: 14px; line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">AI ADVOCATE</div>
+    <div class="sub" id="kindLabel">Reset password</div>
+    <h1 id="heading">Choose a new password</h1>
+    <p class="lead" id="lead">Enter a new password for your account. The reset link expires after 60 minutes.</p>
+
+    <div id="formArea">
+      <label for="pw1">New password</label>
+      <input id="pw1" type="password" placeholder="At least 8 characters" autocomplete="new-password" />
+      <label for="pw2">Confirm new password</label>
+      <input id="pw2" type="password" placeholder="Type it again" autocomplete="new-password" />
+      <div class="hint">Tip: use a memorable phrase like "Court-Wins-Bright-2026"</div>
+      <div class="err" id="err" style="display:none"></div>
+      <button class="btn" id="submitBtn" type="button">Reset password</button>
+    </div>
+
+    <div id="okArea" style="display:none">
+      <div class="ok" id="okMsg">Password updated. Taking you to sign-in…</div>
+    </div>
+
+    <div class="meta">
+      Need help? <a href="mailto:support@aiadvocate.co.uk">support@aiadvocate.co.uk</a><br />
+      <a href="/" style="margin-top:6px; display:inline-block;">← Back to site</a>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var BACKEND = ""; // same-origin; fetch goes to /api/...
+      var params = new URLSearchParams(window.location.search);
+      var token = params.get("token") || "";
+      var kind = (params.get("kind") || "user").toLowerCase(); // "user" or "firm"
+
+      if (kind === "firm") {
+        document.getElementById("kindLabel").textContent = "Firm portal — reset password";
+        document.getElementById("lead").textContent =
+          "Enter a new password for your AI Advocate firm-portal account. The reset link expires after 60 minutes.";
+      }
+
+      if (!token) {
+        document.getElementById("formArea").style.display = "none";
+        document.getElementById("heading").textContent = "Reset link missing";
+        document.getElementById("lead").textContent =
+          "This URL is missing the reset token. Please use the link in your email, or request a fresh one.";
+        return;
+      }
+
+      var pw1 = document.getElementById("pw1");
+      var pw2 = document.getElementById("pw2");
+      var errEl = document.getElementById("err");
+      var btn = document.getElementById("submitBtn");
+
+      function showErr(msg) { errEl.textContent = msg; errEl.style.display = "block"; }
+      function hideErr() { errEl.style.display = "none"; }
+
+      btn.addEventListener("click", async function () {
+        hideErr();
+        var p1 = pw1.value || "";
+        var p2 = pw2.value || "";
+        if (p1.length < 8) return showErr("Password must be at least 8 characters.");
+        if (p1 !== p2) return showErr("Passwords don't match.");
+        btn.disabled = true; btn.textContent = "Resetting…";
+        try {
+          var endpoint = kind === "firm" ? "/api/firm/reset-password" : "/api/auth/reset-password";
+          var r = await fetch(BACKEND + endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: token, new_password: p1 }),
+          });
+          var data = await r.json();
+          if (!r.ok) {
+            showErr(data.detail || "Could not reset password.");
+            btn.disabled = false; btn.textContent = "Reset password";
+            return;
+          }
+          // Store JWT so the user is auto-logged-in on landing
+          if (kind === "firm" && data.access_token) {
+            localStorage.setItem("aa_firm_token", data.access_token);
+            document.getElementById("formArea").style.display = "none";
+            document.getElementById("okArea").style.display = "block";
+            document.getElementById("okMsg").textContent =
+              "Password updated. Taking you to the firm portal…";
+            setTimeout(function () { window.location.href = "/firm-portal"; }, 1200);
+          } else if (data.access_token || data.token) {
+            localStorage.setItem("aa_token", data.access_token || data.token);
+            document.getElementById("formArea").style.display = "none";
+            document.getElementById("okArea").style.display = "block";
+            setTimeout(function () { window.location.href = "/app"; }, 1200);
+          } else {
+            document.getElementById("formArea").style.display = "none";
+            document.getElementById("okArea").style.display = "block";
+            document.getElementById("okMsg").textContent =
+              "Password updated. You can now sign in with your new password.";
+          }
+        } catch (e) {
+          showErr("Network error. Please try again.");
+          btn.disabled = false; btn.textContent = "Reset password";
+        }
+      });
+
+      [pw1, pw2].forEach(function (el) {
+        el.addEventListener("keypress", function (e) { if (e.key === "Enter") btn.click(); });
+      });
+    })();
+  </script>
+</body>
+</html>

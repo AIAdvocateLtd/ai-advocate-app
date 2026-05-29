@@ -178,6 +178,37 @@ async def send_founding_thank_you(email: str, full_name: str = "") -> bool:
 
 
 
+
+async def send_firm_onboarding(email: str, firm_name: str, tier: str, days: int, reset_link: str, portal_url: str) -> bool:
+    """Fire when the founder comps a firm via /admin/firms/comp.
+    Delivers the portal URL + a one-tap 'set password' link so the firm
+    can log in without having to remember whatever the founder set."""
+    tier_label = (tier or "Featured").title()
+    duration = "Lifetime" if days >= 365 * 25 else f"{days} days"
+    html = _wrap(f"""
+      <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">Your AI Advocate firm portal is ready 🏛</h2>
+      <p>{firm_name or 'Your firm'} has been activated on the <strong>{tier_label}</strong> tier for <strong>{duration}</strong>.</p>
+      <p>Inside the portal you can:</p>
+      <ul style="font-size:14px; line-height:1.7; padding-left:18px; margin:8px 0 14px 0;">
+        <li>Set your firm <strong>logo + brand colours</strong> (Premium/Practice)</li>
+        <li>Invite fee-earner team-mates as <strong>seats</strong> (up to 5 on Practice)</li>
+        <li>Reply to <strong>encrypted client case threads</strong> end-to-end</li>
+        <li>Track leads from your firm directory listing</li>
+      </ul>
+      <p style="text-align:center; margin:26px 0;">
+        <a href="{reset_link}" style="background:#f7c948; color:#1a1300; padding:14px 28px; border-radius:10px; font-weight:700; text-decoration:none; display:inline-block; font-size:15px;">Set your password & sign in →</a>
+      </p>
+      <p style="font-size:12.5px; color:#666; line-height:1.5;">
+        This one-time link expires in 60 minutes. Once you've set a password, log in any time at
+        <a href="{portal_url}" style="color:#b8860b; font-weight:600;">{portal_url.replace('https://','').replace('http://','')}</a>.
+      </p>
+      <p style="font-size:13px; line-height:1.6; margin-top:18px;">
+        Questions or onboarding help? Reply to this email — it lands in our founder's inbox.
+      </p>
+      <p style="margin:18px 0 0 0;">— The AI Advocate team</p>
+    """, preview=f"Your AI Advocate firm portal is ready — {tier_label} for {duration}.")
+    return await _send(email, "🏛 Your AI Advocate firm portal is ready", html)
+
 async def send_password_reset(email: str, reset_link: str) -> bool:
     html = _wrap(f"""
       <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">Reset your AI Advocate password</h2>

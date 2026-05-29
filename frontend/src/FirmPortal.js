@@ -16,6 +16,7 @@ function FirmAuth({ onLogin }) {
   const [data, setData] = useState({ email: "", password: "", firm_name: "", contact_name: "", country: "GB", city: "", sra_number: "", specialties: "employment" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [forgot, setForgot] = useState({ open: false, email: "", sent: false, busy: false });
 
   const submit = async () => {
     setBusy(true); setErr("");
@@ -30,6 +31,14 @@ function FirmAuth({ onLogin }) {
     } catch (e) {
       setErr(e?.response?.data?.detail || "Failed.");
     } finally { setBusy(false); }
+  };
+
+  const submitForgot = async () => {
+    setForgot(f => ({ ...f, busy: true }));
+    try {
+      await fapi.post("/firm/forgot-password", { email: forgot.email.trim() });
+    } catch { /* always 200 */ }
+    setForgot(f => ({ ...f, busy: false, sent: true }));
   };
 
   return (
@@ -61,12 +70,57 @@ function FirmAuth({ onLogin }) {
           {busy ? "…" : (mode === "login" ? "Sign in" : "Create firm account")}
         </button>
 
+        {mode === "login" && (
+          <button type="button" data-testid="firm-forgot-link"
+                  onClick={() => setForgot({ open: true, email: data.email, sent: false, busy: false })}
+                  style={{ width: "100%", marginTop: 10, background: "transparent", border: "none", color: "#f7c948", fontSize: 12.5, cursor: "pointer", textDecoration: "underline" }}>
+            Forgot password?
+          </button>
+        )}
+
         <div style={{ marginTop: 16, fontSize: 11, color: "#888", textAlign: "center", lineHeight: 1.5 }}>
           Need help? <a href="mailto:admin@aiadvocate.co.uk" style={{ color: "#f7c948" }}>admin@aiadvocate.co.uk</a>
         </div>
       </div>
 
       <a href="/" style={{ marginTop: 24, fontSize: 12, color: "#888" }}>← Back to consumer app</a>
+
+      {forgot.open && (
+        <div onClick={() => setForgot({ open: false, email: "", sent: false, busy: false })}
+             style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div onClick={(e) => e.stopPropagation()}
+               style={{ width: "100%", maxWidth: 420, background: "#0c0c0c", border: "1px solid #222", borderRadius: 14, padding: 24, color: "#fff" }}>
+            <h3 style={{ fontFamily: "Cinzel, serif", color: "#f7c948", fontSize: 18, margin: "0 0 12px" }}>Reset firm password</h3>
+            {!forgot.sent ? (
+              <>
+                <p style={{ fontSize: 13, color: "#888", margin: "0 0 14px", lineHeight: 1.55 }}>
+                  Enter the email registered to your firm account. We'll send a secure reset link that expires in 60 minutes.
+                </p>
+                <input data-testid="firm-forgot-email" type="email" placeholder="firm@example.co.uk" autoFocus
+                       value={forgot.email}
+                       onChange={(e) => setForgot(f => ({ ...f, email: e.target.value }))}
+                       onKeyDown={(e) => e.key === "Enter" && forgot.email.trim() && submitForgot()}
+                       style={inp} />
+                <button data-testid="firm-forgot-submit" onClick={submitForgot}
+                        disabled={forgot.busy || !forgot.email.trim()}
+                        style={{ width: "100%", padding: 12, background: "linear-gradient(135deg,#f7c948,#d6a017)", color: "#1a1300", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                  {forgot.busy ? "…" : "Send reset link"}
+                </button>
+              </>
+            ) : (
+              <>
+                <p style={{ fontSize: 13, color: "#fff", margin: "0 0 14px", lineHeight: 1.55 }}>
+                  If an account exists for <strong>{forgot.email}</strong>, a reset link has been sent. Check your inbox (and spam folder).
+                </p>
+                <button onClick={() => setForgot({ open: false, email: "", sent: false, busy: false })}
+                        style={{ width: "100%", padding: 12, background: "transparent", color: "#f7c948", border: "1px solid #f7c948", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                  Got it
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -10,6 +10,14 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 30 — Password reset, 2FA TOTP, Firm onboarding email, Pitch CTA)
+- 🔑 **Forgot/Reset password — consumer + firm.** Both flows use a `/reset.html` self-contained page + Resend transactional email. Token: `secrets.token_urlsafe(32)`, 60 min TTL, single-use, MongoDB `password_reset_tokens` collection. Anti-enumeration: `/forgot-password` always returns 200. Rate limit: 3 requests per email per hour. Endpoints: `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`, `POST /api/firm/forgot-password`, `POST /api/firm/reset-password`. UI: "Forgot password?" links on both consumer auth screen and FirmPortal auth screen.
+- 🔐 **TOTP 2FA (pyotp + QR code) — opt-in for consumers.** Login state machine: if `totp_enabled`, `/auth/login` returns `{requires_2fa: true, tmp_token}` (5-min lifetime); frontend shows the 6-digit code challenge; `/auth/2fa/login` exchanges `tmp_token + code → full JWT`. Setup flow: `/auth/2fa/setup` → secret + QR data URL → user scans → `/auth/2fa/verify` (first code activates + returns 10 backup codes). Backup codes are bcrypt-hashed at rest, shown plain ONCE. Disable requires password + valid TOTP.
+- 🏛 **Founding-firm onboarding email (Feature A)** — `admin_firms_comp` endpoint now auto-fires `send_firm_onboarding()` email when the founder comps a firm. Email contains tier/duration, portal URL, and a one-tap "Set password & sign in" reset link. Removes the friction of "what was my password?". Firm just clicks the link, sets a password, lands in portal. Endpoint returns `onboarding_email_sent: bool`.
+- 🪪 **"Already a partner firm? Sign in →" button (Feature B)** added to the `/for-firms` pitch page CTA box, links to `/firm-portal`.
+- New dependency: `pyotp==2.9.0` (added to `requirements.txt`). `qrcode` was already installed.
+- 8 backend curl tests pass end-to-end (signup → forgot → reset → old-pw-rejected → new-pw-works → token-single-use → 2FA setup/verify → login-requires-2fa → tmp-token-exchange).
+
 ### 2026-02 (Iter 29 — Permanent Delete + Chinese mojibake fix + Translation gaps)
 - 🗑 **Permanent Delete in Admin Comp Pro card** — new `POST /api/admin/users/delete` (soft-delete: `deleted: true`). Per-row red "Delete" button in Recent Users, Active Comps, and Founding 100 lists. Protected: `admin@`, `appstore.reviewer@`, `demo@` (server returns 400). Hides the user from every admin list permanently with one click.
 - 🔄 **Revoke now auto-deletes** — `POST /api/admin/users/uncomp` defaults to `keep:false`, which both revokes Pro AND soft-deletes from the lists in one action. Pass `keep:true` to revoke without deleting (for legitimate users whose comp you want to end but still keep visible). Optimistic UI removes the row instantly.

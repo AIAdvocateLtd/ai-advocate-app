@@ -1139,11 +1139,18 @@ async def signup(data: UserSignup, request: Request):
 
     return TokenResp(access_token=make_token(user_id, data.email), user=user_to_public(user_doc))
 
-@api_router.post("/auth/login", response_model=TokenResp)
+@api_router.post("/auth/login")
 async def login(data: UserLogin, request: Request):
     user = await db.users.find_one({"email": data.email})
     if not user or not verify_pw(data.password, user.get("password_hash", "")):
         raise HTTPException(401, "Invalid credentials")
+    # 🔐 2FA gate: if the user has TOTP enabled, do NOT issue the full JWT yet.
+    # Return a short-lived tmp_token; the client then POSTs /auth/2fa/login
+    # with that token + the 6-digit code (or a backup code) to get the real JWT.
+    if user.get("totp_enabled"):
+        from fastapi.responses import JSONResponse as _JSON
+        tmp = _issue_tmp_2fa_token(user["id"], "user")
+        return _JSON({"requires_2fa": True, "tmp_token": tmp, "email": user["email"]})
     alert = await _check_geo_anomaly(user, request)
     pub = user_to_public(user)
     if alert:
@@ -5850,6 +5857,300 @@ If a relative date is mentioned (e.g. "within 14 days"), compute it from today {
         deadlines = []
     return {"deadlines": deadlines[:5]}
 
+
+# ==================== PASSWORD RESET + 2FA ====================
+# Shared helpers + endpoints for both consumer (`db.users`, JWT kind="user"-default)
+# and law-firm (`db.firm_accounts`, JWT kind="firm") accounts. Tokens stored in
+# `password_reset_tokens` collection, single-use, 60-min TTL via MongoDB TTL index.
+import secrets as _secrets
+import pyotp  # noqa: E402
+import qrcode  # noqa: E402
+from io import BytesIO  # noqa: E402
+import base64 as _base64  # noqa: E402
+
+RESET_TTL_MINUTES = 60
+RESET_RATE_PER_HOUR = 3
+TOTP_ISSUER = "AI Advocate"
+
+
+def _public_app_url() -> str:
+    """Canonical public URL where reset links should land.
+    Falls back to preview env URL — overridden in production via PUBLIC_APP_URL."""
+    return (os.environ.get("PUBLIC_APP_URL") or "https://aiadvocate.co.uk").rstrip("/")
+
+
+async def _create_reset_token(*, account_kind: str, account_id: str, email: str) -> str:
+    """Generate a single-use reset token. account_kind ∈ {'user','firm'}."""
+    tok = _secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    await db.password_reset_tokens.insert_one({
+        "id": str(uuid.uuid4()),
+        "token": tok,
+        "account_kind": account_kind,
+        "account_id": account_id,
+        "email": email.lower(),
+        "created_at": now,
+        "expires_at": now + timedelta(minutes=RESET_TTL_MINUTES),
+        "used_at": None,
+    })
+    return tok
+
+
+async def _rate_limit_reset(email: str) -> bool:
+    """Return True if email has not exceeded N reset requests in the last hour."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+    count = await db.password_reset_tokens.count_documents({
+        "email": email.lower(), "created_at": {"$gte": cutoff},
+    })
+    return count < RESET_RATE_PER_HOUR
+
+
+class ForgotPasswordReq(BaseModel):
+    email: str
+
+
+class ResetPasswordReq(BaseModel):
+    token: str
+    new_password: str
+
+
+@api_router.post("/auth/forgot-password")
+async def auth_forgot_password(data: ForgotPasswordReq):
+    """Consumer forgot password. Always returns 200 (no user enumeration).
+    Sends reset email via Resend if the email exists AND rate limit not hit."""
+    email_lc = (data.email or "").strip().lower()
+    if not email_lc or "@" not in email_lc:
+        return {"ok": True}
+    user = await db.users.find_one({"email": email_lc, "deleted": {"$ne": True}}, {"_id": 0, "id": 1, "email": 1})
+    if user and await _rate_limit_reset(email_lc):
+        tok = await _create_reset_token(account_kind="user", account_id=user["id"], email=email_lc)
+        link = f"{_public_app_url()}/reset.html?token={tok}"
+        try:
+            from email_helper import send_password_reset
+            await send_password_reset(email_lc, link)
+        except Exception:
+            logger.exception("Password-reset email send failed (consumer)")
+    return {"ok": True}
+
+
+@api_router.post("/auth/reset-password", response_model=TokenResp)
+async def auth_reset_password(data: ResetPasswordReq):
+    """Consumer reset. Validates token, updates password_hash, marks token used,
+    returns a fresh JWT so the user is auto-logged-in on the reset page."""
+    if not data.new_password or len(data.new_password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters.")
+    rec = await db.password_reset_tokens.find_one({"token": data.token, "account_kind": "user", "used_at": None})
+    if not rec:
+        raise HTTPException(400, "This reset link is invalid or has already been used.")
+    exp = rec.get("expires_at")
+    if isinstance(exp, str):
+        exp = datetime.fromisoformat(exp)
+    if exp and exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    if exp and datetime.now(timezone.utc) > exp:
+        raise HTTPException(400, "This reset link has expired. Please request a new one.")
+    user = await db.users.find_one({"id": rec["account_id"]}, {"_id": 0})
+    if not user:
+        raise HTTPException(400, "Account not found.")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"password_hash": hash_pw(data.new_password), "password_changed_at": now_iso}},
+    )
+    await db.password_reset_tokens.update_one({"_id": rec["_id"]}, {"$set": {"used_at": now_iso}})
+    token = make_token(user["id"], user["email"])
+    user.pop("password_hash", None)
+    return {"token": token, "access_token": token, "user": user}
+
+
+@api_router.post("/firm/forgot-password")
+async def firm_forgot_password(data: ForgotPasswordReq):
+    """Firm-portal forgot password. Same anti-enumeration pattern."""
+    email_lc = (data.email or "").strip().lower()
+    if not email_lc or "@" not in email_lc:
+        return {"ok": True}
+    firm = await db.firm_accounts.find_one({"email": email_lc}, {"_id": 0, "id": 1, "email": 1, "firm_name": 1})
+    if firm and await _rate_limit_reset(email_lc):
+        tok = await _create_reset_token(account_kind="firm", account_id=firm["id"], email=email_lc)
+        link = f"{_public_app_url()}/reset.html?token={tok}&kind=firm"
+        try:
+            from email_helper import send_password_reset
+            await send_password_reset(email_lc, link)
+        except Exception:
+            logger.exception("Password-reset email send failed (firm)")
+    return {"ok": True}
+
+
+@api_router.post("/firm/reset-password")
+async def firm_reset_password(data: ResetPasswordReq):
+    """Firm reset. Returns a firm JWT so the founder/firm-admin is auto-logged-in."""
+    if not data.new_password or len(data.new_password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters.")
+    rec = await db.password_reset_tokens.find_one({"token": data.token, "account_kind": "firm", "used_at": None})
+    if not rec:
+        raise HTTPException(400, "This reset link is invalid or has already been used.")
+    exp = rec.get("expires_at")
+    if isinstance(exp, str):
+        exp = datetime.fromisoformat(exp)
+    if exp and exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    if exp and datetime.now(timezone.utc) > exp:
+        raise HTTPException(400, "This reset link has expired. Please request a new one.")
+    firm = await db.firm_accounts.find_one({"id": rec["account_id"]}, {"_id": 0})
+    if not firm:
+        raise HTTPException(400, "Firm account not found.")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.firm_accounts.update_one(
+        {"id": firm["id"]},
+        {"$set": {"password": hash_pw(data.new_password), "password_changed_at": now_iso}},
+    )
+    await db.password_reset_tokens.update_one({"_id": rec["_id"]}, {"$set": {"used_at": now_iso}})
+    token = jwt.encode({"sub": firm["id"], "kind": "firm", "exp": datetime.now(timezone.utc) + timedelta(days=30)}, JWT_SECRET, algorithm="HS256")
+    firm.pop("password", None)
+    return {"access_token": token, "firm": firm}
+
+
+# ─── TOTP 2FA (consumer + firm) ────────────────────────────────────────
+# Standard RFC 6238 TOTP using `pyotp`. Secret stored on the user doc under
+# `totp_secret` (pending) → moved to `totp_enabled=true` only after the user
+# verifies the first 6-digit code. 10 single-use backup codes are hashed on
+# setup and shown ONCE in plain text.
+
+def _make_backup_codes(n: int = 10) -> tuple[list[str], list[str]]:
+    """Returns (plain_codes, hashed_codes). Plain shown ONCE at setup."""
+    plain = [f"{_secrets.randbelow(10**4):04d}-{_secrets.randbelow(10**4):04d}" for _ in range(n)]
+    hashed = [hash_pw(c) for c in plain]
+    return plain, hashed
+
+
+def _otpauth_qr_data_url(secret: str, account_label: str) -> str:
+    """Return a base64 data URL of the QR-code PNG for an otpauth:// URI."""
+    uri = pyotp.totp.TOTP(secret).provisioning_uri(name=account_label, issuer_name=TOTP_ISSUER)
+    img = qrcode.make(uri)
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    b64 = _base64.b64encode(buf.getvalue()).decode()
+    return f"data:image/png;base64,{b64}"
+
+
+class TOTPSetupReq(BaseModel):
+    pass
+
+
+class TOTPVerifyReq(BaseModel):
+    code: str
+    password: Optional[str] = None  # required for /disable
+
+
+class TOTPLoginReq(BaseModel):
+    tmp_token: str
+    code: str
+
+
+def _issue_tmp_2fa_token(account_id: str, kind: str) -> str:
+    """Short-lived (5 min) token returned after correct password when 2FA required."""
+    payload = {"sub": account_id, "kind": kind, "stage": "pre_2fa",
+               "exp": datetime.now(timezone.utc) + timedelta(minutes=5)}
+    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+
+def _decode_tmp_2fa_token(token: str) -> dict:
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except Exception:
+        raise HTTPException(400, "Invalid or expired 2FA token. Please sign in again.")
+    if payload.get("stage") != "pre_2fa":
+        raise HTTPException(400, "Wrong token type.")
+    return payload
+
+
+@api_router.post("/auth/2fa/setup")
+async def auth_2fa_setup(_req: TOTPSetupReq, current_user: dict = Depends(get_user)):
+    """Generate a fresh secret + QR. The secret is PENDING — only activated
+    after the user verifies the first code via /auth/2fa/verify."""
+    if current_user.get("totp_enabled"):
+        raise HTTPException(400, "2FA is already enabled. Disable it first to re-pair.")
+    secret = pyotp.random_base32()
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {"totp_secret_pending": secret, "totp_pending_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    qr = _otpauth_qr_data_url(secret, current_user["email"])
+    return {"secret": secret, "qr_data_url": qr, "issuer": TOTP_ISSUER, "account": current_user["email"]}
+
+
+@api_router.post("/auth/2fa/verify")
+async def auth_2fa_verify(req: TOTPVerifyReq, current_user: dict = Depends(get_user)):
+    """Activate 2FA: verifies the first code against the pending secret, then
+    promotes it to the live secret + generates 10 backup codes."""
+    fresh = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "totp_secret_pending": 1})
+    secret = (fresh or {}).get("totp_secret_pending")
+    if not secret:
+        raise HTTPException(400, "No pending 2FA setup. Call /auth/2fa/setup first.")
+    totp = pyotp.TOTP(secret)
+    if not totp.verify(req.code.strip(), valid_window=1):
+        raise HTTPException(400, "Incorrect code. Make sure your device clock is correct.")
+    plain, hashed = _make_backup_codes()
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {"totp_secret": secret, "totp_enabled": True,
+                  "totp_backup_codes": hashed,
+                  "totp_enabled_at": datetime.now(timezone.utc).isoformat()},
+         "$unset": {"totp_secret_pending": "", "totp_pending_at": ""}},
+    )
+    return {"ok": True, "enabled": True, "backup_codes": plain,
+            "message": "Save these backup codes — they only show once."}
+
+
+@api_router.post("/auth/2fa/disable")
+async def auth_2fa_disable(req: TOTPVerifyReq, current_user: dict = Depends(get_user)):
+    """Disable 2FA. Requires the user's password + a current valid TOTP code
+    so a stolen session can't disable 2FA on its own."""
+    fresh = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password_hash": 1, "totp_secret": 1, "totp_enabled": 1})
+    if not fresh or not fresh.get("totp_enabled"):
+        raise HTTPException(400, "2FA is not enabled.")
+    if not req.password or not verify_pw(req.password, fresh["password_hash"]):
+        raise HTTPException(400, "Password is incorrect.")
+    if not pyotp.TOTP(fresh["totp_secret"]).verify(req.code.strip(), valid_window=1):
+        raise HTTPException(400, "Incorrect 2FA code.")
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {"totp_enabled": False, "totp_disabled_at": datetime.now(timezone.utc).isoformat()},
+         "$unset": {"totp_secret": "", "totp_backup_codes": ""}},
+    )
+    return {"ok": True, "enabled": False}
+
+
+@api_router.post("/auth/2fa/login", response_model=TokenResp)
+async def auth_2fa_login(req: TOTPLoginReq):
+    """Exchange a (tmp_token + 6-digit code OR backup code) for a full JWT.
+    Called after /auth/login returned {requires_2fa: true, tmp_token}."""
+    payload = _decode_tmp_2fa_token(req.tmp_token)
+    if payload.get("kind") != "user":
+        raise HTTPException(400, "Wrong account kind for this endpoint.")
+    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
+    if not user or not user.get("totp_enabled"):
+        raise HTTPException(400, "2FA not configured for this account.")
+    code = (req.code or "").strip()
+    ok = pyotp.TOTP(user["totp_secret"]).verify(code, valid_window=1)
+    if not ok:
+        # Try backup codes
+        backups = user.get("totp_backup_codes") or []
+        used_index = None
+        for i, h in enumerate(backups):
+            if verify_pw(code, h):
+                used_index = i
+                break
+        if used_index is None:
+            raise HTTPException(401, "Incorrect 2FA code.")
+        # Mark backup code as consumed (remove from list)
+        new_backups = backups[:used_index] + backups[used_index+1:]
+        await db.users.update_one({"id": user["id"]}, {"$set": {"totp_backup_codes": new_backups}})
+    token = make_token(user["id"], user["email"])
+    user.pop("password_hash", None)
+    return {"token": token, "access_token": token, "user": user}
+
+
 # ==================== LAW FIRM PORTAL ====================
 @api_router.post("/firm/signup")
 async def firm_signup(data: FirmPortalSignup):
@@ -7917,6 +8218,23 @@ async def admin_firms_comp(data: CompFirmPayload, admin: dict = Depends(require_
         "reason": (data.reason or "Founding firm / goodwill")[:300],
         "at": now.isoformat(), "action": "grant",
     })
+    # 🎁 Auto-send a firm-onboarding email with a one-tap "Set password & sign in"
+    # reset link. This is Feature A in the founding-firms onboarding plan — when
+    # the founder comps a firm, the firm gets an automatic email with the portal
+    # URL and a secure password-reset link so they don't need to remember the
+    # password the founder set (or be embarrassed about asking for it).
+    email_sent = False
+    try:
+        tok = await _create_reset_token(account_kind="firm", account_id=target["id"], email=target["email"])
+        portal_url = f"{_public_app_url()}/firm-portal"
+        reset_link = f"{_public_app_url()}/reset.html?token={tok}&kind=firm"
+        from email_helper import send_firm_onboarding
+        email_sent = await send_firm_onboarding(
+            target["email"], target.get("firm_name") or "Your firm",
+            data.tier, data.days, reset_link, portal_url,
+        )
+    except Exception:
+        logger.exception("Firm onboarding email send failed (non-fatal)")
     return {
         "ok": True,
         "firm_id": target["id"],
@@ -7925,6 +8243,7 @@ async def admin_firms_comp(data: CompFirmPayload, admin: dict = Depends(require_
         "trial_until": new_until.isoformat(),
         "trial_tier": data.tier,
         "days_granted": data.days,
+        "onboarding_email_sent": email_sent,
     }
 
 

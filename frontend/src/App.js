@@ -460,9 +460,42 @@ function AuthScreen({ lang, country, onAuth }) {
         ? { email, password, full_name: name, language: lang, country, device_id: deviceId }
         : { email, password };
       const { data } = await api.post(path, body);
+      // 🔐 2FA gate — if the account has TOTP enabled, the backend returns
+      // {requires_2fa, tmp_token} instead of a JWT. Show the 6-digit challenge.
+      if (data?.requires_2fa && data.tmp_token) {
+        setTwofa({ tmp_token: data.tmp_token, email: data.email || email });
+        return;
+      }
       onAuth(data);
     } catch (e) { setErr(e?.response?.data?.detail || "Auth failed"); }
     finally { setBusy(false); }
+  };
+
+  // 🔐 2FA challenge state — when set, render the code-entry screen instead of the form.
+  const [twofa, setTwofa] = useState(null); // { tmp_token, email } | null
+  const [twofaCode, setTwofaCode] = useState("");
+
+  const submit2fa = async (e) => {
+    e.preventDefault(); setBusy(true); setErr("");
+    try {
+      const { data } = await api.post("/auth/2fa/login", { tmp_token: twofa.tmp_token, code: twofaCode.trim() });
+      onAuth(data);
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Code incorrect");
+    } finally { setBusy(false); }
+  };
+
+  // 🔑 Forgot password — overlay state. Posts to /auth/forgot-password.
+  const [forgot, setForgot] = useState({ open: false, email: "", sent: false, busy: false });
+  const submitForgot = async () => {
+    setForgot(f => ({ ...f, busy: true }));
+    try {
+      await api.post("/auth/forgot-password", { email: forgot.email.trim() });
+      setForgot(f => ({ ...f, busy: false, sent: true }));
+    } catch {
+      // Endpoint always returns 200 — only network errors land here
+      setForgot(f => ({ ...f, busy: false, sent: true }));
+    }
   };
 
   const googleReal = () => {
@@ -530,6 +563,33 @@ function AuthScreen({ lang, country, onAuth }) {
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }} data-testid="auth-screen">
       <Logo lang={lang} />
+
+      {/* 🔐 2FA challenge — only when backend returned requires_2fa from /auth/login */}
+      {twofa && (
+        <form onSubmit={submit2fa} style={{ width: "100%", maxWidth: 380, marginTop: 30 }} data-testid="twofa-screen">
+          <div style={{ background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 16, marginBottom: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--gold)", marginBottom: 6 }}>Two-factor authentication</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
+              Enter the 6-digit code from your Authenticator app for <strong>{twofa.email}</strong>. You can also enter a backup code if you've lost your device.
+            </div>
+          </div>
+          <input className="input" type="text" inputMode="numeric" autoComplete="one-time-code"
+                 data-testid="twofa-code-input" placeholder="123 456"
+                 value={twofaCode} onChange={(e) => setTwofaCode(e.target.value)} autoFocus
+                 style={{ marginBottom: 10, letterSpacing: "0.3em", textAlign: "center", fontSize: 18 }} />
+          {err && <div style={{ color: "var(--danger)", fontSize: 13, marginBottom: 8 }}>{err}</div>}
+          <button className="btn-gold w-full" data-testid="twofa-submit-btn" type="submit" disabled={busy || !twofaCode}>
+            {busy ? <span className="spinner" /> : "Verify & sign in"}
+          </button>
+          <button type="button" data-testid="twofa-cancel-btn"
+                  onClick={() => { setTwofa(null); setTwofaCode(""); setErr(""); }}
+                  style={{ marginTop: 12, width: "100%", background: "transparent", border: "none", color: "var(--text-muted)", fontSize: 13, cursor: "pointer", textDecoration: "underline" }}>
+            ← Use a different account
+          </button>
+        </form>
+      )}
+
+      {!twofa && (<>
       <form onSubmit={submit} style={{ width: "100%", maxWidth: 380, marginTop: 30 }}>
         {mode === "signup" && (
           <input className="input" data-testid="name-input" placeholder={t(lang, "fullName")} value={name} onChange={(e) => setName(e.target.value)} style={{ marginBottom: 10 }} />
@@ -540,6 +600,15 @@ function AuthScreen({ lang, country, onAuth }) {
         <button className="btn-gold w-full" data-testid="auth-submit-btn" type="submit" disabled={busy}>
           {busy ? <span className="spinner" /> : (mode === "signup" ? t(lang, "signUp") : t(lang, "signIn"))}
         </button>
+        {mode === "signin" && (
+          <div style={{ textAlign: "right", marginTop: 8 }}>
+            <button type="button" data-testid="forgot-password-link"
+                    onClick={() => setForgot({ open: true, email: email || "", sent: false, busy: false })}
+                    style={{ background: "transparent", border: "none", color: "var(--gold-soft)", fontSize: 12.5, cursor: "pointer", padding: 0, textDecoration: "underline" }}>
+              Forgot password?
+            </button>
+          </div>
+        )}
       </form>
       <div style={{ width: "100%", maxWidth: 380, marginTop: 16, textAlign: "center", color: "var(--text-muted)" }}>
         — {t(lang, "or")} —
@@ -615,6 +684,46 @@ function AuthScreen({ lang, country, onAuth }) {
       )}
       {showTaster && (
         <TasterLex lang={lang} country={country} onClose={() => setShowTaster(false)} onSignupClick={() => { setShowTaster(false); setMode("signup"); }} />
+      )}
+      </>)}
+
+      {/* 🔑 Forgot password — same-origin POST, no enumeration, success state stays static */}
+      {forgot.open && (
+        <div className="modal-bg" data-testid="forgot-modal" onClick={() => setForgot({ open: false, email: "", sent: false, busy: false })} style={{ zIndex: 11000 }}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ padding: 24, maxWidth: 420 }}>
+            <h2 className="brand-font gold" style={{ fontSize: 19, margin: "0 0 12px" }}>Reset your password</h2>
+            {!forgot.sent ? (
+              <>
+                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px", lineHeight: 1.55 }}>
+                  Enter the email on your account. We'll send a secure reset link that expires after 60 minutes.
+                </p>
+                <input className="input" type="email" placeholder="your@email.com" autoFocus
+                       value={forgot.email} data-testid="forgot-email-input"
+                       onChange={(e) => setForgot(f => ({ ...f, email: e.target.value }))}
+                       onKeyDown={(e) => e.key === "Enter" && forgot.email.trim() && submitForgot()}
+                       style={{ marginBottom: 12 }} />
+                <button className="btn-gold w-full" data-testid="forgot-submit-btn"
+                        onClick={submitForgot} disabled={forgot.busy || !forgot.email.trim()}>
+                  {forgot.busy ? <span className="spinner" /> : "Send reset link"}
+                </button>
+                <button onClick={() => setForgot({ open: false, email: "", sent: false, busy: false })}
+                        style={{ marginTop: 10, width: "100%", background: "transparent", border: "none", color: "var(--text-muted)", fontSize: 13, cursor: "pointer" }}>
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <p style={{ fontSize: 13, color: "var(--text)", margin: "0 0 14px", lineHeight: 1.55 }}>
+                  If an account exists for <strong>{forgot.email}</strong>, a reset link has been sent. Check your inbox (and spam folder) — the link expires in 60 minutes.
+                </p>
+                <button className="btn-gold w-full" data-testid="forgot-done-btn"
+                        onClick={() => setForgot({ open: false, email: "", sent: false, busy: false })}>
+                  Got it
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
