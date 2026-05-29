@@ -10,6 +10,14 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 28 — Founding-100 Admin Queue)
+- 🌟 **Founding 100 — Free Day Pass Queue** in Admin Comp Pro card. The landing-page promise ("first 100 signups get a free 24h Day Pass") is auto-honoured at signup (`launch_day_pass_until`), but the founder now has a visible queue to review each one.
+  - `GET /api/admin/founding-100` — first-100 signups by `signup_position`, with day-pass status + dismiss flag. Filters out test/demo emails. Returns `slots_taken`/`slots_total`/`pending`.
+  - `POST /api/admin/founding-100/dismiss` — manual "Dismiss" per row (optimistic UI shrink). Supports `undo:true` to bring back. Hard 400 if the user is not in the cohort (`signup_position > 100`).
+  - Each row shows position #, email, day-pass hours remaining, current comp status, **Grant Xd** (uses the existing days preset) + **Dismiss**.
+  - Cap behaviour: signup endpoint already stops awarding at 100 (`DAY_PASS_LIMIT`), so the queue naturally closes once full.
+- ✅ Stripe Practice Tier Price ID confirmed live in `.env`: `price_1TcVaHFh8lRHrXPIGOKrL55T` (no code change needed — already pointing to env var).
+
 ### 2026-02 (Iter 27 — Auto-jurisdiction, Multi-seat firms, Custom branding, Founding Firm Agreement)
 - 🌍 **Auto country/jurisdiction detection** — `GET /api/profile/auto-jurisdiction` reads CDN headers (cf-ipcountry, x-vercel-ip-country, x-country-code) and surfaces a one-tap banner if the user has travelled. **Never silently switches** — too important. `POST /api/profile/jurisdiction/accept` switches; `/decline` pins to stop asking. The existing `_check_geo_anomaly` was also upgraded to drive this prompt on login. `country_manually_set=True` is now stamped on every manual preference update so the auto-detector respects user choice.
 - 👥 **Multi-user firm seats (firm_users collection)** — Premium/Practice/Practice tiers now support multiple fee-earners under one firm. New endpoints: `GET /api/firm/users`, `POST /api/firm/users/invite` (returns invite URL + token, 14-day expiry), `POST /api/firm/users/accept` (sets password + returns JWT), `POST /api/firm/users/login`, `DELETE /api/firm/users/{id}`. Seat limits enforced: free/featured = 1, premium = 3, practice = 5. Owner always counts as 1 seat. `get_firm` dependency now accepts firm-user JWTs (kind="firm_user") and resolves to the parent firm with `acting_user`/`acting_role` populated.

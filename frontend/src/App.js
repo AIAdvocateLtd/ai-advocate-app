@@ -6569,9 +6569,14 @@ function CompProAdminCard({ lang }) {
   const [reason, setReason] = useState("");
   const [activeComps, setActiveComps] = useState([]);
   const [feedback, setFeedback] = useState(null);    // {ok:true, msg} | {ok:false, msg}
+  // 🌟 Founding-100 cohort queue
+  const [founding, setFounding] = useState({ users: [], slots_taken: 0, slots_total: 100, pending: 0 });
 
   const loadComps = () => {
     api.get("/admin/users/comps").then(r => setActiveComps(r.data?.comps || [])).catch(() => {});
+  };
+  const loadFounding = () => {
+    api.get("/admin/founding-100").then(r => setFounding(r.data || { users: [], slots_taken: 0, slots_total: 100, pending: 0 })).catch(() => {});
   };
   const loadRecent = async () => {
     try {
@@ -6579,7 +6584,7 @@ function CompProAdminCard({ lang }) {
       setResults(r.data?.users || []);
     } catch (e) { /* no-op */ }
   };
-  useEffect(() => { loadComps(); loadRecent(); }, []);
+  useEffect(() => { loadComps(); loadRecent(); loadFounding(); }, []);
 
   const search = async () => {
     if (!query.trim()) { loadRecent(); return; }
@@ -6606,6 +6611,7 @@ function CompProAdminCard({ lang }) {
         ? `✓ Lifetime Pro granted to ${email}`
         : `✓ ${r.data.days_granted} days Pro granted to ${email} (until ${r.data.comp_pro_until.slice(0,10)})` });
       loadComps();
+      loadFounding();
       // Refresh visible list with the new status
       if (query) search(); else loadRecent();
     } catch (e) {
@@ -6620,9 +6626,24 @@ function CompProAdminCard({ lang }) {
       await api.post("/admin/users/uncomp", { email, reason: "Owner revoked" });
       setFeedback({ ok: true, msg: `✓ Comp revoked for ${email}` });
       loadComps();
+      loadFounding();
       if (query) search(); else loadRecent();
     } catch (e) {
       setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not revoke." });
+    } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
+  };
+
+  // 🌟 Founding-100: remove a row from the queue (does NOT touch their day pass).
+  // Optimistic — filter from local state immediately so the list shrinks on tap.
+  const dismissFounding = async (email) => {
+    setActionBusy(true); setFeedback(null);
+    setFounding(f => ({ ...f, users: f.users.filter(u => u.email !== email), pending: Math.max(0, (f.pending || 0) - 1) }));
+    try {
+      await api.post("/admin/founding-100/dismiss", { email });
+      setFeedback({ ok: true, msg: `✓ Removed ${email} from the queue` });
+    } catch (e) {
+      setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not dismiss." });
+      loadFounding(); // restore on error
     } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
   };
 
@@ -6634,6 +6655,85 @@ function CompProAdminCard({ lang }) {
       </div>
       <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 12 }}>
         Grant free Pro access to family, friends, or unhappy customers. Every grant is logged. Pick a duration, then tap "Grant" next to any user — or use the search to filter.
+      </div>
+
+      {/* 🌟 FOUNDING 100 — queue of first-100 signups eligible for the launch day pass.
+          Day pass is auto-granted at signup. This list is for at-a-glance review
+          so the founder can verify, optionally extend, then dismiss the row. */}
+      <div data-testid="founding-100-card"
+           style={{ background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)",
+                    borderRadius: 12, padding: 12, marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <span style={{ fontSize: 11.5, color: "var(--gold)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            🌟 Founding 100 — Free Day Pass Queue
+          </span>
+          <span data-testid="founding-100-slots"
+                style={{ fontSize: 10.5, color: "var(--text-muted)", fontWeight: 600 }}>
+            {founding.slots_taken}/{founding.slots_total} slots · {founding.pending} pending
+          </span>
+        </div>
+        <div style={{ fontSize: 10.5, color: "var(--text-muted)", lineHeight: 1.45, marginBottom: 10 }}>
+          The landing page promises the first 100 signups a free 24-hour Day Pass — already auto-granted on signup. Review each one, optionally extend to a longer comp, then tap <strong>Dismiss</strong> to clear the row.
+        </div>
+        {founding.users.length === 0 ? (
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)", padding: "10px 6px", textAlign: "center",
+                        border: "1px dashed var(--line)", borderRadius: 8 }}>
+            {founding.slots_taken === 0
+              ? "No founding signups yet — the queue will populate as the first 100 users register."
+              : "All caught up. Every founding signup has been reviewed."}
+          </div>
+        ) : (
+          <div data-testid="founding-100-list"
+               style={{ display: "flex", flexDirection: "column", gap: 6,
+                        maxHeight: 320, overflowY: "auto", paddingRight: 2 }}>
+            {founding.users.map(u => {
+              const dpUntil = u.launch_day_pass_until ? new Date(u.launch_day_pass_until) : null;
+              const dpActive = dpUntil && dpUntil > new Date();
+              const dpHours = dpUntil ? Math.max(0, Math.round((dpUntil - new Date()) / 36e5)) : 0;
+              const hasComp = u.comp_pro_until && new Date(u.comp_pro_until) > new Date();
+              return (
+                <div key={u.id} data-testid={`founding-row-${u.id}`}
+                     style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--line)",
+                              borderRadius: 10, padding: "8px 10px", display: "flex",
+                              alignItems: "center", gap: 8 }}>
+                  <div style={{ minWidth: 32, fontSize: 11, color: "var(--gold)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                    #{u.signup_position}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {u.email}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>
+                      {u.full_name || "—"}
+                      {dpActive && <span style={{ color: "var(--gold)" }}> · day pass {dpHours}h left</span>}
+                      {!dpActive && dpUntil && <span> · day pass expired</span>}
+                      {!dpUntil && <span> · no day pass on file</span>}
+                      {hasComp && <span style={{ color: "var(--gold)" }}> · comp {u.comp_pro_until.slice(0,10)}</span>}
+                    </div>
+                  </div>
+                  {!hasComp && (
+                    <button data-testid={`founding-grant-${u.id}`}
+                            onClick={() => grantComp(u.email)} disabled={actionBusy}
+                            title={`Grant ${days === 0 ? "lifetime" : days + ' days'} on top of their day pass`}
+                            style={{ background: "var(--gold)", border: "none", color: "#1a1300",
+                                     borderRadius: 8, padding: "5px 10px", fontSize: 10.5,
+                                     fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+                      Grant {days === 0 ? "lifetime" : `${days}d`}
+                    </button>
+                  )}
+                  <button data-testid={`founding-dismiss-${u.id}`}
+                          onClick={() => dismissFounding(u.email)} disabled={actionBusy}
+                          style={{ background: "transparent", border: "1px solid var(--line)",
+                                   color: "var(--text-muted)", borderRadius: 8,
+                                   padding: "5px 10px", fontSize: 10.5, fontWeight: 600,
+                                   cursor: "pointer", whiteSpace: "nowrap" }}>
+                    Dismiss
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Days preset row */}

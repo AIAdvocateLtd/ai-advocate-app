@@ -7724,6 +7724,70 @@ async def admin_users_comps(_: dict = Depends(require_admin)):
     return {"comps": users, "count": len(users)}
 
 
+# ─── Founding-100 queue ──────────────────────────────────────────────
+# The landing page promises a free Day Pass to the first 100 signups.
+# The signup endpoint already auto-grants this (launch_day_pass_until),
+# but the founder wants visibility — a queue of every founding-cohort
+# signup so they can verify the day pass, optionally extend it, and
+# dismiss the row when done. Dismissals are per-user (founding_list_dismissed)
+# so the list shrinks as the founder works through it.
+@api_router.get("/admin/founding-100")
+async def admin_founding_100(_: dict = Depends(require_admin), include_dismissed: bool = False):
+    """Return the first 100 real signups by signup_position. Each row carries the
+    user's day-pass status + dismiss flag so the founder can manage them."""
+    query = {
+        "signup_position": {"$gte": 1, "$lte": 100},
+        "deleted": {"$ne": True},
+        "is_demo": {"$ne": True},
+        "auth_provider": {"$nin": ["demo"]},
+        "email": {"$not": {"$regex": r"(@advocate\.app$|^firmpytest|^giftclaim_|^recipient_|^firmtest|^shottest|^pytest|^test_)"}},
+    }
+    if not include_dismissed:
+        query["founding_list_dismissed"] = {"$ne": True}
+    users = await db.users.find(
+        query,
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "tier": 1, "signup_position": 1,
+         "launch_day_pass_until": 1, "comp_pro_until": 1, "created_at": 1,
+         "founding_list_dismissed": 1, "founding_list_dismissed_at": 1},
+    ).sort("signup_position", 1).to_list(120)
+    # Slot count = how many of the 100 are taken (lifetime — doesn't shrink on dismiss)
+    slots_taken = await db.users.count_documents({
+        "signup_position": {"$gte": 1, "$lte": 100},
+        "deleted": {"$ne": True}, "is_demo": {"$ne": True},
+        "auth_provider": {"$nin": ["demo"]},
+    })
+    return {"users": users, "slots_taken": slots_taken, "slots_total": 100, "pending": len(users)}
+
+
+class FoundingDismissPayload(BaseModel):
+    email: str
+    undo: Optional[bool] = False  # if True, un-dismiss instead
+
+
+@api_router.post("/admin/founding-100/dismiss")
+async def admin_founding_100_dismiss(data: FoundingDismissPayload, admin: dict = Depends(require_admin)):
+    """Mark a founding-cohort user as 'dealt with' so they drop off the queue.
+    Pass undo=true to bring them back. No effect on the user's actual day-pass."""
+    target = await db.users.find_one({"email": data.email.strip().lower()}, {"_id": 0, "id": 1, "email": 1, "signup_position": 1})
+    if not target:
+        raise HTTPException(404, "User not found.")
+    if not target.get("signup_position") or target["signup_position"] > 100:
+        raise HTTPException(400, "User is not part of the founding 100 cohort.")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if data.undo:
+        await db.users.update_one(
+            {"id": target["id"]},
+            {"$set": {"founding_list_dismissed": False}, "$unset": {"founding_list_dismissed_at": ""}},
+        )
+        return {"ok": True, "email": target["email"], "dismissed": False}
+    await db.users.update_one(
+        {"id": target["id"]},
+        {"$set": {"founding_list_dismissed": True, "founding_list_dismissed_at": now_iso,
+                  "founding_list_dismissed_by": admin["email"]}},
+    )
+    return {"ok": True, "email": target["email"], "dismissed": True}
+
+
 # ============================================================
 # Owner-only: Firm trial / comp tools (founding firms cohort)
 # ============================================================
