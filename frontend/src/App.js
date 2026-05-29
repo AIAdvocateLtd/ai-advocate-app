@@ -7684,7 +7684,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {/* 🎁 Winback Day Pass — fires once-per-account for free users who've hit the
           chat cap AND dismissed the upgrade modal twice. Goal: rescue a frustrated user. */}
       <WinbackGiftBanner user={user} lang={lang} refreshUser={refreshUser} />
-      {tier === "trial_pro" && (
+      {tier === "trial_pro" && !user?.is_demo && (
         <div className="trial-banner" data-testid="trial-banner" style={{ marginBottom: 14 }}>
           {t(lang, "trialDays", { n: user.trial_days_remaining })}
         </div>
