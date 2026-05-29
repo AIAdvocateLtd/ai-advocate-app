@@ -5199,6 +5199,8 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
           </div>
           {[
             { label: t(lang, "customerSupport"), email: "support@aiadvocate.co.uk" },
+            { label: "Law-firm partnerships", email: "firms@aiadvocate.co.uk" },
+            { label: "Data Protection Officer (GDPR)", email: "dpo@aiadvocate.co.uk" },
             { label: t(lang, "businessPartnerships"), email: "admin@aiadvocate.co.uk" },
             { label: t(lang, "pressEnquiries"), email: "press@aiadvocate.co.uk" },
             { label: t(lang, "generalInfo"), email: "info@aiadvocate.co.uk" },

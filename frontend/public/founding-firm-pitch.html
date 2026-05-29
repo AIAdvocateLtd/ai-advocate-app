@@ -54,6 +54,62 @@
   ul.bullets li::before {
     content: "▸"; position: absolute; left: 0; color: #f7c948; font-weight: 700;
   }
+  /* === Pricing tiers === */
+  .tiers-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px;
+  }
+  @media (max-width: 720px) { .tiers-grid { grid-template-columns: repeat(2, 1fr); } }
+  .tier {
+    background: #fdfaf0; border: 1px solid #e5d99a; border-radius: 10px;
+    padding: 14px 12px; text-align: left;
+  }
+  .tier.highlight { background: #0a0a0a; color: #fefdf8; border-color: #f7c948; }
+  .tier.highlight .tier-name, .tier.highlight .tier-price { color: #f7c948; }
+  .tier-name {
+    font-family: "Cinzel", serif; font-size: 10pt; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #8a6612; font-weight: 700; margin-bottom: 4px;
+  }
+  .tier-price {
+    font-size: 18pt; font-weight: 700; color: #1a1a1a; margin-bottom: 2px;
+  }
+  .tier-price small { font-size: 9pt; color: #888; font-weight: 400; }
+  .tier-bullets { list-style: none; padding: 6px 0 0 0; font-size: 9.5pt; line-height: 1.5; }
+  .tier-bullets li { padding: 2px 0 2px 10px; position: relative; }
+  .tier-bullets li::before { content: "·"; position: absolute; left: 2px; }
+  /* === Register form === */
+  .register-box {
+    background: #fff; border: 2px solid #f7c948; border-radius: 14px;
+    padding: 18px 20px; margin: 16px 0;
+  }
+  .register-box h3 {
+    font-family: "Cinzel", serif; font-size: 14pt; color: #1a1a1a;
+    text-align: center; margin-bottom: 4px;
+  }
+  .register-box .sub-text {
+    font-size: 10pt; color: #666; text-align: center; margin-bottom: 14px;
+  }
+  .register-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 520px) { .register-form { grid-template-columns: 1fr; } }
+  .register-form .full { grid-column: 1 / -1; }
+  .register-form input, .register-form select, .register-form textarea {
+    width: 100%; padding: 10px 12px; border: 1px solid #d4c87a; border-radius: 8px;
+    font-size: 11pt; font-family: inherit; background: #fff; color: #1a1a1a;
+  }
+  .register-form input:focus, .register-form select:focus, .register-form textarea:focus {
+    outline: none; border-color: #b8860b; box-shadow: 0 0 0 3px rgba(247,201,72,0.15);
+  }
+  .register-form button {
+    grid-column: 1 / -1;
+    background: #1a1300; color: #f7c948; border: none; padding: 14px;
+    font-size: 11.5pt; font-weight: 700; border-radius: 8px; cursor: pointer;
+    letter-spacing: 0.04em; font-family: "Cinzel", serif;
+  }
+  .register-form button:hover { background: #2a2010; }
+  .register-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .register-success {
+    display: none; background: #e8f5e9; border: 1px solid #4caf50; border-radius: 8px;
+    padding: 14px; text-align: center; color: #1b5e20; font-weight: 600;
+  }
   .cta-box {
     background: linear-gradient(135deg, #f7c948 0%, #d4af37 100%);
     border-radius: 12px; padding: 18px 22px; color: #0a0a0a;
@@ -150,6 +206,80 @@
     </div>
   </div>
 
+  <div class="section">
+    <h2>Subscription tiers</h2>
+    <p style="font-size:10pt;color:#555;margin-bottom:6px;">Founding Firms (first 20) lock in £199/mo for life. Public pricing once cohort closes:</p>
+    <div class="tiers-grid">
+      <div class="tier">
+        <div class="tier-name">Featured</div>
+        <div class="tier-price">£49<small>/mo</small></div>
+        <ul class="tier-bullets">
+          <li>1 fee-earner seat</li>
+          <li>Postcode-area listing</li>
+          <li>Encrypted engagements</li>
+          <li>Lex for Lawyers</li>
+        </ul>
+      </div>
+      <div class="tier highlight">
+        <div class="tier-name">Premium ★</div>
+        <div class="tier-price">£199<small>/mo</small></div>
+        <ul class="tier-bullets">
+          <li>3 fee-earner seats</li>
+          <li>Multi-postcode listing</li>
+          <li>Priority routing</li>
+          <li>Quarterly reports</li>
+        </ul>
+      </div>
+      <div class="tier">
+        <div class="tier-name">Practice</div>
+        <div class="tier-price">£399<small>/mo</small></div>
+        <ul class="tier-bullets">
+          <li>5 fee-earner seats</li>
+          <li>Region-wide listing</li>
+          <li>Custom branding</li>
+          <li>Roadmap input</li>
+          <li>Partner success manager</li>
+        </ul>
+      </div>
+      <div class="tier">
+        <div class="tier-name">Founding</div>
+        <div class="tier-price" style="font-size:13pt;">Bespoke</div>
+        <ul class="tier-bullets">
+          <li>Regional exclusivity</li>
+          <li>App Store quote</li>
+          <li>50% rev-share</li>
+          <li>Logo lockup</li>
+          <li>12-month term</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="register-box">
+    <h3>Register your firm — pre-launch</h3>
+    <p class="sub-text">Reserve your spot in the Founding 20 cohort. We'll be in touch the moment we go live.</p>
+    <div id="register-success-msg" class="register-success">
+      ✓ Registration received. We'll email you within 2 business days.
+    </div>
+    <form id="firm-register-form" class="register-form">
+      <input type="text" name="firm_name" placeholder="Firm name *" required data-testid="firm-register-name">
+      <input type="text" name="contact_name" placeholder="Your full name *" required data-testid="firm-register-contact">
+      <input type="email" name="email" placeholder="Email address *" required data-testid="firm-register-email">
+      <input type="tel" name="phone" placeholder="Phone (optional)" data-testid="firm-register-phone">
+      <input type="text" name="city" placeholder="City *" required data-testid="firm-register-city">
+      <select name="country" required data-testid="firm-register-country">
+        <option value="">Country *</option>
+        <option value="United Kingdom" selected>United Kingdom</option>
+        <option value="Ireland">Ireland</option>
+        <option value="Other">Other</option>
+      </select>
+      <input type="text" name="specialties" class="full" placeholder="Specialties (e.g. Family, Immigration, Employment)" data-testid="firm-register-specialties">
+      <input type="url" name="website" class="full" placeholder="Website (optional)" data-testid="firm-register-website">
+      <textarea name="notes" class="full" rows="2" placeholder="Anything else we should know? (optional)" data-testid="firm-register-notes"></textarea>
+      <button type="submit" data-testid="firm-register-submit">Reserve our spot in the cohort</button>
+    </form>
+  </div>
+
   <div class="cta-box">
     <div class="big">Ready to be a Founding Firm?</div>
     <div class="small">
@@ -164,6 +294,52 @@
   </div>
 
 </div>
+
+<script>
+(function() {
+  var form = document.getElementById('firm-register-form');
+  var success = document.getElementById('register-success-msg');
+  if (!form) return;
+  form.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    var btn = form.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.textContent = 'Submitting…';
+    var fd = new FormData(form);
+    var payload = {
+      firm_name: fd.get('firm_name'),
+      contact_name: fd.get('contact_name'),
+      email: fd.get('email'),
+      phone: fd.get('phone') || '',
+      country: fd.get('country'),
+      city: fd.get('city'),
+      specialties: (fd.get('specialties') || '').split(',').map(function(s){return s.trim();}).filter(Boolean),
+      website: fd.get('website') || '',
+      notes: fd.get('notes') || ''
+    };
+    try {
+      var r = await fetch('/api/lawfirms/advertise', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (r.ok) {
+        form.style.display = 'none';
+        success.style.display = 'block';
+        if (window.gtag) window.gtag('event', 'firm_register', { firm: payload.firm_name });
+      } else {
+        btn.disabled = false;
+        btn.textContent = 'Reserve our spot in the cohort';
+        alert('Sorry, something went wrong. Please email firms@aiadvocate.co.uk directly.');
+      }
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Reserve our spot in the cohort';
+      alert('Network error. Please email firms@aiadvocate.co.uk directly.');
+    }
+  });
+})();
+</script>
 
 </body>
 </html>
