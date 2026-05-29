@@ -237,6 +237,13 @@
   .plan li { font-size: 13.5px; color: var(--text-dim); padding: 6px 0 6px 24px; position: relative; }
   .plan li::before { content: '✓'; position: absolute; left: 0; color: var(--gold); font-weight: 700; }
   .plan-foot { font-size: 11.5px; color: var(--text-muted); margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); text-align: center; }
+  .ai-badge {
+    display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; padding: 4px 10px; border-radius: 999px; margin-top: 10px;
+    background: rgba(247,201,72,0.10); border: 1px solid rgba(247,201,72,0.35);
+    color: var(--gold);
+  }
+  .ai-badge.dim { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.10); color: var(--text-muted); }
 
   /* Yearly variant — even louder than 'most popular' */
   .plan-yearly { border-color: var(--gold); position: relative; }
@@ -336,7 +343,8 @@
     <h1>The law in the<br><span class="gold-grad">palm of your hand.</span></h1>
     <p class="sub">
       Real-time legal answers in 60 seconds. Letter drafting, court prep, evidence storage,
-      emergency rights — built for the UK, available in 11 languages.
+      emergency rights — built for the UK, in any UK or international jurisdiction,
+      available in 11 languages.
     </p>
 
     <!-- Waitlist form -->
@@ -417,7 +425,12 @@
       <div class="feature">
         <div class="ico">⚖️</div>
         <h3>Ask Lex</h3>
-        <p>Your AI legal advocate, powered by Claude Sonnet 4.5. Answers cite real UK statutes and case law. Available in 11 languages.</p>
+        <p>Your AI legal advocate, powered by GPT-5.2 and Claude Sonnet 4.5. Answers cite real UK statutes and case law. Available in 11 languages.</p>
+      </div>
+      <div class="feature">
+        <div class="ico">🌍</div>
+        <h3>Travels with you</h3>
+        <p>Lex updates automatically to local law wherever you are in the world. Land in France? It detects the change and offers to switch jurisdiction — UK contract dispute, French rental row, US visa question, all in one app.</p>
       </div>
       <div class="feature">
         <div class="ico">✉️</div>
@@ -487,6 +500,7 @@
       <div class="plan">
         <div class="plan-name">Free</div>
         <div class="plan-price">£0 <small>/forever</small></div>
+        <div class="ai-badge dim">⚡ Claude Haiku 4.5</div>
         <ul>
           <li>5 Lex chats / day</li>
           <li>1 photo evidence / month</li>
@@ -500,6 +514,7 @@
       <div class="plan featured">
         <div class="plan-name">Plus</div>
         <div class="plan-price">£19.99 <small>/month</small></div>
+        <div class="ai-badge">✨ Powered by GPT-5.2</div>
         <ul>
           <li>Unlimited Lex chats</li>
           <li>15 photo evidence / month</li>
@@ -507,7 +522,6 @@
           <li>Contract Review</li>
           <li>Court Prep mode</li>
           <li>Voice in/out</li>
-          <li>Claude Sonnet 4.5 brain</li>
           <li>50 files</li>
         </ul>
         <div class="plan-foot">Or get a Day Pass for £4.99 — pay only when you need it.</div>
@@ -517,6 +531,7 @@
         <div class="plan-name">Pro</div>
         <div class="plan-price">£34.99 <small>/month</small></div>
         <div class="yearly-line">or <strong>£319.99/year</strong> · save <strong>£100</strong></div>
+        <div class="ai-badge">🧠 Claude Sonnet 4.5 + Deep Think</div>
         <ul>
           <li>Everything in Plus</li>
           <li>Hearing Recorder</li>

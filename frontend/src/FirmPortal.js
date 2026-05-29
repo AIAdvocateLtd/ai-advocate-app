@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
-import { X, ArrowLeft, Send, Download, Building2, LogOut, Plus, Copy, Mail, Briefcase, Sparkles } from "lucide-react";
+import { X, ArrowLeft, Send, Download, Building2, LogOut, Plus, Copy, Mail, Briefcase, Sparkles, Users, Palette } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -82,6 +82,9 @@ function FirmDashboard({ firm, onLogout }) {
   const [showCreate, setShowCreate] = useState(false);
   const [activeEng, setActiveEng] = useState(null);
   const [showBilling, setShowBilling] = useState(false);
+  const [showBranding, setShowBranding] = useState(false);
+  const [showSeats, setShowSeats] = useState(false);
+  const [branding, setBranding] = useState({ logo_url: "", brand_color: "", accent_color: "", tier_allows: false });
 
   const load = async () => {
     try {
@@ -89,21 +92,38 @@ function FirmDashboard({ firm, onLogout }) {
       setEngagements(data.engagements || []);
       setTier(data.tier); setLimit(data.limit); setActiveCount(data.active_count);
     } catch (e) { /* no-op */ }
+    try {
+      const { data } = await fapi.get("/firm/branding");
+      setBranding(data || branding);
+    } catch (e) { /* no-op */ }
   };
   useEffect(() => { load(); }, []);
 
-  if (activeEng) return <FirmEngagementThread engagement={activeEng} onBack={() => { setActiveEng(null); load(); }} />;
+  if (activeEng) return <FirmEngagementThread engagement={activeEng} onBack={() => { setActiveEng(null); load(); }} branding={branding} />;
 
   const canInvite = limit > 0;
+  const brandPrimary = branding.brand_color || "#f7c948";
+  const brandAccent = branding.accent_color || "#d4af37";
 
   return (
     <div style={shell}>
-      <header style={hdr}>
-        <div>
-          <div style={{ fontFamily: "Cinzel, serif", fontSize: 18, color: "#f7c948" }}>{firm.firm_name}</div>
-          <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{firm.email} · Plan: <span style={{ color: "#f7c948", textTransform: "uppercase" }}>{tier}</span></div>
+      <header style={{ ...hdr, borderBottom: `2px solid ${brandPrimary}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {branding.logo_url ? (
+            <img src={branding.logo_url} alt={firm.firm_name} style={{ height: 38, width: "auto", borderRadius: 4 }}
+                 onError={(e) => { e.target.style.display = "none"; }} />
+          ) : null}
+          <div>
+            <div style={{ fontFamily: "Cinzel, serif", fontSize: 18, color: brandPrimary }}>{firm.firm_name}</div>
+            <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>
+              {firm.email} · Plan: <span style={{ color: brandPrimary, textTransform: "uppercase" }}>{tier}</span>
+              {firm.acting_user ? <> · Signed in as <strong>{firm.acting_user.full_name || firm.acting_user.email}</strong></> : null}
+            </div>
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button data-testid="firm-seats-btn" onClick={() => setShowSeats(true)} style={btnGhost}><Users size={14} /> Seats</button>
+          <button data-testid="firm-branding-btn" onClick={() => setShowBranding(true)} style={btnGhost}><Palette size={14} /> Branding</button>
           <button data-testid="firm-billing-btn" onClick={() => setShowBilling(true)} style={btnGhost}><Sparkles size={14} /> Plan</button>
           <button data-testid="firm-logout-btn" onClick={onLogout} style={btnGhost}><LogOut size={14} /></button>
         </div>
@@ -183,6 +203,11 @@ function FirmDashboard({ firm, onLogout }) {
 
       {showCreate && <NewEngagementModal onClose={() => setShowCreate(false)} onCreated={async () => { setShowCreate(false); await load(); }} />}
       {showBilling && <BillingModal firmEmail={firm.email} currentTier={tier} onClose={() => setShowBilling(false)} />}
+      {showBranding && <BrandingModal initial={branding} tier={tier} firmName={firm.firm_name}
+                                       onClose={() => setShowBranding(false)}
+                                       onSaved={(b) => { setBranding(b); }} />}
+      {showSeats && <SeatsModal tier={tier} firmName={firm.firm_name}
+                                onClose={() => setShowSeats(false)} />}
     </div>
   );
 }
@@ -405,6 +430,287 @@ function BillingModal({ firmEmail, currentTier, onClose }) {
   );
 }
 
+// =============================== BRANDING MODAL + PREVIEW ===============================
+// Lets firms upload logo URL + colors, see live preview in a sample engagement chat.
+// Tier-gated to Premium/Practice — Featured users see an upgrade nudge instead.
+function BrandingModal({ initial, tier, firmName, onClose, onSaved }) {
+  const [logoUrl, setLogoUrl] = useState(initial.logo_url || "");
+  const [brandColor, setBrandColor] = useState(initial.brand_color || "#1a4d8f");
+  const [accentColor, setAccentColor] = useState(initial.accent_color || "#f7c948");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [savedMsg, setSavedMsg] = useState("");
+
+  const canEdit = ["premium", "practice"].includes(tier);
+
+  const save = async () => {
+    setError(""); setSavedMsg(""); setSaving(true);
+    try {
+      const { data } = await fapi.patch("/firm/branding", { logo_url: logoUrl, brand_color: brandColor, accent_color: accentColor });
+      setSavedMsg("✓ Branding updated. Clients will see this in their engagement chats.");
+      onSaved && onSaved({ logo_url: data.logo_url ?? logoUrl, brand_color: data.brand_color ?? brandColor, accent_color: data.accent_color ?? accentColor, tier_allows: true });
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Failed to save");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div style={overlay} onClick={onClose} data-testid="branding-modal">
+      <div style={{ ...modalCard, maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <h3 style={modalTitle}><Palette size={18} style={{ verticalAlign: -3, marginRight: 6 }} />Custom branding</h3>
+          <button onClick={onClose} style={btnPlain}><X size={18} /></button>
+        </div>
+
+        {!canEdit && (
+          <div data-testid="branding-tier-gate" style={{
+            background: "rgba(247,201,72,0.10)", border: "1px solid #f7c948",
+            color: "#f7c948", padding: 12, borderRadius: 10, marginBottom: 14, fontSize: 13,
+          }}>
+            ⚡ Custom branding is unlocked on <strong>Premium (£199/mo)</strong> and <strong>Practice (£399/mo)</strong>.
+            Make every client engagement feel like <em>your</em> firm, not generic.
+          </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+          {/* Inputs */}
+          <div>
+            <label style={lbl}>Logo URL (https only, &lt;500KB)</label>
+            <input data-testid="branding-logo-input" disabled={!canEdit} value={logoUrl}
+                   onChange={(e) => setLogoUrl(e.target.value)}
+                   placeholder="https://your-firm.co.uk/logo.png"
+                   style={inp} />
+
+            <label style={{ ...lbl, marginTop: 12 }}>Primary brand colour</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input data-testid="branding-color-picker" disabled={!canEdit} type="color"
+                     value={brandColor} onChange={(e) => setBrandColor(e.target.value)}
+                     style={{ width: 50, height: 38, padding: 2, background: "transparent", border: "1px solid #2a2a2a", borderRadius: 6 }} />
+              <input data-testid="branding-color-text" disabled={!canEdit} value={brandColor}
+                     onChange={(e) => setBrandColor(e.target.value)} style={{ ...inp, flex: 1 }} />
+            </div>
+
+            <label style={{ ...lbl, marginTop: 12 }}>Accent colour (optional)</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input disabled={!canEdit} type="color" value={accentColor}
+                     onChange={(e) => setAccentColor(e.target.value)}
+                     style={{ width: 50, height: 38, padding: 2, background: "transparent", border: "1px solid #2a2a2a", borderRadius: 6 }} />
+              <input disabled={!canEdit} value={accentColor}
+                     onChange={(e) => setAccentColor(e.target.value)} style={{ ...inp, flex: 1 }} />
+            </div>
+
+            {error && <div style={{ color: "#fca5a5", fontSize: 12, marginTop: 10 }}>{error}</div>}
+            {savedMsg && <div style={{ color: "#86efac", fontSize: 12, marginTop: 10 }}>{savedMsg}</div>}
+
+            <button data-testid="branding-save-btn" disabled={!canEdit || saving} onClick={save}
+                    style={{ ...btnGold, width: "100%", marginTop: 14, opacity: !canEdit || saving ? 0.5 : 1 }}>
+              {saving ? "Saving…" : "Save branding"}
+            </button>
+          </div>
+
+          {/* Live preview */}
+          <div data-testid="branding-preview">
+            <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+              Live preview — what your clients will see
+            </div>
+            <div style={{
+              border: `2px solid ${brandColor}`, borderRadius: 12, overflow: "hidden",
+              background: "#fff", color: "#111", fontFamily: "system-ui",
+            }}>
+              {/* Preview header */}
+              <div style={{ background: brandColor, color: "#fff", padding: "12px 14px",
+                            display: "flex", alignItems: "center", gap: 10 }}>
+                {logoUrl ? (
+                  <img src={logoUrl} alt="logo"
+                       style={{ height: 30, width: "auto", background: "#fff", borderRadius: 4, padding: 3 }}
+                       onError={(e) => { e.target.style.display = "none"; }} />
+                ) : (
+                  <div style={{ width: 30, height: 30, background: "rgba(255,255,255,0.2)",
+                                borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center",
+                                fontSize: 11, fontWeight: 700 }}>{(firmName || "F")[0]}</div>
+                )}
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{firmName || "Your Firm"}</div>
+              </div>
+              {/* Preview body — sample engagement chat */}
+              <div style={{ padding: 14, fontSize: 12.5, lineHeight: 1.5, maxHeight: 240, overflow: "auto" }}>
+                <div style={{ background: "#f3f3f5", padding: 8, borderRadius: 10,
+                              borderLeft: `3px solid ${brandColor}`, marginBottom: 8 }}>
+                  <div style={{ fontWeight: 700, fontSize: 11, color: brandColor, marginBottom: 3 }}>Client · Sarah</div>
+                  Hi — I had a question about my deposit. My landlord won't return it after I moved out 6 weeks ago.
+                </div>
+                <div style={{ background: brandColor, color: "#fff", padding: 8, borderRadius: 10, marginBottom: 8,
+                              alignSelf: "flex-end", marginLeft: 30 }}>
+                  <div style={{ fontWeight: 700, fontSize: 11, color: accentColor, marginBottom: 3 }}>{firmName || "Your Firm"} · Reply</div>
+                  Hi Sarah — happy to help. Under the Housing Act 2004, your deposit must be returned within 10 days of agreement. Was the deposit protected in TDS, DPS or MyDeposits?
+                </div>
+                <button style={{
+                  background: brandColor, color: "#fff", border: "none",
+                  padding: "8px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "default",
+                }}>Reply now</button>
+              </div>
+              <div style={{ background: "#f9f9fb", borderTop: "1px solid #e5e5e9",
+                            padding: "8px 14px", fontSize: 10, color: "#777", display: "flex",
+                            justifyContent: "space-between" }}>
+                <span>Powered by AI Advocate</span>
+                <span style={{ color: accentColor, fontWeight: 700 }}>Confidential · Encrypted</span>
+              </div>
+            </div>
+            <div style={{ fontSize: 10.5, color: "#666", marginTop: 8, lineHeight: 1.4 }}>
+              💡 Tip: upload a square PNG logo (200×200px+) for crisp display. Use your firm's primary
+              brand colour for the header; the accent colour highlights names and key links.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =============================== SEATS MODAL ===============================
+// Lets the firm owner / admin invite / list / remove fee-earner seats.
+function SeatsModal({ tier, firmName, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviteRole, setInviteRole] = useState("fee_earner");
+  const [error, setError] = useState("");
+  const [lastInvite, setLastInvite] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await fapi.get("/firm/users");
+      setData(data);
+    } catch (e) { /* no-op */ }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const invite = async (e) => {
+    e.preventDefault(); setError(""); setLastInvite(null);
+    if (!inviteEmail || !inviteName) { setError("Email and name required"); return; }
+    try {
+      const { data } = await fapi.post("/firm/users/invite", { email: inviteEmail, full_name: inviteName, role: inviteRole });
+      setLastInvite(data);
+      setInviteEmail(""); setInviteName("");
+      await load();
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Invite failed");
+    }
+  };
+
+  const removeUser = async (id) => {
+    if (!window.confirm("Remove this fee-earner? They'll lose access immediately.")) return;
+    try { await fapi.delete(`/firm/users/${id}`); await load(); }
+    catch (e) { setError(e?.response?.data?.detail || "Remove failed"); }
+  };
+
+  return (
+    <div style={overlay} onClick={onClose} data-testid="seats-modal">
+      <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <h3 style={modalTitle}><Users size={18} style={{ verticalAlign: -3, marginRight: 6 }} />Fee-earner seats</h3>
+          <button onClick={onClose} style={btnPlain}><X size={18} /></button>
+        </div>
+
+        {loading ? (
+          <div style={{ color: "#888", fontSize: 13, padding: 20 }}>Loading…</div>
+        ) : data ? (
+          <>
+            <div style={{
+              background: "rgba(247,201,72,0.06)", border: "1px solid #2a2a2a", borderRadius: 10,
+              padding: 12, fontSize: 12.5, marginBottom: 16, color: "#ddd",
+            }}>
+              <strong style={{ color: "#f7c948" }}>{data.active_count} / {data.seat_limit}</strong> seats in use on <strong style={{ textTransform: "uppercase" }}>{data.tier}</strong> tier.
+              {!data.can_invite_more && (
+                <div style={{ marginTop: 6, color: "#fca5a5" }}>Seat limit reached — upgrade your plan to add more fee-earners.</div>
+              )}
+            </div>
+
+            {/* Seat list */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ ...rowSeat, background: "#0a1f0a", borderColor: "#1f3a1f" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{data.owner.full_name || data.owner.email}</div>
+                  <div style={{ fontSize: 11, color: "#888" }}>{data.owner.email} · OWNER</div>
+                </div>
+                <span style={pillActive}>Active</span>
+              </div>
+              {data.users.map((u) => (
+                <div key={u.id} style={{
+                  ...rowSeat,
+                  opacity: u.status === "removed" ? 0.4 : 1,
+                  background: u.status === "removed" ? "#1a1a1a" : "#0c0c0c",
+                }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{u.full_name}</div>
+                    <div style={{ fontSize: 11, color: "#888" }}>
+                      {u.email} · {u.role.toUpperCase()}{u.status !== "active" ? ` · ${u.status.toUpperCase()}` : ""}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    {u.status === "active" && <span style={pillActive}>Active</span>}
+                    {u.status === "pending" && <span style={pillPending}>Pending</span>}
+                    {u.status === "removed" && <span style={pillRemoved}>Removed</span>}
+                    {u.status !== "removed" && (
+                      <button data-testid={`seat-remove-${u.id}`} onClick={() => removeUser(u.id)}
+                              style={{ background: "none", border: "none", color: "#fca5a5", cursor: "pointer", fontSize: 11 }}>
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Invite new */}
+            {data.can_invite_more && (
+              <form onSubmit={invite} style={{ background: "#080808", border: "1px solid #1a1a1a", borderRadius: 10, padding: 12 }}>
+                <div style={{ fontSize: 12, color: "#f7c948", marginBottom: 8, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>Invite a fee-earner</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                  <input data-testid="seat-invite-name" placeholder="Full name" value={inviteName}
+                         onChange={(e) => setInviteName(e.target.value)} style={inp} required />
+                  <input data-testid="seat-invite-email" type="email" placeholder="Email" value={inviteEmail}
+                         onChange={(e) => setInviteEmail(e.target.value)} style={inp} required />
+                </div>
+                <select data-testid="seat-invite-role" value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}
+                        style={{ ...inp, marginBottom: 8 }}>
+                  <option value="fee_earner">Fee-earner (can handle engagements + Lex)</option>
+                  <option value="admin">Admin (also manages users + branding)</option>
+                </select>
+                <button data-testid="seat-invite-submit" type="submit" style={{ ...btnGold, width: "100%" }}>
+                  <Plus size={14} /> Send invitation
+                </button>
+                {error && <div style={{ color: "#fca5a5", fontSize: 12, marginTop: 8 }}>{error}</div>}
+                {lastInvite && (
+                  <div data-testid="invite-link-out" style={{
+                    background: "rgba(34,197,94,0.10)", border: "1px solid #22c55e",
+                    color: "#86efac", borderRadius: 8, padding: 10, marginTop: 10, fontSize: 11.5,
+                  }}>
+                    ✓ Invitation created. Share this link with them (expires in 14 days):
+                    <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
+                      <code style={{ flex: 1, background: "#000", padding: "6px 10px", borderRadius: 6,
+                                     fontSize: 11, color: "#86efac", wordBreak: "break-all", border: "1px solid #1a3a1a" }}>
+                        {lastInvite.invite_url}
+                      </code>
+                      <button onClick={() => navigator.clipboard.writeText(lastInvite.invite_url)}
+                              style={{ ...btnGhost, padding: "6px 10px" }}>
+                        <Copy size={12} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </form>
+            )}
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+
 // =============================== STYLES ===============================
 const shell = { minHeight: "100dvh", background: "#000", color: "#fff", fontFamily: "system-ui, -apple-system, sans-serif" };
 const hdr = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid #1a1a1a", background: "#050505", position: "sticky", top: 0, zIndex: 10 };
@@ -415,13 +721,76 @@ const engRow = { width: "100%", textAlign: "left", background: "#0c0c0c", border
 const overlay = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 1000 };
 const modalCard = { background: "#0c0c0c", border: "1px solid #222", borderRadius: 14, padding: 24, width: "100%", maxWidth: 540, maxHeight: "86dvh", overflow: "auto" };
 const modalTitle = { fontFamily: "Cinzel, serif", fontSize: 18, color: "#f7c948", margin: 0 };
+const lbl = { display: "block", fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 5, fontWeight: 600 };
+const rowSeat = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", border: "1px solid #1a1a1a", borderRadius: 8, marginBottom: 6 };
+const pillActive = { fontSize: 10, fontWeight: 700, textTransform: "uppercase", padding: "3px 8px", borderRadius: 4, background: "rgba(34,197,94,0.15)", color: "#86efac" };
+const pillPending = { fontSize: 10, fontWeight: 700, textTransform: "uppercase", padding: "3px 8px", borderRadius: 4, background: "rgba(247,201,72,0.15)", color: "#f7c948" };
+const pillRemoved = { fontSize: 10, fontWeight: 700, textTransform: "uppercase", padding: "3px 8px", borderRadius: 4, background: "rgba(239,68,68,0.12)", color: "#fca5a5" };
+
+// =============================== INVITE ACCEPT FLOW ===============================
+// Lands the invitee at /firm-accept-invite?token=<token>. They set a password,
+// we activate the seat and log them in directly.
+function FirmAcceptInvite({ token, onSuccess }) {
+  const [password, setPassword] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (password.length < 8) { setError("Password must be 8+ characters"); return; }
+    if (password !== confirmPw) { setError("Passwords don't match"); return; }
+    setBusy(true); setError("");
+    try {
+      const { data } = await fapi.post("/firm/users/accept", { invite_token: token, password });
+      localStorage.setItem(FIRM_TOKEN_KEY, data.access_token);
+      setHdr(data.access_token);
+      onSuccess(data.firm);
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Could not accept invitation");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ ...shell, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ width: "100%", maxWidth: 420, background: "#0c0c0c", border: "1px solid #2a2a2a", borderRadius: 16, padding: 28 }}>
+        <div style={{ textAlign: "center", marginBottom: 18 }}>
+          <Building2 size={36} color="#f7c948" />
+          <h2 style={{ fontFamily: "Cinzel, serif", fontSize: 22, color: "#f7c948", margin: "10px 0 4px" }}>Accept your firm invite</h2>
+          <p style={{ fontSize: 13, color: "#888", margin: 0 }}>Set a password to activate your seat.</p>
+        </div>
+        <form onSubmit={submit}>
+          <label style={lbl}>New password (8+ chars)</label>
+          <input data-testid="invite-password" type="password" value={password}
+                 onChange={(e) => setPassword(e.target.value)} required
+                 style={{ width: "100%", padding: "10px 12px", background: "#080808", border: "1px solid #222", borderRadius: 8, color: "#fff", fontSize: 13, marginBottom: 10, boxSizing: "border-box" }} />
+          <label style={lbl}>Confirm password</label>
+          <input data-testid="invite-confirm-password" type="password" value={confirmPw}
+                 onChange={(e) => setConfirmPw(e.target.value)} required
+                 style={{ width: "100%", padding: "10px 12px", background: "#080808", border: "1px solid #222", borderRadius: 8, color: "#fff", fontSize: 13, marginBottom: 14, boxSizing: "border-box" }} />
+          {error && <div style={{ color: "#fca5a5", fontSize: 12, marginBottom: 10 }}>{error}</div>}
+          <button data-testid="invite-accept-submit" type="submit" disabled={busy} style={{ ...btnGold, width: "100%" }}>
+            {busy ? "Activating…" : "Activate seat & sign in"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 
 // =============================== ROOT ===============================
 export default function FirmPortal() {
   const [firm, setFirm] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Check if user landed via invite link (/firm-accept-invite?token=...)
+  const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const inviteToken = (window.location.pathname || "").includes("firm-accept-invite") ? (params && params.get("token")) : null;
+
   useEffect(() => {
+    if (inviteToken) { setLoading(false); return; }     // skip auto-login on invite path
     const token = localStorage.getItem(FIRM_TOKEN_KEY);
     if (!token) { setLoading(false); return; }
     setHdr(token);
@@ -429,9 +798,13 @@ export default function FirmPortal() {
       .then(r => setFirm(r.data))
       .catch(() => { localStorage.removeItem(FIRM_TOKEN_KEY); setHdr(null); })
       .finally(() => setLoading(false));
-  }, []);
+  }, [inviteToken]);
 
   if (loading) return <div style={{ ...shell, display: "flex", alignItems: "center", justifyContent: "center" }}>Loading…</div>;
+  if (inviteToken) return <FirmAcceptInvite token={inviteToken} onSuccess={(f) => {
+    window.history.replaceState({}, "", "/firm-portal");
+    setFirm(f);
+  }} />;
   if (!firm) return <FirmAuth onLogin={(f) => setFirm(f)} />;
   return <FirmDashboard firm={firm} onLogout={() => { localStorage.removeItem(FIRM_TOKEN_KEY); setHdr(null); setFirm(null); }} />;
 }
