@@ -6246,6 +6246,7 @@ function AdminSuggestionsCard({ lang }) {
 // every download so the date is always current.
 function AdminSolicitorBriefCard({ lang }) {
   const [busy, setBusy] = useState(false);
+  const [busyFounder, setBusyFounder] = useState(false);
 
   const download = async () => {
     setBusy(true);
@@ -6263,6 +6264,24 @@ function AdminSolicitorBriefCard({ lang }) {
     } catch (e) {
       aaToast(e?.response?.data?.detail || "Download failed", "error");
     } finally { setBusy(false); }
+  };
+
+  const downloadFounderBriefing = async () => {
+    setBusyFounder(true);
+    try {
+      const r = await api.get("/admin/founder-briefing.pdf", { responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "AI_Advocate_Founder_Briefing.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      aaToast("Founder briefing downloaded", "success");
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Download failed", "error");
+    } finally { setBusyFounder(false); }
   };
 
   return (
@@ -6285,6 +6304,24 @@ function AdminSolicitorBriefCard({ lang }) {
               style={{ fontSize: 13 }}>
         {busy ? <span className="spinner" /> : "⬇️ Download brief (PDF)"}
       </button>
+
+      <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+          <span style={{ fontFamily: "'Cinzel', serif", color: "var(--gold)", fontSize: 14, letterSpacing: "0.04em" }}>
+            🎯 Founder Briefing
+          </span>
+        </div>
+        <p style={{ fontSize: 12, color: "var(--text-dim)", margin: "0 0 12px", lineHeight: 1.5 }}>
+          Everything you need to confidently pitch AI Advocate in client meetings — features, pricing, tech stack, automation honesty, talking points, tough-question cheat sheet.
+        </p>
+        <button data-testid="admin-download-founder-briefing"
+                disabled={busyFounder}
+                onClick={downloadFounderBriefing}
+                className="btn-gold w-full"
+                style={{ fontSize: 13 }}>
+          {busyFounder ? <span className="spinner" /> : "⬇️ Download founder briefing (PDF)"}
+        </button>
+      </div>
     </div>
   );
 }

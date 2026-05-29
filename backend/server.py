@@ -6958,6 +6958,28 @@ async def admin_solicitor_brief(_: dict = Depends(require_admin)):
     )
 
 
+@api_router.get("/admin/founder-briefing.pdf")
+async def admin_founder_briefing(_: dict = Depends(require_admin)):
+    """Generate (fresh) and return the FOUNDER BRIEFING PDF — internal-only
+    pitch / talking-points / honest-status document for Samuel's client meetings."""
+    from fastapi.responses import FileResponse
+    import subprocess
+    pdf_path = "/app/memory/AI_Advocate_Founder_Briefing.pdf"
+    try:
+        subprocess.run(
+            ["python", "/app/backend/tools/generate_founder_briefing.py"],
+            check=True, capture_output=True, timeout=30,
+        )
+    except Exception:
+        pass
+    if not os.path.exists(pdf_path):
+        raise HTTPException(500, "Founder briefing not available — regeneration failed.")
+    return FileResponse(
+        pdf_path, media_type="application/pdf",
+        filename="AI_Advocate_Founder_Briefing.pdf",
+    )
+
+
 # ==================== Admin: Comp Pro Access (gift free Pro) ====================
 # Owner-only tool to grant free Pro access to family, friends, or unhappy customers.
 # Every grant is logged in db.comp_audit for accountability.
