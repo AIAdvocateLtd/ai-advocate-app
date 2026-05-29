@@ -6647,6 +6647,22 @@ function CompProAdminCard({ lang }) {
     } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
   };
 
+  // 🌟 Founding-100 "Approve & Thank": fires the personal thank-you email AND
+  // dismisses the row in one tap. Optimistic UI; restores on error.
+  const thankFounding = async (email) => {
+    setActionBusy(true); setFeedback(null);
+    setFounding(f => ({ ...f, users: f.users.filter(u => u.email !== email), pending: Math.max(0, (f.pending || 0) - 1) }));
+    try {
+      const r = await api.post("/admin/founding-100/thank", { email });
+      setFeedback({ ok: true, msg: r.data?.sent
+        ? `✓ Thank-you email sent to ${email}`
+        : `✓ ${email} approved — email could not be sent (check Resend logs)` });
+    } catch (e) {
+      setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not approve." });
+      loadFounding();
+    } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
+  };
+
   return (
     <div data-testid="settings-comp-pro" style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -6673,7 +6689,7 @@ function CompProAdminCard({ lang }) {
           </span>
         </div>
         <div style={{ fontSize: 10.5, color: "var(--text-muted)", lineHeight: 1.45, marginBottom: 10 }}>
-          The landing page promises the first 100 signups a free 24-hour Day Pass — already auto-granted on signup. Review each one, optionally extend to a longer comp, then tap <strong>Dismiss</strong> to clear the row.
+          The landing page promises the first 100 signups a free 24-hour Day Pass — already auto-granted on signup. Tap <strong>Approve</strong> to send a personal thank-you email and clear the row, or <strong>Skip</strong> to dismiss without emailing.
         </div>
         {founding.users.length === 0 ? (
           <div style={{ fontSize: 11.5, color: "var(--text-muted)", padding: "10px 6px", textAlign: "center",
@@ -6712,22 +6728,23 @@ function CompProAdminCard({ lang }) {
                     </div>
                   </div>
                   {!hasComp && (
-                    <button data-testid={`founding-grant-${u.id}`}
-                            onClick={() => grantComp(u.email)} disabled={actionBusy}
-                            title={`Grant ${days === 0 ? "lifetime" : days + ' days'} on top of their day pass`}
+                    <button data-testid={`founding-approve-${u.id}`}
+                            onClick={() => thankFounding(u.email)} disabled={actionBusy}
+                            title="Send personal thank-you email and clear this row"
                             style={{ background: "var(--gold)", border: "none", color: "#1a1300",
-                                     borderRadius: 8, padding: "5px 10px", fontSize: 10.5,
+                                     borderRadius: 8, padding: "5px 12px", fontSize: 10.5,
                                      fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-                      Grant {days === 0 ? "lifetime" : `${days}d`}
+                      Approve & Thank
                     </button>
                   )}
                   <button data-testid={`founding-dismiss-${u.id}`}
                           onClick={() => dismissFounding(u.email)} disabled={actionBusy}
+                          title="Remove from the queue without sending an email"
                           style={{ background: "transparent", border: "1px solid var(--line)",
                                    color: "var(--text-muted)", borderRadius: 8,
                                    padding: "5px 10px", fontSize: 10.5, fontWeight: 600,
                                    cursor: "pointer", whiteSpace: "nowrap" }}>
-                    Dismiss
+                    Skip
                   </button>
                 </div>
               );

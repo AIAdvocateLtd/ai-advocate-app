@@ -7748,7 +7748,8 @@ async def admin_founding_100(_: dict = Depends(require_admin), include_dismissed
         query,
         {"_id": 0, "id": 1, "email": 1, "full_name": 1, "tier": 1, "signup_position": 1,
          "launch_day_pass_until": 1, "comp_pro_until": 1, "created_at": 1,
-         "founding_list_dismissed": 1, "founding_list_dismissed_at": 1},
+         "founding_list_dismissed": 1, "founding_list_dismissed_at": 1,
+         "founding_thanked": 1, "founding_thanked_at": 1},
     ).sort("signup_position", 1).to_list(120)
     # Slot count = how many of the 100 are taken (lifetime — doesn't shrink on dismiss)
     slots_taken = await db.users.count_documents({
@@ -7786,6 +7787,41 @@ async def admin_founding_100_dismiss(data: FoundingDismissPayload, admin: dict =
                   "founding_list_dismissed_by": admin["email"]}},
     )
     return {"ok": True, "email": target["email"], "dismissed": True}
+
+
+@api_router.post("/admin/founding-100/thank")
+async def admin_founding_100_thank(data: FoundingDismissPayload, admin: dict = Depends(require_admin)):
+    """Approve a founding-100 signup: fire a personal thank-you email AND
+    auto-dismiss the row from the queue. Idempotent — re-running just resends
+    the email and refreshes the timestamps. Returns sent=False if Resend is
+    unavailable (signup still survives — same graceful-degradation rule)."""
+    target = await db.users.find_one(
+        {"email": data.email.strip().lower()},
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "signup_position": 1, "founding_thanked": 1},
+    )
+    if not target:
+        raise HTTPException(404, "User not found.")
+    if not target.get("signup_position") or target["signup_position"] > 100:
+        raise HTTPException(400, "User is not part of the founding 100 cohort.")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    sent = False
+    try:
+        from email_helper import send_founding_thank_you
+        sent = await send_founding_thank_you(target["email"], target.get("full_name") or "")
+    except Exception:
+        logger.exception("Founding-100 thank-you email failed")
+    await db.users.update_one(
+        {"id": target["id"]},
+        {"$set": {
+            "founding_thanked": True,
+            "founding_thanked_at": now_iso,
+            "founding_thanked_by": admin["email"],
+            "founding_list_dismissed": True,
+            "founding_list_dismissed_at": now_iso,
+            "founding_list_dismissed_by": admin["email"],
+        }},
+    )
+    return {"ok": True, "email": target["email"], "sent": sent, "already_thanked": bool(target.get("founding_thanked"))}
 
 
 # ============================================================

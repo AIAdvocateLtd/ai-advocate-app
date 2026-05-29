@@ -156,6 +156,28 @@ async def send_welcome_missed_offer(email: str, full_name: str = "") -> bool:
     return await _send(email, "Welcome to AI Advocate (and a small thank-you gift)", html)
 
 
+async def send_founding_thank_you(email: str, full_name: str = "") -> bool:
+    """Personal thank-you from the founder, fired when the founder taps 'Approve'
+    on a Founding-100 queue row in the admin panel. Distinct from the auto
+    welcome email — this one comes after manual review."""
+    name = (full_name or "").strip().split(" ")[0] or "there"
+    html = _wrap(f"""
+      <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">A personal thank-you, {name} 🙏</h2>
+      <p>I just wanted to drop you a quick note from the team — you're one of the very first 100 people to sign up for AI Advocate, and that means a lot.</p>
+      <p>Your free 24-hour Day Pass is already active (worth £4.99) — unlimited Lex chat, evidence analysis, letter drafting, the lot. Use it however you like.</p>
+      <p style="background:#fff8e1; border-left:3px solid #f7c948; padding:12px 14px; border-radius:6px; font-size:14px; margin:18px 0;">
+        <strong style="color:#b8860b;">If something's broken, weird, or could be better</strong> — hit reply to this email. It comes straight to me.
+      </p>
+      <p style="font-size:14px; line-height:1.6;">
+        You're not just a user — you're a founding member. As a thank-you, you'll always get early access to new features before anyone else.
+      </p>
+      <p style="margin:18px 0 0 0;">— The AI Advocate founder</p>
+    """, preview="A personal thank-you for being a founding-100 member of AI Advocate.")
+    return await _send(email, "🌟 Thank you for being one of our first 100", html)
+
+
+
+
 async def send_password_reset(email: str, reset_link: str) -> bool:
     html = _wrap(f"""
       <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">Reset your AI Advocate password</h2>

@@ -10,11 +10,13 @@
 
 ## Completed Implementation (rolling)
 
-### 2026-02 (Iter 28 — Founding-100 Admin Queue)
+### 2026-02 (Iter 28 — Founding-100 Admin Queue + Thank-You email)
 - 🌟 **Founding 100 — Free Day Pass Queue** in Admin Comp Pro card. The landing-page promise ("first 100 signups get a free 24h Day Pass") is auto-honoured at signup (`launch_day_pass_until`), but the founder now has a visible queue to review each one.
-  - `GET /api/admin/founding-100` — first-100 signups by `signup_position`, with day-pass status + dismiss flag. Filters out test/demo emails. Returns `slots_taken`/`slots_total`/`pending`.
-  - `POST /api/admin/founding-100/dismiss` — manual "Dismiss" per row (optimistic UI shrink). Supports `undo:true` to bring back. Hard 400 if the user is not in the cohort (`signup_position > 100`).
-  - Each row shows position #, email, day-pass hours remaining, current comp status, **Grant Xd** (uses the existing days preset) + **Dismiss**.
+  - `GET /api/admin/founding-100` — first-100 signups by `signup_position`, with day-pass status + dismiss flag + thanked flag. Filters out test/demo emails. Returns `slots_taken`/`slots_total`/`pending`.
+  - `POST /api/admin/founding-100/dismiss` — manual "Skip" per row (optimistic UI shrink). Supports `undo:true` to bring back. Hard 400 if the user is not in the cohort (`signup_position > 100`).
+  - `POST /api/admin/founding-100/thank` — primary "Approve & Thank" action. Fires a personal founder thank-you email (Resend) **and** auto-dismisses the row in one tap. Idempotent — returns `already_thanked` flag. Verified end-to-end with `sent: true` against the live Resend account.
+  - New email template `send_founding_thank_you()` in `email_helper.py` — personal note from the founder, "founding member" framing, reply-to support@aiadvocate.co.uk.
+  - Each row UI: position #, email, day-pass hours remaining, current comp status, **Approve & Thank** (gold) + **Skip** (ghost).
   - Cap behaviour: signup endpoint already stops awarding at 100 (`DAY_PASS_LIMIT`), so the queue naturally closes once full.
 - ✅ Stripe Practice Tier Price ID confirmed live in `.env`: `price_1TcVaHFh8lRHrXPIGOKrL55T` (no code change needed — already pointing to env var).
 
