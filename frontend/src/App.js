@@ -4316,7 +4316,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
               <button className="btn-ghost" onClick={rename} data-testid="rename-case-btn" style={{ flex: 1, fontSize: 12 }}>{t(lang, "renameCase")}</button>
               <button className="btn-ghost" onClick={exportPdf} data-testid="export-case-btn" style={{ flex: 1, fontSize: 12 }}>{t(lang, "exportCasePdf")}</button>
               <button className="btn-ghost" onClick={shareCase} data-testid="share-case-btn" style={{ flex: 1, fontSize: 12 }}>Share</button>
-              <button className="btn-ghost" onClick={remove} data-testid="delete-case-btn" style={{ flex: 0.7, fontSize: 12, color: "#fca5a5" }}><Trash2 size={14} /></button>
+              <button className="btn-ghost" onClick={(e) => { e.stopPropagation(); remove(); }} data-testid="delete-case-btn" aria-label="Delete this case" style={{ flex: 0.7, fontSize: 12, color: "#fca5a5", minHeight: 44 }}><Trash2 size={14} /></button>
             </div>
 
             {/* 💬 CONTINUE WITH LEX — resumes the most recent linked session if one
@@ -4326,11 +4326,14 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
               <button data-testid="continue-with-lex-btn"
                       onClick={() => {
                         const sid = (open.linked_sessions && open.linked_sessions[0]?.session_id) || null;
+                        // Dispatch the event — App.js handler will call setModal({type:"chat"...}).
+                        // We deliberately do NOT call onClose() here: setModal already replaces
+                        // whatever modal was open, and calling onClose() afterwards would set
+                        // modal back to null, wiping out the chat we just opened.
                         window.dispatchEvent(new CustomEvent("aa:continue-case", {
                           detail: { session_id: sid, case_id: open.id,
                                     seed: sid ? "" : `Let's continue with my case: "${open.name}". What's the next step?` },
                         }));
-                        onClose();
                       }}
                       style={{ width: "100%", marginBottom: 14, padding: "12px 16px",
                                background: "linear-gradient(135deg, var(--gold), var(--gold-deep))",
@@ -4392,9 +4395,12 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
                           className="btn-ghost" style={{ flex: 1, fontSize: 11, padding: "6px 8px" }}>
                     🛡 Save to Vault
                   </button>
-                  <button data-testid={`case-item-delete-${it.id}`} onClick={() => deleteItem(it.id)} disabled={busy}
-                          style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 8, padding: "6px 12px", fontSize: 11, cursor: "pointer" }}>
-                    <Trash2 size={12} />
+                  <button data-testid={`case-item-delete-${it.id}`}
+                          onClick={(e) => { e.stopPropagation(); deleteItem(it.id); }}
+                          disabled={busy}
+                          aria-label="Delete this item"
+                          style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 8, padding: "8px 14px", fontSize: 11, cursor: "pointer", minWidth: 44, minHeight: 36, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>
