@@ -4420,18 +4420,39 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
             </button>
             {(open.items || []).length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 14, fontSize: 13 }}>{t(lang, "noFilesYet")}</p>}
             {(open.items || []).map(it => {
+              const kind = (it.item_type || it.kind || "").toLowerCase();
+              const isChat = kind === "chat";
+              const sid = it.session_id || it.chat_session_id || it.item_id || null;
               const isExpanded = expandedItem === it.id;
-              const previewText = it.preview || "";
+              const previewText = it.preview || it.summary || "";
               const isTruncatable = previewText.length > 240;
+              const isClickable = (isChat && sid) || isTruncatable;
+              const handleRowClick = () => {
+                // 💬 CHAT items: open the FULL Lex session, in resume mode, with this case
+                // still attached so any new turns continue to save against the case.
+                if (isChat && sid) {
+                  window.dispatchEvent(new CustomEvent("aa:continue-case", {
+                    detail: { session_id: sid, case_id: open.id, seed: "" },
+                  }));
+                  return;
+                }
+                if (isTruncatable) setExpandedItem(isExpanded ? null : it.id);
+              };
               return (
               <div key={it.id} data-testid={`case-item-${it.id}`}
-                   onClick={() => isTruncatable && setExpandedItem(isExpanded ? null : it.id)}
+                   onClick={handleRowClick}
                    style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginBottom: 8,
-                            cursor: isTruncatable ? "pointer" : "default" }}>
+                            cursor: isClickable ? "pointer" : "default",
+                            transition: "border-color 0.15s" }}
+                   onMouseEnter={(e) => { if (isClickable) e.currentTarget.style.borderColor = "var(--gold-deep)"; }}
+                   onMouseLeave={(e) => { if (isClickable) e.currentTarget.style.borderColor = "var(--line)"; }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                   <span style={{ background: "var(--gold-deep)", color: "#1a1300", padding: "2px 7px", borderRadius: 8, fontSize: 10, fontWeight: 700, letterSpacing: "0.05em" }}>{(it.item_type || "ITEM").toUpperCase()}</span>
                   <span style={{ color: "var(--gold)", fontSize: 13, fontWeight: 600, flex: 1 }}>{it.title}</span>
-                  {isTruncatable && (
+                  {isChat && sid && (
+                    <span style={{ color: "var(--gold)", fontSize: 11, fontWeight: 600 }}>Open full chat →</span>
+                  )}
+                  {!isChat && isTruncatable && (
                     <span style={{ color: "var(--gold)", fontSize: 11 }}>{isExpanded ? "▾ Hide" : "▸ Open"}</span>
                   )}
                 </div>
