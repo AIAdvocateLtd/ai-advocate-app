@@ -5435,6 +5435,41 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
     }
   };
 
+  // 🎁 In-app gift flow — opens a modal pre-filled with the user's email as gifter,
+  // posts to /topups/gift/checkout, redirects to Stripe. Same backend as /gift.html.
+  const [giftPack, setGiftPack] = useState(null); // selected pack to gift
+  const [giftForm, setGiftForm] = useState({ recipient_email: "", message: "", gifter_name: "", busy: false, err: "" });
+
+  const openGift = (pack) => {
+    setGiftPack(pack);
+    setGiftForm({ recipient_email: "", message: "", gifter_name: user?.full_name || "", busy: false, err: "" });
+  };
+
+  const submitGift = async () => {
+    if (!giftPack) return;
+    const rec = giftForm.recipient_email.trim().toLowerCase();
+    if (!rec || !rec.includes("@")) {
+      setGiftForm(f => ({ ...f, err: "Please enter a valid recipient email." })); return;
+    }
+    if (rec === (user?.email || "").toLowerCase()) {
+      setGiftForm(f => ({ ...f, err: "You can't gift to your own email — use Buy instead." })); return;
+    }
+    setGiftForm(f => ({ ...f, busy: true, err: "" }));
+    try {
+      const { data } = await api.post("/topups/gift/checkout", {
+        pack_id: giftPack.id,
+        recipient_email: rec,
+        gifter_email: user?.email || "",
+        gifter_name: giftForm.gifter_name.trim(),
+        message: giftForm.message.trim(),
+      });
+      track("topup_gift_started", { pack: giftPack.id });
+      window.location.href = data.checkout_url;
+    } catch (e) {
+      setGiftForm(f => ({ ...f, busy: false, err: e?.response?.data?.detail || "Could not start checkout." }));
+    }
+  };
+
   const onTier = user.tier || "free";
   const isCurrent = (id) => onTier === id || (onTier === "yearly" && id === "yearly")
                               || (onTier === "trial_pro" && id === "pro");
@@ -5538,6 +5573,18 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
                     style={{ marginTop: 10, padding: "8px 12px", fontSize: 13 }}>
                     {buyingPack === pack.id ? <span className="spinner" /> : pack.configured ? `Buy — £${pack.price_gbp}` : "Coming soon"}
                   </button>
+                  {pack.configured && (
+                    <button
+                      data-testid={`gift-topup-${pack.id}-btn`}
+                      onClick={() => openGift(pack)}
+                      style={{ marginTop: 6, width: "100%", padding: "8px 12px", fontSize: 12.5,
+                               background: "transparent", color: "var(--gold-soft)",
+                               border: "1px dashed var(--gold-deep)", borderRadius: 10,
+                               cursor: "pointer", display: "inline-flex", alignItems: "center",
+                               justifyContent: "center", gap: 6 }}>
+                      🎁 Gift this to someone
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -5619,6 +5666,59 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
         </div>
         )}
       </div>
+
+      {/* 🎁 Gift modal — fires when user taps 'Gift this to someone' on a topup card */}
+      {giftPack && (
+        <div className="modal-bg" data-testid="gift-modal" onClick={() => !giftForm.busy && setGiftPack(null)}
+             style={{ zIndex: 12000 }}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}
+               style={{ padding: 22, maxWidth: 440 }}>
+            <h2 className="brand-font gold" style={{ fontSize: 19, margin: "0 0 6px" }}>
+              🎁 Gift {giftPack.label}
+            </h2>
+            <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 14, lineHeight: 1.5 }}>
+              You pay £{giftPack.price_gbp} now. The pack activates the moment your loved one signs in
+              (or instantly if they already have an account).
+            </div>
+            <label style={{ display: "block", fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Recipient email</label>
+            <input className="input" data-testid="gift-recipient-input" type="email"
+                   placeholder="their.email@example.com" autoFocus
+                   value={giftForm.recipient_email}
+                   onChange={(e) => setGiftForm(f => ({ ...f, recipient_email: e.target.value, err: "" }))}
+                   style={{ marginBottom: 12 }} />
+            <label style={{ display: "block", fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Your name (shown on the gift)</label>
+            <input className="input" data-testid="gift-name-input" type="text"
+                   placeholder="e.g. Mum"
+                   value={giftForm.gifter_name}
+                   onChange={(e) => setGiftForm(f => ({ ...f, gifter_name: e.target.value }))}
+                   style={{ marginBottom: 12 }} />
+            <label style={{ display: "block", fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Personal message (optional)</label>
+            <textarea className="input" data-testid="gift-message-input"
+                      placeholder="Thinking of you — hope this helps."
+                      value={giftForm.message} maxLength={280} rows={3}
+                      onChange={(e) => setGiftForm(f => ({ ...f, message: e.target.value }))}
+                      style={{ marginBottom: 6, resize: "vertical" }} />
+            <div style={{ fontSize: 10.5, color: "var(--text-muted)", textAlign: "right", marginBottom: 12 }}>
+              {giftForm.message.length}/280
+            </div>
+            {giftForm.err && (
+              <div style={{ color: "#fca5a5", fontSize: 12.5, marginBottom: 10 }} data-testid="gift-error">
+                {giftForm.err}
+              </div>
+            )}
+            <button className="btn-gold w-full" data-testid="gift-submit-btn"
+                    onClick={submitGift} disabled={giftForm.busy || !giftForm.recipient_email.trim()}>
+              {giftForm.busy ? <span className="spinner" /> : `Gift £${giftPack.price_gbp} — pay now →`}
+            </button>
+            <button data-testid="gift-cancel-btn"
+                    onClick={() => !giftForm.busy && setGiftPack(null)}
+                    style={{ marginTop: 8, width: "100%", background: "transparent", border: "none",
+                             color: "var(--text-muted)", fontSize: 12.5, cursor: "pointer" }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
