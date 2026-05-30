@@ -6471,8 +6471,15 @@ async def firm_update_branding(data: FirmBrandingUpdate, firm: dict = Depends(ge
     upd = {}
     if data.logo_url is not None:
         u = (data.logo_url or "").strip()
-        if u and not u.startswith(("https://", "http://")):
-            raise HTTPException(400, "logo_url must be a full https:// URL")
+        if u:
+            # Accept either a full https:// URL (legacy) OR a base64 data: image URL (mobile upload flow).
+            # Data URLs let firms pick a photo from their phone — no external hosting required.
+            if u.startswith("data:image/"):
+                # Cap base64 payload at ~700KB to keep DB rows lean and avoid bloat.
+                if len(u) > 700_000:
+                    raise HTTPException(413, "Logo too large — please choose an image under 500KB.")
+            elif not u.startswith(("https://", "http://")):
+                raise HTTPException(400, "logo_url must be an https:// URL or an uploaded image")
         upd["logo_url"] = u
     if data.brand_color is not None:
         upd["brand_color"] = _validate_hex(data.brand_color) or ""

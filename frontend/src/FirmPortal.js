@@ -494,8 +494,27 @@ function BrandingModal({ initial, tier, firmName, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [savedMsg, setSavedMsg] = useState("");
+  const fileInputRef = useRef(null);
 
   const canEdit = ["premium", "practice"].includes(tier);
+
+  // 📷 Pick logo from device — converts to a base64 data: URL the backend stores directly.
+  // Keeps the flow dead-simple for non-technical firm owners (no hosting / URL fiddling).
+  const handleLogoFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError("");
+    if (!file.type.startsWith("image/")) {
+      setError("Please choose an image file (PNG, JPG, or SVG)."); return;
+    }
+    if (file.size > 500 * 1024) {
+      setError("Image is too large (max 500KB). Please pick a smaller logo."); return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setLogoUrl(String(reader.result || ""));
+    reader.onerror = () => setError("Could not read that image — try another file.");
+    reader.readAsDataURL(file);
+  };
 
   const save = async () => {
     setError(""); setSavedMsg(""); setSaving(true);
@@ -529,11 +548,48 @@ function BrandingModal({ initial, tier, firmName, onClose, onSaved }) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
           {/* Inputs */}
           <div>
-            <label style={lbl}>Logo URL (https only, &lt;500KB)</label>
-            <input data-testid="branding-logo-input" disabled={!canEdit} value={logoUrl}
-                   onChange={(e) => setLogoUrl(e.target.value)}
-                   placeholder="https://your-firm.co.uk/logo.png"
-                   style={inp} />
+            <label style={lbl}>Company logo</label>
+            <div data-testid="branding-logo-uploader"
+                 style={{ display: "flex", gap: 10, alignItems: "center",
+                          padding: 12, background: "rgba(255,255,255,0.02)",
+                          border: "1px dashed #3a3a3a", borderRadius: 10 }}>
+              {logoUrl ? (
+                <img src={logoUrl} alt="Logo preview"
+                     style={{ width: 56, height: 56, objectFit: "contain",
+                              background: "#fff", borderRadius: 8, padding: 4,
+                              border: "1px solid #2a2a2a" }} />
+              ) : (
+                <div style={{ width: 56, height: 56, borderRadius: 8,
+                              background: "rgba(247,201,72,0.08)",
+                              border: "1px dashed #5a4a1a", display: "flex",
+                              alignItems: "center", justifyContent: "center",
+                              color: "#f7c948", fontSize: 22 }}>📷</div>
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <input ref={fileInputRef} type="file"
+                       accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                       onChange={handleLogoFile} disabled={!canEdit}
+                       data-testid="branding-logo-file" style={{ display: "none" }} />
+                <button type="button" disabled={!canEdit}
+                        data-testid="branding-logo-pick-btn"
+                        onClick={() => fileInputRef.current?.click()}
+                        style={{ ...btnGold, padding: "8px 14px", fontSize: 13,
+                                 opacity: !canEdit ? 0.5 : 1 }}>
+                  {logoUrl ? "Change logo" : "Choose from phone"}
+                </button>
+                {logoUrl && (
+                  <button type="button" disabled={!canEdit}
+                          data-testid="branding-logo-remove-btn"
+                          onClick={() => { setLogoUrl(""); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                          style={{ ...btnPlain, marginLeft: 8, fontSize: 12, color: "#fca5a5" }}>
+                    Remove
+                  </button>
+                )}
+                <div style={{ fontSize: 11, color: "#888", marginTop: 6 }}>
+                  PNG, JPG or SVG · max 500KB
+                </div>
+              </div>
+            </div>
 
             <label style={{ ...lbl, marginTop: 12 }}>Primary brand colour</label>
             <div style={{ display: "flex", gap: 8 }}>

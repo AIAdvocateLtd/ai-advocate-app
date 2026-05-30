@@ -10,6 +10,11 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 31 — Firm logo: phone photo picker)
+- 📷 **Firm portal — logo upload via phone photo library.** Replaced the text URL input in `BrandingModal` (`FirmPortal.js`) with a native file picker (`<input type="file" accept="image/*">`) + thumbnail preview + Remove button. On iOS/Android this opens the Photo Library directly. Backend (`PATCH /api/firm/branding`) now accepts either `https://` URLs (legacy) or base64 `data:image/...` URLs, with a 700KB cap. Validates `javascript:` / other schemes are still rejected. End-to-end curl + UI verified.
+
+
+
 ### 2026-02 (Iter 30 — Password reset, 2FA TOTP, Firm onboarding email, Pitch CTA)
 - 🔑 **Forgot/Reset password — consumer + firm.** Both flows use a `/reset.html` self-contained page + Resend transactional email. Token: `secrets.token_urlsafe(32)`, 60 min TTL, single-use, MongoDB `password_reset_tokens` collection. Anti-enumeration: `/forgot-password` always returns 200. Rate limit: 3 requests per email per hour. Endpoints: `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`, `POST /api/firm/forgot-password`, `POST /api/firm/reset-password`. UI: "Forgot password?" links on both consumer auth screen and FirmPortal auth screen.
 - 🔐 **TOTP 2FA (pyotp + QR code) — opt-in for consumers.** Login state machine: if `totp_enabled`, `/auth/login` returns `{requires_2fa: true, tmp_token}` (5-min lifetime); frontend shows the 6-digit code challenge; `/auth/2fa/login` exchanges `tmp_token + code → full JWT`. Setup flow: `/auth/2fa/setup` → secret + QR data URL → user scans → `/auth/2fa/verify` (first code activates + returns 10 backup codes). Backup codes are bcrypt-hashed at rest, shown plain ONCE. Disable requires password + valid TOTP.
