@@ -1128,6 +1128,32 @@ async def signup(data: UserSignup, request: Request):
     except Exception:
         logger.exception("Pending-gift claim during signup failed")
 
+    # 🎁 Auto-redeem any pending Pro comp the founder queued before signup
+    # (e.g. "Grant by email" for family/friends who didn't have an account yet).
+    try:
+        pending_comp = await db.pending_comp_grants.find_one({"email": data.email.lower()})
+        if pending_comp:
+            days = max(1, int(pending_comp.get("days") or 30))
+            comp_until = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+            await db.users.update_one(
+                {"id": user_id},
+                {"$set": {"comp_pro_until": comp_until,
+                          "comp_pro_granted_at": datetime.now(timezone.utc).isoformat(),
+                          "comp_pro_pre_signup": True}},
+            )
+            user_doc["comp_pro_until"] = comp_until
+            await db.comp_audit.insert_one({
+                "id": str(uuid.uuid4()),
+                "granted_by_id": pending_comp.get("granted_by_id"),
+                "granted_by_email": pending_comp.get("granted_by_email"),
+                "target_id": user_id, "target_email": data.email,
+                "days": days, "reason": "Pre-signup comp redeemed on signup",
+                "at": datetime.now(timezone.utc).isoformat(), "action": "pre_comp_redeemed",
+            })
+            await db.pending_comp_grants.delete_one({"email": data.email.lower()})
+    except Exception:
+        logger.exception("Pending comp redemption failed (non-fatal)")
+
     # Fire the welcome email. We await directly (not asyncio.create_task) so
     # the task isn't garbage-collected before completion. Resend is fast (~300ms).
     try:
@@ -6292,6 +6318,34 @@ async def firm_signup(data: FirmPortalSignup):
         "lead_count_30d": 0, "created_at": now.isoformat(),
     }
     await db.firm_accounts.insert_one(doc)
+
+    # 🎁 Auto-redeem any pending firm comp the founder pre-queued
+    try:
+        pending = await db.pending_firm_comp_grants.find_one({"email": data.email.lower()})
+        if pending:
+            days = max(1, int(pending.get("days") or 90))
+            tier_label = pending.get("tier") or "featured"
+            trial_until = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+            await db.firm_accounts.update_one(
+                {"id": fid},
+                {"$set": {"trial_until": trial_until, "trial_tier": tier_label,
+                          "trial_granted_at": datetime.now(timezone.utc).isoformat(),
+                          "trial_pre_signup": True}},
+            )
+            doc["trial_until"] = trial_until; doc["trial_tier"] = tier_label
+            await db.firm_comp_audit.insert_one({
+                "id": str(uuid.uuid4()),
+                "granted_by_id": pending.get("granted_by_id"),
+                "granted_by_email": pending.get("granted_by_email"),
+                "target_firm_id": fid, "target_firm_email": data.email,
+                "target_firm_name": data.firm_name, "days": days, "tier": tier_label,
+                "until": trial_until, "reason": "Pre-signup firm comp redeemed on signup",
+                "at": datetime.now(timezone.utc).isoformat(), "action": "pre_comp_redeemed",
+            })
+            await db.pending_firm_comp_grants.delete_one({"email": data.email.lower()})
+    except Exception:
+        logger.exception("Pending firm comp redemption failed (non-fatal)")
+
     token = jwt.encode({"sub": fid, "kind": "firm", "exp": datetime.now(timezone.utc) + timedelta(days=30)}, JWT_SECRET, algorithm="HS256")
     doc.pop("_id", None); doc.pop("password", None)
     return {"access_token": token, "firm": doc, "trial_days_remaining": 14}
@@ -8130,14 +8184,41 @@ async def admin_users_recent(_: dict = Depends(require_admin), limit: int = 30, 
 
 @api_router.post("/admin/users/comp")
 async def admin_users_comp(data: CompUserPayload, admin: dict = Depends(require_admin)):
-    """Grant the named user free Pro access for `days` days (0 = lifetime)."""
-    target = await db.users.find_one({"email": data.email.strip().lower()}, {"_id": 0})
-    if not target:
-        raise HTTPException(404, "User not found. They must have signed up first.")
-
+    """Grant the named user free Pro access for `days` days (0 = lifetime).
+    If the user hasn't signed up yet, store as a pending grant — auto-applied
+    when they later create an account with this email (same pattern as pending_gifts)."""
+    email_lc = data.email.strip().lower()
+    target = await db.users.find_one({"email": email_lc}, {"_id": 0})
     days = max(1, int(data.days or 30)) if data.days and data.days > 0 else (365 * 30)  # 0 = lifetime
-    # If they already have a comp window in the future, extend it; else start from now
     now = datetime.now(timezone.utc)
+
+    # 🆕 No account yet — queue a pending grant so they get comp the moment they sign up
+    if not target:
+        await db.pending_comp_grants.update_one(
+            {"email": email_lc},
+            {"$set": {
+                "email": email_lc,
+                "days": days,
+                "reason": (data.reason or "Founder pre-comp")[:300],
+                "granted_by_id": admin["id"], "granted_by_email": admin["email"],
+                "queued_at": now.isoformat(),
+            }},
+            upsert=True,
+        )
+        await db.comp_audit.insert_one({
+            "id": str(uuid.uuid4()),
+            "granted_by_id": admin["id"], "granted_by_email": admin["email"],
+            "target_id": None, "target_email": email_lc,
+            "days": days, "reason": (data.reason or "Pre-signup comp")[:300],
+            "at": now.isoformat(), "action": "pre_comp_queued",
+        })
+        return {
+            "ok": True, "email": email_lc, "pending": True,
+            "days_granted": days,
+            "message": f"User has no account yet. Comp queued — they'll get {days} days Pro the moment they sign up with this email.",
+        }
+
+    # If they already have a comp window in the future, extend it; else start from now
     existing = target.get("comp_pro_until")
     if existing:
         try:
@@ -8234,13 +8315,26 @@ async def admin_users_delete(data: DeleteUserPayload, admin: dict = Depends(requ
 
 @api_router.get("/admin/users/comps")
 async def admin_users_comps(_: dict = Depends(require_admin)):
-    """List all currently-active comps (for the owner's at-a-glance dashboard)."""
+    """List all currently-active comps + pending pre-signup grants
+    (for the owner's at-a-glance dashboard)."""
     now_iso = datetime.now(timezone.utc).isoformat()
     users = await db.users.find(
         {"comp_pro_until": {"$gt": now_iso}, "deleted": {"$ne": True}},
         {"_id": 0, "id": 1, "email": 1, "full_name": 1, "comp_pro_until": 1, "comp_pro_granted_at": 1},
     ).sort("comp_pro_until", -1).to_list(200)
-    return {"comps": users, "count": len(users)}
+    pending = await db.pending_comp_grants.find(
+        {}, {"_id": 0, "email": 1, "days": 1, "reason": 1, "queued_at": 1, "granted_by_email": 1},
+    ).sort("queued_at", -1).to_list(100)
+    return {"comps": users, "count": len(users), "pending": pending, "pending_count": len(pending)}
+
+
+@api_router.post("/admin/users/comp-cancel-pending")
+async def admin_users_comp_cancel_pending(data: ForgotPasswordReq, admin: dict = Depends(require_admin)):
+    """Cancel a queued pre-signup comp before the recipient signs up."""
+    r = await db.pending_comp_grants.delete_one({"email": data.email.strip().lower()})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "No pending comp found for this email.")
+    return {"ok": True, "email": data.email, "cancelled": True}
 
 
 # ─── Founding-100 queue ──────────────────────────────────────────────
@@ -8355,15 +8449,40 @@ class CompFirmPayload(BaseModel):
 @api_router.post("/admin/firms/comp")
 async def admin_firms_comp(data: CompFirmPayload, admin: dict = Depends(require_admin)):
     """Grant a free trial extension to a law firm (founding-firm cohort + goodwill).
-
-    Args.tier — what level of trial to grant (default Featured). Founding-firm
-    cohort typically receives 90 days of Featured. Hand-picked higher-tier comps
-    can request Premium / Practice.
+    If the firm hasn't signed up yet, queue a pending_firm_comp_grants entry
+    that auto-applies on first firm signup with this email.
     """
-    target = await db.firm_accounts.find_one({"email": data.email.strip().lower()}, {"_id": 0})
-    if not target:
-        raise HTTPException(404, "Firm not found. Make sure they've signed up first.")
+    email_lc = data.email.strip().lower()
+    target = await db.firm_accounts.find_one({"email": email_lc}, {"_id": 0})
     now = datetime.now(timezone.utc)
+
+    # 🆕 No firm account yet — queue a pending grant so they get the tier the moment they sign up
+    if not target:
+        days = max(1, int(data.days or 90))
+        await db.pending_firm_comp_grants.update_one(
+            {"email": email_lc},
+            {"$set": {
+                "email": email_lc, "days": days, "tier": data.tier,
+                "reason": (data.reason or "Founder pre-comp firm")[:300],
+                "granted_by_id": admin["id"], "granted_by_email": admin["email"],
+                "queued_at": now.isoformat(),
+            }},
+            upsert=True,
+        )
+        await db.firm_comp_audit.insert_one({
+            "id": str(uuid.uuid4()),
+            "granted_by_id": admin["id"], "granted_by_email": admin["email"],
+            "target_firm_id": None, "target_firm_email": email_lc, "target_firm_name": "",
+            "days": days, "tier": data.tier, "until": None,
+            "reason": (data.reason or "Pre-signup firm comp queued")[:300],
+            "at": now.isoformat(), "action": "pre_comp_queued",
+        })
+        return {
+            "ok": True, "email": email_lc, "pending": True,
+            "trial_tier": data.tier, "days_granted": days,
+            "message": f"Firm has no account yet. Pre-comp queued — they'll get {days} days of {data.tier.title()} on first signup.",
+        }
+
     existing = target.get("trial_until")
     if existing:
         try:

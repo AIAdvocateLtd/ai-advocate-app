@@ -6791,6 +6791,26 @@ function CompFirmAdminCard({ lang }) {
   const [reason, setReason] = useState("");
   const [activeComps, setActiveComps] = useState([]);
   const [showActive, setShowActive] = useState(false);
+  // 🎁 Direct firm grant by email — works even before the firm signs up
+  const [directGrantEmail, setDirectGrantEmail] = useState("");
+  const [feedback, setFeedback] = useState(null);
+
+  const directGrant = async () => {
+    const em = (directGrantEmail || "").trim().toLowerCase();
+    if (!em.includes("@")) return;
+    setActionBusy(true); setFeedback(null);
+    try {
+      const r = await api.post("/admin/firms/comp", { email: em, days, tier, reason });
+      const msg = r.data.pending
+        ? `✓ ${em} queued — ${r.data.days_granted} days ${r.data.trial_tier} will auto-apply on firm signup`
+        : `✓ ${r.data.days_granted} days ${r.data.trial_tier} granted to ${em}`;
+      setFeedback({ ok: true, msg });
+      setDirectGrantEmail("");
+      loadActive();
+    } catch (e) {
+      setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not grant." });
+    } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 5000); }
+  };
 
   const search = async (q) => {
     setQuery(q);
@@ -6911,10 +6931,51 @@ function CompFirmAdminCard({ lang }) {
         value={reason} onChange={(e) => setReason(e.target.value)}
         style={{ width: "100%", padding: "8px 12px", background: "rgba(0,0,0,0.3)", border: "1px solid var(--line)", borderRadius: 10, color: "var(--text)", fontSize: 12, marginBottom: 10 }} />
 
+      {/* 🎁 Direct firm grant by email — pre-comp BEFORE the firm even signs up.
+          Tier + days set above. Auto-applies when the firm creates their portal account. */}
+      <div data-testid="firm-direct-grant-card"
+           style={{ background: "rgba(247,201,72,0.05)", border: "1px solid var(--gold-deep)",
+                    borderRadius: 10, padding: 10, marginBottom: 12 }}>
+        <div style={{ fontSize: 10.5, color: "var(--gold)", fontWeight: 700, letterSpacing: "0.06em",
+                      textTransform: "uppercase", marginBottom: 6 }}>
+          🏛 Quick Grant Firm — type email + tap
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input data-testid="firm-direct-grant-email"
+                 placeholder="firm@example.co.uk"
+                 value={directGrantEmail}
+                 onChange={(e) => setDirectGrantEmail(e.target.value)}
+                 onKeyDown={(e) => { if (e.key === "Enter" && directGrantEmail.includes("@")) directGrant(); }}
+                 style={{ flex: 1, padding: "8px 12px", background: "rgba(0,0,0,0.3)", border: "1px solid var(--line)", borderRadius: 10, color: "var(--text)", fontSize: 12 }} />
+          <button data-testid="firm-direct-grant-btn"
+                  onClick={directGrant}
+                  disabled={actionBusy || !directGrantEmail.includes("@")}
+                  style={{ padding: "0 14px", fontSize: 11.5, fontWeight: 700,
+                           background: "linear-gradient(135deg,#f7c948,#d6a017)",
+                           color: "#1a1300", border: "none", borderRadius: 10,
+                           cursor: actionBusy ? "wait" : "pointer", whiteSpace: "nowrap",
+                           opacity: (!directGrantEmail.includes("@") || actionBusy) ? 0.5 : 1 }}>
+            + Grant {days}d {tier}
+          </button>
+        </div>
+        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.4 }}>
+          Works even if the firm hasn't signed up — comp auto-applies on first portal signup.
+        </div>
+      </div>
+
       <button data-testid="admin-firm-active-toggle" onClick={() => setShowActive(s => !s)}
         style={{ background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 8, padding: "6px 10px", fontSize: 11, cursor: "pointer" }}>
         {showActive ? "▲ Hide" : "▼ Show"} active firm trials
       </button>
+      {feedback && (
+        <div data-testid="firm-comp-feedback"
+             style={{ marginTop: 10, padding: "8px 10px", borderRadius: 8, fontSize: 11.5,
+                      background: feedback.ok ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)",
+                      border: `1px solid ${feedback.ok ? "#166534" : "#7f1d1d"}`,
+                      color: feedback.ok ? "#86efac" : "#fca5a5", lineHeight: 1.4 }}>
+          {feedback.msg}
+        </div>
+      )}
       {showActive && (
         <div style={{ marginTop: 10, maxHeight: 280, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 10 }}>
           {activeComps.length === 0 && (
@@ -6958,9 +7019,48 @@ function CompProAdminCard({ lang }) {
   const [feedback, setFeedback] = useState(null);    // {ok:true, msg} | {ok:false, msg}
   // 🌟 Founding-100 cohort queue
   const [founding, setFounding] = useState({ users: [], slots_taken: 0, slots_total: 100, pending: 0 });
+  // 🎁 Direct grant by email — works whether the user signed up or not
+  const [directGrantEmail, setDirectGrantEmail] = useState("");
+  const [pendingGrants, setPendingGrants] = useState([]);
+
+  const directGrant = async () => {
+    const em = (directGrantEmail || "").trim().toLowerCase();
+    if (!em.includes("@")) return;
+    setActionBusy(true); setFeedback(null);
+    try {
+      const r = await api.post("/admin/users/comp", { email: em, days, reason });
+      if (r.data.pending) {
+        setFeedback({ ok: true, msg: `✓ ${em} queued — ${r.data.days_granted} days Pro will auto-apply when they sign up` });
+      } else if (r.data.is_lifetime) {
+        setFeedback({ ok: true, msg: `✓ Lifetime Pro granted to ${em}` });
+      } else {
+        setFeedback({ ok: true, msg: `✓ ${r.data.days_granted} days Pro granted to ${em} (until ${(r.data.comp_pro_until||"").slice(0,10)})` });
+      }
+      setDirectGrantEmail("");
+      loadComps();
+      loadRecent();
+    } catch (e) {
+      setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not grant." });
+    } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 5000); }
+  };
+
+  const cancelPending = async (email) => {
+    if (!window.confirm(`Cancel pending comp for ${email}?`)) return;
+    setActionBusy(true);
+    try {
+      await api.post("/admin/users/comp-cancel-pending", { email });
+      setPendingGrants(g => g.filter(p => p.email !== email));
+      setFeedback({ ok: true, msg: `✓ Pending comp for ${email} cancelled` });
+    } catch (e) {
+      setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not cancel." });
+    } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
+  };
 
   const loadComps = () => {
-    api.get("/admin/users/comps").then(r => setActiveComps(r.data?.comps || [])).catch(() => {});
+    api.get("/admin/users/comps").then(r => {
+      setActiveComps(r.data?.comps || []);
+      setPendingGrants(r.data?.pending || []);
+    }).catch(() => {});
   };
   const loadFounding = () => {
     api.get("/admin/founding-100").then(r => setFounding(r.data || { users: [], slots_taken: 0, slots_total: 100, pending: 0 })).catch(() => {});
@@ -7207,6 +7307,37 @@ function CompProAdminCard({ lang }) {
       <input className="input" data-testid="comp-reason" placeholder="Reason (e.g. 'Family — brother', 'Goodwill — complaint about Lex')"
         value={reason} onChange={(e) => setReason(e.target.value)} style={{ marginBottom: 10 }} />
 
+      {/* 🎁 Direct Grant by Email — works whether the user already signed up OR not.
+          If they haven't signed up yet, the comp queues as a pending grant and
+          auto-applies the moment they create an account with this email. */}
+      <div data-testid="direct-grant-card"
+           style={{ background: "rgba(247,201,72,0.05)", border: "1px solid var(--gold-deep)",
+                    borderRadius: 10, padding: 10, marginBottom: 14 }}>
+        <div style={{ fontSize: 10.5, color: "var(--gold)", fontWeight: 700, letterSpacing: "0.06em",
+                      textTransform: "uppercase", marginBottom: 6 }}>
+          🎁 Quick Grant — type email + tap
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input className="input" data-testid="direct-grant-email"
+                 placeholder="family@example.com"
+                 value={directGrantEmail}
+                 onChange={(e) => setDirectGrantEmail(e.target.value)}
+                 onKeyDown={(e) => { if (e.key === "Enter" && directGrantEmail.includes("@")) directGrant(); }}
+                 style={{ flex: 1 }} />
+          <button data-testid="direct-grant-btn"
+                  onClick={directGrant}
+                  disabled={actionBusy || !directGrantEmail.includes("@")}
+                  className="btn-gold"
+                  style={{ padding: "0 16px", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap",
+                           opacity: (!directGrantEmail.includes("@") || actionBusy) ? 0.5 : 1 }}>
+            + Grant {days === 0 ? "Lifetime" : `${days}d`}
+          </button>
+        </div>
+        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.4 }}>
+          Works even if they haven't signed up yet — comp auto-applies on first signup.
+        </div>
+      </div>
+
       {/* User search */}
       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
         <input className="input" data-testid="comp-search" placeholder="Filter by email or name…"
@@ -7278,6 +7409,39 @@ function CompProAdminCard({ lang }) {
           border: `1px solid ${feedback.ok ? "#22c55e" : "#fca5a5"}`,
           color: feedback.ok ? "#86efac" : "#fca5a5",
         }}>{feedback.msg}</div>
+      )}
+
+      {/* ⏳ Pending pre-signup comps — queued grants for users who haven't signed up yet */}
+      {pendingGrants.length > 0 && (
+        <div style={{ borderTop: "1px solid var(--line)", paddingTop: 14, marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: "var(--gold)", marginBottom: 8, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            ⏳ Pending pre-signup grants ({pendingGrants.length})
+          </div>
+          <div data-testid="comp-pending-list" style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 4 }}>
+            {pendingGrants.map(p => (
+              <div key={p.email} data-testid={`pending-grant-${p.email}`}
+                   style={{ background: "rgba(255,193,7,0.06)", border: "1px dashed var(--gold-deep)",
+                            borderRadius: 10, padding: "8px 10px", display: "flex",
+                            alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, color: "var(--text)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {p.email}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>
+                    {p.days >= 365 * 25 ? "Lifetime" : `${p.days} days`} · queued {p.queued_at?.slice(0,10)} · auto-applies on signup
+                  </div>
+                </div>
+                <button data-testid={`pending-cancel-${p.email}`}
+                        onClick={() => cancelPending(p.email)} disabled={actionBusy}
+                        style={{ background: "transparent", border: "1px solid #fca5a5",
+                                 color: "#fca5a5", borderRadius: 8, padding: "5px 10px",
+                                 fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                  Cancel
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Active comps dashboard — clearer list with prominent Revoke buttons, matches the firm trial UI pattern */}
