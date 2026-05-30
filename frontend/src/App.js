@@ -1436,6 +1436,38 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
       .finally(() => setBusy(false));
   }, [resumeSessionId]);
 
+  // 📂 Case context: if opening Lex from a Case File (no prior session yet),
+  // fetch the case summary + items and seed the chat with a context banner +
+  // a synthesized first turn so Lex has the full background before the user
+  // even types. We only do this once per mount.
+  const caseLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!caseId || resumeSessionId || caseLoadedRef.current) return;
+    caseLoadedRef.current = true;
+    (async () => {
+      try {
+        const { data: c } = await api.get(`/cases/${caseId}`);
+        const summary = (c.summary || "").trim();
+        const items = c.items || [];
+        const recentPreviews = items.slice(0, 4)
+          .map(it => `• ${it.title}${it.preview ? `: ${it.preview.slice(0, 220)}` : ""}`)
+          .join("\n");
+        const contextBlock = [
+          `📂 Case: ${c.name}`,
+          summary && `Summary: ${summary}`,
+          recentPreviews && `Files & chats on this case:\n${recentPreviews}`,
+        ].filter(Boolean).join("\n\n");
+        // Show a non-AI "context loaded" banner at the top of the chat.
+        setMessages([{
+          role: "system", content: contextBlock, at: new Date().toISOString(), _isCaseContext: true,
+        }]);
+      } catch (e) {
+        // Soft-fail — Lex still works, just without case context
+        console.warn("Could not load case context", e);
+      }
+    })();
+  }, [caseId, resumeSessionId]);
+
   // Load Deep Think usage so the user sees their counter (Pro-only)
   useEffect(() => {
     if (!isPro) return;
@@ -1779,7 +1811,15 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
           )}
           {messages.map((m, i) => (
             <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start" }}>
-              {m.role === "deadlines" ? (
+              {m._isCaseContext ? (
+                <div data-testid={`case-context-banner-${i}`} style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 12, width: "100%", marginTop: 4 }}>
+                  <div style={{ color: "var(--gold)", fontWeight: 700, fontSize: 11.5, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>📂 Case context loaded</div>
+                  <div style={{ color: "var(--text)", fontSize: 12.5, whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{m.content}</div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 10.5, marginTop: 8, fontStyle: "italic" }}>
+                    Lex has this background — go ahead and ask your next question.
+                  </div>
+                </div>
+              ) : m.role === "deadlines" ? (
                 <div data-testid={`deadline-card-${i}`} style={{ background: "rgba(220,38,38,0.15)", border: "1px solid #fca5a5", borderRadius: 12, padding: 12, width: "100%", marginTop: 4 }}>
                   <div style={{ color: "#fca5a5", fontWeight: 700, fontSize: 12, marginBottom: 6 }}>⏰ {t(lang, "deadlineFound")}</div>
                   {(m.deadlines || []).map((dl, di) => (
@@ -4124,6 +4164,8 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
   const [tab, setTab] = useState("items");
   const [feed, setFeed] = useState(null);
   const [feedLoading, setFeedLoading] = useState(false);
+  // 📂 expandedItem: id of the case_item whose full content is shown (tap to expand)
+  const [expandedItem, setExpandedItem] = useState(null);
 
   const load = () => api.get("/cases").then(r => setCases(r.data.cases || [])).catch(() => {});
   useEffect(() => { load(); }, []);
@@ -4377,13 +4419,30 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
               {busy ? <span className="spinner" /> : <>+ Upload file to this case</>}
             </button>
             {(open.items || []).length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 14, fontSize: 13 }}>{t(lang, "noFilesYet")}</p>}
-            {(open.items || []).map(it => (
-              <div key={it.id} data-testid={`case-item-${it.id}`} style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginBottom: 8 }}>
+            {(open.items || []).map(it => {
+              const isExpanded = expandedItem === it.id;
+              const previewText = it.preview || "";
+              const isTruncatable = previewText.length > 240;
+              return (
+              <div key={it.id} data-testid={`case-item-${it.id}`}
+                   onClick={() => isTruncatable && setExpandedItem(isExpanded ? null : it.id)}
+                   style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginBottom: 8,
+                            cursor: isTruncatable ? "pointer" : "default" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                   <span style={{ background: "var(--gold-deep)", color: "#1a1300", padding: "2px 7px", borderRadius: 8, fontSize: 10, fontWeight: 700, letterSpacing: "0.05em" }}>{(it.item_type || "ITEM").toUpperCase()}</span>
                   <span style={{ color: "var(--gold)", fontSize: 13, fontWeight: 600, flex: 1 }}>{it.title}</span>
+                  {isTruncatable && (
+                    <span style={{ color: "var(--gold)", fontSize: 11 }}>{isExpanded ? "▾ Hide" : "▸ Open"}</span>
+                  )}
                 </div>
-                {it.preview && <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4, whiteSpace: "pre-wrap" }}>{it.preview}</div>}
+                {previewText && (
+                  <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4, whiteSpace: "pre-wrap",
+                                maxHeight: isExpanded ? "none" : (isTruncatable ? 90 : "none"),
+                                overflow: isExpanded ? "visible" : "hidden",
+                                WebkitMaskImage: !isExpanded && isTruncatable ? "linear-gradient(to bottom, #000 50%, transparent)" : "none" }}>
+                    {previewText}
+                  </div>
+                )}
                 <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6 }}>
                   {new Date(it.timestamp_utc || it.created_at).toLocaleString()}
                   {it.location && ` · 📍 ${it.location}`}
@@ -4391,7 +4450,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
                 </div>
                 {/* Per-item actions — Save to Vault + Delete (soft, restorable for 30 days) */}
                 <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                  <button data-testid={`case-item-vault-${it.id}`} onClick={() => saveItemToVault(it)}
+                  <button data-testid={`case-item-vault-${it.id}`} onClick={(e) => { e.stopPropagation(); saveItemToVault(it); }}
                           className="btn-ghost" style={{ flex: 1, fontSize: 11, padding: "6px 8px" }}>
                     🛡 Save to Vault
                   </button>
@@ -4404,7 +4463,8 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
             </>}
 
             {/* 🕘 TIMELINE TAB — Chronological feed: case opening + every Lex turn + uploads + deadlines.
@@ -9195,11 +9255,20 @@ function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
   };
 
   const deleteSaved = async (id) => {
-    if (!window.confirm("Delete this saved contract analysis?")) return;
+    const ok = await aaConfirm({
+      title: "Delete saved contract?",
+      message: "It'll be removed from your saved contracts list. This can't be undone from the app.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.delete(`/contract/analyses/${id}`);
       setSavedList(list => list.filter(s => s.id !== id));
-    } catch { /* surface no-op */ }
+      aaToast("Contract deleted", "success");
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Could not delete", "error");
+    }
   };
 
   const choose = (e) => {

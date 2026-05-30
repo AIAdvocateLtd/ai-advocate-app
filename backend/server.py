@@ -1683,6 +1683,17 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     except Exception as e:
         logger.warning(f"RAG context build failed (continuing without): {e}")
 
+    # 📂 If this chat is tied to a Case File, prepend the case summary + recent
+    # items to the system message so Lex sees the user's whole legal situation
+    # without them having to re-explain. Capped at 2.5K chars to stay LLM-cheap.
+    if data.case_id:
+        try:
+            case_block = await _build_case_context_block(data.case_id, user["id"])
+            if case_block:
+                system_msg = system_msg + "\n\n" + case_block
+        except Exception as e:
+            logger.warning(f"Case-context build failed: {e}")
+
     # 🧠 Load prior conversation history so Lex remembers context across turns.
     # We pull the last 12 turns for this user+session, decrypt them, and seed
     # LlmChat's initial_messages. This is what makes Lex feel like a real
@@ -1858,6 +1869,17 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
             system_msg = system_msg + rag_block
     except Exception as e:
         logger.warning(f"RAG context build failed (continuing without): {e}")
+
+    # 📂 If this chat is tied to a Case File, prepend the case summary + recent
+    # items to the system message so Lex sees the user's whole legal situation
+    # without them having to re-explain. Capped at 2.5K chars to stay LLM-cheap.
+    if data.case_id:
+        try:
+            case_block = await _build_case_context_block(data.case_id, user["id"])
+            if case_block:
+                system_msg = system_msg + "\n\n" + case_block
+        except Exception as e:
+            logger.warning(f"Case-context build failed: {e}")
 
     # Load chat history
     history_docs = await db.conversations.find(
@@ -4964,6 +4986,41 @@ async def case_from_session(data: CaseFromSessionReq, user: dict = Depends(get_u
         await db.cases.update_one({"id": case["id"]}, {"$set": upd})
         case.update(upd)
     return {"ok": True, "case": case}
+
+
+async def _build_case_context_block(case_id: str, user_id: str) -> str:
+    """Return a short, LLM-friendly summary of the case + recent items so Lex
+    has the user's background loaded automatically. Capped to stay token-cheap."""
+    c = await db.cases.find_one(
+        {"id": case_id, "user_id": user_id, "deleted_at": {"$in": [None, "", False]}},
+        {"_id": 0, "name": 1, "category": 1, "status": 1, "summary": 1},
+    )
+    if not c:
+        return ""
+    name = c.get("name") or "Untitled case"
+    summary = decrypt_text(c.get("summary") or "") if c.get("summary") else ""
+    items = await db.case_items.find(
+        {"case_id": case_id, "user_id": user_id, "deleted_at": {"$in": [None, "", False]}},
+        {"_id": 0, "title": 1, "description": 1, "item_type": 1, "timestamp_utc": 1, "created_at": 1},
+    ).sort("created_at", -1).to_list(8)
+    bullets = []
+    for it in items:
+        desc = decrypt_text(it.get("description") or "") if it.get("description") else ""
+        when = (it.get("timestamp_utc") or it.get("created_at") or "")[:10]
+        snippet = (it.get("title") or "Item") + (f" — {desc[:250]}" if desc else "")
+        bullets.append(f"  - [{when}] [{(it.get('item_type') or 'item').upper()}] {snippet}")
+    block = (
+        "CASE CONTEXT - the user is asking about an ongoing case in their Case Files. "
+        "Treat the items below as accepted background. Do not ask them to re-explain.\n"
+        f"Case name: {name}\n"
+        f"Status: {c.get('status') or 'open'} - Category: {c.get('category') or 'general'}\n"
+    )
+    if summary:
+        block += f"User's summary: {summary[:600]}\n"
+    if bullets:
+        block += "Recent items on this case (newest first):\n" + "\n".join(bullets[:6])
+    return block[:2500]
+
 
 
 @api_router.get("/cases")
