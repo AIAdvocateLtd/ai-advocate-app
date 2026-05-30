@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">AI Advocate</string>
+    <string name="title_activity_main">AI Advocate</string>
+    <string name="package_name">uk.co.aiadvocate.official</string>
+    <string name="custom_url_scheme">uk.co.aiadvocate.official</string>
+</resources>
