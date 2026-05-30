@@ -1078,7 +1078,8 @@ async def signup(data: UserSignup, request: Request):
     if _is_disposable_email(data.email):
         raise HTTPException(400, "Please use a real email address — disposable / temporary email providers are not accepted.")
     if await db.users.find_one({"email": data.email}):
-        raise HTTPException(400, "Email already registered")
+        # Friendlier message — frontend keys off the word "already" to swap to sign-in mode + offer 'resend welcome email'.
+        raise HTTPException(409, "An account already exists for this email. Sign in instead, or use the 'Forgot password?' link below if you've lost access.")
     await _enforce_device_signup_limit(data.device_id, request)
     user_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
@@ -5989,6 +5990,40 @@ class ForgotPasswordReq(BaseModel):
 class ResetPasswordReq(BaseModel):
     token: str
     new_password: str
+
+
+@api_router.post("/auth/resend-welcome")
+async def auth_resend_welcome(data: ForgotPasswordReq):
+    """Re-fire the welcome email for an existing user. Same anti-enumeration
+    pattern as forgot-password (always 200) + rate-limited so it can't be
+    abused as a spam vector against random Hotmail accounts."""
+    email_lc = (data.email or "").strip().lower()
+    if not email_lc or "@" not in email_lc:
+        return {"ok": True}
+    user = await db.users.find_one(
+        {"email": email_lc, "deleted": {"$ne": True}},
+        {"_id": 0, "email": 1, "full_name": 1, "launch_day_pass_until": 1},
+    )
+    if user and await _rate_limit_reset(email_lc):
+        try:
+            from email_helper import send_welcome_with_daypass, send_welcome_missed_offer
+            now_iso = datetime.now(timezone.utc).isoformat()
+            dp_active = user.get("launch_day_pass_until") and user["launch_day_pass_until"] > now_iso
+            if dp_active:
+                await send_welcome_with_daypass(user["email"], user.get("full_name") or "")
+            else:
+                await send_welcome_missed_offer(user["email"], user.get("full_name") or "")
+            # Use the existing password_reset_tokens table for rate-limit tracking — same window
+            await db.password_reset_tokens.insert_one({
+                "id": str(uuid.uuid4()),
+                "token": "welcome-resend-" + _secrets.token_urlsafe(8),
+                "account_kind": "user", "account_id": "resend",
+                "email": email_lc, "created_at": datetime.now(timezone.utc),
+                "expires_at": datetime.now(timezone.utc), "used_at": now_iso,
+            })
+        except Exception:
+            logger.exception("Welcome resend failed (non-fatal)")
+    return {"ok": True}
 
 
 @api_router.post("/auth/forgot-password")

@@ -467,7 +467,20 @@ function AuthScreen({ lang, country, onAuth }) {
         return;
       }
       onAuth(data);
-    } catch (e) { setErr(e?.response?.data?.detail || "Auth failed"); }
+    } catch (e) {
+      const detail = e?.response?.data?.detail || "Auth failed";
+      // 🔁 Duplicate-email signup: backend now returns 409 + a friendly message.
+      // Auto-switch to sign-in mode, keep the email, surface a clearer banner with
+      // "Forgot password?" + "Resend welcome email" actions instead of dumping the user
+      // back at a generic red error.
+      if (e?.response?.status === 409 || /already/i.test(detail)) {
+        setMode("signin");
+        setErr("");
+        setDuplicateInfo({ email: email.trim().toLowerCase(), resent: false, busy: false });
+        return;
+      }
+      setErr(detail);
+    }
     finally { setBusy(false); }
   };
 
@@ -483,6 +496,16 @@ function AuthScreen({ lang, country, onAuth }) {
     } catch (e) {
       setErr(e?.response?.data?.detail || "Code incorrect");
     } finally { setBusy(false); }
+  };
+
+  // 🔁 Duplicate-account banner state (shown when signup hits an existing email).
+  const [duplicateInfo, setDuplicateInfo] = useState(null); // {email, resent, busy}
+  const resendWelcome = async () => {
+    if (!duplicateInfo) return;
+    setDuplicateInfo(d => ({ ...d, busy: true }));
+    try { await api.post("/auth/resend-welcome", { email: duplicateInfo.email }); }
+    catch { /* always 200 — only network err lands here */ }
+    setDuplicateInfo(d => ({ ...d, busy: false, resent: true }));
   };
 
   // 🔑 Forgot password — overlay state. Posts to /auth/forgot-password.
@@ -590,6 +613,48 @@ function AuthScreen({ lang, country, onAuth }) {
       )}
 
       {!twofa && (<>
+      {duplicateInfo && (
+        <div data-testid="duplicate-account-banner"
+             style={{ width: "100%", maxWidth: 380, marginTop: 24,
+                      background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)",
+                      borderRadius: 12, padding: 16 }}>
+          <div style={{ fontSize: 12.5, color: "var(--gold)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
+            📬 You already have an account
+          </div>
+          <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.55, marginBottom: 12 }}>
+            <strong>{duplicateInfo.email}</strong> is already registered. Sign in below — or pick one of these if you've lost access:
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button data-testid="duplicate-forgot-btn"
+                    onClick={() => setForgot({ open: true, email: duplicateInfo.email, sent: false, busy: false })}
+                    style={{ background: "transparent", border: "1px solid var(--gold-deep)",
+                             color: "var(--gold)", borderRadius: 8, padding: "8px 12px",
+                             fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+              🔑 Send password reset email
+            </button>
+            {!duplicateInfo.resent ? (
+              <button data-testid="duplicate-resend-welcome-btn"
+                      onClick={resendWelcome} disabled={duplicateInfo.busy}
+                      style={{ background: "transparent", border: "1px solid var(--line)",
+                               color: "var(--text-muted)", borderRadius: 8, padding: "8px 12px",
+                               fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                {duplicateInfo.busy ? "Sending…" : "📨 Resend my welcome email"}
+              </button>
+            ) : (
+              <div style={{ background: "rgba(34,197,94,0.08)", border: "1px solid #166534",
+                            color: "#86efac", borderRadius: 8, padding: "8px 12px",
+                            fontSize: 12.5, textAlign: "center" }}>
+                ✓ Welcome email sent — check inbox (and Junk/Other folder first time)
+              </div>
+            )}
+            <button onClick={() => setDuplicateInfo(null)}
+                    style={{ background: "transparent", border: "none",
+                             color: "var(--text-muted)", fontSize: 11.5, cursor: "pointer", marginTop: 2 }}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
       <form onSubmit={submit} style={{ width: "100%", maxWidth: 380, marginTop: 30 }}>
         {mode === "signup" && (
           <input className="input" data-testid="name-input" placeholder={t(lang, "fullName")} value={name} onChange={(e) => setName(e.target.value)} style={{ marginBottom: 10 }} />
