@@ -1382,7 +1382,7 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
 }
 
 // ---------- Lex Chat ----------
-function LexChat({ lang, country, category, title, onClose, autoMic = false, tier = "free", onSwitchCategory, initialSeed = "", resumeSessionId = null }) {
+function LexChat({ lang, country, category, title, onClose, autoMic = false, tier = "free", onSwitchCategory, initialSeed = "", resumeSessionId = null, caseId = null }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1484,6 +1484,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         body: JSON.stringify({
           message: text, session_id: sessionId, language: lang, country, category,
           deep_think: deepThink && isPro, auto_detect: autoDetect,
+          case_id: caseId || undefined,
         }),
       });
       if (!resp.ok || !resp.body) throw new Error(`stream ${resp.status}`);
@@ -1624,6 +1625,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         const { data } = await api.post("/lex/chat", {
           message: text, session_id: sessionId, language: lang, country, category,
           deep_think: deepThink && isPro, auto_detect: autoDetect,
+          case_id: caseId || undefined,
         });
         setSessionId(data.session_id);
         const fullText = data.response;
@@ -4316,6 +4318,30 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
               <button className="btn-ghost" onClick={shareCase} data-testid="share-case-btn" style={{ flex: 1, fontSize: 12 }}>Share</button>
               <button className="btn-ghost" onClick={remove} data-testid="delete-case-btn" style={{ flex: 0.7, fontSize: 12, color: "#fca5a5" }}><Trash2 size={14} /></button>
             </div>
+
+            {/* 💬 CONTINUE WITH LEX — resumes the most recent linked session if one
+                exists, otherwise opens a fresh chat with this case prefilled so all
+                future turns auto-attach. The case modal closes so the chat takes over. */}
+            {open.status !== "closed" && (
+              <button data-testid="continue-with-lex-btn"
+                      onClick={() => {
+                        const sid = (open.linked_sessions && open.linked_sessions[0]?.session_id) || null;
+                        window.dispatchEvent(new CustomEvent("aa:continue-case", {
+                          detail: { session_id: sid, case_id: open.id,
+                                    seed: sid ? "" : `Let's continue with my case: "${open.name}". What's the next step?` },
+                        }));
+                        onClose();
+                      }}
+                      style={{ width: "100%", marginBottom: 14, padding: "12px 16px",
+                               background: "linear-gradient(135deg, var(--gold), var(--gold-deep))",
+                               color: "#1a1300", border: "none", borderRadius: 10, fontWeight: 700,
+                               fontSize: 13.5, cursor: "pointer", display: "inline-flex",
+                               alignItems: "center", justifyContent: "center", gap: 8 }}>
+                💬 {open.linked_sessions && open.linked_sessions.length > 0
+                      ? "Continue this case with Lex →"
+                      : "Ask Lex about this case →"}
+              </button>
+            )}
 
             {/* Items / Timeline tab switcher */}
             <div data-testid="case-tab-switcher" style={{
@@ -7668,10 +7694,24 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       setModal({ type: "chat", category, title, _initialSeed: seed });
     };
     window.addEventListener("aa:open-lex-with-seed", seedHandler);
+    // 💬 From CaseFilesModal: continue a case as a Lex chat (resumes the linked
+    // session if one exists, otherwise opens a fresh chat with the case_id
+    // prefilled so future turns auto-link).
+    const continueCaseHandler = (e) => {
+      const sid = e?.detail?.session_id || null;
+      const caseId = e?.detail?.case_id || null;
+      const seed = e?.detail?.seed || "";
+      setModal({
+        type: "chat", category: "ask_lex", title: "Lex",
+        _resumeSession: sid, _caseId: caseId, _initialSeed: seed,
+      });
+    };
+    window.addEventListener("aa:continue-case", continueCaseHandler);
     return () => {
       window.removeEventListener("aa:open-subscribe", handler);
       window.removeEventListener("aa:wake-toggle", wakeHandler);
       window.removeEventListener("aa:open-lex-with-seed", seedHandler);
+      window.removeEventListener("aa:continue-case", continueCaseHandler);
     };
   }, []);
 
@@ -8010,7 +8050,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
           else if (k === "legal_aid") setModal({ type: "legal_aid" });
         }} hasAccess={true} requireSub={() => setShowSub(true)} />
 
-      {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} initialSeed={modal._initialSeed || ""} resumeSessionId={modal._resumeSession || null} tier={tier} onClose={() => setModal(null)} onSwitchCategory={(newCat) => {
+      {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} initialSeed={modal._initialSeed || ""} resumeSessionId={modal._resumeSession || null} caseId={modal._caseId || null} tier={tier} onClose={() => setModal(null)} onSwitchCategory={(newCat) => {
         const labelByCat = { employment: t(lang, "employment"), property: t(lang, "property"), immigration: t(lang, "immigration"), medical_negligence: t(lang, "medical") };
         if (!hasTier("plus")) { setSubPreset("plus"); setShowSub(true); return; }
         setModal({ type: "chat", category: newCat, title: labelByCat[newCat] || "Lex" });
@@ -9116,6 +9156,45 @@ function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
   const [err, setErr] = useState("");
   const cameraRef = useRef(null);
   const uploadRef = useRef(null);
+  // 💾 Saved-contracts library — list endpoint returns rows w/o the base64
+  // payload (light). Tap a row → fetch full record → re-render the same UI.
+  const [savedList, setSavedList] = useState([]);
+  const [savedLoading, setSavedLoading] = useState(false);
+
+  const loadSaved = async () => {
+    setSavedLoading(true);
+    try {
+      const { data } = await api.get("/contract/analyses");
+      setSavedList(data?.analyses || []);
+    } catch { /* silent — endpoint requires auth */ }
+    finally { setSavedLoading(false); }
+  };
+
+  useEffect(() => { loadSaved(); }, []);
+
+  const openSaved = async (id) => {
+    setBusy(true); setErr("");
+    try {
+      const { data } = await api.get(`/contract/analyses/${id}`);
+      // Re-attach the original file as a preview (data URL from base64)
+      if (data.file_b64 && data.content_type) {
+        const dataUrl = `data:${data.content_type};base64,${data.file_b64}`;
+        setPreview(dataUrl);
+        setFile({ name: data.filename || "contract", size: data.file_size || 0, type: data.content_type });
+      }
+      setR({ ...data.analysis, saved_id: data.id, _savedAt: data.created_at });
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Could not open saved analysis.");
+    } finally { setBusy(false); }
+  };
+
+  const deleteSaved = async (id) => {
+    if (!window.confirm("Delete this saved contract analysis?")) return;
+    try {
+      await api.delete(`/contract/analyses/${id}`);
+      setSavedList(list => list.filter(s => s.id !== id));
+    } catch { /* surface no-op */ }
+  };
 
   const choose = (e) => {
     const f = e.target.files?.[0]; e.target.value = "";
@@ -9134,6 +9213,8 @@ function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
       fd.append("country", country);
       const { data } = await api.post("/contract/analyze", fd);
       setR(data);
+      // Refresh the saved-list so the new entry shows immediately when user goes back
+      loadSaved();
     } catch (e) { setErr(e?.response?.data?.detail || "Analysis failed"); }
     finally { setBusy(false); }
   };
@@ -9201,6 +9282,51 @@ function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
           )}
           {busy && <div style={{ textAlign: "center", padding: 16 }}><span className="spinner" /><div style={{ color: "var(--text-dim)", marginTop: 8, fontSize: 13 }}>{t(lang, "contractReaderBusy")}</div></div>}
           {err && <div style={{ background: "#2a0a0a", border: "1px solid #7f1d1d", color: "#fca5a5", padding: 10, borderRadius: 10, fontSize: 13 }}>{err}</div>}
+
+          {/* 💾 Saved contract analyses — tap to re-open. Hidden until at least one exists. */}
+          {savedList.length > 0 && (
+            <div data-testid="saved-contracts-section" style={{ marginTop: 22, paddingTop: 16, borderTop: "1px solid var(--line)" }}>
+              <div style={{ fontSize: 11.5, color: "var(--text-muted)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8, fontWeight: 700 }}>
+                💾 My saved contracts ({savedList.length})
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {savedList.map(s => {
+                  const v = s.analysis?.overall_verdict || "amber";
+                  const dot = v === "green" ? "#22c55e" : v === "red" ? "#ef4444" : "#f7c948";
+                  return (
+                    <div key={s.id} data-testid={`saved-contract-${s.id}`}
+                         onClick={() => openSaved(s.id)}
+                         style={{ background: "var(--bg-card)", border: "1px solid var(--line)",
+                                  borderRadius: 10, padding: "10px 12px", cursor: "pointer",
+                                  display: "flex", alignItems: "center", gap: 10,
+                                  transition: "border-color 0.15s" }}
+                         onMouseEnter={(e) => e.currentTarget.style.borderColor = "var(--gold-deep)"}
+                         onMouseLeave={(e) => e.currentTarget.style.borderColor = "var(--line)"}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot, flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {s.title || s.filename}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {(s.analysis?.verdict_one_liner || "").slice(0, 70)}
+                          {s.created_at && <> · {new Date(s.created_at).toLocaleDateString()}</>}
+                        </div>
+                      </div>
+                      <button data-testid={`saved-contract-delete-${s.id}`}
+                              onClick={(e) => { e.stopPropagation(); deleteSaved(s.id); }}
+                              style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 4, flexShrink: 0 }}
+                              title="Delete">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {savedLoading && savedList.length === 0 && (
+            <div style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", marginTop: 14 }}>Loading saved contracts…</div>
+          )}
         </>
       ) : (
         <div data-testid="contract-result">

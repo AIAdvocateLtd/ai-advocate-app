@@ -141,6 +141,7 @@ class ChatMessage(BaseModel):
     category: Optional[str] = None  # ask_lex, court_prep, employment, property, immigration, medical_negligence, contract
     deep_think: bool = False  # Pro tier only — uses Claude Opus / Sonnet w/ extended thinking
     auto_detect: bool = True  # detect language of user message, override 'language' for reply
+    case_id: Optional[str] = None  # 💬 if set, links this chat session to a case so the conversation appears on the case timeline
 
 class TTSRequest(BaseModel):
     text: str
@@ -1740,6 +1741,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         "model_used": model_id,
         "deep_think": data.deep_think,
         "citations": citations,
+        "linked_case_id": data.case_id or None,  # 💬 attach to case if continuing a Case File
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -1946,6 +1948,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                 "model_used": model_id,
                 "deep_think": data.deep_think,
                 "citations": citations,
+                "linked_case_id": data.case_id or None,  # 💬 attach to case (streamed path)
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
         except Exception:
@@ -4983,6 +4986,23 @@ async def get_case(case_id: str, user: dict = Depends(get_user)):
         if "description" in it: it["description"] = decrypt_text(it["description"])
         items.append(it)
     c["items"] = items
+    # 💬 Surface Lex chat sessions linked to this case so the UI can offer
+    # "Continue with Lex →" — resumes the most recent one in context.
+    # chat_sessions is virtual — derived from `conversations` (each turn carries linked_case_id).
+    pipeline = [
+        {"$match": {"user_id": user["id"], "linked_case_id": case_id}},
+        {"$group": {"_id": "$session_id",
+                    "updated_at": {"$max": "$created_at"},
+                    "category": {"$first": "$category"},
+                    "turn_count": {"$sum": 1}}},
+        {"$sort": {"updated_at": -1}},
+        {"$limit": 10},
+        {"$project": {"_id": 0, "session_id": "$_id", "updated_at": 1, "category": 1, "turn_count": 1}},
+    ]
+    linked_sessions = []
+    async for s in db.conversations.aggregate(pipeline):
+        linked_sessions.append(s)
+    c["linked_sessions"] = linked_sessions
     return c
 
 @api_router.patch("/cases/{case_id}")
@@ -7203,14 +7223,79 @@ If the document is NOT a contract, set contract_type=\"other\" and verdict_one_l
     payload = _re.sub(r"^```(?:json)?\s*", "", resp.strip())
     payload = _re.sub(r"\s*```$", "", payload).strip()
     try:
-        return _json.loads(payload)
+        analysis_obj = _json.loads(payload)
     except Exception:
-        return {
+        analysis_obj = {
             "contract_type": "other", "plain_english_summary": payload[:600],
             "overall_verdict": "amber", "verdict_one_liner": "Could not fully parse this contract.",
             "clauses": [], "red_flags": [], "amber_flags": [], "questions_to_ask": [],
             "solicitor_review_recommended": True, "missing_protections": [],
         }
+
+    # 💾 Persist the analysis so the user can go back to it later (Contract Tools tab → "My contracts").
+    # We store the raw bytes too (base64) for re-display + future re-analysis. Capped at ~6MB
+    # after base64 inflation; the file-size guard above already keeps raw <12MB.
+    try:
+        import base64 as _b64
+        file_b64 = _b64.b64encode(raw).decode("ascii") if len(raw) <= 8 * 1024 * 1024 else None
+        rec_id = str(uuid.uuid4())
+        await db.contract_analyses.insert_one({
+            "id": rec_id, "user_id": user["id"],
+            "filename": file.filename or "contract",
+            "content_type": file.content_type or "application/octet-stream",
+            "file_size": len(raw),
+            "file_b64": file_b64,                   # base64 of original upload (null if oversized)
+            "extracted_text": extracted_text[:60000],
+            "analysis": analysis_obj,
+            "title": (analysis_obj.get("contract_type") or "contract").replace("_", " ").title() + " — " + (file.filename or "Untitled"),
+            "language": language, "country": country,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        analysis_obj["saved_id"] = rec_id          # client can deep-link to /contracts/analyses/<id>
+    except Exception:
+        logger.exception("Failed to persist contract analysis (non-fatal)")
+    return analysis_obj
+
+
+@api_router.get("/contract/analyses")
+async def list_contract_analyses(user: dict = Depends(get_user)):
+    """Return the user's saved contract analyses (newest first). Excludes the
+    base64 payload so the list endpoint stays light — fetch the individual
+    analysis to get the file bytes."""
+    items = await db.contract_analyses.find(
+        {"user_id": user["id"], "deleted_at": {"$in": [None, "", False]}},
+        {"_id": 0, "id": 1, "filename": 1, "title": 1, "content_type": 1,
+         "analysis.overall_verdict": 1, "analysis.verdict_one_liner": 1,
+         "analysis.contract_type": 1, "created_at": 1, "file_size": 1},
+    ).sort("created_at", -1).to_list(200)
+    return {"analyses": items, "count": len(items)}
+
+
+@api_router.get("/contract/analyses/{analysis_id}")
+async def get_contract_analysis(analysis_id: str, user: dict = Depends(get_user)):
+    rec = await db.contract_analyses.find_one(
+        {"id": analysis_id, "user_id": user["id"], "deleted_at": {"$in": [None, "", False]}},
+        {"_id": 0},
+    )
+    if not rec:
+        raise HTTPException(404, "Analysis not found.")
+    return rec
+
+
+@api_router.delete("/contract/analyses/{analysis_id}")
+async def delete_contract_analysis(analysis_id: str, user: dict = Depends(get_user)):
+    """Soft-delete (move to Recycle Bin pattern — restorable for 30 days)."""
+    rec = await db.contract_analyses.find_one(
+        {"id": analysis_id, "user_id": user["id"]},
+        {"_id": 0, "id": 1},
+    )
+    if not rec:
+        raise HTTPException(404, "Analysis not found.")
+    await db.contract_analyses.update_one(
+        {"id": analysis_id},
+        {"$set": {"deleted_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True, "id": analysis_id}
 
 
 class ContractDraftRequest(BaseModel):
