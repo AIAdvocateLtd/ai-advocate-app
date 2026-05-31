@@ -376,7 +376,7 @@ def build():
          "5 fee-earner seats · Region-wide listing · Custom branding · Roadmap input · Partner success manager",
          "✅ Live — seats + branding + tier enforcement"],
         ["Founding Partner", "Bespoke",
-         "Regional or practice-area exclusivity · App Store launch quote · 50% rev-share on direct referrals · Logo lockup · 12-mo term",
+         "Regional or practice-area exclusivity · App Store launch quote · 70/30 rev-share on direct referrals · Logo lockup · 12-mo term",
          "✅ Manual (your call)"],
     ]
     firm_table = Table(_wrap_rows(firm_rows), colWidths=[26 * mm, 23 * mm, 75 * mm, 46 * mm], repeatRows=1)
