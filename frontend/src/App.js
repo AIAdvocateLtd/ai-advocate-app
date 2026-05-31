@@ -5248,24 +5248,35 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
 
   const toggleLocation = async () => {
     if (!locOn) {
-      // Turn ON — request geolocation.
-      // Edge cases handled: (a) browser API missing, (b) user denied at OS level,
-      // (c) iOS Safari high-accuracy timeout (retry with low-accuracy), (d) busy
-      // state always cleared so the toggle is never stuck.
+      // Turn ON — request geolocation directly. We deliberately do NOT use the
+      // Permissions API as a pre-flight check: Brave/Firefox can return "denied"
+      // for privacy-fingerprinting reasons even when the OS permission is
+      // actually granted, which would block users incorrectly. Instead, we
+      // attempt getCurrentPosition immediately — the browser triggers its own
+      // OS prompt if needed, and only surfaces a real PERMISSION_DENIED if the
+      // user has truly blocked it.
       if (!navigator.geolocation) { aaToast(t(lang, "geolocationNotSupported"), "error"); return; }
 
-      // If the browser exposes the Permissions API, surface a clear path when
-      // permission has been revoked at the OS / browser-settings level (which
-      // would otherwise cause an opaque error callback).
-      try {
-        if (navigator.permissions?.query) {
-          const status = await navigator.permissions.query({ name: "geolocation" });
-          if (status.state === "denied") {
-            aaToast("Location is blocked in your browser settings. On iPhone: Settings → Safari → Location → Allow. Then refresh and try again.", "error");
-            return;
-          }
-        }
-      } catch (e) { /* ignore — fall through to the request which will trigger the OS prompt */ }
+      // Detect which mobile browser the user is in so the "open settings" hint
+      // is actionable. On iOS every browser still uses WebKit, but each app has
+      // its own iOS-level permission (Settings → <BrowserName> → Location).
+      const ua = (navigator.userAgent || "").toLowerCase();
+      const isIOS = /iphone|ipad|ipod/.test(ua);
+      const isAndroid = /android/.test(ua);
+      let browserName = "your browser";
+      if (/crios|chrome\//.test(ua) && !/edg|opr|brave/.test(ua)) browserName = "Chrome";
+      else if (/firefox|fxios/.test(ua)) browserName = "Firefox";
+      else if (/edg\//.test(ua)) browserName = "Edge";
+      else if (/opr|opera/.test(ua)) browserName = "Opera";
+      else if (/brave/.test(ua) || (navigator.brave && typeof navigator.brave.isBrave === "function")) browserName = "Brave";
+      else if (/safari/.test(ua) && isIOS) browserName = "Safari";
+      else if (/safari/.test(ua)) browserName = "Safari";
+
+      const settingsHint = isIOS
+        ? `On iPhone: Settings → ${browserName} → Location → Allow. Then refresh and try again.`
+        : isAndroid
+          ? `On Android: Settings → Apps → ${browserName} → Permissions → Location → Allow. Then refresh and try again.`
+          : `Click the lock icon in the address bar → Permissions → Location → Allow. Then refresh and try again.`;
 
       setBusy(true);
       const onSuccess = async (pos) => {
@@ -5283,13 +5294,14 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
       const onError = (err) => {
         setBusy(false);
         if (err && err.code === 1) {
-          // PERMISSION_DENIED — user just denied or has it blocked
-          aaToast("Permission denied. Allow location in your browser/phone settings, then try again.", "error");
+          // PERMISSION_DENIED — the OS has actually blocked it (or the user
+          // tapped Don't Allow on the prompt).
+          aaToast(`Location is blocked. ${settingsHint}`, "error");
         } else if (err && err.code === 3) {
-          // TIMEOUT — retry with low-accuracy as a fallback (iOS Safari edge case)
+          // TIMEOUT — high-accuracy can time out on iOS Safari/Brave; retry low-accuracy.
           setBusy(true);
           navigator.geolocation.getCurrentPosition(onSuccess,
-            (e2) => { setBusy(false); aaToast("Could not get your location. Try again or check your signal.", "error"); },
+            () => { setBusy(false); aaToast("Could not get your location. Try again or check your signal.", "error"); },
             { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 });
         } else {
           aaToast("Could not get your location. Try again.", "error");
