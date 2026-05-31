@@ -5202,7 +5202,7 @@ function AdvertiseModal({ lang, onClose }) {
               <div style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
                   <span style={{ color: "var(--gold)", fontSize: 13, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>Practice</span>
-                  <span style={{ color: "var(--text)", fontSize: 18, fontWeight: 700 }}>£399<span style={{ fontSize: 11, color: "var(--text-muted)" }}>/mo</span></span>
+                  <span style={{ color: "var(--text)", fontSize: 18, fontWeight: 700 }}>£499<span style={{ fontSize: 11, color: "var(--text-muted)" }}>/mo</span></span>
                 </div>
                 <div style={{ color: "var(--text-muted)", fontSize: 11, lineHeight: 1.5 }}>Everything in Premium · <strong style={{ color: "var(--gold)" }}>Unlimited engagements</strong> · 5 lawyer seats · 1,000 Lex AI assists/mo · Priority support</div>
               </div>
@@ -7167,7 +7167,7 @@ function CompFirmAdminCard({ lang }) {
       <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
         {[
           { d: 14, lbl: "14d" }, { d: 30, lbl: "30d" }, { d: 60, lbl: "60d" }, { d: 90, lbl: "90d" },
-          { d: 36500, lbl: "♾ Lifetime" },
+          { d: 36500, lbl: "Lifetime" },
         ].map(opt => (
           <button key={opt.d} data-testid={`admin-firm-days-${opt.d}`} onClick={() => setDays(opt.d)}
             style={{
@@ -7276,6 +7276,35 @@ function CompProAdminCard({ lang }) {
   // 🎁 Direct grant by email — works whether the user signed up or not
   const [directGrantEmail, setDirectGrantEmail] = useState("");
   const [pendingGrants, setPendingGrants] = useState([]);
+  // 🔄 Collapsible sections — list views can get long once we have hundreds of users
+  const [showRecent, setShowRecent] = useState(true);    // Recent users list
+  const [showActive, setShowActive] = useState(true);    // Active Pro Comps list
+  const [showDeleted, setShowDeleted] = useState(false); // Restore Deleted users (closed by default)
+  const [deletedUsers, setDeletedUsers] = useState([]);  // Soft-deleted users that can be restored
+
+  // Load soft-deleted users when the "Show deleted" section is expanded
+  const loadDeleted = async () => {
+    try {
+      const { data } = await api.get("/admin/users/deleted");
+      setDeletedUsers(data.users || []);
+    } catch (e) { /* no-op */ }
+  };
+  useEffect(() => { if (showDeleted) loadDeleted(); }, [showDeleted]);
+
+  // 🔁 Restore a previously-deleted user. Their Pro comp (if any) is preserved
+  // server-side, so a restore brings them back in full — they reappear in Recent
+  // Users + Active Pro Comps (if still under their comp date).
+  const restoreUser = async (email) => {
+    setActionBusy(true);
+    try {
+      await api.post("/admin/users/restore", { email });
+      setFeedback({ ok: true, msg: `✓ ${email} restored — appears back in your lists` });
+      setDeletedUsers(ds => ds.filter(u => u.email !== email));
+      loadRecent(); loadComps();
+    } catch (e) {
+      setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not restore." });
+    } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
+  };
 
   const directGrant = async () => {
     const em = (directGrantEmail || "").trim().toLowerCase();
@@ -7603,14 +7632,20 @@ function CompProAdminCard({ lang }) {
         )}
       </div>
 
-      {/* Results header */}
-      <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginBottom: 6, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", display: "flex", justifyContent: "space-between" }}>
-        <span>{query ? `${results.length} match${results.length === 1 ? "" : "es"}` : `Recent users · ${results.length}`}</span>
-        {searching && <span style={{ color: "var(--gold)" }}>Searching…</span>}
-      </div>
+      {/* Results header — clickable to collapse the list. Hides Recent Users
+          when there are many — keeps the admin panel compact. */}
+      <button data-testid="comp-recent-toggle"
+              onClick={() => setShowRecent(s => !s)}
+              style={{ width: "100%", background: "transparent", border: "none", padding: 0, marginBottom: 6,
+                       display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+        <span style={{ fontSize: 10.5, color: "var(--text-muted)", fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+          {showRecent ? "▼" : "▶"} {query ? `${results.length} match${results.length === 1 ? "" : "es"}` : `Recent users · ${results.length}`}
+        </span>
+        {searching && <span style={{ color: "var(--gold)", fontSize: 10.5 }}>Searching…</span>}
+      </button>
 
       {/* Search / recent results — tappable list */}
-      {results.length > 0 ? (
+      {showRecent && results.length > 0 ? (
         <div data-testid="comp-search-results" style={{ marginBottom: 12, display: "flex", flexDirection: "column", gap: 6, maxHeight: 360, overflowY: "auto", paddingRight: 4 }}>
           {results.map(u => {
             const hasComp = u.comp_pro_until && new Date(u.comp_pro_until) > new Date();
@@ -7650,11 +7685,11 @@ function CompProAdminCard({ lang }) {
             );
           })}
         </div>
-      ) : (
+      ) : showRecent ? (
         <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "14px 8px", marginBottom: 12, textAlign: "center", border: "1px dashed var(--line)", borderRadius: 8 }}>
           {query ? `No users match "${query}"` : "No users found"}
         </div>
-      )}
+      ) : null}
 
       {feedback && (
         <div data-testid="comp-feedback" style={{
@@ -7698,12 +7733,19 @@ function CompProAdminCard({ lang }) {
         </div>
       )}
 
-      {/* Active comps dashboard — clearer list with prominent Revoke buttons, matches the firm trial UI pattern */}
+      {/* Active comps dashboard — clearer list with prominent Revoke buttons, matches the firm trial UI pattern.
+          Header is clickable to collapse the list for compact admin panel views. */}
       {activeComps.length > 0 && (
         <div style={{ borderTop: "1px solid var(--line)", paddingTop: 14, marginTop: 4 }}>
-          <div style={{ fontSize: 11, color: "var(--gold)", marginBottom: 8, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            ⭐ Active Pro comps ({activeComps.length})
-          </div>
+          <button data-testid="comp-active-toggle"
+                  onClick={() => setShowActive(s => !s)}
+                  style={{ width: "100%", background: "transparent", border: "none", padding: 0, marginBottom: 8,
+                           display: "flex", alignItems: "center", cursor: "pointer" }}>
+            <span style={{ fontSize: 11, color: "var(--gold)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+              {showActive ? "▼" : "▶"} ⭐ Active Pro comps ({activeComps.length})
+            </span>
+          </button>
+          {showActive && (
           <div data-testid="comp-active-list" style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 280, overflowY: "auto" }}>
             {activeComps.map(c => {
               const isLifetime = c.comp_pro_until && new Date(c.comp_pro_until).getFullYear() > 2050;
@@ -7743,6 +7785,52 @@ function CompProAdminCard({ lang }) {
               );
             })}
           </div>
+          )}
+
+          {/* 🔁 Restore deleted users — separate collapsible section so the founder
+              can recover accounts deleted by mistake. Hidden by default. */}
+          <button data-testid="comp-deleted-toggle"
+                  onClick={() => setShowDeleted(s => !s)}
+                  style={{ width: "100%", background: "transparent", border: "none", padding: "10px 0 4px",
+                           display: "flex", alignItems: "center", cursor: "pointer" }}>
+            <span style={{ fontSize: 10.5, color: "var(--text-muted)", fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+              {showDeleted ? "▼" : "▶"} 🗑 Recently deleted ({deletedUsers.length})
+            </span>
+          </button>
+          {showDeleted && (
+            <div data-testid="comp-deleted-list" style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6, maxHeight: 240, overflowY: "auto" }}>
+              {deletedUsers.length === 0 ? (
+                <div style={{ fontSize: 11.5, color: "var(--text-muted)", padding: "10px", textAlign: "center", border: "1px dashed var(--line)", borderRadius: 8 }}>
+                  No deleted users to restore.
+                </div>
+              ) : deletedUsers.map(d => {
+                const stillHasComp = d.comp_pro_until && new Date(d.comp_pro_until) > new Date();
+                return (
+                  <div key={d.id} data-testid={`deleted-user-${d.id}`}
+                       style={{ background: "rgba(120,120,120,0.06)", border: "1px dashed var(--line)",
+                                borderRadius: 10, padding: 8, display: "flex", alignItems: "center",
+                                justifyContent: "space-between", gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: "var(--text)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {d.email}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>
+                        {d.full_name || "—"} · deleted {(d.deleted_at || "").slice(0, 10)}
+                        {stillHasComp && <span style={{ color: "var(--gold)" }}> · Pro until {d.comp_pro_until.slice(0,10)}</span>}
+                      </div>
+                    </div>
+                    <button data-testid={`deleted-restore-${d.id}`}
+                            onClick={() => restoreUser(d.email)} disabled={actionBusy}
+                            style={{ background: "var(--gold)", border: "none", color: "#1a1300",
+                                     borderRadius: 8, padding: "5px 12px", fontSize: 11, fontWeight: 700,
+                                     cursor: "pointer", whiteSpace: "nowrap" }}>
+                      Restore
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>

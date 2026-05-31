@@ -80,8 +80,13 @@ def _wrap(html_body: str, preview: str = "", kind: str = "user") -> str:
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560" style="background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 16px rgba(0,0,0,0.06);">
         <tr><td style="background:#0a0a0a; padding:28px 28px 24px; text-align:center;">
-          <img src="{logo_url}" width="180" alt="AI Advocate — AI lawyer in your pocket"
-               style="display:block; margin:0 auto; max-width:180px; height:auto;" />
+          <!-- Logo as image, with text fallback if blocked by mail client -->
+          <a href="https://aiadvocate.co.uk" style="text-decoration:none; color:#f7c948;">
+            <img src="{logo_url}" width="120" alt="AI Advocate — AI lawyer in your pocket"
+                 style="display:block; margin:0 auto 8px; max-width:120px; height:auto; border:0; outline:none;" />
+            <div style="color:#f7c948; font-family:'Cinzel', Georgia, serif; font-size:22px; font-weight:700; letter-spacing:0.06em; margin-top:4px;">AI ADVOCATE</div>
+            <div style="color:#cfcfcf; font-size:10.5px; letter-spacing:0.10em; margin-top:4px;">AI LAWYER IN YOUR POCKET</div>
+          </a>
         </td></tr>
         <tr><td style="padding:28px 28px 24px 28px; color:#1a1300; font-size:15px; line-height:1.6;">
           {html_body}

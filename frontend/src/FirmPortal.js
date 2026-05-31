@@ -445,7 +445,7 @@ function BillingModal({ firmEmail, currentTier, onClose }) {
   const plans = [
     { id: "featured", name: "Featured", price: "£49 /mo", desc: "Top-of-list directory placement + sponsored badge", features: ["Priority directory listing", "Sponsored gold badge", "Direct client enquiries"] },
     { id: "premium",  name: "Premium",  price: "£199 /mo", desc: "Listing + secure client portal + Lex AI", features: ["Everything in Featured", "Up to 25 active client engagements", "Encrypted case threads + shared files", "Lex AI: 100 assists/mo", "Verified badge"] },
-    { id: "practice", name: "Practice", price: "£399 /mo", desc: "Unlimited engagements + multi-user + priority support", features: ["Everything in Premium", "Unlimited active engagements", "Up to 5 lawyer seats", "Lex AI: 1,000 assists/mo", "Priority support"] },
+    { id: "practice", name: "Practice", price: "£499 /mo", desc: "Unlimited engagements + multi-user + priority support", features: ["Everything in Premium", "Unlimited active engagements", "Up to 5 lawyer seats", "Lex AI: 1,000 assists/mo", "Priority support"] },
   ];
   const checkout = async (id) => {
     setBusy(id);
@@ -540,7 +540,7 @@ function BrandingModal({ initial, tier, firmName, onClose, onSaved }) {
             background: "rgba(247,201,72,0.10)", border: "1px solid #f7c948",
             color: "#f7c948", padding: 12, borderRadius: 10, marginBottom: 14, fontSize: 13,
           }}>
-            ⚡ Custom branding is unlocked on <strong>Premium (£199/mo)</strong> and <strong>Practice (£399/mo)</strong>.
+            ⚡ Custom branding is unlocked on <strong>Premium (£199/mo)</strong> and <strong>Practice (£499/mo)</strong>.
             Make every client engagement feel like <em>your</em> firm, not generic.
           </div>
         )}

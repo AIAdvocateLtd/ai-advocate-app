@@ -8504,10 +8504,9 @@ class DeleteUserPayload(BaseModel):
 
 @api_router.post("/admin/users/delete")
 async def admin_users_delete(data: DeleteUserPayload, admin: dict = Depends(require_admin)):
-    """Permanently remove a user from every admin list (soft-delete: sets
-    deleted=true). Used for cleaning up test accounts, family-test signups,
-    and other rows the founder wants gone. Cannot delete the admin account
-    itself or the App Store reviewer account."""
+    """Soft-delete a user (sets deleted=true) so they no longer appear in admin
+    lists. The user's data (including comp_pro_until) is PRESERVED so the action
+    can be reversed via /admin/users/restore. Protected accounts are blocked."""
     email_lc = data.email.strip().lower()
     PROTECTED = {"admin@aiadvocate.co.uk", "appstore.reviewer@aiadvocate.co.uk", "demo@aiadvocate.co.uk"}
     if email_lc in PROTECTED:
@@ -8516,10 +8515,12 @@ async def admin_users_delete(data: DeleteUserPayload, admin: dict = Depends(requ
     if not target:
         raise HTTPException(404, "User not found.")
     now_iso = datetime.now(timezone.utc).isoformat()
+    # IMPORTANT: do NOT wipe comp_pro_until — keeping it intact means a Restore
+    # brings the user back complete with their Pro comp. The "deleted" flag is
+    # what filters them out of admin lists.
     await db.users.update_one(
         {"id": target["id"]},
-        {"$set": {"deleted": True, "deleted_at": now_iso, "deleted_by": admin["email"],
-                  "comp_pro_until": None}},
+        {"$set": {"deleted": True, "deleted_at": now_iso, "deleted_by": admin["email"]}},
     )
     await db.comp_audit.insert_one({
         "id": str(uuid.uuid4()),
@@ -8529,6 +8530,45 @@ async def admin_users_delete(data: DeleteUserPayload, admin: dict = Depends(requ
         "at": now_iso, "action": "delete",
     })
     return {"ok": True, "email": target["email"], "deleted": True}
+
+
+@api_router.get("/admin/users/deleted")
+async def admin_users_deleted(_: dict = Depends(require_admin)):
+    """List soft-deleted users so they can be restored if removed by mistake."""
+    cursor = db.users.find(
+        {"deleted": True},
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "deleted_at": 1, "deleted_by": 1,
+         "comp_pro_until": 1, "tier": 1},
+    ).sort("deleted_at", -1).limit(100)
+    items = [u async for u in cursor]
+    return {"users": items}
+
+
+class RestoreUserPayload(BaseModel):
+    email: str
+
+
+@api_router.post("/admin/users/restore")
+async def admin_users_restore(data: RestoreUserPayload, admin: dict = Depends(require_admin)):
+    """Restore a previously soft-deleted user. Clears the deleted flag — their
+    Pro comp (if any) is intact because we preserve it in /admin/users/delete."""
+    email_lc = data.email.strip().lower()
+    target = await db.users.find_one({"email": email_lc, "deleted": True}, {"_id": 0, "id": 1, "email": 1})
+    if not target:
+        raise HTTPException(404, "Deleted user not found.")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.users.update_one(
+        {"id": target["id"]},
+        {"$set": {"deleted": False}, "$unset": {"deleted_at": "", "deleted_by": ""}},
+    )
+    await db.comp_audit.insert_one({
+        "id": str(uuid.uuid4()),
+        "granted_by_id": admin["id"], "granted_by_email": admin["email"],
+        "target_id": target["id"], "target_email": target["email"],
+        "reason": "Restored by founder",
+        "at": now_iso, "action": "restore",
+    })
+    return {"ok": True, "email": target["email"], "restored": True}
 
 
 @api_router.get("/admin/users/comps")
