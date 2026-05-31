@@ -5257,23 +5257,27 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
       // user has truly blocked it.
       if (!navigator.geolocation) { aaToast(t(lang, "geolocationNotSupported"), "error"); return; }
 
-      // Detect which mobile browser the user is in so the "open settings" hint
-      // is actionable. On iOS every browser still uses WebKit, but each app has
-      // its own iOS-level permission (Settings → <BrowserName> → Location).
+      // Detect platform. On iOS, browser UA detection is unreliable: every
+      // browser uses WebKit and Brave/Chrome iOS all report a Safari-like UA
+      // with `navigator.brave` NOT exposed. So we give a generic, browser-app
+      // agnostic message that covers Safari, Brave, Chrome, Firefox iOS.
       const ua = (navigator.userAgent || "").toLowerCase();
       const isIOS = /iphone|ipad|ipod/.test(ua);
       const isAndroid = /android/.test(ua);
-      let browserName = "your browser";
-      if (/crios|chrome\//.test(ua) && !/edg|opr|brave/.test(ua)) browserName = "Chrome";
-      else if (/firefox|fxios/.test(ua)) browserName = "Firefox";
-      else if (/edg\//.test(ua)) browserName = "Edge";
-      else if (/opr|opera/.test(ua)) browserName = "Opera";
-      else if (/brave/.test(ua) || (navigator.brave && typeof navigator.brave.isBrave === "function")) browserName = "Brave";
-      else if (/safari/.test(ua) && isIOS) browserName = "Safari";
-      else if (/safari/.test(ua)) browserName = "Safari";
+
+      // For desktop / Android where UA is reliable, we can name the browser.
+      let browserName = "your browser app";
+      if (!isIOS) {
+        if (/crios|chrome\//.test(ua) && !/edg|opr|brave/.test(ua)) browserName = "Chrome";
+        else if (/firefox|fxios/.test(ua)) browserName = "Firefox";
+        else if (/edg\//.test(ua)) browserName = "Edge";
+        else if (/opr|opera/.test(ua)) browserName = "Opera";
+        else if (/brave/.test(ua) || (typeof navigator !== "undefined" && navigator.brave && typeof navigator.brave.isBrave === "function")) browserName = "Brave";
+        else if (/safari/.test(ua)) browserName = "Safari";
+      }
 
       const settingsHint = isIOS
-        ? `On iPhone: Settings → ${browserName} → Location → Allow. Then refresh and try again.`
+        ? "On iPhone: open Settings → scroll to find your browser (e.g. Brave or Safari) → Location → While Using the App. Also check Settings → Privacy & Security → Location Services is ON. Then refresh this page and try again."
         : isAndroid
           ? `On Android: Settings → Apps → ${browserName} → Permissions → Location → Allow. Then refresh and try again.`
           : `Click the lock icon in the address bar → Permissions → Location → Allow. Then refresh and try again.`;
@@ -5295,10 +5299,11 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
         setBusy(false);
         if (err && err.code === 1) {
           // PERMISSION_DENIED — the OS has actually blocked it (or the user
-          // tapped Don't Allow on the prompt).
+          // tapped Don't Allow on the prompt, or — on Brave iOS — Shields is
+          // blocking the geolocation API at the privacy layer).
           aaToast(`Location is blocked. ${settingsHint}`, "error");
         } else if (err && err.code === 3) {
-          // TIMEOUT — high-accuracy can time out on iOS Safari/Brave; retry low-accuracy.
+          // TIMEOUT — high-accuracy can time out on iOS WebKit; retry low-accuracy.
           setBusy(true);
           navigator.geolocation.getCurrentPosition(onSuccess,
             () => { setBusy(false); aaToast("Could not get your location. Try again or check your signal.", "error"); },
