@@ -6992,6 +6992,32 @@ function AdminSolicitorBriefCard({ lang }) {
                         Resend
                       </button>
                     )}
+                    {a.status === "signed" && (
+                      <button data-testid={`firm-agreement-revoke-${a.token.slice(0,8)}`}
+                              onClick={async () => {
+                                const ok = await aaConfirm({
+                                  title: "Revoke this firm's trial?",
+                                  message: `Cancel the lifetime Premium trial for ${a.firm_name} (${a.contact_email})?\n\n⚠️ Note: this only removes their portal trial — if they're paying via Stripe, you must cancel the Stripe subscription separately (Dashboard → Subscriptions). They will NOT receive an automatic email.`,
+                                  confirmLabel: "Revoke trial",
+                                  cancelLabel: "Cancel",
+                                  danger: true,
+                                });
+                                if (!ok) return;
+                                try {
+                                  await api.post("/admin/firms/uncomp", {
+                                    email: a.contact_email, days: 1, tier: "featured",
+                                    reason: `Founder revoked — Founding Firm Agreement ${a.token.slice(0,8)}`,
+                                  });
+                                  aaToast(`Trial revoked for ${a.firm_name}`, "success");
+                                } catch (e) {
+                                  aaToast(e?.response?.data?.detail || "Revoke failed", "error");
+                                }
+                              }}
+                              title="Revoke the firm's trial (this firm only)"
+                              style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#fca5a5", borderRadius: 6, padding: "2px 8px", fontSize: 10.5, cursor: "pointer", fontWeight: 600 }}>
+                        Revoke
+                      </button>
+                    )}
                     <button data-testid={`firm-agreement-delete-${a.token.slice(0,8)}`}
                             onClick={async () => {
                               const ok = await aaConfirm({
@@ -7245,7 +7271,7 @@ function CompFirmAdminCard({ lang }) {
                   {(f.trial_tier || "").toUpperCase()}
                 </span>
                 <span style={{ fontSize: 10, color: f.days_remaining < 7 ? "#fca5a5" : "var(--text-muted)" }}>
-                  {f.days_remaining}d left
+                  {f.days_remaining >= 365 * 25 ? "Lifetime" : `${f.days_remaining}d left`}
                 </span>
               </div>
               <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>{f.email}{f.city ? ` · ${f.city}` : ""}</div>
