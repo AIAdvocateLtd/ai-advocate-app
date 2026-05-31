@@ -8571,6 +8571,50 @@ async def admin_users_restore(data: RestoreUserPayload, admin: dict = Depends(re
     return {"ok": True, "email": target["email"], "restored": True}
 
 
+@api_router.post("/admin/users/purge")
+async def admin_users_purge(data: RestoreUserPayload, admin: dict = Depends(require_admin)):
+    """HARD delete — permanently remove a soft-deleted user from MongoDB along
+    with the bulk of their associated data. Use this to keep the Recently
+    Deleted list clean of old test accounts. Cannot purge protected accounts."""
+    email_lc = data.email.strip().lower()
+    PROTECTED = {"admin@aiadvocate.co.uk", "appstore.reviewer@aiadvocate.co.uk", "demo@aiadvocate.co.uk"}
+    if email_lc in PROTECTED:
+        raise HTTPException(400, f"Cannot purge protected account: {email_lc}")
+    target = await db.users.find_one({"email": email_lc, "deleted": True}, {"_id": 0, "id": 1, "email": 1})
+    if not target:
+        raise HTTPException(404, "Deleted user not found (only soft-deleted users can be purged).")
+    uid = target["id"]
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Audit FIRST so we keep a permanent record of the purge.
+    await db.comp_audit.insert_one({
+        "id": str(uuid.uuid4()),
+        "granted_by_id": admin["id"], "granted_by_email": admin["email"],
+        "target_id": uid, "target_email": target["email"],
+        "reason": "PURGED — hard delete from DB",
+        "at": now_iso, "action": "purge",
+    })
+
+    # Best-effort cascade — wipe the user's data across the collections we know about.
+    # Wrapped in try/except per-collection so a missing collection doesn't abort the purge.
+    cascade_collections = [
+        "conversations", "chat_sessions", "case_items", "contract_analyses",
+        "letters", "deadlines", "evidence", "voice_journals", "vault_items",
+        "user_documents", "comp_pro_grants", "sponsor_links",
+        "totp_secrets", "password_reset_tokens", "trusted_devices",
+        "pending_grants", "stripe_customers",
+    ]
+    for col in cascade_collections:
+        try:
+            await db[col].delete_many({"user_id": uid})
+        except Exception as e:
+            print(f"[purge] {col} cascade skipped: {e}")
+
+    # Finally, delete the user record itself
+    await db.users.delete_one({"id": uid})
+    return {"ok": True, "email": target["email"], "purged": True}
+
+
 @api_router.get("/admin/users/comps")
 async def admin_users_comps(_: dict = Depends(require_admin)):
     """List all currently-active comps + pending pre-signup grants

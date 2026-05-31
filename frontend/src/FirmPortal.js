@@ -79,7 +79,7 @@ function FirmAuth({ onLogin }) {
         )}
 
         <div style={{ marginTop: 16, fontSize: 11, color: "#888", textAlign: "center", lineHeight: 1.5 }}>
-          Need help? <a href="mailto:admin@aiadvocate.co.uk" style={{ color: "#f7c948" }}>admin@aiadvocate.co.uk</a>
+          Need help? <a href="mailto:firms@aiadvocate.co.uk" style={{ color: "#f7c948" }}>firms@aiadvocate.co.uk</a>
         </div>
       </div>
 
@@ -452,7 +452,7 @@ function BillingModal({ firmEmail, currentTier, onClose }) {
     try {
       const { data } = await fapi.post(`/firm/subscribe?plan=${id}`);
       if (data.checkout_url) window.location.href = data.checkout_url;
-    } catch (e) { alert(e?.response?.data?.detail || "Billing not yet configured. Email admin@aiadvocate.co.uk."); }
+    } catch (e) { alert(e?.response?.data?.detail || "Billing not yet configured. Email firms@aiadvocate.co.uk."); }
     finally { setBusy(""); }
   };
   return (

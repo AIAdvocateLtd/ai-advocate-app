@@ -7306,6 +7306,28 @@ function CompProAdminCard({ lang }) {
     } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
   };
 
+  // 🗑 Permanently purge a soft-deleted user from the database. Use sparingly —
+  // this also wipes their chat history, case files, vault items etc. There is
+  // NO undo. Confirmation modal is required before calling this.
+  const purgeUser = async (email) => {
+    const ok = await aaConfirm({
+      title: "Permanently delete?",
+      message: `This will permanently delete ${email} from the database along with all their chat history, case files, vault items, and other data. This action CANNOT be undone.\n\nProceed only if you're sure this is a test/spam account.`,
+      confirmLabel: "Delete forever",
+      cancelLabel: "Cancel",
+      danger: true,
+    });
+    if (!ok) return;
+    setActionBusy(true);
+    try {
+      await api.post("/admin/users/purge", { email });
+      setFeedback({ ok: true, msg: `🗑 ${email} permanently deleted` });
+      setDeletedUsers(ds => ds.filter(u => u.email !== email));
+    } catch (e) {
+      setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not purge." });
+    } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
+  };
+
   const directGrant = async () => {
     const em = (directGrantEmail || "").trim().toLowerCase();
     if (!em.includes("@")) return;
@@ -7819,6 +7841,7 @@ function CompProAdminCard({ lang }) {
                         {stillHasComp && <span style={{ color: "var(--gold)" }}> · Pro until {d.comp_pro_until.slice(0,10)}</span>}
                       </div>
                     </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                     <button data-testid={`deleted-restore-${d.id}`}
                             onClick={() => restoreUser(d.email)} disabled={actionBusy}
                             style={{ background: "var(--gold)", border: "none", color: "#1a1300",
@@ -7826,6 +7849,15 @@ function CompProAdminCard({ lang }) {
                                      cursor: "pointer", whiteSpace: "nowrap" }}>
                       Restore
                     </button>
+                    <button data-testid={`deleted-purge-${d.id}`}
+                            onClick={() => purgeUser(d.email)} disabled={actionBusy}
+                            title="Permanently delete from database (cannot be undone)"
+                            style={{ background: "transparent", border: "1px solid #ef4444",
+                                     color: "#ef4444", borderRadius: 8, padding: "5px 10px",
+                                     fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+                      Delete
+                    </button>
+                    </div>
                   </div>
                 );
               })}
