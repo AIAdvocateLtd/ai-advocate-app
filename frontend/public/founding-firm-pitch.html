@@ -258,35 +258,34 @@
   </div>
 
   <div class="register-box">
-    <h3>Register your firm — pre-launch</h3>
-    <p class="sub-text">Reserve your spot in the Founding 20 cohort. We'll be in touch the moment we go live.</p>
-    <div id="register-success-msg" class="register-success">
-      ✓ Registration received. We'll email you within 2 business days.
+    <h3>Sign up your firm today — the portal is live</h3>
+    <p class="sub-text">Create your firm account, set up your branding and specialties, and start receiving client invites within minutes. The first 20 firms automatically lock in the £199/mo Founding rate for life — we'll email you a pre-prepared Agreement to sign once you're in.</p>
+    <div style="display:flex; flex-direction:column; gap:14px; align-items:center; margin-top:20px;">
+      <a href="/firm-portal" data-testid="firm-signup-cta"
+         style="background:#f7c948; color:#1a1300; padding:16px 38px; border-radius:999px;
+                font-weight:700; letter-spacing:0.04em; text-decoration:none; font-size:15px;
+                box-shadow:0 4px 14px rgba(247,201,72,0.25); display:inline-block;">
+        Create your firm account →
+      </a>
+      <a href="/firm-portal" data-testid="firm-signin-cta"
+         style="background:transparent; color:#1a1300; padding:12px 30px; border-radius:999px;
+                font-weight:600; text-decoration:none; font-size:13.5px;
+                border:1px solid rgba(26,19,0,0.3);">
+        Already have an account? Sign in →
+      </a>
+      <div style="font-size:12.5px; color:#666; text-align:center; max-width:380px; line-height:1.5; margin-top:6px;">
+        🌍 <strong>UK firms</strong> get the Founding cohort rate. <strong>International firms</strong> (EU, US, Australia, Canada) — please email
+        <a href="mailto:firms@aiadvocate.co.uk" style="color:#b8860b;">firms@aiadvocate.co.uk</a>
+        to discuss a country-launch partnership.
+      </div>
     </div>
-    <form id="firm-register-form" class="register-form">
-      <input type="text" name="firm_name" placeholder="Firm name *" required data-testid="firm-register-name">
-      <input type="text" name="contact_name" placeholder="Your full name *" required data-testid="firm-register-contact">
-      <input type="email" name="email" placeholder="Email address *" required data-testid="firm-register-email">
-      <input type="tel" name="phone" placeholder="Phone (optional)" data-testid="firm-register-phone">
-      <input type="text" name="city" placeholder="City *" required data-testid="firm-register-city">
-      <select name="country" required data-testid="firm-register-country">
-        <option value="">Country *</option>
-        <option value="United Kingdom" selected>United Kingdom</option>
-        <option value="Ireland">Ireland</option>
-        <option value="Other">Other</option>
-      </select>
-      <input type="text" name="specialties" class="full" placeholder="Specialties (e.g. Family, Immigration, Employment)" data-testid="firm-register-specialties">
-      <input type="url" name="website" class="full" placeholder="Website (optional)" data-testid="firm-register-website">
-      <textarea name="notes" class="full" rows="2" placeholder="Anything else we should know? (optional)" data-testid="firm-register-notes"></textarea>
-      <button type="submit" data-testid="firm-register-submit">Reserve our spot in the cohort</button>
-    </form>
   </div>
 
   <div class="cta-box">
     <div class="big">Ready to be a Founding Firm?</div>
     <div class="small">
-      Reply to this email or book a 15-minute call at <a href="https://calendly.com/firms-aiadvocate/30min" style="color:#1a1300;text-decoration:underline;"><strong>calendly.com/firms-aiadvocate</strong></a><br>
-      Only 20 cohort slots — first-come, first-served.
+      Sign up in 2 minutes at <a href="/firm-portal" style="color:#1a1300;text-decoration:underline;"><strong>aiadvocate.co.uk/firm-portal</strong></a>.
+      The first 20 firms lock in £199/mo for life. Questions? <a href="mailto:firms@aiadvocate.co.uk" style="color:#1a1300;text-decoration:underline;">firms@aiadvocate.co.uk</a> or book a 15-min call at <a href="https://calendly.com/firms-aiadvocate/30min" style="color:#1a1300;text-decoration:underline;"><strong>calendly.com/firms-aiadvocate</strong></a>.
     </div>
     <div style="margin-top:14px; padding-top:14px; border-top:1px solid rgba(26,19,0,0.25); text-align:center; font-size:11pt;">
       <strong>Already a partner firm?</strong>
@@ -302,49 +301,8 @@
 </div>
 
 <script>
-(function() {
-  var form = document.getElementById('firm-register-form');
-  var success = document.getElementById('register-success-msg');
-  if (!form) return;
-  form.addEventListener('submit', async function(e) {
-    e.preventDefault();
-    var btn = form.querySelector('button[type="submit"]');
-    btn.disabled = true;
-    btn.textContent = 'Submitting…';
-    var fd = new FormData(form);
-    var payload = {
-      firm_name: fd.get('firm_name'),
-      contact_name: fd.get('contact_name'),
-      email: fd.get('email'),
-      phone: fd.get('phone') || '',
-      country: fd.get('country'),
-      city: fd.get('city'),
-      specialties: (fd.get('specialties') || '').split(',').map(function(s){return s.trim();}).filter(Boolean),
-      website: fd.get('website') || '',
-      notes: fd.get('notes') || ''
-    };
-    try {
-      var r = await fetch('/api/lawfirms/advertise', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (r.ok) {
-        form.style.display = 'none';
-        success.style.display = 'block';
-        if (window.gtag) window.gtag('event', 'firm_register', { firm: payload.firm_name });
-      } else {
-        btn.disabled = false;
-        btn.textContent = 'Reserve our spot in the cohort';
-        alert('Sorry, something went wrong. Please email firms@aiadvocate.co.uk directly.');
-      }
-    } catch (err) {
-      btn.disabled = false;
-      btn.textContent = 'Reserve our spot in the cohort';
-      alert('Network error. Please email firms@aiadvocate.co.uk directly.');
-    }
-  });
-})();
+// Page is static — all CTAs are direct links to /firm-portal.
+// (Pre-launch reservation form was removed once the portal went live.)
 </script>
 
 </body>
