@@ -10,7 +10,23 @@
 
 ## Completed Implementation (rolling)
 
-### 2026-02 (Iter 37 — Commission ledger + auto-invoicing + default founder signature)
+### 2026-02 (Iter 38 — Hybrid auto-billing scheduler)
+- 🤖 **APScheduler cron** for hands-off commission billing. Three jobs (all 09:00 UTC):
+  - **22nd of month** → `_send_headsup_emails` — sends a 7-day-ahead heads-up to every firm with unpaid commission, showing estimated total. Skips firms <30 days old.
+  - **1st of month** → `_create_monthly_drafts` — generates DRAFT Stripe invoices (auto_advance=False) for the previous calendar month, stores per-firm records in `commission_drafts` with anomaly flags + admin summary email.
+  - **3rd of month** → `_job_autosend` — auto-finalises + sends every still-draft non-flagged invoice (48-hour review window for the founder). Flagged drafts stay held; admin gets a heads-up email if any are held.
+- 🛡 **Anomaly guardrails** (`_compute_anomaly_flags`):
+  - `large_amount` — current draft > £1,000 (catches typos like £15k instead of £1.5k)
+  - `high_vs_avg` — current draft > 5× the rolling 3-month average
+  - `<30 day skip` — brand-new firms get a free first month before auto-billing kicks in
+- 🆕 **Admin endpoints**: `POST /api/admin/commissions/run-monthly-drafts`, `GET /api/admin/commissions/drafts`, `POST /api/admin/commissions/drafts/{id}/{approve|void}`, `POST /api/admin/commissions/drafts/approve-all` (skips flagged unless `?include_flagged=true`), `POST /api/admin/commissions/send-headsup`, `GET /api/admin/commissions/schedule`.
+- 🆕 **New collection**: `commission_drafts` (stripe_invoice_id, firm_id, month, total_gbp, engagement_ids, anomaly_flags, rolling_avg_gbp, requires_review, status: draft|sent|voided, source: manual|cron, timestamps).
+- 🆕 **Engagement statuses**: added `pending_invoice` between `unpaid` and `invoiced` (the 48-hour window). Voiding a draft reverts engagements to `unpaid`.
+- 🎨 **Admin UI rebuild**: `AdminCommissionsCard` now shows a schedule banner (next 3 cron runs), a "Pending drafts" review section with per-row Approve/Void buttons + anomaly flags + 3-month rolling-avg comparison + bulk "Approve all non-flagged" button, and demotes the old "Issue all immediately" CTA to a secondary "skip review" path.
+- Added `apscheduler==3.11.2` to `requirements.txt`.
+- Verified end-to-end: log commissions → create drafts (£6,600 single firm → `large_amount` flag fires + `requires_review=true`) → void draft (Stripe `in_xxx` voided, engagement returns to `unpaid`) → schedule endpoint returns correct next-run timestamps.
+
+### 2026-02 (Iter 37 — Commission ledger + manual auto-invoicing + default founder signature)
 - 💷 **Firm referral-commission ledger.** New `POST/GET/DELETE /api/firm/commissions` endpoints (renamed from `/firm/engagements` which collided with the client-thread engagement system — discovered + fixed in this iteration). Firm portal now shows a "REFERRAL COMMISSIONS" card under their engagements list with 3 totals tiles (Lifetime fees / Commission / Unpaid) + a "Log closed engagement" modal that captures matter, client, fee_gbp, closed_at. Backend auto-calculates the 30% commission per the Founding Firm Agreement.
 - 📧 **Stripe auto-invoicing for commissions.** New admin endpoints: `POST /api/admin/commissions/issue-invoice` (single firm/month) and `POST /api/admin/commissions/issue-all` (bulk run for whole month — defaults to *previous* month). Generates one Stripe Invoice per firm with one InvoiceItem per closed engagement (clear line items for reconciliation), auto-finalises, sends via Stripe + a branded heads-up email. Marks engagements as `invoiced` with the Stripe invoice ID.
 - ✍️ **Default founder signature admin card.** New `AdminFounderSignatureCard` in the consumer Settings (owner-only). Draws once → persisted via `POST /api/admin/founder-signature` → auto-fire enabled. Now every new firm signup (in the first-20 cohort) automatically gets a personalised Founding Firm Agreement emailed without any manual action. Status badge ("AUTO-FIRE ON") + preview of saved signature + Clear button.

@@ -7225,12 +7225,27 @@ function AdminCommissionsCard() {
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
+  // Hybrid auto-billing: drafts + schedule
+  const [drafts, setDrafts] = useState([]);
+  const [draftsTotal, setDraftsTotal] = useState(0);
+  const [draftsFlagged, setDraftsFlagged] = useState(0);
+  const [schedule, setSchedule] = useState(null);
+  const [draftBusy, setDraftBusy] = useState("");
+  const [genBusy, setGenBusy] = useState(false);
 
   const load = async (m = month) => {
     setLoading(true);
     try {
-      const { data } = await api.get(`/admin/commissions/summary?month=${encodeURIComponent(m)}`);
-      setSummary(data);
+      const [s, d, sch] = await Promise.all([
+        api.get(`/admin/commissions/summary?month=${encodeURIComponent(m)}`),
+        api.get(`/admin/commissions/drafts?month=${encodeURIComponent(m)}`),
+        api.get(`/admin/commissions/schedule`),
+      ]);
+      setSummary(s.data);
+      setDrafts(d.data.drafts || []);
+      setDraftsTotal(d.data.total_gbp || 0);
+      setDraftsFlagged(d.data.flagged_count || 0);
+      setSchedule(sch.data);
     } catch (e) {
       aaToast(e?.response?.data?.detail || "Load failed", "error");
     } finally { setLoading(false); }
@@ -7238,7 +7253,7 @@ function AdminCommissionsCard() {
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
   const issueOne = async (firm_id, firm_name) => {
-    if (!aaConfirm(`Issue Stripe invoice to ${firm_name || firm_id} for ${month}? They'll receive a payment-link email automatically.`)) return;
+    if (!aaConfirm(`Issue Stripe invoice IMMEDIATELY to ${firm_name || firm_id} for ${month}? Skips the 48-hour draft review window.`)) return;
     setBusyId(firm_id);
     try {
       const { data } = await api.post("/admin/commissions/issue-invoice", { firm_id, month });
@@ -7254,7 +7269,7 @@ function AdminCommissionsCard() {
   };
 
   const issueAll = async () => {
-    if (!aaConfirm(`Issue Stripe invoices to ALL firms with unpaid commission for ${month}? This is irreversible.`)) return;
+    if (!aaConfirm(`Issue Stripe invoices IMMEDIATELY to ALL firms with unpaid commission for ${month}? This skips the 48-hour draft review window — use the "Generate drafts" flow for the safer path.`)) return;
     setBulkBusy(true);
     try {
       const { data } = await api.post("/admin/commissions/issue-all", { month });
@@ -7268,6 +7283,64 @@ function AdminCommissionsCard() {
 
   const grand = summary.grand_total_commission_gbp || 0;
   const totalUnpaid = (summary.by_firm || []).reduce((s, r) => s + (r.unpaid_commission_gbp || 0), 0);
+
+  // ---- Hybrid auto-billing handlers ----
+  const generateDrafts = async () => {
+    if (!aaConfirm(`Create DRAFT Stripe invoices for every firm with unpaid commission in ${month}? They sit in draft for 48 hours — you can review, approve or void each one before they're sent.`)) return;
+    setGenBusy(true);
+    try {
+      const { data } = await api.post("/admin/commissions/run-monthly-drafts", { month });
+      const real = (data.results || []).filter(r => !r.skipped && !r.error);
+      aaToast(`Created ${real.length} draft${real.length === 1 ? "" : "s"} · ${data.flagged_count || 0} flagged for review`, "success");
+      await load();
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Draft generation failed", "error");
+    } finally { setGenBusy(false); }
+  };
+
+  const approveDraft = async (inv_id, firm_name, total) => {
+    if (!aaConfirm(`Approve and send invoice to ${firm_name} for £${total.toFixed(2)}? This is irreversible — Stripe will email the firm with the payment link.`)) return;
+    setDraftBusy(inv_id);
+    try {
+      await api.post(`/admin/commissions/drafts/${inv_id}/approve`);
+      aaToast(`Invoice sent to ${firm_name}`, "success");
+      await load();
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Approve failed", "error");
+    } finally { setDraftBusy(""); }
+  };
+
+  const voidDraft = async (inv_id, firm_name) => {
+    if (!aaConfirm(`Void this draft for ${firm_name}? The engagements will return to "unpaid" so they're picked up next cycle.`)) return;
+    setDraftBusy(inv_id);
+    try {
+      await api.post(`/admin/commissions/drafts/${inv_id}/void`);
+      aaToast(`Draft voided`, "info");
+      await load();
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Void failed", "error");
+    } finally { setDraftBusy(""); }
+  };
+
+  const approveAllClean = async () => {
+    const clean = drafts.filter(d => !d.requires_review).length;
+    if (clean === 0) { aaToast("No non-flagged drafts to send.", "info"); return; }
+    if (!aaConfirm(`Approve and send all ${clean} non-flagged drafts? Flagged drafts (${draftsFlagged}) stay in review.`)) return;
+    setDraftBusy("all");
+    try {
+      const { data } = await api.post("/admin/commissions/drafts/approve-all");
+      aaToast(`Sent ${data.sent} invoice${data.sent === 1 ? "" : "s"}`, "success");
+      await load();
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Bulk approve failed", "error");
+    } finally { setDraftBusy(""); }
+  };
+
+  const fmtDate = (iso) => {
+    if (!iso) return "—";
+    try { return new Date(iso).toLocaleString("en-GB", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
+    catch (e) { return iso; }
+  };
 
   return (
     <div data-testid="admin-commissions-card" style={{
@@ -7287,8 +7360,73 @@ function AdminCommissionsCard() {
         </div>
       </div>
       <p style={{ fontSize: 12, color: "var(--text-dim)", margin: "0 0 12px", lineHeight: 1.5 }}>
-        30% of every closed AI Advocate referral. Firms log fees in their portal; you issue Stripe invoices monthly here.
+        30% of every closed AI Advocate referral. Firms log fees in their portal; the scheduler generates drafts on the 1st, you review for 48h, then they auto-send on the 3rd.
       </p>
+
+      {/* 🤖 Auto-billing schedule banner */}
+      {schedule && (
+        <div data-testid="auto-billing-schedule" style={{ background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontSize: 11.5, lineHeight: 1.6 }}>
+          <div style={{ color: "var(--gold)", fontWeight: 600, marginBottom: 4, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em" }}>🤖 Auto-billing schedule</div>
+          <div style={{ color: "var(--text-dim)" }}>
+            Heads-up emails: <strong>{fmtDate(schedule.next_headsup_at)}</strong> · Draft invoices: <strong>{fmtDate(schedule.next_drafts_at)}</strong> · Auto-send (non-flagged): <strong>{fmtDate(schedule.next_autosend_at)}</strong>
+          </div>
+        </div>
+      )}
+
+      {/* 📝 Pending drafts review */}
+      {drafts.length > 0 && (
+        <div data-testid="admin-drafts-section" style={{ background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 12, marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ color: "var(--gold)", fontWeight: 700, fontSize: 13 }}>
+                📝 {drafts.length} draft invoice{drafts.length === 1 ? "" : "s"} pending review · £{draftsTotal.toFixed(2)}
+              </div>
+              {draftsFlagged > 0 && (
+                <div style={{ fontSize: 11, color: "#fca5a5", marginTop: 2 }}>
+                  ⚠ {draftsFlagged} flagged as anomalies — these will NOT auto-send on day 3
+                </div>
+              )}
+            </div>
+            <button data-testid="admin-approve-all-drafts" onClick={approveAllClean}
+              disabled={draftBusy === "all" || drafts.length === draftsFlagged}
+              className="btn-gold" style={{ fontSize: 12, padding: "8px 14px" }}>
+              {draftBusy === "all" ? <span className="spinner" /> : `📧 Approve & send all non-flagged`}
+            </button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {drafts.map(d => (
+              <div key={d.stripe_invoice_id} data-testid={`draft-${d.stripe_invoice_id}`}
+                   style={{ background: "var(--bg-2)", border: `1px solid ${d.requires_review ? "rgba(252,165,165,0.4)" : "var(--line)"}`, borderRadius: 8, padding: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
+                    {d.firm_name || d.firm_email}
+                    {d.requires_review && <span style={{ marginLeft: 8, fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(252,165,165,0.15)", color: "#fca5a5" }}>⚠ REVIEW</span>}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                    £{d.total_gbp.toFixed(2)} · {d.engagements_count} engagement{d.engagements_count === 1 ? "" : "s"}
+                    {d.rolling_avg_gbp > 0 && <> · 3-mo avg £{d.rolling_avg_gbp.toFixed(2)}</>}
+                    {(d.anomaly_flags || []).length > 0 && <> · <span style={{ color: "#fca5a5" }}>{d.anomaly_flags.join(", ")}</span></>}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button data-testid={`draft-approve-${d.stripe_invoice_id}`}
+                    onClick={() => approveDraft(d.stripe_invoice_id, d.firm_name || d.firm_email, d.total_gbp)}
+                    disabled={draftBusy === d.stripe_invoice_id}
+                    style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--gold-deep)", background: "var(--gold)", color: "#1a1300", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                    {draftBusy === d.stripe_invoice_id ? "…" : "Approve & send"}
+                  </button>
+                  <button data-testid={`draft-void-${d.stripe_invoice_id}`}
+                    onClick={() => voidDraft(d.stripe_invoice_id, d.firm_name || d.firm_email)}
+                    disabled={draftBusy === d.stripe_invoice_id}
+                    style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line)", background: "transparent", color: "#fca5a5", fontSize: 11, cursor: "pointer" }}>
+                    Void
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
         <div style={{ background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: 8, padding: 10 }}>
@@ -7301,10 +7439,16 @@ function AdminCommissionsCard() {
         </div>
       </div>
 
-      <button data-testid="admin-issue-all-commissions" onClick={issueAll} disabled={bulkBusy || totalUnpaid <= 0}
-              className="btn-gold w-full" style={{ fontSize: 13, marginBottom: 12, opacity: totalUnpaid > 0 ? 1 : 0.4 }}>
-        {bulkBusy ? <span className="spinner" /> : `📧 Issue invoices to all firms for ${month}`}
-      </button>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+        <button data-testid="admin-generate-drafts" onClick={generateDrafts} disabled={genBusy || totalUnpaid <= 0}
+                className="btn-gold" style={{ fontSize: 13, opacity: totalUnpaid > 0 ? 1 : 0.4 }}>
+          {genBusy ? <span className="spinner" /> : `📝 Generate drafts (recommended)`}
+        </button>
+        <button data-testid="admin-issue-all-commissions" onClick={issueAll} disabled={bulkBusy || totalUnpaid <= 0}
+                style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--line)", background: "transparent", color: "var(--text-dim)", fontSize: 12, cursor: totalUnpaid > 0 ? "pointer" : "not-allowed", opacity: totalUnpaid > 0 ? 1 : 0.4 }}>
+          {bulkBusy ? <span className="spinner" /> : `Send all immediately (skip review)`}
+        </button>
+      </div>
 
       {loading ? (
         <div style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center" }}>Loading…</div>

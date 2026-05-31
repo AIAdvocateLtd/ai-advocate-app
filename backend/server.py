@@ -6498,12 +6498,60 @@ class IssueInvoicePayload(BaseModel):
     days_until_due: int = 14
 
 
-async def _issue_commission_invoice_for_firm(firm: dict, month: str, days_until_due: int = 14) -> dict:
+async def _compute_anomaly_flags(firm_id: str, month: str, current_total: float) -> dict:
+    """Compute anomaly flags for a draft invoice:
+      - high_vs_avg: current month is >5x the rolling 3-month average
+      - large_amount: total > £1,000 (catches typos like 15000 instead of 1500)
+    Returns {flags: [...], rolling_avg_gbp: float, requires_review: bool}.
+    """
+    # 3 previous months
+    y, m = int(month[:4]), int(month[5:7])
+    prev_months = []
+    for _ in range(3):
+        m -= 1
+        if m == 0: m = 12; y -= 1
+        prev_months.append(f"{y:04d}-{m:02d}")
+    pipeline = [
+        {"$match": {"firm_id": firm_id, "billing_month": {"$in": prev_months}}},
+        {"$group": {"_id": "$billing_month", "total": {"$sum": "$commission_owed_gbp"}}},
+    ]
+    totals = []
+    async for row in db.firm_engagements.aggregate(pipeline):
+        totals.append(row["total"])
+    rolling_avg = round(sum(totals) / 3.0, 2) if totals else 0.0
+    flags = []
+    if current_total > 1000.0:
+        flags.append("large_amount")
+    if rolling_avg > 0 and current_total > rolling_avg * 5:
+        flags.append("high_vs_avg")
+    return {"flags": flags, "rolling_avg_gbp": rolling_avg, "requires_review": bool(flags)}
+
+
+async def _issue_commission_invoice_for_firm(firm: dict, month: str, days_until_due: int = 14,
+                                              as_draft: bool = False, source: str = "manual") -> dict:
     """Issues a single Stripe invoice covering all `unpaid` commission engagements
-    for one firm in the given billing month. Marks those engagements as
-    `invoiced` with the Stripe invoice id. Returns a summary dict."""
+    for one firm in the given billing month.
+
+    Modes:
+      - as_draft=False (default): finalise + send immediately. Marks engagements 'invoiced'.
+      - as_draft=True: create as Stripe draft (auto_advance=False), DO NOT finalise/send.
+        Marks engagements 'pending_invoice'. A 'commission_drafts' record is stored
+        so the founder can review/approve/void during a 48-hour window before the
+        cron job auto-sends on the 3rd."""
     if not stripe.api_key:
         raise HTTPException(503, "Stripe not configured on server")
+
+    # Skip firms signed up <30 days ago — let them have a clean first month
+    if as_draft:
+        ca = firm.get("created_at")
+        if ca:
+            try:
+                created = datetime.fromisoformat(ca.replace("Z", "+00:00"))
+                if (datetime.now(timezone.utc) - created).days < 30:
+                    return {"firm_id": firm["id"], "firm_email": firm.get("email"),
+                            "skipped": True, "reason": "firm_under_30_days_old"}
+            except Exception:
+                pass
 
     # 1. Pull every unpaid commission entry for this firm/month
     cursor = db.firm_engagements.find({
@@ -6545,21 +6593,67 @@ async def _issue_commission_invoice_for_firm(firm: dict, month: str, days_until_
             },
         )
 
-    # 4. Create the invoice — automatically pulls in pending invoice items
+    # 4. Create the invoice — as DRAFT (auto_advance=False) or SENDING (auto_advance=True)
     inv = stripe.Invoice.create(
         customer=cust_id,
         collection_method="send_invoice",
         days_until_due=int(days_until_due),
-        auto_advance=True,
+        auto_advance=(not as_draft),
         description=f"AI Advocate referral commission · {month}",
         metadata={
             "aa_firm_id": firm["id"], "billing_month": month,
             "kind": "referral_commission_batch",
             "engagements_count": str(len(items)),
+            "aa_source": source,
         },
     )
-    # 5. Finalise + send (auto_advance=True will also do this, but explicit is safer
-    # for our admin trigger so the firm gets the email immediately).
+
+    total = round(sum(it["commission_owed_gbp"] for it in items), 2)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    eids = [it["id"] for it in items]
+
+    if as_draft:
+        # Store draft record for the 48-hour review window
+        anomaly = await _compute_anomaly_flags(firm["id"], month, total)
+        await db.commission_drafts.update_one(
+            {"stripe_invoice_id": inv.id},
+            {"$set": {
+                "stripe_invoice_id": inv.id,
+                "firm_id": firm["id"], "firm_email": firm.get("email"),
+                "firm_name": firm.get("firm_name") or "",
+                "contact_name": firm.get("contact_name"),
+                "month": month,
+                "total_gbp": total,
+                "engagements_count": len(items),
+                "engagement_ids": eids,
+                "anomaly_flags": anomaly["flags"],
+                "rolling_avg_gbp": anomaly["rolling_avg_gbp"],
+                "requires_review": anomaly["requires_review"],
+                "status": "draft",
+                "source": source,
+                "created_at": now_iso,
+            }},
+            upsert=True,
+        )
+        await db.firm_engagements.update_many(
+            {"id": {"$in": eids}},
+            {"$set": {"paid_status": "pending_invoice", "stripe_invoice_id": inv.id,
+                      "drafted_at": now_iso}},
+        )
+        return {
+            "firm_id": firm["id"], "firm_email": firm.get("email"),
+            "firm_name": firm.get("firm_name"),
+            "stripe_invoice_id": inv.id,
+            "engagements_count": len(items),
+            "total_commission_gbp": total,
+            "month": month,
+            "anomaly_flags": anomaly["flags"],
+            "requires_review": anomaly["requires_review"],
+            "rolling_avg_gbp": anomaly["rolling_avg_gbp"],
+            "status": "draft",
+        }
+
+    # 5. Finalise + send (immediate mode)
     try:
         inv = stripe.Invoice.finalize_invoice(inv.id)
     except Exception:
@@ -6570,14 +6664,16 @@ async def _issue_commission_invoice_for_firm(firm: dict, month: str, days_until_
         pass
 
     # 6. Mark every engagement as invoiced
-    eids = [it["id"] for it in items]
     await db.firm_engagements.update_many(
         {"id": {"$in": eids}},
         {"$set": {"paid_status": "invoiced", "stripe_invoice_id": inv.id,
-                  "invoiced_at": datetime.now(timezone.utc).isoformat()}},
+                  "invoiced_at": now_iso}},
     )
-
-    total = round(sum(it["commission_owed_gbp"] for it in items), 2)
+    # 6b. Promote any matching draft record to "sent"
+    await db.commission_drafts.update_one(
+        {"stripe_invoice_id": inv.id},
+        {"$set": {"status": "sent", "sent_at": now_iso}},
+    )
 
     # 7. Branded heads-up email
     try:
@@ -6607,6 +6703,7 @@ async def _issue_commission_invoice_for_firm(firm: dict, month: str, days_until_
         "engagements_count": len(items),
         "total_commission_gbp": total,
         "month": month,
+        "status": "sent",
     }
 
 
@@ -6654,6 +6751,268 @@ async def admin_issue_all_commission_invoices(data: IssueAllPayload, _: dict = D
             logger.exception(f"Auto-invoice failed for firm {fid}")
             results.append({"firm_id": fid, "error": str(e)})
     return {"month": month, "count": len(results), "results": results}
+
+
+# ---------- Hybrid auto-billing pipeline ----------
+# 22nd of month → heads-up email to firms
+# 1st of month  → generate DRAFTS (not finalised) + email admin summary
+# 3rd of month  → auto-send any still-draft, non-flagged invoices
+
+class RunDraftsPayload(BaseModel):
+    month: str = ""
+
+
+async def _resolve_prev_month() -> str:
+    now = datetime.now(timezone.utc)
+    first_of_this = now.replace(day=1)
+    last_of_prev = first_of_this - timedelta(days=1)
+    return last_of_prev.isoformat()[:7]
+
+
+async def _create_monthly_drafts(month: str, source: str = "manual") -> dict:
+    """Generates DRAFT Stripe invoices for every firm with unpaid commission in `month`.
+    Stores per-firm `commission_drafts` records with anomaly flags. Does NOT send."""
+    firm_ids = await db.firm_engagements.distinct(
+        "firm_id", {"billing_month": month, "paid_status": "unpaid"}
+    )
+    results = []
+    for fid in firm_ids:
+        firm = await db.firm_accounts.find_one({"id": fid}, {"_id": 0})
+        if not firm:
+            continue
+        try:
+            r = await _issue_commission_invoice_for_firm(firm, month, as_draft=True, source=source)
+            results.append(r)
+        except Exception as e:
+            logger.exception(f"Draft invoice failed for firm {fid}")
+            results.append({"firm_id": fid, "error": str(e)})
+
+    actual = [r for r in results if not r.get("skipped") and not r.get("error")]
+    flagged = [r for r in actual if r.get("requires_review")]
+    total = round(sum((r.get("total_commission_gbp") or 0) for r in actual), 2)
+    if source == "cron" and actual:
+        try:
+            admin_emails = [e.strip() for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",") if e.strip()]
+            from email_helper import send_email
+            rows_html = "".join(
+                f"<tr><td style='padding:6px 10px;border-bottom:1px solid #eee'>{r.get('firm_name') or r.get('firm_email')}</td>"
+                f"<td style='padding:6px 10px;text-align:right;border-bottom:1px solid #eee'>£{r.get('total_commission_gbp',0):.2f}</td>"
+                f"<td style='padding:6px 10px;border-bottom:1px solid #eee;color:#b45309'>{', '.join(r.get('anomaly_flags') or []) or '—'}</td></tr>"
+                for r in actual
+            )
+            html = f"""<p>Hi Sam,</p>
+                <p>Monthly draft invoices for <strong>{month}</strong> are ready in your admin panel.</p>
+                <ul>
+                  <li><strong>{len(actual)}</strong> firm{'s' if len(actual)!=1 else ''} — total <strong>£{total:.2f}</strong></li>
+                  <li><strong>{len(flagged)}</strong> flagged for review (5× rolling avg OR amount &gt; £1,000)</li>
+                  <li>Drafts auto-send on day 3 at 09:00 UTC — until then you can approve/void each one.</li>
+                </ul>
+                <table style='border-collapse:collapse;width:100%;margin-top:12px;font-size:13px'>
+                  <thead><tr style='background:#f7c948'><th style='padding:8px 10px;text-align:left'>Firm</th><th style='padding:8px 10px;text-align:right'>Commission</th><th style='padding:8px 10px;text-align:left'>Flags</th></tr></thead>
+                  <tbody>{rows_html}</tbody>
+                </table>
+                <p style='margin-top:16px'><a href='https://aiadvocate.co.uk/' style='background:#f7c948;color:#1a1300;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700'>Review drafts in admin →</a></p>"""
+            for ae in admin_emails:
+                await send_email(to=ae, kind="firm",
+                                 subject=f"📊 {len(actual)} draft commission invoices ready for {month}",
+                                 body_html=html)
+        except Exception as e:
+            logger.warning(f"Admin summary email failed: {e}")
+
+    return {"month": month, "count": len(results),
+            "total_commission_gbp": total,
+            "flagged_count": len(flagged), "results": results}
+
+
+@api_router.post("/admin/commissions/run-monthly-drafts")
+async def admin_run_monthly_drafts(data: RunDraftsPayload, _: dict = Depends(_check_admin_user)):
+    """Generate DRAFT invoices for the given month (defaults to previous calendar
+    month). Drafts sit in Stripe + our `commission_drafts` collection for review."""
+    month = data.month or await _resolve_prev_month()
+    return await _create_monthly_drafts(month, source="manual")
+
+
+@api_router.get("/admin/commissions/drafts")
+async def admin_list_drafts(_: dict = Depends(_check_admin_user), month: str = ""):
+    """Lists current draft invoices. If `month` is empty, defaults to current month."""
+    if not month:
+        month = datetime.now(timezone.utc).isoformat()[:7]
+    cursor = db.commission_drafts.find({"month": month, "status": "draft"}, {"_id": 0}).sort("created_at", -1)
+    drafts = [d async for d in cursor]
+    return {"month": month, "drafts": drafts,
+            "total_gbp": round(sum(d.get("total_gbp", 0) for d in drafts), 2),
+            "flagged_count": sum(1 for d in drafts if d.get("requires_review"))}
+
+
+async def _approve_draft_inner(stripe_invoice_id: str) -> dict:
+    draft = await db.commission_drafts.find_one({"stripe_invoice_id": stripe_invoice_id})
+    if not draft or draft.get("status") != "draft":
+        raise HTTPException(404, "Draft not found or already processed")
+    try:
+        inv = stripe.Invoice.finalize_invoice(stripe_invoice_id)
+    except Exception as e:
+        raise HTTPException(500, f"Stripe finalise failed: {e}")
+    try:
+        stripe.Invoice.send_invoice(stripe_invoice_id)
+    except Exception as e:
+        logger.warning(f"Send failed (non-fatal): {e}")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.firm_engagements.update_many(
+        {"id": {"$in": draft.get("engagement_ids") or []}},
+        {"$set": {"paid_status": "invoiced", "invoiced_at": now_iso}},
+    )
+    await db.commission_drafts.update_one(
+        {"stripe_invoice_id": stripe_invoice_id},
+        {"$set": {"status": "sent", "sent_at": now_iso}},
+    )
+    try:
+        from email_helper import send_email
+        await send_email(
+            to=draft["firm_email"], kind="firm",
+            subject=f"Your AI Advocate commission invoice for {draft['month']} is ready",
+            body_html=f"""<p>Hi {draft.get('contact_name','team')},</p>
+                <p>Your monthly AI Advocate referral-commission invoice for <strong>{draft['month']}</strong> is now available in Stripe.</p>
+                <ul>
+                  <li>{draft.get('engagements_count')} engagement{'s' if draft.get('engagements_count',0)!=1 else ''}</li>
+                  <li>Total commission: <strong>£{draft.get('total_gbp',0):.2f}</strong></li>
+                </ul>
+                <p>You'll receive a separate email from Stripe with the secure payment link.</p>
+                <p>Samuel Malick<br/>Founder, AI Advocate Ltd.</p>""",
+        )
+    except Exception:
+        pass
+    return {"ok": True, "stripe_invoice_id": stripe_invoice_id,
+            "hosted_invoice_url": getattr(inv, "hosted_invoice_url", None)}
+
+
+@api_router.post("/admin/commissions/drafts/{stripe_invoice_id}/approve")
+async def admin_approve_draft(stripe_invoice_id: str, _: dict = Depends(_check_admin_user)):
+    """Finalise + send a single draft Stripe invoice."""
+    return await _approve_draft_inner(stripe_invoice_id)
+
+
+@api_router.post("/admin/commissions/drafts/{stripe_invoice_id}/void")
+async def admin_void_draft(stripe_invoice_id: str, _: dict = Depends(_check_admin_user)):
+    """Void a draft Stripe invoice — reverts engagements to `unpaid`."""
+    draft = await db.commission_drafts.find_one({"stripe_invoice_id": stripe_invoice_id})
+    if not draft or draft.get("status") != "draft":
+        raise HTTPException(404, "Draft not found or already processed")
+    try:
+        stripe.Invoice.void_invoice(stripe_invoice_id)
+    except Exception:
+        try:
+            stripe.Invoice.delete(stripe_invoice_id)
+        except Exception as e:
+            logger.warning(f"Stripe void+delete both failed: {e}")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.firm_engagements.update_many(
+        {"id": {"$in": draft.get("engagement_ids") or []}},
+        {"$set": {"paid_status": "unpaid", "stripe_invoice_id": None}, "$unset": {"drafted_at": ""}},
+    )
+    await db.commission_drafts.update_one(
+        {"stripe_invoice_id": stripe_invoice_id},
+        {"$set": {"status": "voided", "voided_at": now_iso}},
+    )
+    return {"ok": True, "stripe_invoice_id": stripe_invoice_id, "status": "voided"}
+
+
+@api_router.post("/admin/commissions/drafts/approve-all")
+async def admin_approve_all_drafts(_: dict = Depends(_check_admin_user), include_flagged: bool = False):
+    """Approve+send every draft for the current month. By default skips drafts
+    with anomaly flags; pass `?include_flagged=true` to also include those."""
+    month = datetime.now(timezone.utc).isoformat()[:7]
+    q = {"month": month, "status": "draft"}
+    if not include_flagged:
+        q["requires_review"] = {"$ne": True}
+    cursor = db.commission_drafts.find(q, {"_id": 0})
+    drafts = [d async for d in cursor]
+    sent, errors = 0, []
+    for d in drafts:
+        try:
+            await _approve_draft_inner(d["stripe_invoice_id"])
+            sent += 1
+        except Exception as e:
+            errors.append({"stripe_invoice_id": d["stripe_invoice_id"], "error": str(e)})
+    return {"sent": sent, "errors": errors, "month": month}
+
+
+async def _send_headsup_emails(month: str, source: str = "cron") -> dict:
+    """Send 7-day-ahead heads-up email to every firm with unpaid commission."""
+    firm_ids = await db.firm_engagements.distinct(
+        "firm_id", {"billing_month": month, "paid_status": "unpaid"}
+    )
+    sent, errors = 0, []
+    from email_helper import send_email
+    for fid in firm_ids:
+        firm = await db.firm_accounts.find_one({"id": fid}, {"_id": 0})
+        if not firm:
+            continue
+        try:
+            created = datetime.fromisoformat((firm.get("created_at") or "").replace("Z", "+00:00"))
+            if (datetime.now(timezone.utc) - created).days < 30:
+                continue
+        except Exception:
+            pass
+        pipeline = [
+            {"$match": {"firm_id": fid, "billing_month": month, "paid_status": "unpaid"}},
+            {"$group": {"_id": None, "total": {"$sum": "$commission_owed_gbp"}, "count": {"$sum": 1}}},
+        ]
+        total, count = 0.0, 0
+        async for row in db.firm_engagements.aggregate(pipeline):
+            total = row["total"]; count = row["count"]
+        if count == 0:
+            continue
+        try:
+            await send_email(
+                to=firm["email"], kind="firm",
+                subject=f"Heads up — your AI Advocate commission for {month}",
+                body_html=f"""<p>Hi {firm.get('contact_name','team')},</p>
+                    <p>Quick heads-up that your monthly AI Advocate referral-commission invoice for <strong>{month}</strong> will be issued in the next 7 days.</p>
+                    <ul>
+                      <li>Closed referrals: <strong>{count}</strong></li>
+                      <li>Estimated commission: <strong>£{total:.2f}</strong> (30% of fees, per your Founding Firm Agreement)</li>
+                    </ul>
+                    <p>If anything looks wrong, reply to this email before invoicing and we'll fix it. Otherwise no action needed — Stripe will send the invoice with payment link automatically.</p>
+                    <p>Samuel Malick<br/>Founder, AI Advocate Ltd.</p>""",
+            )
+            sent += 1
+        except Exception as e:
+            errors.append({"firm_id": fid, "error": str(e)})
+    return {"sent": sent, "errors": errors, "month": month, "source": source}
+
+
+@api_router.post("/admin/commissions/send-headsup")
+async def admin_send_headsup(_: dict = Depends(_check_admin_user), month: str = ""):
+    """Manually trigger 7-day heads-up emails. Cron auto-fires this on the 22nd."""
+    if not month:
+        month = await _resolve_prev_month()
+    return await _send_headsup_emails(month, source="manual")
+
+
+@api_router.get("/admin/commissions/schedule")
+async def admin_billing_schedule(_: dict = Depends(_check_admin_user)):
+    """Returns the next scheduled cron-run timestamps (UTC)."""
+    now = datetime.now(timezone.utc)
+    def next_day(d: int) -> datetime:
+        t = now.replace(day=1, hour=9, minute=0, second=0, microsecond=0)
+        # bump to current month's day d
+        try:
+            t = t.replace(day=d)
+        except ValueError:
+            pass
+        if t <= now:
+            # advance to next month's day d
+            yr, mo = t.year, t.month + 1
+            if mo > 12: yr += 1; mo = 1
+            t = t.replace(year=yr, month=mo, day=d)
+        return t
+    return {
+        "next_headsup_at": next_day(22).isoformat(),
+        "next_drafts_at": next_day(1).isoformat(),
+        "next_autosend_at": next_day(3).isoformat(),
+        "tz": "UTC",
+    }
+
 
 
 @api_router.get("/firm/me")
@@ -9852,6 +10211,83 @@ async def startup():
                 logger.warning(f"Periodic recycle-bin sweep failed: {e}")
     _aio.create_task(_periodic_sweep())
 
+    # === Hybrid auto-billing scheduler ===
+    # 22nd 09:00 UTC → heads-up email to firms
+    # 1st  09:00 UTC → generate DRAFT invoices + admin summary
+    # 3rd  09:00 UTC → auto-send any still-draft non-flagged invoices
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        sched = AsyncIOScheduler(timezone="UTC")
+
+        async def _job_headsup():
+            try:
+                month = await _resolve_prev_month()
+                # heads-up is for the month we'll be invoicing — so for run on
+                # March 22, we're warning about March engagements (current month).
+                # Use current month here.
+                month = datetime.now(timezone.utc).isoformat()[:7]
+                r = await _send_headsup_emails(month, source="cron")
+                logger.info(f"[cron] heads-up sent: {r}")
+            except Exception as e:
+                logger.exception(f"[cron] heads-up failed: {e}")
+
+        async def _job_create_drafts():
+            try:
+                month = await _resolve_prev_month()
+                r = await _create_monthly_drafts(month, source="cron")
+                logger.info(f"[cron] drafts created for {month}: count={r.get('count')} total=£{r.get('total_commission_gbp')}")
+            except Exception as e:
+                logger.exception(f"[cron] draft creation failed: {e}")
+
+        async def _job_autosend():
+            try:
+                # Auto-send any drafts still in draft state for previous month
+                # (the one we drafted on the 1st), but ONLY non-flagged ones.
+                prev = await _resolve_prev_month()
+                cursor = db.commission_drafts.find({"month": prev, "status": "draft",
+                                                    "requires_review": {"$ne": True}}, {"_id": 0})
+                drafts = [d async for d in cursor]
+                sent = 0
+                for d in drafts:
+                    try:
+                        await _approve_draft_inner(d["stripe_invoice_id"])
+                        sent += 1
+                    except Exception as e:
+                        logger.warning(f"[cron] autosend failed for {d.get('stripe_invoice_id')}: {e}")
+                logger.info(f"[cron] auto-sent {sent} drafts for {prev}")
+                # Email admin a summary of what still needs manual review
+                still_held = await db.commission_drafts.count_documents(
+                    {"month": prev, "status": "draft", "requires_review": True}
+                )
+                if still_held > 0:
+                    try:
+                        admin_emails = [e.strip() for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",") if e.strip()]
+                        from email_helper import send_email
+                        for ae in admin_emails:
+                            await send_email(to=ae, kind="firm",
+                                subject=f"⚠️ {still_held} commission draft(s) need your review",
+                                body_html=f"<p>{still_held} draft invoice(s) for {prev} are flagged as anomalies and were NOT auto-sent. Review them in admin → 💷 Firm referral commissions.</p>")
+                    except Exception as e:
+                        logger.warning(f"Admin held-drafts email failed: {e}")
+            except Exception as e:
+                logger.exception(f"[cron] autosend job failed: {e}")
+
+        sched.add_job(_job_headsup,       CronTrigger(day=22, hour=9, minute=0), id="aa_headsup",  replace_existing=True)
+        sched.add_job(_job_create_drafts, CronTrigger(day=1,  hour=9, minute=0), id="aa_drafts",   replace_existing=True)
+        sched.add_job(_job_autosend,      CronTrigger(day=3,  hour=9, minute=0), id="aa_autosend", replace_existing=True)
+        sched.start()
+        app.state.aa_scheduler = sched
+        logger.info("✅ Auto-billing scheduler started — next run: %s",
+                    next((j.next_run_time for j in sched.get_jobs()), "n/a"))
+    except Exception as e:
+        logger.exception(f"Scheduler failed to start (non-fatal): {e}")
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    try:
+        sched = getattr(app.state, "aa_scheduler", None)
+        if sched: sched.shutdown(wait=False)
+    except Exception:
+        pass
     client.close()
