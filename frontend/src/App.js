@@ -5247,74 +5247,8 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
   const [showManage, setShowManage] = useState(false);
 
   const toggleLocation = async () => {
-    if (!locOn) {
-      // Turn ON — request geolocation directly. We deliberately do NOT use the
-      // Permissions API as a pre-flight check: Brave/Firefox can return "denied"
-      // for privacy-fingerprinting reasons even when the OS permission is
-      // actually granted, which would block users incorrectly. Instead, we
-      // attempt getCurrentPosition immediately — the browser triggers its own
-      // OS prompt if needed, and only surfaces a real PERMISSION_DENIED if the
-      // user has truly blocked it.
-      if (!navigator.geolocation) { aaToast(t(lang, "geolocationNotSupported"), "error"); return; }
-
-      // Detect platform. On iOS, browser UA detection is unreliable: every
-      // browser uses WebKit and Brave/Chrome iOS all report a Safari-like UA
-      // with `navigator.brave` NOT exposed. So we give a generic, browser-app
-      // agnostic message that covers Safari, Brave, Chrome, Firefox iOS.
-      const ua = (navigator.userAgent || "").toLowerCase();
-      const isIOS = /iphone|ipad|ipod/.test(ua);
-      const isAndroid = /android/.test(ua);
-
-      // For desktop / Android where UA is reliable, we can name the browser.
-      let browserName = "your browser app";
-      if (!isIOS) {
-        if (/crios|chrome\//.test(ua) && !/edg|opr|brave/.test(ua)) browserName = "Chrome";
-        else if (/firefox|fxios/.test(ua)) browserName = "Firefox";
-        else if (/edg\//.test(ua)) browserName = "Edge";
-        else if (/opr|opera/.test(ua)) browserName = "Opera";
-        else if (/brave/.test(ua) || (typeof navigator !== "undefined" && navigator.brave && typeof navigator.brave.isBrave === "function")) browserName = "Brave";
-        else if (/safari/.test(ua)) browserName = "Safari";
-      }
-
-      const settingsHint = isIOS
-        ? "On iPhone: open Settings → scroll to find your browser (e.g. Brave or Safari) → Location → While Using the App. Also check Settings → Privacy & Security → Location Services is ON. Then refresh this page and try again."
-        : isAndroid
-          ? `On Android: Settings → Apps → ${browserName} → Permissions → Location → Allow. Then refresh and try again.`
-          : `Click the lock icon in the address bar → Permissions → Location → Allow. Then refresh and try again.`;
-
-      setBusy(true);
-      const onSuccess = async (pos) => {
-        try {
-          const { data } = await api.patch("/auth/preferences", {
-            location_enabled: true,
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude,
-          });
-          onUpdate(data); setLocOn(true);
-          aaToast("Location enabled", "success");
-        } catch (e) { aaToast(t(lang, "failedToSave"), "error"); }
-        finally { setBusy(false); }
-      };
-      const onError = (err) => {
-        setBusy(false);
-        if (err && err.code === 1) {
-          // PERMISSION_DENIED — the OS has actually blocked it (or the user
-          // tapped Don't Allow on the prompt, or — on Brave iOS — Shields is
-          // blocking the geolocation API at the privacy layer).
-          aaToast(`Location is blocked. ${settingsHint}`, "error");
-        } else if (err && err.code === 3) {
-          // TIMEOUT — high-accuracy can time out on iOS WebKit; retry low-accuracy.
-          setBusy(true);
-          navigator.geolocation.getCurrentPosition(onSuccess,
-            () => { setBusy(false); aaToast("Could not get your location. Try again or check your signal.", "error"); },
-            { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 });
-        } else {
-          aaToast("Could not get your location. Try again.", "error");
-        }
-      };
-      navigator.geolocation.getCurrentPosition(onSuccess, onError,
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
-    } else {
+    if (locOn) {
+      // Turn OFF — simple
       setBusy(true);
       try {
         const { data } = await api.patch("/auth/preferences", { location_enabled: false });
@@ -5322,7 +5256,85 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
         aaToast("Location disabled", "info");
       } catch (e) { aaToast(t(lang, "failed"), "error"); }
       finally { setBusy(false); }
+      return;
     }
+
+    // Turn ON — robust multi-step flow:
+    //   1. Always check IP-geo for current country (works in every browser,
+    //      no permission needed, bypasses Brave Shields entirely)
+    //   2. If detected country ≠ profile, prompt user to switch jurisdiction
+    //      (this is the user's main expectation — "the app should know I'm in France")
+    //   3. Try GPS in the background for the "Find lawyers near you" feature
+    //   4. Enable location_enabled EVEN IF GPS is denied/timed out — that way
+    //      the toggle reflects user intent and the jurisdiction switch sticks
+    //
+    // This fixes BOTH known issues:
+    //   • Brave on iOS denies geolocation API even when iOS permission is on →
+    //     toggle wouldn't enable. Now: enables anyway, uses IP-geo for country.
+    //   • Safari toggle works but country didn't update → now it does.
+
+    setBusy(true);
+
+    // Step 1: IP-geo country detection (always works)
+    let detectedCountry = null;
+    try {
+      const r = await api.get("/profile/auto-jurisdiction");
+      detectedCountry = r.data?.suggestion?.detected_country || r.data?.detected_country || null;
+    } catch (e) { /* no-op — IP geo is best-effort */ }
+
+    // Step 2: Try GPS (best-effort, with high→low accuracy fallback)
+    const coords = await new Promise((resolve) => {
+      if (!navigator.geolocation) { resolve(null); return; }
+      let settled = false;
+      const finish = (val) => { if (!settled) { settled = true; resolve(val); } };
+      navigator.geolocation.getCurrentPosition(
+        (pos) => finish({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        () => {
+          // Retry low-accuracy
+          navigator.geolocation.getCurrentPosition(
+            (pos) => finish({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+            () => finish(null),
+            { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 }
+          );
+        },
+        { enableHighAccuracy: true, timeout: 6000, maximumAge: 60000 }
+      );
+    });
+
+    // Step 3: If detected country differs, offer to switch jurisdiction
+    if (detectedCountry && detectedCountry !== country) {
+      const detectedName = COUNTRIES.find(c => c.code === detectedCountry)?.name || detectedCountry;
+      const currentName = COUNTRIES.find(c => c.code === country)?.name || country;
+      const ok = await aaConfirm({
+        title: `Looks like you're in ${detectedName}`,
+        message: `Switch Lex to apply ${detectedName} law instead of ${currentName}? You can change this any time in Settings → Country.`,
+        confirmLabel: `Switch to ${detectedName}`,
+        cancelLabel: `Keep ${currentName}`,
+      });
+      if (ok) {
+        try {
+          await api.post("/profile/jurisdiction/accept", { country: detectedCountry });
+          setCountry(detectedCountry);
+          aaToast(`Switched to ${detectedName} law`, "success");
+        } catch (e) { /* no-op */ }
+      }
+    }
+
+    // Step 4: Save location_enabled (with coords if we got them, without if not)
+    try {
+      const payload = { location_enabled: true };
+      if (coords) { payload.latitude = coords.latitude; payload.longitude = coords.longitude; }
+      const { data } = await api.patch("/auth/preferences", payload);
+      onUpdate(data); setLocOn(true);
+      if (coords) {
+        aaToast("Location enabled", "success");
+      } else if (detectedCountry) {
+        aaToast("Location enabled (using approximate location — precise GPS unavailable in this browser)", "info");
+      } else {
+        aaToast("Location enabled, but we couldn't detect your country. Tap your Country in Settings to set it manually.", "info");
+      }
+    } catch (e) { aaToast(t(lang, "failedToSave"), "error"); }
+    finally { setBusy(false); }
   };
 
   const setCountryAndSave = async (c) => {
