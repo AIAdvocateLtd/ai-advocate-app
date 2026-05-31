@@ -8192,29 +8192,71 @@ async def sign_firm_agreement(token: str, data: FirmAgreementSignPayload, reques
     # Regenerate signed PDF + email both parties
     try:
         pdf_path = _generate_signed_pdf(fresh)
+        # 🔑 Generate a portal-login link for the firm.
+        #   • If firm has a portal account → reset-password link so they can log in instantly
+        #   • If firm doesn't have an account yet → /firm-portal sign-up link (their
+        #     pending lifetime-Premium grant will auto-apply on signup)
+        portal_url = "https://aiadvocate.co.uk/firm-portal"
+        portal_cta_label = "Open your firm portal →"
+        portal_cta_link = portal_url
+        portal_explainer = "Sign up using this email — your lifetime Founding Firm Premium will auto-apply."
+        try:
+            contact_email = (fresh.get("contact_email") or "").lower()
+            if contact_email:
+                existing = await db.firm_accounts.find_one({"email": contact_email}, {"_id": 0, "id": 1, "email": 1})
+                if existing:
+                    tok = await _create_reset_token(account_kind="firm", account_id=existing["id"], email=existing["email"])
+                    portal_cta_link = f"https://aiadvocate.co.uk/reset.html?token={tok}&kind=firm"
+                    portal_cta_label = "Set your password & log in →"
+                    portal_explainer = "We've upgraded your firm to lifetime Premium. Set a password to log in."
+        except Exception as e:
+            print(f"[firm-agreement] portal link gen failed: {e}")
+
         try:
             from email_helper import send_email
             # Read PDF as base64 for the email attachment
             import base64 as _b64
             with open(pdf_path, "rb") as fh:
                 pdf_b64 = _b64.b64encode(fh.read()).decode("utf-8")
-            for recipient, who in [
-                (fresh["contact_email"], "Firm"),
-                ("firms@aiadvocate.co.uk", "AI Advocate"),
+
+            firm_email_html = f"""<p>The Founding Firm Agreement between AI Advocate Ltd. and <strong>{fresh['firm_name']}</strong> has been signed by both parties. Welcome to the cohort. 🎉</p>
+            <ul>
+              <li>Signed by AI Advocate: {fresh.get('aa_signer_name')}</li>
+              <li>Signed by Firm: {fresh.get('firm_signer_name')}</li>
+              <li>Signed on: {now[:10]}</li>
+            </ul>
+            <p><strong>Next step — set up your firm portal:</strong></p>
+            <p>{portal_explainer}</p>
+            <p style="margin:24px 0;"><a href="{portal_cta_link}" style="background:#f7c948;color:#1a1300;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:700;">{portal_cta_label}</a></p>
+            <p style="color:#666; font-size:13px;">Inside the portal you can:</p>
+            <ul style="color:#444; font-size:13px;">
+              <li>Upload your firm logo and brand colours</li>
+              <li>Set your specialisms and opening hours</li>
+              <li>Add your fee-earners (multi-seat access)</li>
+              <li>Receive client invites from AI Advocate users</li>
+              <li>See your Founding Firm badge on your directory listing</li>
+            </ul>
+            <p style="color:#666; font-size:12px;">A signed PDF copy of the agreement is attached for your records.</p>"""
+
+            aa_email_html = f"""<p>The Founding Firm Agreement between AI Advocate Ltd. and <strong>{fresh['firm_name']}</strong> has been signed by both parties.</p>
+            <ul>
+              <li>Signed by AI Advocate: {fresh.get('aa_signer_name')}</li>
+              <li>Signed by Firm: {fresh.get('firm_signer_name')} ({fresh.get('contact_email')})</li>
+              <li>Signed on: {now[:10]}</li>
+              <li>Auto-promoted to: Lifetime Premium tier</li>
+            </ul>
+            <p>A signed PDF copy is attached.</p>"""
+
+            for recipient, html_body, who in [
+                (fresh["contact_email"], firm_email_html, "Firm"),
+                ("firms@aiadvocate.co.uk", aa_email_html, "AI Advocate"),
             ]:
                 try:
                     await send_email(
                         to=recipient,
                         kind="firm",
                         subject=f"✅ Signed — Founding Firm Agreement: {fresh['firm_name']}",
-                        body_html=f"""<p>The Founding Firm Agreement between AI Advocate Ltd. and <strong>{fresh['firm_name']}</strong> has been signed by both parties.</p>
-                        <ul>
-                          <li>Signed by AI Advocate: {fresh.get('aa_signer_name')}</li>
-                          <li>Signed by Firm: {fresh.get('firm_signer_name')}</li>
-                          <li>Signed on: {now[:10]}</li>
-                        </ul>
-                        <p>A signed PDF copy is attached.</p>
-                        <p>Welcome to the Founding Firm cohort.</p>""",
+                        body_html=html_body,
                         attachments=[{
                             "filename": f"AI_Advocate_Founding_Firm_Agreement_{fresh['firm_name'].replace(' ', '_')[:40]}_SIGNED.pdf",
                             "content": pdf_b64,
