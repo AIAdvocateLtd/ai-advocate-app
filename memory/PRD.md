@@ -10,6 +10,11 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 34 — Per-thread jurisdiction pill in Lex chat)
+- ⚖️ **Inline jurisdiction pill** above the Lex chat input. Shows "Using **United Kingdom** law" by default, with a `ChevronDown` to expand a country picker (all 15 supported countries, with flags). Selecting a country sets `threadCountry` state which overrides the `country` field sent in `/lex/chat` + `/lex/chat/stream` requests — backend already reads `data.country` from the body, so the override is honored without backend changes. Verified via curl: same prompt with `country=FR` → French Labour Code; `country=GB` → Employment Rights Act 1996. The override is scoped to the current `LexChat` mount (resets to profile country when reopened). System prompt continues to handle natural-language overrides ("actually, this is about UK law") for free-form questions.
+
+
+
 ### 2026-02 (Iter 33 — Travel-aware jurisdiction banner)
 - ✈️ **Friendly travel banner** for users abroad. Wired up the existing `/profile/auto-jurisdiction` flow now that the IP-geo fallback (Iter 32) actually works in production. When detected country ≠ profile country AND user hasn't pinned, a sticky banner appears at the top of the Dashboard with: country flag, full country names (mapped from `COUNTRIES`), reassuring note "*You can always ask Lex about UK law — just say so in your question*", and two CTAs: **Switch to France** / **Keep United Kingdom**. Decline persists server-side via `country_manually_set=true` so we never pester. Lex's system prompt already handles per-question jurisdiction overrides ("If they mention another country, switch and tell them you've done so" — `lex_system_prompt`).
 

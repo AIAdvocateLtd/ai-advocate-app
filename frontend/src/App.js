@@ -5,7 +5,7 @@ import {
   MessageCircle, Mic, Folder, FileText, Gavel, Globe, Briefcase, Home as HomeIcon,
   Stethoscope, Scale, X, Send, Upload, Languages, LogOut, Check, ArrowLeft, Square, Play,
   Camera, MapPin, Phone, ExternalLink, Settings as SettingsIcon, Star, Building2, Image as ImageIcon,
-  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint, Sparkles, Volume2
+  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint, Sparkles, Volume2, ChevronDown
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
 import { setAppIconBadge } from "@/appBadge";
@@ -1406,6 +1406,12 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
   const [deepThink, setDeepThink] = useState(false);
   const [dtUsed, setDtUsed] = useState(null); // {used, limit}
   const [smartCat, setSmartCat] = useState(null);  // suggested category banner
+  // 🌍 Per-thread jurisdiction override — see JurisdictionPill below the chat.
+  // Lets the user ask "actually, what about UK law?" without leaving their profile
+  // permanently. Initialized from the profile country and resets per LexChat mount.
+  const [threadCountry, setThreadCountry] = useState(country);
+  const [jurisdictionPickerOpen, setJurisdictionPickerOpen] = useState(false);
+  useEffect(() => { setThreadCountry(country); }, [country]);
   const { recording, start, stop } = useRecorder();
   const audioRef = useRef(null);
   const scrollRef = useRef(null);
@@ -1530,7 +1536,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         headers: { "Content-Type": "application/json", "Accept": "text/event-stream",
                    ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
-          message: text, session_id: sessionId, language: lang, country, category,
+          message: text, session_id: sessionId, language: lang, country: threadCountry, category,
           deep_think: deepThink && isPro, auto_detect: autoDetect,
           case_id: caseId || undefined,
         }),
@@ -1671,7 +1677,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
       console.warn("Streaming chat failed, falling back to buffered:", streamErr);
       try {
         const { data } = await api.post("/lex/chat", {
-          message: text, session_id: sessionId, language: lang, country, category,
+          message: text, session_id: sessionId, language: lang, country: threadCountry, category,
           deep_think: deepThink && isPro, auto_detect: autoDetect,
           case_id: caseId || undefined,
         });
@@ -2028,7 +2034,78 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
           )}
         </div>
 
-        <div className="flex items-center gap-2" style={{ padding: "12px 12px 56px", borderTop: "1px solid var(--line)" }}>
+        <div className="flex items-center gap-2" style={{ padding: "12px 12px 56px", borderTop: "1px solid var(--line)", position: "relative" }}>
+          {/* 🌍 Per-thread jurisdiction pill — subtle reminder of which country's
+              law Lex is currently using for this conversation. Tap to override
+              for just this chat (does not change the user's profile country).
+              Per-question overrides also work via natural language — Lex's
+              system prompt handles "actually, I'm asking about UK law" automatically. */}
+          <div data-testid="jurisdiction-pill-wrap"
+               style={{ position: "absolute", top: -28, left: 12, display: "flex", alignItems: "center" }}>
+            <button data-testid="jurisdiction-pill"
+                    onClick={() => setJurisdictionPickerOpen(o => !o)}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      background: "rgba(247,201,72,0.08)",
+                      border: "1px solid var(--gold-deep)",
+                      color: "var(--gold-soft)",
+                      padding: "3px 9px", borderRadius: 999,
+                      fontSize: 10.5, fontWeight: 600, letterSpacing: "0.02em",
+                      cursor: "pointer", whiteSpace: "nowrap",
+                    }}
+                    title="Tap to change jurisdiction for this chat only">
+              <Scale size={11} style={{ opacity: 0.9 }} />
+              Using <strong style={{ color: "var(--gold)" }}>{(COUNTRIES.find(c => c.code === threadCountry)?.name) || threadCountry}</strong> law
+              <ChevronDown size={11} style={{ marginLeft: 1, opacity: 0.7,
+                transform: jurisdictionPickerOpen ? "rotate(180deg)" : "rotate(0)",
+                transition: "transform 120ms" }} />
+            </button>
+            {jurisdictionPickerOpen && (
+              <div data-testid="jurisdiction-pill-menu"
+                   style={{
+                     position: "absolute", top: "100%", left: 0, marginTop: 6,
+                     background: "var(--bg-card)",
+                     border: "1px solid var(--gold-deep)",
+                     borderRadius: 10, padding: 6,
+                     boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+                     zIndex: 50, minWidth: 200, maxHeight: 280, overflowY: "auto",
+                   }}>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", padding: "4px 8px 6px",
+                              letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 700 }}>
+                  Apply law of…
+                </div>
+                {COUNTRIES.map(c => (
+                  <button key={c.code}
+                          data-testid={`jurisdiction-pick-${c.code}`}
+                          onClick={() => {
+                            setThreadCountry(c.code);
+                            setJurisdictionPickerOpen(false);
+                            if (c.code !== country) {
+                              aaToast(`Lex will use ${c.name} law for this chat only`, "info");
+                            } else {
+                              aaToast(`Back to ${c.name} law (your profile default)`, "info");
+                            }
+                          }}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 8, width: "100%",
+                            padding: "7px 10px", borderRadius: 8, cursor: "pointer",
+                            background: c.code === threadCountry ? "rgba(247,201,72,0.18)" : "transparent",
+                            border: "none", color: "var(--text)", fontSize: 12.5, textAlign: "left",
+                            fontWeight: c.code === threadCountry ? 700 : 500,
+                          }}>
+                    <Flag cc={c.code.toLowerCase()} size={14} alt={c.name} />
+                    <span style={{ flex: 1 }}>{c.name}</span>
+                    {c.code === threadCountry && <Check size={13} style={{ color: "var(--gold)" }} />}
+                  </button>
+                ))}
+                <div style={{ borderTop: "1px solid var(--line)", marginTop: 4, padding: "8px 10px 4px",
+                              fontSize: 10.5, color: "var(--text-muted)", lineHeight: 1.4 }}>
+                  💡 Tip: you can also just type<br/>
+                  "<em>actually, this is about UK law</em>" and Lex will switch automatically.
+                </div>
+              </div>
+            )}
+          </div>
           <button onClick={onMic} data-testid="mic-btn"
                   style={{ background: "#000", border: `2px solid ${recording ? "var(--danger)" : "var(--gold)"}`,
                            borderRadius: "50%", width: 48, height: 48, cursor: "pointer", padding: 0, overflow: "hidden",
