@@ -5506,6 +5506,10 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
         {user?.is_owner && <AdminSolicitorBriefCard lang={lang} />}
         {/* 🏛 OWNER ONLY — comp tier access for law firms (founding-firm cohort) */}
         {user?.is_owner && <CompFirmAdminCard lang={lang} />}
+        {/* 💷 OWNER ONLY — commission ledger + Stripe auto-invoicing for firms */}
+        {user?.is_owner && <AdminCommissionsCard />}
+        {/* ✍️ OWNER ONLY — default founder signature for auto-fire Founding Firm Agreements */}
+        {user?.is_owner && <AdminFounderSignatureCard />}
 
         {/* Auto-detect language toggle */}
         <div data-testid="settings-autodetect" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
@@ -6805,6 +6809,10 @@ function AdminSolicitorBriefCard({ lang }) {
     }
     setSendingAgr(true);
     try {
+      // 🌟 Persist this signature as the default so auto-Founding-Firm-Agreements
+      // can be triggered on every new firm signup without the admin having to draw
+      // it again. Backend stores in app_settings.founder_signature.
+      try { await api.post("/admin/founder-signature", { data_url: aaSignature }); } catch (e) { /* non-fatal */ }
       const { data } = await api.post("/admin/firm-agreements/send", {
         firm_name: agrFirm, sra: agrSra, address: agrAddress,
         contact_name: agrContact, contact_email: agrEmail,
@@ -7075,6 +7083,262 @@ function AdminSolicitorBriefCard({ lang }) {
   );
 }
 
+
+
+
+
+// =============================== ADMIN — FOUNDER SIGNATURE ===============================
+// Persists the founder's signature in app_settings so auto-Founding-Firm-Agreements
+// fire on every new firm signup (first 20 only).
+function AdminFounderSignatureCard() {
+  const [state, setState] = useState({ is_set: false, saved_at: null, data_url: "" });
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const canvasRef = useRef(null);
+  const drawingRef = useRef(false);
+  const lastRef = useRef({ x: 0, y: 0 });
+  const [hasInk, setHasInk] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get("/admin/founder-signature");
+      setState(data);
+    } catch (e) { /* no-op */ }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    const cv = canvasRef.current; if (!cv) return;
+    const ctx = cv.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = 460 * dpr; cv.height = 110 * dpr;
+    cv.style.width = "460px"; cv.style.height = "110px";
+    ctx.scale(dpr, dpr);
+    ctx.strokeStyle = "#1a1a1a"; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  }, []);
+
+  const pos = (e) => { const cv = canvasRef.current; const r = cv.getBoundingClientRect(); const t = e.touches ? e.touches[0] : e; return { x: t.clientX - r.left, y: t.clientY - r.top }; };
+  const start = (e) => { e.preventDefault(); drawingRef.current = true; lastRef.current = pos(e); };
+  const move = (e) => {
+    if (!drawingRef.current) return;
+    e.preventDefault();
+    const p = pos(e); const ctx = canvasRef.current.getContext("2d");
+    ctx.beginPath(); ctx.moveTo(lastRef.current.x, lastRef.current.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+    lastRef.current = p;
+    setHasInk(true);
+  };
+  const end = () => { drawingRef.current = false; };
+  const clear = () => { const cv = canvasRef.current; if (!cv) return; cv.getContext("2d").clearRect(0,0,cv.width,cv.height); setHasInk(false); };
+
+  const save = async () => {
+    if (!hasInk) { aaToast("Please draw your signature first", "error"); return; }
+    setBusy(true);
+    try {
+      const dataUrl = canvasRef.current.toDataURL("image/png");
+      await api.post("/admin/founder-signature", { data_url: dataUrl });
+      aaToast("Default signature saved. Auto-Founding-Firm-Agreements are now live.", "success");
+      await load();
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Save failed", "error");
+    } finally { setBusy(false); }
+  };
+
+  const clearSaved = async () => {
+    if (!aaConfirm("Clear your saved default signature? New firm signups will no longer auto-receive the Founding Firm Agreement.")) return;
+    setBusy(true);
+    try {
+      await api.delete("/admin/founder-signature");
+      aaToast("Default signature cleared. Auto-fire disabled.", "info");
+      await load();
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Clear failed", "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div data-testid="admin-founder-signature-card" style={{
+      background: "var(--bg-card)", border: "1px solid var(--gold-deep)",
+      borderRadius: 14, padding: 16, marginBottom: 12,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+        <span style={{ fontFamily: "'Cinzel', serif", color: "var(--gold)", fontSize: 14, letterSpacing: "0.04em" }}>
+          ✍️ Default founder signature
+        </span>
+        {state.is_set && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6, background: "rgba(34,197,94,0.15)", color: "#86efac", letterSpacing: "0.04em" }}>AUTO-FIRE ON</span>}
+      </div>
+      <p style={{ fontSize: 12, color: "var(--text-dim)", margin: "0 0 12px", lineHeight: 1.5 }}>
+        Save your signature once. Every new firm signup (until we hit 20) will automatically receive a personalised Founding Firm Agreement to sign — no manual drawing per firm.
+      </p>
+
+      {loading ? (
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Loading…</div>
+      ) : state.is_set ? (
+        <div style={{ background: "#fff", border: "1px solid var(--line)", borderRadius: 8, padding: 10, marginBottom: 10, textAlign: "center" }}>
+          <img src={state.data_url} alt="Saved signature" style={{ maxHeight: 80, maxWidth: "100%" }} data-testid="founder-sig-preview" />
+          <div style={{ fontSize: 10, color: "#666", marginTop: 6 }}>Saved {state.saved_at ? new Date(state.saved_at).toLocaleString() : ""}</div>
+        </div>
+      ) : null}
+
+      <div style={{ background: "rgba(247,201,72,0.04)", border: "1px dashed var(--gold-deep)", borderRadius: 8, padding: 10, marginBottom: 10 }}>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6, fontWeight: 600 }}>
+          {state.is_set ? "Re-draw to update:" : "Draw with mouse or finger:"}
+        </div>
+        <div style={{ position: "relative", display: "inline-block" }}>
+          <canvas ref={canvasRef}
+            onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
+            onTouchStart={start} onTouchMove={move} onTouchEnd={end}
+            style={{ background: "#fff", border: "1px solid var(--gold-deep)", borderRadius: 6, touchAction: "none", cursor: "crosshair", display: "block", maxWidth: "100%" }}
+            data-testid="admin-default-sig-canvas" />
+          <button type="button" onClick={clear} data-testid="admin-default-sig-clear"
+            style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.04)", color: "#888", border: "1px solid #ddd", borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer" }}>
+            Clear
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: state.is_set ? "1fr 1fr" : "1fr", gap: 8 }}>
+        <button data-testid="admin-save-default-sig" onClick={save} disabled={busy || !hasInk}
+                className="btn-gold" style={{ fontSize: 13 }}>
+          {busy ? <span className="spinner" /> : state.is_set ? "Update default signature" : "Save & enable auto-fire"}
+        </button>
+        {state.is_set && (
+          <button data-testid="admin-clear-default-sig" onClick={clearSaved} disabled={busy}
+                  style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--line)", background: "transparent", color: "var(--text-dim)", fontSize: 13, cursor: "pointer" }}>
+            Clear & disable
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// =============================== ADMIN — COMMISSIONS PANEL ===============================
+// Monthly view of every firm's commission ledger. Lets you issue Stripe invoices
+// per-firm or in bulk for the whole month with one click.
+function AdminCommissionsCard() {
+  const todayMonth = new Date().toISOString().slice(0, 7);
+  const [month, setMonth] = useState(todayMonth);
+  const [summary, setSummary] = useState({ by_firm: [], grand_total_commission_gbp: 0 });
+  const [loading, setLoading] = useState(false);
+  const [busyId, setBusyId] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  const load = async (m = month) => {
+    setLoading(true);
+    try {
+      const { data } = await api.get(`/admin/commissions/summary?month=${encodeURIComponent(m)}`);
+      setSummary(data);
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Load failed", "error");
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  const issueOne = async (firm_id, firm_name) => {
+    if (!aaConfirm(`Issue Stripe invoice to ${firm_name || firm_id} for ${month}? They'll receive a payment-link email automatically.`)) return;
+    setBusyId(firm_id);
+    try {
+      const { data } = await api.post("/admin/commissions/issue-invoice", { firm_id, month });
+      if (data.skipped) {
+        aaToast(`Skipped — ${data.reason}`, "info");
+      } else {
+        aaToast(`Invoice issued: £${data.total_commission_gbp.toFixed(2)} (${data.engagements_count} engagement${data.engagements_count === 1 ? "" : "s"})`, "success");
+      }
+      await load();
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Invoice failed", "error");
+    } finally { setBusyId(""); }
+  };
+
+  const issueAll = async () => {
+    if (!aaConfirm(`Issue Stripe invoices to ALL firms with unpaid commission for ${month}? This is irreversible.`)) return;
+    setBulkBusy(true);
+    try {
+      const { data } = await api.post("/admin/commissions/issue-all", { month });
+      const ok = (data.results || []).filter(r => !r.error && !r.skipped).length;
+      aaToast(`Issued ${ok} invoice${ok === 1 ? "" : "s"} for ${data.month}.`, "success");
+      await load();
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Bulk invoice failed", "error");
+    } finally { setBulkBusy(false); }
+  };
+
+  const grand = summary.grand_total_commission_gbp || 0;
+  const totalUnpaid = (summary.by_firm || []).reduce((s, r) => s + (r.unpaid_commission_gbp || 0), 0);
+
+  return (
+    <div data-testid="admin-commissions-card" style={{
+      background: "var(--bg-card)", border: "1px solid var(--gold-deep)",
+      borderRadius: 14, padding: 16, marginBottom: 12,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontFamily: "'Cinzel', serif", color: "var(--gold)", fontSize: 14, letterSpacing: "0.04em" }}>
+            💷 Firm referral commissions
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input type="month" data-testid="admin-comm-month" value={month}
+            onChange={(e) => { setMonth(e.target.value); load(e.target.value); }}
+            style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--bg-2)", color: "var(--text)", fontSize: 12 }} />
+        </div>
+      </div>
+      <p style={{ fontSize: 12, color: "var(--text-dim)", margin: "0 0 12px", lineHeight: 1.5 }}>
+        30% of every closed AI Advocate referral. Firms log fees in their portal; you issue Stripe invoices monthly here.
+      </p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+        <div style={{ background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: 8, padding: 10 }}>
+          <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{month} commission</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "var(--gold)" }}>£{grand.toFixed(2)}</div>
+        </div>
+        <div style={{ background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: 8, padding: 10 }}>
+          <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Unpaid</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: totalUnpaid > 0 ? "#fca5a5" : "var(--text)" }}>£{totalUnpaid.toFixed(2)}</div>
+        </div>
+      </div>
+
+      <button data-testid="admin-issue-all-commissions" onClick={issueAll} disabled={bulkBusy || totalUnpaid <= 0}
+              className="btn-gold w-full" style={{ fontSize: 13, marginBottom: 12, opacity: totalUnpaid > 0 ? 1 : 0.4 }}>
+        {bulkBusy ? <span className="spinner" /> : `📧 Issue invoices to all firms for ${month}`}
+      </button>
+
+      {loading ? (
+        <div style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center" }}>Loading…</div>
+      ) : (summary.by_firm || []).length === 0 ? (
+        <div style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", padding: 14, border: "1px dashed var(--line)", borderRadius: 8 }}>
+          No commission entries for {month} yet.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {summary.by_firm.map(r => (
+            <div key={r.firm_id} data-testid={`admin-firm-comm-${r.firm_id}`} style={{ background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: 8, padding: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{r.firm_name || r.firm_email}</div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  {r.engagements_count} engagement{r.engagements_count === 1 ? "" : "s"} · Fees £{r.total_fees_gbp.toFixed(2)} · Commission £{r.total_commission_gbp.toFixed(2)}
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: r.unpaid_commission_gbp > 0 ? "#fca5a5" : "#86efac" }}>
+                  £{r.unpaid_commission_gbp.toFixed(2)} unpaid
+                </span>
+                <button data-testid={`admin-issue-${r.firm_id}`} onClick={() => issueOne(r.firm_id, r.firm_name)}
+                        disabled={busyId === r.firm_id || r.unpaid_commission_gbp <= 0}
+                        style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--gold-deep)", background: "transparent", color: "var(--gold)", fontSize: 11, cursor: r.unpaid_commission_gbp > 0 ? "pointer" : "not-allowed", opacity: r.unpaid_commission_gbp > 0 ? 1 : 0.4 }}>
+                  {busyId === r.firm_id ? "…" : "Invoice"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 
 

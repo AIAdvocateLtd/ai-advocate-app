@@ -255,6 +255,9 @@ function FirmDashboard({ firm, onLogout }) {
         ))}
       </div>
 
+      {/* 💷 Commissions ledger — log closed engagements + see what's owed to AI Advocate */}
+      <FirmCommissionsCard />
+
       {showCreate && <NewEngagementModal onClose={() => setShowCreate(false)} onCreated={async () => { setShowCreate(false); await load(); }} />}
       {showBilling && <BillingModal firmEmail={firm.email} currentTier={tier} onClose={() => setShowBilling(false)} />}
       {showBranding && <BrandingModal initial={branding} tier={tier} firmName={firm.firm_name}
@@ -318,6 +321,156 @@ function NewEngagementModal({ onClose, onCreated }) {
     </div>
   );
 }
+
+// =============================== COMMISSIONS LEDGER ===============================
+// Firms log closed paying engagements here (matter, client, fee).
+// Backend calculates the 30% AI Advocate commission per the Founding Firm Agreement.
+// We auto-invoice via Stripe monthly (admin-triggered).
+function FirmCommissionsCard() {
+  const [items, setItems] = useState([]);
+  const [totals, setTotals] = useState({ fees: 0, commission: 0, unpaid: 0 });
+  const [showLog, setShowLog] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await fapi.get("/firm/commissions");
+      setItems(data.items || []);
+      setTotals({
+        fees: data.total_fees_gbp || 0,
+        commission: data.total_commission_gbp || 0,
+        unpaid: data.total_unpaid_commission_gbp || 0,
+      });
+    } catch (e) { /* no-op */ }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const del = async (id) => {
+    if (!window.confirm("Remove this commission entry? You can only delete entries that haven't been invoiced yet.")) return;
+    try { await fapi.delete(`/firm/commissions/${id}`); await load(); }
+    catch (e) { alert(e?.response?.data?.detail || "Could not delete."); }
+  };
+
+  return (
+    <div data-testid="firm-commissions-card" style={{ background: "#0c0c0c", border: "1px solid #222", borderRadius: 14, padding: 16, marginTop: 22 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <h2 style={{ fontSize: 14, color: "#f7c948", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>Referral commissions</h2>
+          <div style={{ fontSize: 11.5, color: "#888", marginTop: 4 }}>30% of fees on AI Advocate referrals · invoiced monthly</div>
+        </div>
+        <button data-testid="log-commission-btn" onClick={() => setShowLog(true)} style={btnGold}>
+          <Plus size={14} /> Log closed engagement
+        </button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 14 }}>
+        <CommTile label="Lifetime fees" value={`£${totals.fees.toFixed(2)}`} dim />
+        <CommTile label="Commission" value={`£${totals.commission.toFixed(2)}`} />
+        <CommTile label="Unpaid" value={`£${totals.unpaid.toFixed(2)}`} warn={totals.unpaid > 0} />
+      </div>
+
+      {loading ? (
+        <div style={{ color: "#888", fontSize: 12, textAlign: "center", padding: 20 }}>Loading…</div>
+      ) : items.length === 0 ? (
+        <div style={{ textAlign: "center", color: "#666", padding: 24, border: "1px dashed #222", borderRadius: 10, fontSize: 12.5 }}>
+          No closed paying engagements yet. Tap <strong style={{ color: "#f7c948" }}>"Log closed engagement"</strong> when a referred client matter completes.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {items.map(it => (
+            <div key={it.id} data-testid={`comm-row-${it.id}`} style={{ background: "#080808", border: "1px solid #1d1d1d", borderRadius: 10, padding: 12, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ color: "#fff", fontSize: 13, fontWeight: 600 }}>
+                  {it.client_name || it.client_email} <span style={{ color: "#666", fontWeight: 400 }}>· {it.matter_type || "general"}</span>
+                </div>
+                <div style={{ fontSize: 11.5, color: "#888", marginTop: 3 }}>
+                  Closed {it.closed_at?.slice(0,10)} · Fee £{it.fee_gbp.toFixed(2)} · Commission £{it.commission_owed_gbp.toFixed(2)} ({Math.round(it.commission_pct*100)}%)
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", padding: "3px 8px", borderRadius: 6,
+                  background: it.paid_status === "paid" ? "rgba(34,197,94,0.15)" : it.paid_status === "invoiced" ? "rgba(247,201,72,0.15)" : "rgba(239,68,68,0.12)",
+                  color:      it.paid_status === "paid" ? "#86efac"             : it.paid_status === "invoiced" ? "#f7c948"             : "#fca5a5",
+                }}>{it.paid_status}</span>
+                {it.paid_status === "unpaid" && (
+                  <button data-testid={`comm-del-${it.id}`} onClick={() => del(it.id)} style={{ ...btnPlain, color: "#fca5a5", fontSize: 11 }}>Remove</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showLog && <LogCommissionModal onClose={() => setShowLog(false)} onLogged={async () => { setShowLog(false); await load(); }} />}
+    </div>
+  );
+}
+
+function CommTile({ label, value, warn, dim }) {
+  return (
+    <div style={{ background: "#080808", border: `1px solid ${warn ? "rgba(239,68,68,0.4)" : "#1a1a1a"}`, borderRadius: 10, padding: "10px 12px" }}>
+      <div style={{ fontSize: 10, color: "#888", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: warn ? "#fca5a5" : dim ? "#bbb" : "#fff" }}>{value}</div>
+    </div>
+  );
+}
+
+function LogCommissionModal({ onClose, onLogged }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [data, setData] = useState({ client_email: "", client_name: "", fee_gbp: "", closed_at: today, matter_type: "Employment", notes: "" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    setBusy(true); setErr("");
+    try {
+      const payload = { ...data, fee_gbp: parseFloat(data.fee_gbp) };
+      await fapi.post("/firm/commissions", payload);
+      onLogged();
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Failed to log.");
+    } finally { setBusy(false); }
+  };
+
+  const commission = data.fee_gbp ? (parseFloat(data.fee_gbp) * 0.30).toFixed(2) : "0.00";
+
+  return (
+    <div style={overlay}>
+      <div style={modalCard}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <h3 style={modalTitle}>Log closed engagement</h3>
+          <button onClick={onClose} style={btnPlain}><X size={18} /></button>
+        </div>
+        <p style={{ fontSize: 12.5, color: "#aaa", marginBottom: 14, lineHeight: 1.5 }}>
+          Only AI Advocate referrals (clients we routed to you). AI Advocate's 30% commission is calculated automatically.
+        </p>
+        <input data-testid="log-comm-client-email" placeholder="Client email" value={data.client_email} onChange={(e) => setData({ ...data, client_email: e.target.value })} style={inp} />
+        <input data-testid="log-comm-client-name" placeholder="Client name (optional)" value={data.client_name} onChange={(e) => setData({ ...data, client_name: e.target.value })} style={inp} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <input data-testid="log-comm-fee" type="number" min="0" step="0.01" placeholder="Total fee (£)" value={data.fee_gbp} onChange={(e) => setData({ ...data, fee_gbp: e.target.value })} style={inp} />
+          <input data-testid="log-comm-closed" type="date" value={data.closed_at} onChange={(e) => setData({ ...data, closed_at: e.target.value })} style={inp} />
+        </div>
+        <select data-testid="log-comm-matter" value={data.matter_type} onChange={(e) => setData({ ...data, matter_type: e.target.value })} style={inp}>
+          {["Employment","Family","Housing","Immigration","Criminal","Consumer","Personal Injury","Wills & Probate","Commercial","Other"].map(m => <option key={m}>{m}</option>)}
+        </select>
+        <textarea data-testid="log-comm-notes" placeholder="Notes (optional, kept private)" rows={2} value={data.notes} onChange={(e) => setData({ ...data, notes: e.target.value })} style={{ ...inp, resize: "vertical" }} />
+
+        <div style={{ background: "#0a0a0a", border: "1px solid #f7c948", borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 12.5 }}>
+          AI Advocate commission (30%): <strong style={{ color: "#f7c948" }}>£{commission}</strong>
+        </div>
+
+        {err && <div style={{ color: "#fca5a5", fontSize: 12, marginBottom: 10 }} data-testid="log-comm-err">{err}</div>}
+        <button data-testid="log-comm-submit" onClick={submit} disabled={busy || !data.client_email || !data.fee_gbp || parseFloat(data.fee_gbp) <= 0} style={{ ...btnGold, width: "100%" }}>
+          {busy ? "Saving…" : "Log engagement"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
 
 function FirmEngagementThread({ engagement, onBack }) {
   const [messages, setMessages] = useState([]);

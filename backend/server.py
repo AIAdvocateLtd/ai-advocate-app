@@ -6207,103 +6207,7 @@ async def admin_delete_founder_signature(_: dict = Depends(_check_admin_user)):
     return {"ok": True, "cleared": True}
 
 
-# ==================== Firm engagements & commission tracking ====================
-# Firms log closed engagements in their portal; we tot up the 30% commission
-# they owe AI Advocate. Founding Firm split locked at 30% per agreement clause 1.6.
 
-class EngagementCreate(BaseModel):
-    client_email: str
-    client_name: str = ""
-    fee_gbp: float = Field(..., gt=0, le=1_000_000)
-    closed_at: str = ""
-    notes: str = ""
-    matter_type: str = ""
-
-
-def _firm_commission_pct(firm: dict) -> float:
-    """30% standard rate — locked per Founding Firm Agreement."""
-    return 0.30
-
-
-@api_router.post("/firm/engagements")
-async def firm_log_engagement(data: EngagementCreate, firm: dict = Depends(get_firm)):
-    """Firm logs a closed engagement → backend records the commission owed."""
-    now = datetime.now(timezone.utc)
-    closed_at = data.closed_at or now.isoformat()[:10]
-    pct = _firm_commission_pct(firm)
-    commission = round(data.fee_gbp * pct, 2)
-    rec = {
-        "id": str(uuid.uuid4()),
-        "firm_id": firm["id"], "firm_email": firm["email"], "firm_name": firm.get("firm_name") or "",
-        "client_email": data.client_email.strip().lower(),
-        "client_name": data.client_name.strip(),
-        "matter_type": data.matter_type, "notes": data.notes[:500],
-        "fee_gbp": round(data.fee_gbp, 2),
-        "commission_pct": pct, "commission_owed_gbp": commission,
-        "closed_at": closed_at, "logged_at": now.isoformat(),
-        "billing_month": closed_at[:7],
-        "paid_status": "unpaid", "stripe_invoice_id": None,
-        "founding_firm": bool(firm.get("founding_firm")),
-    }
-    await db.firm_engagements.insert_one(rec)
-    rec.pop("_id", None)
-    return rec
-
-
-@api_router.get("/firm/engagements")
-async def firm_list_engagements(firm: dict = Depends(get_firm), month: str = ""):
-    q = {"firm_id": firm["id"]}
-    if month:
-        q["billing_month"] = month
-    cursor = db.firm_engagements.find(q, {"_id": 0}).sort("closed_at", -1).limit(500)
-    items = [e async for e in cursor]
-    total_fees = round(sum(e["fee_gbp"] for e in items), 2)
-    total_commission = round(sum(e["commission_owed_gbp"] for e in items), 2)
-    total_unpaid = round(sum(e["commission_owed_gbp"] for e in items if e["paid_status"] == "unpaid"), 2)
-    return {
-        "engagements": items,
-        "total_fees_gbp": total_fees,
-        "total_commission_gbp": total_commission,
-        "total_unpaid_commission_gbp": total_unpaid,
-    }
-
-
-@api_router.delete("/firm/engagements/{eid}")
-async def firm_delete_engagement(eid: str, firm: dict = Depends(get_firm)):
-    rec = await db.firm_engagements.find_one({"id": eid, "firm_id": firm["id"]})
-    if not rec:
-        raise HTTPException(404, "Engagement not found.")
-    if rec.get("paid_status") in ("invoiced", "paid"):
-        raise HTTPException(409, "Engagement already invoiced — contact firms@aiadvocate.co.uk to adjust.")
-    await db.firm_engagements.delete_one({"id": eid})
-    return {"ok": True, "deleted": True}
-
-
-@api_router.get("/admin/commissions/summary")
-async def admin_commission_summary(_: dict = Depends(_check_admin_user), month: str = ""):
-    if not month:
-        month = datetime.now(timezone.utc).isoformat()[:7]
-    pipeline = [
-        {"$match": {"billing_month": month}},
-        {"$group": {
-            "_id": "$firm_id",
-            "firm_name": {"$first": "$firm_name"},
-            "firm_email": {"$first": "$firm_email"},
-            "engagements_count": {"$sum": 1},
-            "total_fees_gbp": {"$sum": "$fee_gbp"},
-            "total_commission_gbp": {"$sum": "$commission_owed_gbp"},
-            "unpaid_commission_gbp": {"$sum": {
-                "$cond": [{"$eq": ["$paid_status", "unpaid"]}, "$commission_owed_gbp", 0]
-            }},
-        }},
-        {"$sort": {"total_commission_gbp": -1}},
-    ]
-    rows = []
-    async for row in db.firm_engagements.aggregate(pipeline):
-        row["firm_id"] = row.pop("_id")
-        rows.append(row)
-    grand_total = round(sum(r["total_commission_gbp"] for r in rows), 2)
-    return {"month": month, "by_firm": rows, "grand_total_commission_gbp": grand_total}
 
 
 @api_router.post("/firm/signup")
@@ -6486,6 +6390,271 @@ async def get_firm(authorization: Optional[str] = Header(None)) -> dict:
         f["acting_role"] = firm_user.get("role", "fee_earner")
         return f
     raise HTTPException(403, "Not a firm account")
+
+# ==================== Firm engagements & commission tracking ====================
+# Firms log closed engagements in their portal; we tot up the 30% commission
+# they owe AI Advocate. Founding Firm split locked at 30% per agreement clause 1.6.
+
+class CommissionEntryCreate(BaseModel):
+    client_email: str
+    client_name: str = ""
+    fee_gbp: float = Field(..., gt=0, le=1_000_000)
+    closed_at: str = ""
+    notes: str = ""
+    matter_type: str = ""
+
+
+def _firm_commission_pct(firm: dict) -> float:
+    """30% standard rate — locked per Founding Firm Agreement."""
+    return 0.30
+
+
+# ⚠️ IMPORTANT — these used to mount on `/firm/engagements` which collided with the
+# client-thread engagement endpoints below. Renamed to `/firm/commissions` to disambiguate.
+@api_router.post("/firm/commissions")
+async def firm_log_commission(data: CommissionEntryCreate, firm: dict = Depends(get_firm)):
+    """Firm logs a closed paying engagement → backend records the commission owed."""
+    now = datetime.now(timezone.utc)
+    closed_at = data.closed_at or now.isoformat()[:10]
+    pct = _firm_commission_pct(firm)
+    commission = round(data.fee_gbp * pct, 2)
+    rec = {
+        "id": str(uuid.uuid4()),
+        "firm_id": firm["id"], "firm_email": firm["email"], "firm_name": firm.get("firm_name") or "",
+        "client_email": data.client_email.strip().lower(),
+        "client_name": data.client_name.strip(),
+        "matter_type": data.matter_type, "notes": data.notes[:500],
+        "fee_gbp": round(data.fee_gbp, 2),
+        "commission_pct": pct, "commission_owed_gbp": commission,
+        "closed_at": closed_at, "logged_at": now.isoformat(),
+        "billing_month": closed_at[:7],
+        "paid_status": "unpaid", "stripe_invoice_id": None,
+        "founding_firm": bool(firm.get("founding_firm")),
+    }
+    await db.firm_engagements.insert_one(rec)
+    rec.pop("_id", None)
+    return rec
+
+
+@api_router.get("/firm/commissions")
+async def firm_list_commissions(firm: dict = Depends(get_firm), month: str = ""):
+    q = {"firm_id": firm["id"]}
+    if month:
+        q["billing_month"] = month
+    cursor = db.firm_engagements.find(q, {"_id": 0}).sort("closed_at", -1).limit(500)
+    items = [e async for e in cursor]
+    total_fees = round(sum(e["fee_gbp"] for e in items), 2)
+    total_commission = round(sum(e["commission_owed_gbp"] for e in items), 2)
+    total_unpaid = round(sum(e["commission_owed_gbp"] for e in items if e["paid_status"] == "unpaid"), 2)
+    return {
+        "items": items,
+        "total_fees_gbp": total_fees,
+        "total_commission_gbp": total_commission,
+        "total_unpaid_commission_gbp": total_unpaid,
+    }
+
+
+@api_router.delete("/firm/commissions/{eid}")
+async def firm_delete_commission(eid: str, firm: dict = Depends(get_firm)):
+    rec = await db.firm_engagements.find_one({"id": eid, "firm_id": firm["id"]})
+    if not rec:
+        raise HTTPException(404, "Commission entry not found.")
+    if rec.get("paid_status") in ("invoiced", "paid"):
+        raise HTTPException(409, "Already invoiced — contact firms@aiadvocate.co.uk to adjust.")
+    await db.firm_engagements.delete_one({"id": eid})
+    return {"ok": True, "deleted": True}
+
+
+@api_router.get("/admin/commissions/summary")
+async def admin_commission_summary(_: dict = Depends(_check_admin_user), month: str = ""):
+    if not month:
+        month = datetime.now(timezone.utc).isoformat()[:7]
+    pipeline = [
+        {"$match": {"billing_month": month}},
+        {"$group": {
+            "_id": "$firm_id",
+            "firm_name": {"$first": "$firm_name"},
+            "firm_email": {"$first": "$firm_email"},
+            "engagements_count": {"$sum": 1},
+            "total_fees_gbp": {"$sum": "$fee_gbp"},
+            "total_commission_gbp": {"$sum": "$commission_owed_gbp"},
+            "unpaid_commission_gbp": {"$sum": {
+                "$cond": [{"$eq": ["$paid_status", "unpaid"]}, "$commission_owed_gbp", 0]
+            }},
+        }},
+        {"$sort": {"total_commission_gbp": -1}},
+    ]
+    rows = []
+    async for row in db.firm_engagements.aggregate(pipeline):
+        row["firm_id"] = row.pop("_id")
+        rows.append(row)
+    grand_total = round(sum(r["total_commission_gbp"] for r in rows), 2)
+    return {"month": month, "by_firm": rows, "grand_total_commission_gbp": grand_total}
+
+
+class IssueInvoicePayload(BaseModel):
+    firm_id: str
+    month: str = ""   # "YYYY-MM"; defaults to current month
+    days_until_due: int = 14
+
+
+async def _issue_commission_invoice_for_firm(firm: dict, month: str, days_until_due: int = 14) -> dict:
+    """Issues a single Stripe invoice covering all `unpaid` commission engagements
+    for one firm in the given billing month. Marks those engagements as
+    `invoiced` with the Stripe invoice id. Returns a summary dict."""
+    if not stripe.api_key:
+        raise HTTPException(503, "Stripe not configured on server")
+
+    # 1. Pull every unpaid commission entry for this firm/month
+    cursor = db.firm_engagements.find({
+        "firm_id": firm["id"], "billing_month": month, "paid_status": "unpaid",
+    }, {"_id": 0})
+    items = [e async for e in cursor]
+    if not items:
+        return {"firm_id": firm["id"], "firm_email": firm.get("email"), "skipped": True,
+                "reason": "no_unpaid_commission_for_month"}
+
+    # 2. Ensure firm has a Stripe customer
+    cust_id = firm.get("stripe_customer_id")
+    if not cust_id:
+        cust = stripe.Customer.create(
+            email=firm["email"],
+            name=firm.get("firm_name") or firm["email"],
+            metadata={"aa_firm_id": firm["id"], "kind": "firm"},
+        )
+        cust_id = cust.id
+        await db.firm_accounts.update_one({"id": firm["id"]}, {"$set": {"stripe_customer_id": cust_id}})
+
+    # 3. Create line items (one per engagement → easier reconciliation)
+    for it in items:
+        desc_parts = [
+            f"AI Advocate referral commission ({int(it['commission_pct']*100)}%)",
+            f"matter: {it.get('matter_type') or 'general'}",
+            f"client: {it.get('client_name') or it.get('client_email','—')}",
+            f"closed {it.get('closed_at','')[:10]}",
+            f"fee £{it['fee_gbp']:.2f}",
+        ]
+        stripe.InvoiceItem.create(
+            customer=cust_id,
+            currency="gbp",
+            amount=int(round(it["commission_owed_gbp"] * 100)),
+            description=" · ".join(desc_parts),
+            metadata={
+                "aa_engagement_id": it["id"], "aa_firm_id": firm["id"],
+                "billing_month": month, "kind": "referral_commission",
+            },
+        )
+
+    # 4. Create the invoice — automatically pulls in pending invoice items
+    inv = stripe.Invoice.create(
+        customer=cust_id,
+        collection_method="send_invoice",
+        days_until_due=int(days_until_due),
+        auto_advance=True,
+        description=f"AI Advocate referral commission · {month}",
+        metadata={
+            "aa_firm_id": firm["id"], "billing_month": month,
+            "kind": "referral_commission_batch",
+            "engagements_count": str(len(items)),
+        },
+    )
+    # 5. Finalise + send (auto_advance=True will also do this, but explicit is safer
+    # for our admin trigger so the firm gets the email immediately).
+    try:
+        inv = stripe.Invoice.finalize_invoice(inv.id)
+    except Exception:
+        pass
+    try:
+        stripe.Invoice.send_invoice(inv.id)
+    except Exception:
+        pass
+
+    # 6. Mark every engagement as invoiced
+    eids = [it["id"] for it in items]
+    await db.firm_engagements.update_many(
+        {"id": {"$in": eids}},
+        {"$set": {"paid_status": "invoiced", "stripe_invoice_id": inv.id,
+                  "invoiced_at": datetime.now(timezone.utc).isoformat()}},
+    )
+
+    total = round(sum(it["commission_owed_gbp"] for it in items), 2)
+
+    # 7. Branded heads-up email
+    try:
+        from email_helper import send_email
+        await send_email(
+            to=firm["email"], kind="firm",
+            subject=f"Your AI Advocate commission invoice for {month} is ready",
+            body_html=f"""<p>Hi {firm.get('contact_name','team')},</p>
+                <p>Your monthly AI Advocate referral-commission invoice for <strong>{month}</strong> is now available in Stripe.</p>
+                <ul>
+                  <li>{len(items)} engagement{'s' if len(items)!=1 else ''}</li>
+                  <li>Total commission: <strong>£{total:.2f}</strong></li>
+                  <li>Payable within {days_until_due} days</li>
+                </ul>
+                <p>You'll receive a separate email from Stripe with the secure payment link.</p>
+                <p>Any questions please reply to firms@aiadvocate.co.uk.</p>
+                <p>Samuel Malick<br/>Founder, AI Advocate Ltd.</p>""",
+        )
+    except Exception as e:
+        logger.warning(f"Commission invoice email failed for {firm.get('email')}: {e}")
+
+    return {
+        "firm_id": firm["id"], "firm_email": firm.get("email"),
+        "firm_name": firm.get("firm_name"),
+        "stripe_invoice_id": inv.id,
+        "hosted_invoice_url": getattr(inv, "hosted_invoice_url", None),
+        "engagements_count": len(items),
+        "total_commission_gbp": total,
+        "month": month,
+    }
+
+
+@api_router.post("/admin/commissions/issue-invoice")
+async def admin_issue_commission_invoice(data: IssueInvoicePayload, _: dict = Depends(_check_admin_user)):
+    """Admin trigger: issue a Stripe invoice for ONE firm for ONE month."""
+    firm = await db.firm_accounts.find_one({"id": data.firm_id}, {"_id": 0})
+    if not firm:
+        raise HTTPException(404, "Firm not found")
+    month = data.month or datetime.now(timezone.utc).isoformat()[:7]
+    return await _issue_commission_invoice_for_firm(firm, month, data.days_until_due)
+
+
+class IssueAllPayload(BaseModel):
+    month: str = ""   # defaults to *previous* month for auto-billing
+    days_until_due: int = 14
+
+
+@api_router.post("/admin/commissions/issue-all")
+async def admin_issue_all_commission_invoices(data: IssueAllPayload, _: dict = Depends(_check_admin_user)):
+    """Bulk: issue invoices to every firm with unpaid commission in `month`.
+    If `month` is empty, defaults to the *previous* calendar month (typical
+    monthly billing run executed on the 1st)."""
+    if data.month:
+        month = data.month
+    else:
+        now = datetime.now(timezone.utc)
+        first_of_this = now.replace(day=1)
+        last_of_prev = first_of_this - timedelta(days=1)
+        month = last_of_prev.isoformat()[:7]
+
+    # Distinct firm_ids with unpaid commission this month
+    firm_ids = await db.firm_engagements.distinct(
+        "firm_id", {"billing_month": month, "paid_status": "unpaid"}
+    )
+    results = []
+    for fid in firm_ids:
+        firm = await db.firm_accounts.find_one({"id": fid}, {"_id": 0})
+        if not firm:
+            continue
+        try:
+            r = await _issue_commission_invoice_for_firm(firm, month, data.days_until_due)
+            results.append(r)
+        except Exception as e:
+            logger.exception(f"Auto-invoice failed for firm {fid}")
+            results.append({"firm_id": fid, "error": str(e)})
+    return {"month": month, "count": len(results), "results": results}
+
 
 @api_router.get("/firm/me")
 async def firm_me(firm: dict = Depends(get_firm)):
