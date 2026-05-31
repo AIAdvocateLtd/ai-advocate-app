@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>AI Advocate — Your AI Lawyer in Your Pocket | UK Legal Help in Seconds</title>
-<meta name="description" content="Real-time UK legal answers in 11 languages. Letter drafting, court prep, evidence storage, emergency rights. Join the waitlist — first 100 signups get a free Day Pass at launch.">
+<meta name="description" content="Real-time UK legal answers in 11 languages. Letter drafting, court prep, evidence storage, emergency rights. Free tier — one Lex question, no card needed. Web app live now; iOS &amp; Android coming soon.">
 <meta name="theme-color" content="#0a0a0a">
 <meta name="robots" content="index, follow">
 
@@ -12,7 +12,7 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://aiadvocate.co.uk/">
 <meta property="og:title" content="AI Advocate — Your AI Lawyer in Your Pocket">
-<meta property="og:description" content="UK legal answers in seconds. 11 languages. Join the waitlist — free Day Pass for first 100 signups at launch.">
+<meta property="og:description" content="UK legal answers in seconds. 11 languages. Web app live now — iOS &amp; Android coming soon.">
 <meta property="og:image" content="https://aiadvocate.co.uk/icons/app-icon-1024.png">
 <meta name="twitter:card" content="summary_large_image">
 
@@ -331,7 +331,7 @@
       <a href="#features">Features</a>
       <a href="#pricing">Pricing</a>
       <a href="/for-firms">For Law Firms</a>
-      <a href="#waitlist" class="nav-cta">Join Waitlist</a>
+      <a href="/app" class="nav-cta">Sign up</a>
     </div>
   </div>
 </nav>
@@ -347,29 +347,23 @@
       available in 11 languages.
     </p>
 
-    <!-- Waitlist form -->
-    <form id="waitlist-form" class="hero-cta" aria-label="Join the launch waitlist">
-      <div class="hero-cta-title" id="waitlist">🎁 JOIN THE WAITLIST — FREE DAY PASS AT LAUNCH</div>
-      <div class="form-row">
-        <input type="email" name="email" class="email-input" placeholder="your@email.co.uk" required autocomplete="email" data-testid="waitlist-email">
-        <button type="submit" class="cta-btn" data-testid="waitlist-submit">Notify me</button>
+    <!-- Sign up / Sign in — web app is live -->
+    <div id="waitlist" class="hero-cta" style="border-color:#f7c948; padding:24px 22px;">
+      <div class="hero-cta-title" style="margin-bottom:14px;">⚡ THE APP IS LIVE — SIGN UP IN 30 SECONDS</div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center;">
+        <a href="/app" class="cta-btn" data-testid="hero-signup-link"
+           style="flex:1; min-width:140px; text-align:center; text-decoration:none; padding:14px 22px; font-size:15px;">
+          Sign up free →
+        </a>
+        <a href="/app" class="cta-btn" data-testid="hero-signin-link"
+           style="flex:1; min-width:140px; text-align:center; text-decoration:none; padding:14px 22px; font-size:15px; background:transparent; color:var(--gold); border:1px solid var(--gold);">
+          Sign in
+        </a>
       </div>
-      <div class="error-msg" id="form-error"></div>
-      <div class="success-msg" id="form-success" data-testid="waitlist-success">
-        ✓ You're on the list. We'll email you at launch with your free Day Pass.
-      </div>
-      <p class="reward">
-        First <strong>100 sign-ups</strong> get a free <strong>24-hour Day Pass</strong> (worth £4.99)
-        when we launch. No spam, ever — one email at launch.
+      <p class="reward" style="margin-top:14px;">
+        Free tier — one Lex question on us. No card required. Web app live now;
+        <strong>iOS &amp; Android coming soon</strong>.
       </p>
-    </form>
-
-    <div style="text-align: center; margin-top: 10px; font-size: 13.5px; color: var(--text-dim);">
-      Already a member?
-      <a href="/app" data-testid="hero-signin-link"
-         style="color: var(--gold); font-weight: 600; text-decoration: underline; margin-left: 4px;">
-        Sign in to the app →
-      </a>
     </div>
 
     <div class="store-badges">
@@ -607,11 +601,14 @@
 <!-- ============ Final CTA ============ -->
 <section style="text-align: center;">
   <div class="container">
-    <h2>Be the first to know.</h2>
+    <h2>Get started in 30 seconds.</h2>
     <p class="section-sub" style="margin-bottom: 32px;">
-      Join the waitlist. Be among the first 100 to get a free Day Pass when we launch.
+      The web app is live. iOS and Android coming soon. Free tier — one Lex question on us, no card required.
     </p>
-    <a href="#waitlist" class="nav-cta" style="display: inline-block;">Join the waitlist</a>
+    <div style="display:flex; gap:12px; flex-wrap:wrap; justify-content:center;">
+      <a href="/app" class="nav-cta" style="display: inline-block;">Sign up free</a>
+      <a href="/app" class="nav-cta" style="display: inline-block; background:transparent; color:var(--gold); border:1px solid var(--gold);">Sign in</a>
+    </div>
     <div style="margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 14px; color: var(--text-muted); max-width: 580px; margin-left: auto; margin-right: auto;">
       🎁 <strong style="color: var(--gold);">Need to help someone right now?</strong> Travelling family, friend in trouble, parent who's stuck?<br>
       <a href="/gift.html" data-testid="gift-cta-link" style="display:inline-block; margin-top: 12px; color: var(--gold); border: 1px solid var(--gold); padding: 10px 22px; border-radius: 999px; text-decoration: none; font-weight: 600;">Gift a Pack →</a>
@@ -655,51 +652,6 @@
 </footer>
 
 <script>
-  // Waitlist form handler
-  const form = document.getElementById('waitlist-form');
-  const errorEl = document.getElementById('form-error');
-  const successEl = document.getElementById('form-success');
-  const submitBtn = form.querySelector('button[type="submit"]');
-
-  // Inherit source from URL — Instagram bio link uses ?src=ig
-  const source = new URLSearchParams(window.location.search).get('src') || 'direct';
-
-  // Stable per-device fingerprint so analytics can de-dupe joins
-  let deviceId = '';
-  try {
-    deviceId = localStorage.getItem('aa_device_id') || '';
-    if (!deviceId) {
-      deviceId = (crypto.randomUUID && crypto.randomUUID()) || Math.random().toString(36).slice(2) + Date.now().toString(36);
-      localStorage.setItem('aa_device_id', deviceId);
-    }
-  } catch (e) { /* localStorage blocked */ }
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    errorEl.classList.remove('show'); successEl.classList.remove('show');
-    const email = form.email.value.trim();
-    if (!email) return;
-    submitBtn.disabled = true; submitBtn.textContent = '...';
-    try {
-      const r = await fetch('/api/waitlist/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, country: 'GB', source, device_id: deviceId }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.detail || 'Could not join — please try again');
-      successEl.classList.add('show');
-      form.reset();
-      // Track conversion (gtag/analytics hook can plug in here later)
-      if (window.gtag) window.gtag('event', 'waitlist_join', { source });
-    } catch (err) {
-      errorEl.textContent = err.message || 'Something went wrong. Please try again.';
-      errorEl.classList.add('show');
-    } finally {
-      submitBtn.disabled = false; submitBtn.textContent = 'Notify me';
-    }
-  });
-
   // Smooth-scroll the hash anchors
   document.querySelectorAll('a[href^="#"]').forEach(a => {
     a.addEventListener('click', (e) => {

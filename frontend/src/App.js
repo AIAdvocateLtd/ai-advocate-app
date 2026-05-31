@@ -1001,6 +1001,13 @@ const useRecorder = () => {
   const [recording, setRecording] = useState(false);
 
   const start = async () => {
+    // Respect the user's app-level mic disable (set in Settings → Microphone access).
+    // We refuse to acquire the stream entirely if they've explicitly turned it off —
+    // they get a clear toast directing them back to Settings.
+    if (localStorage.getItem("aa_mic_disabled") === "1") {
+      aaToast("Microphone is disabled in your settings. Re-enable it in Settings → Microphone access.", "error");
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
@@ -7317,10 +7324,11 @@ function CompProAdminCard({ lang }) {
   // 🎁 Direct grant by email — works whether the user signed up or not
   const [directGrantEmail, setDirectGrantEmail] = useState("");
   const [pendingGrants, setPendingGrants] = useState([]);
-  // 🔄 Collapsible sections — list views can get long once we have hundreds of users
-  const [showRecent, setShowRecent] = useState(true);    // Recent users list
-  const [showActive, setShowActive] = useState(true);    // Active Pro Comps list
-  const [showDeleted, setShowDeleted] = useState(false); // Restore Deleted users (closed by default)
+  // 🔄 Collapsible sections — list views can get long once we have hundreds of users.
+  // All three start COLLAPSED so the admin panel opens compact; tap the header to expand.
+  const [showRecent, setShowRecent] = useState(false);   // Recent users list
+  const [showActive, setShowActive] = useState(false);   // Active Pro Comps list
+  const [showDeleted, setShowDeleted] = useState(false); // Restore Deleted users
   const [deletedUsers, setDeletedUsers] = useState([]);  // Soft-deleted users that can be restored
 
   // Load soft-deleted users when the "Show deleted" section is expanded
@@ -7911,37 +7919,139 @@ function CompProAdminCard({ lang }) {
 }
 
 function MicAccessButton() {
+  // Three states the user can be in:
+  //   • "idle"    — never asked yet
+  //   • "granted" — browser permission granted AND the user hasn't soft-disabled in the app
+  //   • "denied"  — browser blocked it (must be re-enabled in browser/OS settings)
+  //   • "soft_disabled" — browser permission still there, but the user clicked "Disable"
+  //                       in the app. We store an `aa_mic_disabled` flag in localStorage
+  //                       and the rest of the app respects it. To re-enable in-app we just
+  //                       clear the flag. To FULLY revoke the OS permission, the user has
+  //                       to do it in browser settings — we surface clear instructions.
   const [state, setState] = useState("idle");
+  const [showHardDisableHelp, setShowHardDisableHelp] = useState(false);
+
+  // Read current permission + the soft-disable flag on mount and on visibility change
+  // (so revoking it in browser settings is reflected when they come back to the tab).
+  const refresh = async () => {
+    const softDisabled = localStorage.getItem("aa_mic_disabled") === "1";
+    if (!navigator.permissions || !navigator.permissions.query) {
+      setState(softDisabled ? "soft_disabled" : "idle"); return;
+    }
+    try {
+      const p = await navigator.permissions.query({ name: "microphone" });
+      if (p.state === "denied") setState("denied");
+      else if (p.state === "granted") setState(softDisabled ? "soft_disabled" : "granted");
+      else setState(softDisabled ? "soft_disabled" : "idle");
+    } catch { setState(softDisabled ? "soft_disabled" : "idle"); }
+  };
   useEffect(() => {
-    if (!navigator.permissions || !navigator.permissions.query) return;
-    navigator.permissions.query({ name: "microphone" }).then(p => {
-      if (p.state === "granted") setState("granted");
-      else if (p.state === "denied") setState("denied");
-    }).catch(() => {});
+    refresh();
+    const onVis = () => { if (document.visibilityState === "visible") refresh(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
+
   const request = async () => {
     if (!navigator.mediaDevices?.getUserMedia) { setState("unsupported"); return; }
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: true });
       s.getTracks().forEach(tr => tr.stop());
+      localStorage.removeItem("aa_mic_disabled");
       setState("granted");
-    } catch (e) {
-      setState("denied");
-    }
+      aaToast("Microphone enabled", "success");
+    } catch { setState("denied"); aaToast("Microphone permission denied", "error"); }
   };
-  const label = state === "granted" ? "✓ Microphone enabled"
-    : state === "denied" ? "Blocked — open device settings"
-    : state === "unsupported" ? "Not supported on this device"
-    : "Enable microphone";
+
+  const softDisable = () => {
+    // App-level disable. Lex won't trigger any mic flows while this flag is set.
+    // The browser-level permission stays granted (we can't revoke it programmatically) —
+    // we surface a "Want to fully revoke?" helper for users who care.
+    localStorage.setItem("aa_mic_disabled", "1");
+    setState("soft_disabled");
+    setShowHardDisableHelp(true);
+    aaToast("Microphone disabled in AI Advocate", "info");
+  };
+
+  const reEnable = () => {
+    localStorage.removeItem("aa_mic_disabled");
+    setShowHardDisableHelp(false);
+    refresh();
+    aaToast("Microphone re-enabled", "success");
+  };
+
+  if (state === "unsupported") {
+    return (
+      <div style={{ padding: "10px 16px", borderRadius: 10, background: "rgba(120,120,120,0.1)",
+                    color: "var(--text-muted)", fontSize: 13, textAlign: "center" }}>
+        Not supported on this device
+      </div>
+    );
+  }
+  if (state === "denied") {
+    return (
+      <div>
+        <div style={{ padding: "10px 16px", borderRadius: 10, background: "rgba(239,68,68,0.12)",
+                      border: "1px solid #ef4444", color: "#fca5a5", fontSize: 12, textAlign: "center", marginBottom: 8 }}>
+          Blocked by your browser
+        </div>
+        <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
+          To enable: tap the lock/aA icon in your browser's address bar → Site Settings → Microphone → Allow.
+          On iPhone, also check Settings → Privacy &amp; Security → Microphone is ON for your browser.
+        </div>
+      </div>
+    );
+  }
+  if (state === "granted") {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div data-testid="mic-status-granted"
+             style={{ padding: "10px 16px", borderRadius: 10,
+                      background: "rgba(34,197,94,0.15)", border: "1px solid #22c55e",
+                      color: "#22c55e", fontSize: 13, fontWeight: 700, textAlign: "center" }}>
+          ✓ Microphone enabled
+        </div>
+        <button data-testid="mic-disable-btn" onClick={softDisable}
+          style={{ padding: "8px 14px", borderRadius: 10, cursor: "pointer",
+                   background: "transparent", color: "#fca5a5", border: "1px solid #7f1d1d",
+                   fontSize: 12, fontWeight: 600, width: "100%" }}>
+          Disable microphone
+        </button>
+      </div>
+    );
+  }
+  if (state === "soft_disabled") {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ padding: "10px 16px", borderRadius: 10,
+                      background: "rgba(120,120,120,0.10)", border: "1px solid #555",
+                      color: "var(--text-muted)", fontSize: 13, fontWeight: 700, textAlign: "center" }}>
+          ✕ Microphone disabled
+        </div>
+        <button data-testid="mic-reenable-btn" onClick={reEnable}
+          style={{ padding: "10px 16px", borderRadius: 10, cursor: "pointer",
+                   background: "var(--gold)", color: "#1a1300", border: "none",
+                   fontSize: 13, fontWeight: 700, width: "100%" }}>
+          Re-enable microphone
+        </button>
+        {showHardDisableHelp && (
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5, padding: "8px 4px 0" }}>
+            We've stopped Lex from using your mic. To <strong>fully revoke</strong> the OS permission,
+            open your browser address bar → tap the lock/aA icon → Microphone → set to Deny.
+            On iPhone you can also revoke it via Settings → Privacy &amp; Security → Microphone.
+          </div>
+        )}
+      </div>
+    );
+  }
+  // idle
   return (
-    <button data-testid="mic-access-btn" onClick={request} disabled={state === "granted" || state === "unsupported"}
-      style={{
-        padding: "10px 16px", borderRadius: 10, cursor: state === "granted" ? "default" : "pointer",
-        background: state === "granted" ? "rgba(34,197,94,0.15)" : "var(--gold)",
-        color: state === "granted" ? "#22c55e" : "#1a1300",
-        border: state === "granted" ? "1px solid #22c55e" : "none",
-        fontSize: 13, fontWeight: 700, width: "100%",
-      }}>{label}</button>
+    <button data-testid="mic-access-btn" onClick={request}
+      style={{ padding: "10px 16px", borderRadius: 10, cursor: "pointer",
+               background: "var(--gold)", color: "#1a1300", border: "none",
+               fontSize: 13, fontWeight: 700, width: "100%" }}>
+      Enable microphone
+    </button>
   );
 }
 
