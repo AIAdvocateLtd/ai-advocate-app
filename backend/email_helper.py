@@ -256,6 +256,41 @@ async def send_password_reset(email: str, reset_link: str) -> bool:
     return await _send(email, "Reset your AI Advocate password", html)
 
 
+async def send_cancellation_email(email: str, name: str = "", account_kind: str = "user",
+                                  ended_on: str = "", reason: str = "") -> bool:
+    """Send a branded confirmation when a subscription / trial is cancelled or revoked.
+    Reassures the customer that they can come back any time, and gives them the right
+    support channel for disputes (firms@ for firms, support@ for consumers)."""
+    first = (name or "").split(" ")[0] or "there"
+    is_firm = account_kind == "firm"
+    support = "firms@aiadvocate.co.uk" if is_firm else "support@aiadvocate.co.uk"
+    label = "Founding Firm trial" if is_firm else "AI Advocate subscription"
+    resubscribe_url = "https://aiadvocate.co.uk/firm-portal" if is_firm else "https://aiadvocate.co.uk"
+    when = f" on {ended_on}" if ended_on else ""
+
+    html = _wrap(f"""
+      <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">Your {label} has ended</h2>
+      <p>Hi {first},</p>
+      <p>We're writing to confirm that your <strong>{label}</strong> has been cancelled{when}. You will not be charged further.</p>
+      {'<p style="background:#fffaeb; border-left:3px solid #f7c948; padding:10px 14px; margin:18px 0; font-size:13px; color:#1a1300;">Reason on file: ' + reason + '</p>' if reason else ''}
+      <p>You can still log in and access:</p>
+      <ul style="color:#444; font-size:14px; line-height:1.6;">
+        <li>Any case files, chats, or evidence you saved while subscribed</li>
+        <li>Your Lex Vault (encrypted)</li>
+        <li>Free-tier features any time you log in</li>
+      </ul>
+      <p>If you'd like to come back, your old data is still here — just resubscribe and you pick up where you left off.</p>
+      <p style="margin:24px 0;">
+        <a href="{resubscribe_url}" style="background:#f7c948; color:#1a1300; padding:12px 22px; border-radius:8px; font-weight:700; text-decoration:none; display:inline-block;">Resubscribe / Log in →</a>
+      </p>
+      <p style="font-size:12.5px; color:#555;">Think this was a mistake, or want to dispute the cancellation? Please reach out to <a href="mailto:{support}" style="color:#b8860b;">{support}</a> within 14 days and we'll sort it.</p>
+      <p style="font-size:13px; color:#666;">Thank you for being part of AI Advocate.</p>
+      <p style="font-size:13px;">Samuel Malick<br/>Founder, AI Advocate Ltd.</p>
+    """, preview=f"Confirming your {label} has been cancelled.", kind="firm" if is_firm else "user")
+    reply_override = "firms@aiadvocate.co.uk" if is_firm else None
+    return await _send(email, f"Your {label} has been cancelled", html, reply_to_override=reply_override)
+
+
 async def send_email(to: str, subject: str, body_html: str, attachments: Optional[list] = None, kind: str = "user") -> bool:
     """Generic email helper used by ad-hoc flows (gifts, firm agreements, etc.).
     Wraps the body_html in the standard AI Advocate template + supports attachments.

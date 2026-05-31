@@ -5671,6 +5671,21 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
     try {
       const { data } = await api.post("/subscription/checkout", { plan });
       track("subscription_checkout_started", { plan });
+      if (data.subscription_updated) {
+        // 🔁 In-place plan change — Stripe modified the existing subscription
+        // with proration. No checkout redirect needed.
+        aaToast(`Plan updated to ${plan.toUpperCase()} — Stripe will prorate this billing cycle.`, "success");
+        track("subscription_plan_changed", { plan });
+        // Refresh user so the new tier is reflected immediately in the UI
+        try { const me = await api.get("/auth/me"); onActivated({ user: me.data }); } catch (e) { /* webhook will update */ }
+        setBusy(false);
+        return;
+      }
+      if (data.already_on_plan) {
+        aaToast("You're already on this plan", "info");
+        setBusy(false);
+        return;
+      }
       window.location.href = data.checkout_url;
     } catch (e) { alert(e?.response?.data?.detail || "Failed"); setBusy(false); }
   };

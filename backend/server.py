@@ -3552,9 +3552,19 @@ async def analyze_recording(
 # ==================== Subscriptions (Stripe) ====================
 @api_router.post("/subscription/checkout")
 async def create_checkout(data: CheckoutRequest, request: Request, user: dict = Depends(get_user)):
-    """Create a Stripe Checkout session for the chosen tier.
+    """Subscribe to a plan, OR upgrade/downgrade an existing subscription.
+
+    Smart flow:
+      • If the user has no active Stripe subscription → create a Checkout Session as normal
+      • If the user already has one → call stripe.Subscription.modify() with
+        proration_behavior='create_prorations'. Stripe will:
+          - cancel the old plan line
+          - activate the new plan line on the same subscription record
+          - automatically charge / credit the prorated difference
+        No new Checkout, no double-billing, no admin work.
+
     data.plan in {'plus','pro','yearly'} → maps to STRIPE_PRICE_*.
-    Note: free 7-day trial is granted automatically on signup, not at Stripe checkout — so this is a direct subscribe."""
+    """
     plan = (data.plan or "").lower()
     price_id = {
         "plus": STRIPE_PRICE_PLUS,
@@ -3565,9 +3575,36 @@ async def create_checkout(data: CheckoutRequest, request: Request, user: dict = 
     }.get(plan)
     if not price_id:
         raise HTTPException(400, f"Unknown plan '{plan}'. Use 'plus', 'pro', or 'yearly'.")
+
+    # 🔁 Existing-subscription path — upgrade/downgrade in-place
+    existing_sub_id = user.get("stripe_subscription_id")
+    if existing_sub_id:
+        try:
+            sub = stripe.Subscription.retrieve(existing_sub_id)
+            if sub and sub.get("status") in ("active", "trialing", "past_due"):
+                current_price_id = sub["items"]["data"][0]["price"]["id"]
+                if current_price_id == price_id:
+                    # Already on this plan — no-op (don't double-charge)
+                    return {"already_on_plan": True, "tier": plan}
+                # Modify the existing subscription line
+                line_item_id = sub["items"]["data"][0]["id"]
+                stripe.Subscription.modify(
+                    existing_sub_id,
+                    items=[{"id": line_item_id, "price": price_id}],
+                    proration_behavior="create_prorations",
+                    metadata={"user_id": user["id"], "plan": plan, "changed_at": datetime.now(timezone.utc).isoformat()},
+                )
+                # DB is updated via the customer.subscription.updated webhook
+                return {"subscription_updated": True, "tier": plan, "prorated": True}
+        except stripe.error.InvalidRequestError as e:
+            # Subscription is gone from Stripe (e.g. fully cancelled) — fall through to new checkout
+            logger.info(f"Existing sub {existing_sub_id} not modifiable ({e}) — falling through to new checkout")
+        except Exception as e:
+            logger.exception(f"Subscription modify failed: {e}")
+            raise HTTPException(500, f"Could not change plan: {str(e)}")
+
+    # 🆕 No active subscription — create a new Checkout Session
     try:
-        # Prefer canonical FRONTEND_URL so users always return to the live app,
-        # not whatever stale preview tab they had open. Falls back to origin header.
         origin = (os.environ.get("FRONTEND_URL") or request.headers.get("origin") or APP_PUBLIC_URL).rstrip("/")
         session = stripe.checkout.Session.create(
             mode="subscription",
@@ -4153,6 +4190,24 @@ async def stripe_webhook(request: Request):
                 await db.lawfirms.update_one({"firm_account_id": firm["id"]},
                                              {"$set": {"featured": False, "verified": False}})
             logger.info(f"Subscription canceled for customer {customer_id} — consumer={consumer_res.modified_count} firm={firm_res.modified_count}")
+
+            # 📧 Branded cancellation email — covers self-cancels via the Stripe portal.
+            # We send to whichever side matched (consumer OR firm). Wrapped to never
+            # fail the webhook regardless.
+            try:
+                from email_helper import send_cancellation_email
+                from datetime import datetime as _dt
+                ended_on = _dt.now(timezone.utc).strftime("%d %B %Y")
+                if consumer_res.modified_count > 0:
+                    u = await db.users.find_one({"stripe_customer_id": customer_id}, {"_id": 0, "email": 1, "full_name": 1})
+                    if u:
+                        await send_cancellation_email(u["email"], u.get("full_name") or "", "user", ended_on, "Subscription cancelled via Stripe")
+                if firm_res.modified_count > 0:
+                    f = await db.firm_accounts.find_one({"stripe_customer_id": customer_id}, {"_id": 0, "email": 1, "firm_name": 1, "primary_contact": 1})
+                    if f:
+                        await send_cancellation_email(f["email"], f.get("firm_name") or f.get("primary_contact") or "", "firm", ended_on, "Subscription cancelled via Stripe")
+            except Exception as e:
+                logger.warning(f"Cancellation email (webhook) failed for customer {customer_id}: {e}")
     elif etype == "customer.subscription.updated":
         customer_id = obj.get("customer")
         status_val = obj.get("status")
@@ -8475,7 +8530,12 @@ async def admin_users_comp(data: CompUserPayload, admin: dict = Depends(require_
 async def admin_users_uncomp(data: CompUserPayload, admin: dict = Depends(require_admin)):
     """Revoke comp Pro for a user. By default we ALSO soft-delete them from the
     admin list so the row disappears (founder request). Pass `keep:true` in the
-    payload to revoke without deleting (legitimate users who shouldn't vanish)."""
+    payload to revoke without deleting (legitimate users who shouldn't vanish).
+
+    Also:
+      • Cancels any active Stripe subscription so they're not double-billed
+      • Sends a branded cancellation email so the user has a paper trail
+    """
     target = await db.users.find_one({"email": data.email.strip().lower()}, {"_id": 0})
     if not target:
         raise HTTPException(404, "User not found.")
@@ -8487,14 +8547,46 @@ async def admin_users_uncomp(data: CompUserPayload, admin: dict = Depends(requir
         update["deleted_at"] = now_iso
         update["deleted_by"] = admin["email"]
     await db.users.update_one({"id": target["id"]}, {"$set": update})
+
+    # 💳 Cancel Stripe subscription if active
+    stripe_cancelled = False
+    sub_id = target.get("stripe_subscription_id")
+    if sub_id:
+        try:
+            stripe.Subscription.delete(sub_id)
+            stripe_cancelled = True
+            await db.users.update_one(
+                {"id": target["id"]},
+                {"$set": {"stripe_subscription_id": None, "subscription_status": "canceled",
+                          "tier": "free", "subscription_ended_at": now_iso}},
+            )
+        except Exception as e:
+            logger.warning(f"Stripe cancel failed for user {target['email']}: {e}")
+
     await db.comp_audit.insert_one({
         "id": str(uuid.uuid4()),
         "granted_by_id": admin["id"], "granted_by_email": admin["email"],
         "target_id": target["id"], "target_email": target["email"],
         "reason": (data.reason or "Revoked")[:300],
         "at": now_iso, "action": ("revoke_and_delete" if not keep else "revoke"),
+        "stripe_cancelled": stripe_cancelled,
     })
-    return {"ok": True, "email": target["email"], "revoked": True, "deleted": not keep}
+
+    # 📧 Branded cancellation email
+    try:
+        from email_helper import send_cancellation_email
+        from datetime import datetime as _dt
+        await send_cancellation_email(
+            email=target["email"],
+            name=target.get("full_name") or "",
+            account_kind="user",
+            ended_on=_dt.now(timezone.utc).strftime("%d %B %Y"),
+            reason=data.reason or "",
+        )
+    except Exception as e:
+        logger.warning(f"Cancellation email failed for {target['email']}: {e}")
+
+    return {"ok": True, "email": target["email"], "revoked": True, "deleted": not keep, "stripe_cancelled": stripe_cancelled}
 
 
 class DeleteUserPayload(BaseModel):
@@ -8847,7 +8939,12 @@ async def admin_firms_comp(data: CompFirmPayload, admin: dict = Depends(require_
 
 @api_router.post("/admin/firms/uncomp")
 async def admin_firms_uncomp(data: CompFirmPayload, admin: dict = Depends(require_admin)):
-    """Revoke a firm's trial (sets trial_until to null). Used if a firm abuses the trial."""
+    """Revoke a firm's trial (sets trial_until to null). Also:
+      • Cancels any active Stripe subscription (so they're not double-billed
+        after the comp ends)
+      • Sends a branded cancellation email so the firm has a paper trail
+    Both side-effects are wrapped in try/except so a failure on either doesn't
+    block the revoke itself."""
     target = await db.firm_accounts.find_one({"email": data.email.strip().lower()}, {"_id": 0})
     if not target:
         raise HTTPException(404, "Firm not found.")
@@ -8860,6 +8957,20 @@ async def admin_firms_uncomp(data: CompFirmPayload, admin: dict = Depends(requir
             "trial_revoked_at": now.isoformat(),
         }},
     )
+    # 💳 Cancel any active Stripe subscription tied to this firm
+    stripe_cancelled = False
+    sub_id = target.get("stripe_subscription_id")
+    if sub_id:
+        try:
+            stripe.Subscription.delete(sub_id)  # immediate cancellation
+            stripe_cancelled = True
+            await db.firm_accounts.update_one(
+                {"id": target["id"]},
+                {"$set": {"stripe_subscription_id": None, "subscription_status": "canceled"}},
+            )
+        except Exception as e:
+            logger.warning(f"Stripe cancel failed for firm {target['email']}: {e}")
+
     await db.firm_comp_audit.insert_one({
         "id": str(uuid.uuid4()),
         "granted_by_id": admin["id"], "granted_by_email": admin["email"],
@@ -8867,8 +8978,23 @@ async def admin_firms_uncomp(data: CompFirmPayload, admin: dict = Depends(requir
         "target_firm_name": target.get("firm_name") or "",
         "reason": (data.reason or "Trial revoked")[:300],
         "at": now.isoformat(), "action": "revoke",
+        "stripe_cancelled": stripe_cancelled,
     })
-    return {"ok": True, "email": target["email"]}
+
+    # 📧 Branded cancellation email (fire-and-forget)
+    try:
+        from email_helper import send_cancellation_email
+        await send_cancellation_email(
+            email=target["email"],
+            name=target.get("firm_name") or target.get("primary_contact") or "",
+            account_kind="firm",
+            ended_on=now.strftime("%d %B %Y"),
+            reason=data.reason or "",
+        )
+    except Exception as e:
+        logger.warning(f"Cancellation email failed for {target['email']}: {e}")
+
+    return {"ok": True, "email": target["email"], "stripe_cancelled": stripe_cancelled}
 
 
 @api_router.get("/admin/firms/comps/active")
