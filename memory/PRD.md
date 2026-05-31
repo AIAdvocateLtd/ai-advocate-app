@@ -10,6 +10,19 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 33 — Travel-aware jurisdiction banner)
+- ✈️ **Friendly travel banner** for users abroad. Wired up the existing `/profile/auto-jurisdiction` flow now that the IP-geo fallback (Iter 32) actually works in production. When detected country ≠ profile country AND user hasn't pinned, a sticky banner appears at the top of the Dashboard with: country flag, full country names (mapped from `COUNTRIES`), reassuring note "*You can always ask Lex about UK law — just say so in your question*", and two CTAs: **Switch to France** / **Keep United Kingdom**. Decline persists server-side via `country_manually_set=true` so we never pester. Lex's system prompt already handles per-question jurisdiction overrides ("If they mention another country, switch and tell them you've done so" — `lex_system_prompt`).
+
+
+
+### 2026-02 (Iter 32 — Demo deletion + Geo fallback + Location toggle fix)
+- 🗑 **Demo mode fully removed (founder decision).** Deleted `/api/auth/demo` endpoint + 220-line sample-case seeder in `server.py`, the "Try a sample case" button on the auth screen, `DemoBanner` component, the demo-refresh 401 interceptor, and `is_demo` references throughout `App.js`. Defensive `is_demo: {"$ne": True}` filters in admin queries kept as harmless safety nets. App Store reviewers continue to use the dedicated `appstore.reviewer@aiadvocate.co.uk` account (separate from the deleted demo).
+- 🔒 **Security fix — `/api/subscription/activate-test` lockdown.** This dev endpoint previously let ANY logged-in user grant themselves Pro for free by calling `POST /subscription/activate-test?plan=pro`. The frontend even exposed an "Activate PRO (demo / no payment)" button to everyone in the subscription modal. Both endpoint and UI now restricted: endpoint returns 403 unless email is in `ADMIN_EMAILS`, button removed. Verified with a regular test user → 403.
+- 🌍 **Country detection fallback (was always empty in prod).** Emergent's Google ingress strips Cloudflare's `cf-ipcountry` header before it reaches the backend. Confirmed live — sending `cf-ipcountry: FR` to production returned `detected_country: ""`. Added a server-side IP→country lookup in `_ip_country` using `https://ipapi.co/<ip>/country/` (free, no API key, HTTPS, 2s timeout, 1-hour in-process cache). Verified: now returns `"US"` for the preview pod IP instead of empty.
+- 📍 **Location toggle "stuck off" bug fix.** Previously, after turning off Location in Settings, users couldn't turn it back on if the browser permission was denied at the OS level — they'd see a vague `alert("Location blocked")` with no actionable path. Rewrote `toggleLocation` to: (a) probe `navigator.permissions.query` first and show a clear "Settings → Safari → Location → Allow" message when blocked, (b) fall back to low-accuracy retry on iOS Safari timeouts (err.code === 3), (c) replaced ALL `alert()` calls with `aaToast()` so the toggle never gets stuck due to a blocked dialog, (d) always reset `busy` state in every path.
+
+
+
 ### 2026-02 (Iter 31 — Firm logo: phone photo picker)
 - 📷 **Firm portal — logo upload via phone photo library.** Replaced the text URL input in `BrandingModal` (`FirmPortal.js`) with a native file picker (`<input type="file" accept="image/*">`) + thumbnail preview + Remove button. On iOS/Android this opens the Photo Library directly. Backend (`PATCH /api/firm/branding`) now accepts either `https://` URLs (legacy) or base64 `data:image/...` URLs, with a 700KB cap. Validates `javascript:` / other schemes are still rejected. End-to-end curl + UI verified.
 

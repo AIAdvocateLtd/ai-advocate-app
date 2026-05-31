@@ -339,11 +339,43 @@ def _client_ip(req: Request) -> str:
 
 def _ip_country(req: Request) -> str:
     """Country code from common CDN/ingress headers. Returns '' if unavailable.
-    No external lookups — keeps the login path fast and private."""
+    Falls back to a free IP→country lookup (ipapi.co) when CDN headers are stripped
+    by the upstream proxy chain — which is the case on Emergent's Google ingress."""
     for k in ("cf-ipcountry", "x-vercel-ip-country", "x-country-code", "x-appengine-country"):
         c = req.headers.get(k)
         if c and len(c) == 2 and c.upper() not in ("XX", "T1"):
             return c.upper()
+    # Fallback: IP-based lookup via ipapi.co (free, no API key, ~1k req/day).
+    # Cached in-process for 1 hour per IP to avoid hitting the limit.
+    ip = _client_ip(req)
+    if not ip or ip.startswith(("127.", "10.", "192.168.", "172.")):
+        return ""
+    return _ip_country_lookup_cached(ip)
+
+
+# Simple in-memory cache for IP → country lookups. Keyed by IP, 1-hour TTL.
+_IP_COUNTRY_CACHE: dict = {}
+_IP_COUNTRY_TTL_SEC = 3600
+
+def _ip_country_lookup_cached(ip: str) -> str:
+    """Resolve an IPv4/IPv6 to ISO-3166 country code via ipapi.co. Returns ''
+    on any failure (timeout, rate limit, parse error) — never raises."""
+    import time as _time
+    now = _time.time()
+    cached = _IP_COUNTRY_CACHE.get(ip)
+    if cached and (now - cached[1]) < _IP_COUNTRY_TTL_SEC:
+        return cached[0]
+    try:
+        import httpx as _httpx
+        r = _httpx.get(f"https://ipapi.co/{ip}/country/", timeout=2.0,
+                       headers={"User-Agent": "AIAdvocate/1.0"})
+        cc = (r.text or "").strip().upper()
+        if len(cc) == 2 and cc.isalpha():
+            _IP_COUNTRY_CACHE[ip] = (cc, now)
+            return cc
+    except Exception:
+        pass
+    _IP_COUNTRY_CACHE[ip] = ("", now)
     return ""
 
 async def _check_geo_anomaly(user: dict, req: Request) -> Optional[dict]:
@@ -1333,233 +1365,6 @@ async def auth_providers():
         "apple_services_id": APPLE_SERVICES_ID,
     }
 
-
-# ==================== DEMO / SAMPLE MODE ====================
-# One-tap "Try a sample case" flow — required for App Store reviewers and great
-# for marketing demos. Logs the user into a shared demo account that's reset
-# every time someone starts a fresh demo session. The seed contains a realistic
-# Unfair Dismissal case with chat thread, a Lex-drafted grievance letter, an
-# evidence note, and a tribunal deadline — enough surface area for a reviewer
-# to feel the full product value without signing up.
-
-DEMO_USER_EMAIL = "demo@aiadvocate.co.uk"
-
-
-async def _seed_demo_user_data(demo_user_id: str):
-    """Wipe + reseed the demo user's data so every new demo session starts fresh."""
-    now = datetime.now(timezone.utc)
-
-    # 1. Wipe existing demo data from all collections the demo user touches.
-    for coll in (
-        "conversations", "cases", "case_items", "case_notes", "legal_files",
-        "reminders", "letters", "evidence_analyses", "feedback",
-        "feature_requests", "consent_audit", "security_events",
-    ):
-        try:
-            await db[coll].delete_many({"user_id": demo_user_id})
-        except Exception:
-            pass
-
-    # 2. Seed one realistic case: "Sarah v. Acme Ltd — Unfair Dismissal"
-    case_id = str(uuid.uuid4())
-    session_id = str(uuid.uuid4())
-    await db.cases.insert_one({
-        "id": case_id,
-        "user_id": demo_user_id,
-        "name": "Sarah v. Acme Ltd — Unfair Dismissal",
-        "category": "employment",
-        "status": "open",
-        "items_count": 3,
-        "summary": "Dismissed 14 May 2026 after raising whistleblowing concerns about expense fraud. 3+ years' service. Considering ET claim.",
-        "created_at": (now - timedelta(days=2)).isoformat(),
-        "updated_at": now.isoformat(),
-    })
-
-    # 3. Seed a 3-turn Lex chat thread linked to the case
-    sample_chat = [
-        {
-            "user_message": "I think I've been unfairly dismissed. I was let go a week after I reported my manager for expense fraud. What can I do?",
-            "assistant_response": (
-                "I'm sorry to hear that — this could be a strong case for both **unfair dismissal** and "
-                "**automatic unfair dismissal for whistleblowing** under the Employment Rights Act 1996 s.103A. "
-                "Three quick checks:\n\n"
-                "1. **Length of service** — you mentioned 3+ years, so you're protected ✅\n"
-                "2. **Protected disclosure** — reporting expense fraud likely qualifies as a 'qualifying disclosure' under s.43B ERA 1996\n"
-                "3. **Causal link** — being dismissed within a week of the disclosure is a very strong indicator\n\n"
-                "You have **3 months minus 1 day** from the dismissal date to file an ET1 with the Employment Tribunal. "
-                "I'd recommend starting ACAS Early Conciliation immediately — that's a mandatory first step and pauses the clock."
-            ),
-        },
-        {
-            "user_message": "What kind of compensation could I get?",
-            "assistant_response": (
-                "Two main heads:\n\n"
-                "**Basic award** — like statutory redundancy. For ~3 years' service at age 35+, around £1,800-£2,400.\n\n"
-                "**Compensatory award** — your actual losses. Capped at the lower of 52 weeks' gross pay or "
-                "**£115,115** (2025/26 cap). Covers loss of earnings, pension contributions, job-hunt costs.\n\n"
-                "**Whistleblowing automatic unfair dismissal is uncapped** — so if you can prove the dismissal was "
-                "*because of* the disclosure, the cap doesn't apply. This is huge in your case.\n\n"
-                "Realistic ballpark for someone earning £45k who's out of work 6 months: **£25k-£40k**. Higher if the whistleblowing claim succeeds."
-            ),
-        },
-        {
-            "user_message": "Can you draft a grievance letter to send to HR before I go to tribunal?",
-            "assistant_response": (
-                "Absolutely — I've drafted a formal grievance letter for you. Find it in **My Legal Files** → 'Grievance letter — Acme Ltd'.\n\n"
-                "It cites the relevant sections of the Employment Rights Act, requests a formal investigation under "
-                "ACAS Code of Practice 1, and gives Acme 14 days to respond before you escalate to tribunal.\n\n"
-                "**Important:** Send it by email AND recorded delivery so you have proof of receipt. I've added a 14-day deadline to your reminders."
-            ),
-        },
-    ]
-    for i, turn in enumerate(sample_chat):
-        await db.conversations.insert_one({
-            "id": str(uuid.uuid4()),
-            "user_id": demo_user_id,
-            "session_id": session_id,
-            "category": "ask_lex",
-            "user_message": encrypt_text(turn["user_message"]),
-            "assistant_response": encrypt_text(turn["assistant_response"]),
-            "model": "claude-sonnet-4-5-20250929",
-            "linked_case_id": case_id,
-            "created_at": (now - timedelta(days=2, minutes=(2 - i) * 5)).isoformat(),
-        })
-
-    # 4. Attach the chat thread as a case item
-    await db.case_items.insert_one({
-        "id": str(uuid.uuid4()),
-        "case_id": case_id,
-        "user_id": demo_user_id,
-        "kind": "chat",
-        "session_id": session_id,
-        "title": "Initial consultation with Lex",
-        "summary": "Discussed dismissal timeline, whistleblowing protection under ERA 1996 s.103A, and compensation framework.",
-        "created_at": (now - timedelta(days=2)).isoformat(),
-    })
-
-    # 5. Seed a Lex-drafted grievance letter
-    letter_id = str(uuid.uuid4())
-    letter_body = (
-        "Dear Acme Ltd HR Department,\n\n"
-        "RE: FORMAL GRIEVANCE — UNFAIR DISMISSAL & WHISTLEBLOWING DETRIMENT\n\n"
-        "I am writing to raise a formal grievance under your published grievance procedure "
-        "and ACAS Code of Practice 1, regarding the termination of my employment on 14 May 2026.\n\n"
-        "I had been employed by Acme Ltd as Senior Accounts Manager since March 2023. "
-        "On 7 May 2026, I made a protected disclosure under the Employment Rights Act 1996 (ERA) "
-        "section 43B, in which I reported reasonable suspicions of expense-claim fraud by a member of senior management.\n\n"
-        "Seven days later, I was dismissed without prior warning, without a fair disciplinary process, "
-        "and without genuine consultation. I consider this dismissal to be:\n\n"
-        "(a) Automatically unfair under ERA 1996 s.103A (whistleblowing); and\n"
-        "(b) Unfair under ERA 1996 s.98.\n\n"
-        "I require a formal investigation, a written response within 14 days, and reinstatement "
-        "or appropriate compensation. Failing a satisfactory response, I intend to commence "
-        "ACAS Early Conciliation and proceedings in the Employment Tribunal.\n\n"
-        "Yours faithfully,\n[Sample Demo User]"
-    )
-    await db.legal_files.insert_one({
-        "id": letter_id,
-        "user_id": demo_user_id,
-        "type": "letter",
-        "filename": "Grievance letter — Acme Ltd.txt",
-        "content": encrypt_text(letter_body),
-        "linked_case_id": case_id,
-        "created_at": (now - timedelta(days=2, minutes=10)).isoformat(),
-        "deleted_at": None,
-    })
-    await db.case_items.insert_one({
-        "id": str(uuid.uuid4()),
-        "case_id": case_id,
-        "user_id": demo_user_id,
-        "kind": "letter",
-        "file_id": letter_id,
-        "title": "Grievance letter — Acme Ltd",
-        "summary": "Lex-drafted formal grievance citing whistleblowing protection under ERA 1996 s.103A.",
-        "created_at": (now - timedelta(days=2, minutes=10)).isoformat(),
-    })
-
-    # 6. Witness statement note
-    await db.case_items.insert_one({
-        "id": str(uuid.uuid4()),
-        "case_id": case_id,
-        "user_id": demo_user_id,
-        "kind": "note",
-        "title": "Witness statement — colleague",
-        "summary": "Colleague J. Patel willing to provide written statement confirming the timing of the disclosure and dismissal.",
-        "created_at": (now - timedelta(days=1)).isoformat(),
-    })
-
-    # 7. Tribunal deadline
-    dismissal_date = now - timedelta(days=2)
-    et_deadline = dismissal_date + timedelta(days=90)
-    await db.reminders.insert_one({
-        "id": str(uuid.uuid4()),
-        "user_id": demo_user_id,
-        "case_id": case_id,
-        "linked_case_id": case_id,
-        "title": "File ET1 with Employment Tribunal",
-        "description": "3 months minus 1 day from dismissal (14 May 2026). Must complete ACAS Early Conciliation first.",
-        "due_at": et_deadline.isoformat(),
-        "priority": "high",
-        "kind": "tribunal_deadline",
-        "status": "pending",
-        "created_at": now.isoformat(),
-    })
-
-    # 8. ACAS deadline
-    acas_deadline = now + timedelta(days=7)
-    await db.reminders.insert_one({
-        "id": str(uuid.uuid4()),
-        "user_id": demo_user_id,
-        "case_id": case_id,
-        "linked_case_id": case_id,
-        "title": "Start ACAS Early Conciliation",
-        "description": "Mandatory before filing ET1. Free, online: acas.org.uk/early-conciliation",
-        "due_at": acas_deadline.isoformat(),
-        "priority": "medium",
-        "kind": "deadline",
-        "status": "pending",
-        "created_at": now.isoformat(),
-    })
-
-
-@api_router.post("/auth/demo", response_model=TokenResp)
-async def auth_demo(request: Request):
-    """One-tap demo login: returns a JWT for the shared demo account, with
-    freshly-seeded sample case data. Designed for App Store reviewers and
-    marketing demos — no signup required."""
-    now = datetime.now(timezone.utc)
-    demo_user = await db.users.find_one({"email": DEMO_USER_EMAIL})
-    if not demo_user:
-        demo_user = {
-            "id": str(uuid.uuid4()),
-            "email": DEMO_USER_EMAIL,
-            "password_hash": hash_pw(str(uuid.uuid4())),
-            "full_name": "Sample Demo User",
-            "language": "en-GB",
-            "country": "GB",
-            "auth_provider": "demo",
-            "created_at": now.isoformat(),
-            "trial_start_date": now.isoformat(),
-            "trial_end_date": (now + timedelta(days=365 * 10)).isoformat(),
-            "subscription_status": "trial",
-            "is_demo": True,
-            "terms_accepted": True,
-        }
-        await db.users.insert_one(demo_user)
-
-    # Reset demo data so every new demo session starts clean & consistent.
-    await _seed_demo_user_data(demo_user["id"])
-
-    await db.users.update_one(
-        {"id": demo_user["id"]},
-        {"$set": {"is_demo": True, "last_demo_login": now.isoformat()}},
-    )
-    demo_user["is_demo"] = True
-
-    return TokenResp(
-        access_token=make_token(demo_user["id"], demo_user["email"]),
-        user=user_to_public(demo_user),
-    )
 
 
 
@@ -3796,7 +3601,12 @@ async def billing_portal(request: Request, user: dict = Depends(get_user)):
 
 @api_router.post("/subscription/activate-test")
 async def activate_test(plan: str = "plus", user: dict = Depends(get_user)):
-    """For test/demo: activate subscription without real Stripe."""
+    """DEV-ONLY: activate a subscription without going through Stripe.
+    Hardened in 2026-02 — restricted to admin emails to prevent any logged-in user
+    from upgrading themselves for free. Returns 403 otherwise."""
+    _admin_set = {e.strip().lower() for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",") if e.strip()}
+    if user.get("email", "").lower() not in _admin_set:
+        raise HTTPException(403, "Test activation is admin-only.")
     tier = plan if plan in ("plus", "pro", "yearly") else "plus"
     await db.users.update_one(
         {"id": user["id"]},

@@ -73,11 +73,7 @@ const setAuthHeader = (token) => {
 };
 
 // 401 interceptor — when a token expires or is invalid:
-//   • Demo users: silently re-login as demo and retry the request once
-//   • Real users: clear the stale token + redirect to auth screen
-// This stops the user seeing raw "Not authenticated" alerts from native fetch in
-// long-lived demo sessions (the JWT expires after 24h).
-let _refreshingDemo = null;
+// Clear the stale token + redirect to auth screen.
 api.interceptors.response.use(
   (r) => r,
   async (error) => {
@@ -87,27 +83,9 @@ api.interceptors.response.use(
     if (status !== 401 || cfg.__aaRetried) return Promise.reject(error);
     // Never retry auth endpoints themselves (avoid loops)
     if (url.startsWith("/auth/")) return Promise.reject(error);
-    const isDemo = localStorage.getItem("aa_is_demo") === "1";
-    if (isDemo) {
-      try {
-        _refreshingDemo = _refreshingDemo || api.post("/auth/demo");
-        const { data } = await _refreshingDemo;
-        _refreshingDemo = null;
-        localStorage.setItem("aa_token", data.access_token);
-        setAuthHeader(data.access_token);
-        cfg.headers = { ...(cfg.headers || {}), Authorization: `Bearer ${data.access_token}` };
-        cfg.__aaRetried = true;
-        return api.request(cfg);
-      } catch (e) {
-        _refreshingDemo = null;
-        localStorage.removeItem("aa_token");
-        window.location.reload();
-      }
-    } else {
-      // Real user — token expired. Boot to auth screen.
-      localStorage.removeItem("aa_token");
-      window.location.reload();
-    }
+    // Token expired — boot to auth screen.
+    localStorage.removeItem("aa_token");
+    window.location.reload();
     return Promise.reject(error);
   }
 );
@@ -713,36 +691,9 @@ function AuthScreen({ lang, country, onAuth }) {
         <Sparkles size={14} /> {t(lang, "tryLexFree")}
       </button>
 
-      {/* Try Sample Case — full demo mode, no signup. Designed for App Store reviewers. */}
-      <button data-testid="try-sample-case-btn"
-              onClick={async () => {
-                setBusy(true); setErr("");
-                try {
-                  const { data } = await api.post("/auth/demo");
-                  onAuth(data);
-                } catch (e) {
-                  setErr(e?.response?.data?.detail || "Could not start demo");
-                } finally { setBusy(false); }
-              }}
-              disabled={busy}
-              style={{
-                marginTop: 10,
-                padding: "10px 18px",
-                background: "linear-gradient(135deg, rgba(247,201,72,0.10), rgba(247,201,72,0.02))",
-                color: "var(--gold)",
-                border: "1px solid var(--gold)",
-                borderRadius: 12,
-                cursor: busy ? "not-allowed" : "pointer",
-                fontSize: 13,
-                letterSpacing: "0.02em",
-                fontWeight: 600,
-                display: "inline-flex", alignItems: "center", gap: 8,
-              }}>
-        <img src="/icons/files.png" alt="" style={{ width: 14, height: 14, objectFit: "contain" }} /> Try a sample case
-      </button>
-      <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)", maxWidth: 320, textAlign: "center", lineHeight: 1.4 }}>
-        Explore a real Unfair Dismissal case — no signup needed.
-      </div>
+      {/* Try Sample Case removed — Founder decision (2026-02): the free tier already
+          allows one free Lex question without commitment, so the sample-case demo
+          duplicates the funnel without adding value, while costing LLM tokens. */}
 
       {showWelcome && (
         <WelcomeTour lang={lang} onDone={() => { localStorage.setItem("aa_welcomed", "1"); setShowWelcome(false); setShowTaster(true); }} />
@@ -5220,30 +5171,62 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
 
   const toggleLocation = async () => {
     if (!locOn) {
-      // Turn ON — request geolocation
-      if (!navigator.geolocation) { alert(t(lang, "geolocationNotSupported")); return; }
+      // Turn ON — request geolocation.
+      // Edge cases handled: (a) browser API missing, (b) user denied at OS level,
+      // (c) iOS Safari high-accuracy timeout (retry with low-accuracy), (d) busy
+      // state always cleared so the toggle is never stuck.
+      if (!navigator.geolocation) { aaToast(t(lang, "geolocationNotSupported"), "error"); return; }
+
+      // If the browser exposes the Permissions API, surface a clear path when
+      // permission has been revoked at the OS / browser-settings level (which
+      // would otherwise cause an opaque error callback).
+      try {
+        if (navigator.permissions?.query) {
+          const status = await navigator.permissions.query({ name: "geolocation" });
+          if (status.state === "denied") {
+            aaToast("Location is blocked in your browser settings. On iPhone: Settings → Safari → Location → Allow. Then refresh and try again.", "error");
+            return;
+          }
+        }
+      } catch (e) { /* ignore — fall through to the request which will trigger the OS prompt */ }
+
       setBusy(true);
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          try {
-            const { data } = await api.patch("/auth/preferences", {
-              location_enabled: true,
-              latitude: pos.coords.latitude,
-              longitude: pos.coords.longitude,
-            });
-            onUpdate(data); setLocOn(true);
-          } catch (e) { alert(t(lang, "failedToSave")); }
-          finally { setBusy(false); }
-        },
-        (err) => { setBusy(false); alert(t(lang, "locationBlocked")); },
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
+      const onSuccess = async (pos) => {
+        try {
+          const { data } = await api.patch("/auth/preferences", {
+            location_enabled: true,
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+          });
+          onUpdate(data); setLocOn(true);
+          aaToast("Location enabled", "success");
+        } catch (e) { aaToast(t(lang, "failedToSave"), "error"); }
+        finally { setBusy(false); }
+      };
+      const onError = (err) => {
+        setBusy(false);
+        if (err && err.code === 1) {
+          // PERMISSION_DENIED — user just denied or has it blocked
+          aaToast("Permission denied. Allow location in your browser/phone settings, then try again.", "error");
+        } else if (err && err.code === 3) {
+          // TIMEOUT — retry with low-accuracy as a fallback (iOS Safari edge case)
+          setBusy(true);
+          navigator.geolocation.getCurrentPosition(onSuccess,
+            (e2) => { setBusy(false); aaToast("Could not get your location. Try again or check your signal.", "error"); },
+            { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 });
+        } else {
+          aaToast("Could not get your location. Try again.", "error");
+        }
+      };
+      navigator.geolocation.getCurrentPosition(onSuccess, onError,
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
     } else {
       setBusy(true);
       try {
         const { data } = await api.patch("/auth/preferences", { location_enabled: false });
         onUpdate(data); setLocOn(false);
-      } catch (e) { alert(t(lang, "failed")); }
+        aaToast("Location disabled", "info");
+      } catch (e) { aaToast(t(lang, "failed"), "error"); }
       finally { setBusy(false); }
     }
   };
@@ -5590,13 +5573,6 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
     try { const { data } = await api.post("/subscription/portal"); window.location.href = data.portal_url; }
     catch (e) { alert(e?.response?.data?.detail || "Failed"); setBusy(false); }
   };
-  const demoActivate = async () => {
-    setBusy(true);
-    try { const { data } = await api.post(`/subscription/activate-test?plan=${picked}`); onActivated(data); }
-    catch (e) { alert(e?.response?.data?.detail || "Failed"); }
-    finally { setBusy(false); }
-  };
-
   const buyTopup = async (pack) => {
     if (!pack.configured) {
       alert("This top-up is coming soon — Stripe price not yet configured.");
@@ -5835,9 +5811,6 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
               {busy ? <span className="spinner" /> : `Subscribe — £${tiers.find(x => x.id === picked)?.price_gbp || ""}/${tiers.find(x => x.id === picked)?.period === "year" ? "yr" : "mo"}`}
             </button>
           )}
-          <button className="btn-ghost w-full" data-testid="demo-activate-btn" onClick={demoActivate} disabled={busy || picked === "free"} style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
-            Activate {picked.toUpperCase()} (demo / no payment)
-          </button>
           <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, textAlign: "center" }}>
             Cancel any time. Powered by Stripe. Subscribing on the web saves you the Apple/Google fee.
           </div>
@@ -8261,7 +8234,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {/* 🎁 Winback Day Pass — fires once-per-account for free users who've hit the
           chat cap AND dismissed the upgrade modal twice. Goal: rescue a frustrated user. */}
       <WinbackGiftBanner user={user} lang={lang} refreshUser={refreshUser} />
-      {tier === "trial_pro" && !user?.is_demo && (
+      {tier === "trial_pro" && (
         <div className="trial-banner" data-testid="trial-banner" style={{ marginBottom: 14 }}>
           {t(lang, "trialDays", { n: user.trial_days_remaining })}
         </div>
@@ -10785,41 +10758,7 @@ function ManageDataModal({ lang, onClose, onAccountDeleted }) {
   );
 }
 
-// ---------- Demo banner ----------
-// Shown at the top of the app shell whenever user.is_demo === true. Tells the
-// user they're in sample/demo mode and gives them a one-tap path to create a
-// real account (which logs them out of the demo).
-function DemoBanner({ lang, onSignup }) {
-  return (
-    <div data-testid="demo-banner"
-         style={{
-           background: "linear-gradient(135deg, rgba(247,201,72,0.18), rgba(247,201,72,0.06))",
-           borderBottom: "1px solid var(--gold-deep)",
-           padding: "10px 14px",
-           display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
-           position: "sticky", top: 0, zIndex: 50,
-           backdropFilter: "blur(6px)",
-         }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
-        <span style={{
-          background: "var(--gold)", color: "#1a1300", borderRadius: 999, padding: "2px 8px",
-          fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", flexShrink: 0,
-        }}>DEMO</span>
-        <span style={{ color: "var(--text)", fontSize: 12.5, lineHeight: 1.35 }}>
-          Sample case — sign up to save your own.
-        </span>
-      </div>
-      <button data-testid="demo-signup-btn" onClick={onSignup}
-              style={{
-                background: "var(--gold)", color: "#1a1300",
-                border: "none", borderRadius: 10, padding: "8px 14px",
-                fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0,
-              }}>
-        Sign up
-      </button>
-    </div>
-  );
-}
+// ---------- Demo banner removed — see top of file note re: demo deletion ----------
 
 function App() {
   const [lang, setLang] = useState(localStorage.getItem("aa_lang") || "en-GB");
@@ -10867,11 +10806,9 @@ function App() {
     if (token) {
       setAuthHeader(token);
       api.get("/auth/me").then(r => {
-        if (r.data?.is_demo) localStorage.setItem("aa_is_demo", "1");
-        else localStorage.removeItem("aa_is_demo");
         setUser(r.data); setSentryUser(r.data); identifyAnalytics(r.data); setLang(r.data.language || lang); setCountry(r.data.country || country); setStep("app");
       })
-        .catch(() => { localStorage.removeItem("aa_token"); localStorage.removeItem("aa_is_demo"); setToken(null); setStep(localStorage.getItem("aa_terms") ? "auth" : "lang"); });
+        .catch(() => { localStorage.removeItem("aa_token"); setToken(null); setStep(localStorage.getItem("aa_terms") ? "auth" : "lang"); });
     } else {
       setStep(localStorage.getItem("aa_terms") ? "auth" : "lang");
     }
@@ -10883,7 +10820,7 @@ function App() {
   // silently switch — legal jurisdiction is too important to change without user consent.
   const [jurisdictionPrompt, setJurisdictionPrompt] = useState(null);
   useEffect(() => {
-    if (!user || user.is_demo) return;
+    if (!user) return;
     if (sessionStorage.getItem("aa_jurisdiction_dismissed_this_session")) return;
     api.get("/profile/auto-jurisdiction").then(r => {
       if (r.data?.suggestion) setJurisdictionPrompt(r.data.suggestion);
@@ -10938,14 +10875,11 @@ function App() {
 
   const onAuth = (data) => {
     localStorage.setItem("aa_token", data.access_token); setToken(data.access_token); setAuthHeader(data.access_token);
-    // Mark demo sessions so the 401 interceptor can silently re-login them.
-    if (data.user?.is_demo) localStorage.setItem("aa_is_demo", "1");
-    else localStorage.removeItem("aa_is_demo");
     setUser(data.user); setSentryUser(data.user); identifyAnalytics(data.user);
-    track(data.user?.is_demo ? "demo_started" : "user_signed_in");
+    track("user_signed_in");
     setStep("app");
   };
-  const onLogout = () => { localStorage.removeItem("aa_token"); localStorage.removeItem("aa_is_demo"); setToken(null); setUser(null); setAuthHeader(null); clearSentryUser(); resetAnalytics(); setStep("auth"); };
+  const onLogout = () => { localStorage.removeItem("aa_token"); setToken(null); setUser(null); setAuthHeader(null); clearSentryUser(); resetAnalytics(); setStep("auth"); };
 
   if (step === "loading") return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}><span className="spinner" /></div>;
 
@@ -10959,45 +10893,56 @@ function App() {
       {step === "auth" && <AuthScreen lang={lang} country={country} onAuth={onAuth} />}
       {step === "app" && user && !showSplash && (
         <>
-          {user.is_demo && <DemoBanner lang={lang} onSignup={() => { onLogout(); /* lands them on auth screen */ }} />}
-          {jurisdictionPrompt && (
+          {jurisdictionPrompt && (() => {
+            const detectedName = COUNTRIES.find(c => c.code === jurisdictionPrompt.detected_country)?.name || jurisdictionPrompt.detected_country;
+            const currentName = COUNTRIES.find(c => c.code === jurisdictionPrompt.current_country)?.name || jurisdictionPrompt.current_country;
+            const detectedCC = (jurisdictionPrompt.detected_country || "").toLowerCase();
+            return (
             <div data-testid="jurisdiction-banner" style={{
-              position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999,
+              position: "sticky", top: 0, zIndex: 9999,
               background: "linear-gradient(135deg, #1a1300 0%, #2a2010 100%)",
               borderBottom: "2px solid #f7c948",
-              color: "#f7c948", padding: "12px 18px",
+              color: "#f7c948", padding: "12px 16px",
               display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-              fontSize: 14, lineHeight: 1.4,
-              boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
+              fontSize: 13.5, lineHeight: 1.4,
+              boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
             }}>
-              <span style={{ fontSize: 18 }}>🌍</span>
-              <span style={{ flex: "1 1 240px" }}>
-                <strong>{jurisdictionPrompt.message}</strong>
+              <span style={{ fontSize: 22, lineHeight: 1 }} aria-hidden>✈️</span>
+              {detectedCC && <Flag cc={detectedCC} size={20} alt={detectedName} />}
+              <span style={{ flex: "1 1 240px", minWidth: 0 }}>
+                <strong style={{ color: "#f7c948" }}>
+                  It looks like you're in {detectedName}.
+                </strong>
                 <br/>
                 <span style={{ fontSize: 12, color: "#d4af37" }}>
-                  Lex will apply {jurisdictionPrompt.detected_country} law to your next questions.
+                  Switch Lex to apply {detectedName} law to your questions?{" "}
+                  <span style={{ color: "#a89060" }}>
+                    (You can always ask Lex about {currentName} law — just say so in your question.)
+                  </span>
                 </span>
               </span>
               <button data-testid="jurisdiction-accept"
                       onClick={acceptJurisdictionSwitch}
                       style={{
                         background: "#f7c948", color: "#1a1300",
-                        border: "none", padding: "8px 14px", borderRadius: 6,
+                        border: "none", padding: "8px 14px", borderRadius: 8,
                         fontWeight: 700, cursor: "pointer", fontSize: 13,
+                        whiteSpace: "nowrap",
                       }}>
-                Switch to {jurisdictionPrompt.detected_country}
+                Switch to {detectedName}
               </button>
               <button data-testid="jurisdiction-decline"
                       onClick={declineJurisdictionSwitch}
                       style={{
                         background: "transparent", color: "#d4af37",
-                        border: "1px solid #d4af37", padding: "8px 14px", borderRadius: 6,
-                        cursor: "pointer", fontSize: 13,
+                        border: "1px solid #d4af37", padding: "8px 14px", borderRadius: 8,
+                        cursor: "pointer", fontSize: 13, whiteSpace: "nowrap",
                       }}>
-                Keep {jurisdictionPrompt.current_country}
+                Keep {currentName}
               </button>
             </div>
-          )}
+            );
+          })()}
           <Dashboard user={user} lang={lang} country={country} setLang={setLang} setCountry={setCountry} onLogout={onLogout} refreshUser={(u) => setUser(u)} />
         </>
       )}
