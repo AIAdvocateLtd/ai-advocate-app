@@ -8072,6 +8072,7 @@ async def admin_firm_agreement_send(
         from email_helper import send_email
         await send_email(
             to=data.contact_email,
+            kind="firm",
             subject=f"AI Advocate — Founding Firm Agreement for {data.firm_name}",
             body_html=f"""<p>Hi {data.contact_name.split(',')[0]},</p>
             <p>Thank you for joining the AI Advocate <strong>Founding Firm</strong> cohort.</p>
@@ -8143,6 +8144,7 @@ async def sign_firm_agreement(token: str, data: FirmAgreementSignPayload, reques
                 try:
                     await send_email(
                         to=recipient,
+                        kind="firm",
                         subject=f"✅ Signed — Founding Firm Agreement: {fresh['firm_name']}",
                         body_html=f"""<p>The Founding Firm Agreement between AI Advocate Ltd. and <strong>{fresh['firm_name']}</strong> has been signed by both parties.</p>
                         <ul>
@@ -8181,6 +8183,45 @@ async def get_signed_firm_agreement_pdf(token: str):
         pdf_path, media_type="application/pdf",
         filename=f"AI_Advocate_Founding_Firm_Agreement_{safe}{suffix}.pdf",
     )
+
+
+@api_router.post("/admin/firm-agreements/{token}/resend")
+async def admin_resend_firm_agreement(token: str, _: dict = Depends(require_admin)):
+    """Re-send the signing link to the firm. Useful when they say "I lost the email."
+    Only works on agreements still in 'sent' status — once signed, this is a no-op."""
+    rec = await db.firm_agreements.find_one({"token": token})
+    if not rec:
+        raise HTTPException(404, "Agreement not found.")
+    if rec.get("status") == "signed":
+        raise HTTPException(409, "Agreement already signed — no need to resend.")
+
+    app_base = os.environ.get("APP_PUBLIC_URL") or os.environ.get("REACT_APP_BACKEND_URL") or "https://aiadvocate.co.uk"
+    signing_url = f"{app_base.rstrip('/')}/firm-sign/{token}"
+
+    try:
+        from email_helper import send_email
+        first_name = (rec.get("contact_name") or "there").split(",")[0]
+        await send_email(
+            to=rec["contact_email"],
+            kind="firm",
+            subject=f"Reminder — your AI Advocate Founding Firm Agreement is waiting",
+            body_html=f"""<p>Hi {first_name},</p>
+            <p>Just a quick reminder — your Founding Firm Agreement for <strong>{rec['firm_name']}</strong> is ready to sign.</p>
+            <p style="margin:24px 0;"><a href="{signing_url}" style="background:#f7c948;color:#1a1300;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:700;">Review &amp; sign agreement →</a></p>
+            <p style="color:#666;font-size:13px;">Or copy this link: <a href="{signing_url}">{signing_url}</a></p>
+            <p style="color:#666;font-size:12px;">No rush — but the Founding cohort only has 20 spots and we'd love to have you in. Reply to this email if you've got any questions or need a change to the agreement.</p>
+            <p>Samuel Malick<br/>Founder, AI Advocate Ltd.</p>""",
+        )
+    except Exception as e:
+        print(f"[firm-agreement] Resend email failed for {rec['contact_email']}: {e}")
+        raise HTTPException(500, "Could not send reminder email. Try again shortly.")
+
+    # Bump a counter so we can see how many times we've nudged each firm
+    await db.firm_agreements.update_one({"token": token}, {
+        "$inc": {"resend_count": 1},
+        "$set": {"last_resent_at": datetime.now(timezone.utc).isoformat()},
+    })
+    return {"ok": True, "signing_url": signing_url}
 
 
 @api_router.get("/admin/firm-agreements")

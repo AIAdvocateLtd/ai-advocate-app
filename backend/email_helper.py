@@ -45,8 +45,30 @@ def _reply_to() -> str:
     return (os.environ.get("RESEND_REPLY_TO") or "").strip() or "support@aiadvocate.co.uk"
 
 
-def _wrap(html_body: str, preview: str = "") -> str:
-    """Standard email shell: gold-accent header, dark card on white, footer."""
+def _wrap(html_body: str, preview: str = "", kind: str = "user") -> str:
+    """Standard email shell: gold-accent header, dark card on white, footer.
+
+    kind: "user" (default) → user-facing footer with support@ contact
+          "firm"           → firm-facing footer with firms@ contact and no "reply"
+                             nudge (since these come from no-reply@)
+    """
+    # Logo hosted on the public site — embedded as <img> so every mail client renders it.
+    logo_url = "https://aiadvocate.co.uk/icons/app-icon-1024.png"
+
+    if kind == "firm":
+        footer_html = (
+            'AI Advocate Ltd. · Company No. 16612244 · ICO Registration ZC158457 · '
+            '<a href="https://aiadvocate.co.uk" style="color:#b8860b; text-decoration:none;">aiadvocate.co.uk</a><br>'
+            'Questions about your agreement or onboarding? Email '
+            '<a href="mailto:firms@aiadvocate.co.uk" style="color:#b8860b; text-decoration:none;">firms@aiadvocate.co.uk</a>.'
+        )
+    else:
+        footer_html = (
+            'AI Advocate Ltd. · ICO Registration ZC158457 · '
+            '<a href="https://aiadvocate.co.uk" style="color:#b8860b; text-decoration:none;">aiadvocate.co.uk</a><br>'
+            "You're receiving this because you signed up at aiadvocate.co.uk. Reply to this email if you have questions."
+        )
+
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"></head>
 <body style="margin:0; padding:0; background-color:#f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
@@ -54,16 +76,23 @@ def _wrap(html_body: str, preview: str = "") -> str:
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f5f5f5; padding:32px 0;">
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560" style="background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 16px rgba(0,0,0,0.06);">
-        <tr><td style="background:linear-gradient(135deg,#0a0a0a,#1a1300); padding:24px 28px; text-align:left;">
-          <div style="color:#f7c948; font-family:'Cinzel', Georgia, serif; font-size:22px; font-weight:700; letter-spacing:0.04em;">AI ADVOCATE</div>
-          <div style="color:#cfcfcf; font-size:11px; letter-spacing:0.08em; margin-top:4px;">A LAWYER IN YOUR POCKET</div>
+        <tr><td style="background:linear-gradient(135deg,#0a0a0a,#1a1300); padding:22px 28px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
+            <td valign="middle" style="width:54px; padding-right:14px;">
+              <img src="{logo_url}" width="44" height="44" alt="AI Advocate"
+                   style="display:block; border-radius:10px; border:1px solid #f7c948;" />
+            </td>
+            <td valign="middle">
+              <div style="color:#f7c948; font-family:'Cinzel', Georgia, serif; font-size:22px; font-weight:700; letter-spacing:0.04em;">AI ADVOCATE</div>
+              <div style="color:#cfcfcf; font-size:11px; letter-spacing:0.08em; margin-top:4px;">AI LAWYER IN YOUR POCKET</div>
+            </td>
+          </tr></table>
         </td></tr>
         <tr><td style="padding:28px 28px 24px 28px; color:#1a1300; font-size:15px; line-height:1.6;">
           {html_body}
         </td></tr>
         <tr><td style="padding:14px 28px 22px 28px; border-top:1px solid #eaeaea; color:#888; font-size:11.5px; line-height:1.5;">
-          AI Advocate Ltd. · ICO Registration ZC158457 · <a href="https://aiadvocate.co.uk" style="color:#b8860b; text-decoration:none;">aiadvocate.co.uk</a><br>
-          You're receiving this because you signed up at aiadvocate.co.uk. Reply to this email if you have questions.
+          {footer_html}
         </td></tr>
       </table>
     </td></tr>
@@ -71,11 +100,12 @@ def _wrap(html_body: str, preview: str = "") -> str:
 </body></html>"""
 
 
-async def _send(to_email: str, subject: str, html: str, attachments: Optional[list] = None) -> bool:
+async def _send(to_email: str, subject: str, html: str, attachments: Optional[list] = None, reply_to_override: Optional[str] = None) -> bool:
     """Low-level async send. Returns False (never raises) so callers can fire-and-forget safely.
 
     attachments: optional list of {filename, content} dicts. `content` must be a
-    base64-encoded string of the file bytes. Resend handles the rest."""
+    base64-encoded string of the file bytes. Resend handles the rest.
+    reply_to_override: route replies to a non-default mailbox (e.g. firms@ for B2B)."""
     api_key = _api_key()
     if not api_key:
         logger.info(f"[email-skip] {to_email} | {subject!r} (no RESEND_API_KEY)")
@@ -87,7 +117,7 @@ async def _send(to_email: str, subject: str, html: str, attachments: Optional[li
             "to": [to_email],
             "subject": subject,
             "html": html,
-            "reply_to": [_reply_to()],
+            "reply_to": [reply_to_override or _reply_to()],
         }
         if attachments:
             params["attachments"] = attachments
@@ -226,9 +256,13 @@ async def send_password_reset(email: str, reset_link: str) -> bool:
     return await _send(email, "Reset your AI Advocate password", html)
 
 
-async def send_email(to: str, subject: str, body_html: str, attachments: Optional[list] = None) -> bool:
+async def send_email(to: str, subject: str, body_html: str, attachments: Optional[list] = None, kind: str = "user") -> bool:
     """Generic email helper used by ad-hoc flows (gifts, firm agreements, etc.).
-    Wraps the body_html in the standard AI Advocate template + supports attachments
-    (list of {filename, content} where content is base64 bytes)."""
-    html = _wrap(body_html, preview=subject[:80])
-    return await _send(to, subject, html, attachments=attachments)
+    Wraps the body_html in the standard AI Advocate template + supports attachments.
+
+    kind: "user" (default)  → consumer footer + reply-to support@
+          "firm"            → firm-facing footer + reply-to firms@aiadvocate.co.uk
+    """
+    html = _wrap(body_html, preview=subject[:80], kind=kind)
+    reply_override = "firms@aiadvocate.co.uk" if kind == "firm" else None
+    return await _send(to, subject, html, attachments=attachments, reply_to_override=reply_override)

@@ -6977,6 +6977,21 @@ function AdminSolicitorBriefCard({ lang }) {
                       padding: "2px 7px", borderRadius: 999, fontSize: 10, fontWeight: 700, letterSpacing: "0.04em",
                       background: a.status === "signed" ? "#16a34a" : "#b8860b", color: "#fff",
                     }}>{a.status === "signed" ? "SIGNED" : "PENDING"}</span>
+                    {a.status !== "signed" && (
+                      <button data-testid={`firm-agreement-resend-${a.token.slice(0,8)}`}
+                              onClick={async () => {
+                                try {
+                                  await api.post(`/admin/firm-agreements/${a.token}/resend`);
+                                  aaToast(`Reminder re-sent to ${a.contact_email}`, "success");
+                                } catch (e) {
+                                  aaToast(e?.response?.data?.detail || "Resend failed", "error");
+                                }
+                              }}
+                              title="Resend signing link"
+                              style={{ background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 6, padding: "2px 8px", fontSize: 10.5, cursor: "pointer", fontWeight: 600 }}>
+                        Resend
+                      </button>
+                    )}
                     <a href={`/firm-sign/${a.token}`} target="_blank" rel="noreferrer"
                        style={{ color: "var(--gold)", fontSize: 11, textDecoration: "none" }} title="Open signing page">↗</a>
                   </div>
