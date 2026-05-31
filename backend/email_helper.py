@@ -71,8 +71,11 @@ def _wrap(html_body: str, preview: str = "") -> str:
 </body></html>"""
 
 
-async def _send(to_email: str, subject: str, html: str) -> bool:
-    """Low-level async send. Returns False (never raises) so callers can fire-and-forget safely."""
+async def _send(to_email: str, subject: str, html: str, attachments: Optional[list] = None) -> bool:
+    """Low-level async send. Returns False (never raises) so callers can fire-and-forget safely.
+
+    attachments: optional list of {filename, content} dicts. `content` must be a
+    base64-encoded string of the file bytes. Resend handles the rest."""
     api_key = _api_key()
     if not api_key:
         logger.info(f"[email-skip] {to_email} | {subject!r} (no RESEND_API_KEY)")
@@ -86,6 +89,8 @@ async def _send(to_email: str, subject: str, html: str) -> bool:
             "html": html,
             "reply_to": [_reply_to()],
         }
+        if attachments:
+            params["attachments"] = attachments
         result = await asyncio.to_thread(resend.Emails.send, params)
         eid = result.get("id") if isinstance(result, dict) else None
         logger.info(f"[email-sent] {to_email} | {subject!r} | id={eid}")
@@ -219,3 +224,11 @@ async def send_password_reset(email: str, reset_link: str) -> bool:
       <p style="font-size:12px; color:#666;">This link expires in 60 minutes. If you didn't request this, ignore this email — your password is unchanged.</p>
     """, preview="Reset your AI Advocate password — link expires in 60 mins.")
     return await _send(email, "Reset your AI Advocate password", html)
+
+
+async def send_email(to: str, subject: str, body_html: str, attachments: Optional[list] = None) -> bool:
+    """Generic email helper used by ad-hoc flows (gifts, firm agreements, etc.).
+    Wraps the body_html in the standard AI Advocate template + supports attachments
+    (list of {filename, content} where content is base64 bytes)."""
+    html = _wrap(body_html, preview=subject[:80])
+    return await _send(to, subject, html, attachments=attachments)

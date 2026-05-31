@@ -7,9 +7,12 @@ import * as Sentry from "@sentry/react";
 import "@/index.css";
 import App from "@/App";
 import FirmPortal from "@/FirmPortal";
+import FirmSign from "@/FirmSign";
 
 const path = window.location.pathname || "";
-const isFirmPortal = path.startsWith("/firm-portal") || path.startsWith("/firm");
+const isFirmSign = path.startsWith("/firm-sign/");
+// Match /firm-portal exactly + any sub-paths. /firm-sign/* must NOT route to portal.
+const isFirmPortal = !isFirmSign && (path.startsWith("/firm-portal") || path === "/firm" || path.startsWith("/firm/"));
 
 const root = ReactDOM.createRoot(document.getElementById("root"), {
   onUncaughtError: Sentry.reactErrorHandler(),
@@ -18,7 +21,7 @@ const root = ReactDOM.createRoot(document.getElementById("root"), {
 });
 root.render(
   <React.StrictMode>
-    {isFirmPortal ? <FirmPortal /> : <App />}
+    {isFirmSign ? <FirmSign /> : isFirmPortal ? <FirmPortal /> : <App />}
   </React.StrictMode>,
 );
 

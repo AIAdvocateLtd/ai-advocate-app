@@ -7957,6 +7957,242 @@ async def admin_founding_firm_agreement(
     )
 
 
+# ==================== Founding Firm Agreement — E-signature flow ====================
+# Three-step flow:
+#   1) Admin clicks "Send for signature" → /admin/firm-agreements/send
+#      • Backend creates a firm_agreement record with a unique token + AA signature
+#      • Emails the firm a signing URL: aiadvocate.co.uk/firm-sign/<token>
+#   2) Firm opens the signing URL → GET /firm-agreements/<token>
+#      • Public endpoint (no auth) returns agreement metadata so the page can render
+#   3) Firm signs in their browser (canvas) → POST /firm-agreements/<token>/sign
+#      • Captures IP + UA for the audit trail
+#      • Regenerates the PDF with BOTH signatures embedded
+#      • Emails both parties a copy of the signed PDF
+#
+# Legally binding under UK Electronic Communications Act 2000 + eIDAS as a
+# "simple electronic signature" (typed name + canvas drawing + IP + timestamp).
+
+class FirmAgreementSendPayload(BaseModel):
+    firm_name: str
+    sra: str = ""
+    address: str = ""
+    contact_name: str   # e.g. "Jane Smith, Partner"
+    contact_email: str
+    aa_signature_data_url: str  # base64 PNG drawn by founder in admin panel
+
+class FirmAgreementSignPayload(BaseModel):
+    firm_signer_name: str   # typed full name
+    firm_signature_data_url: str  # base64 PNG drawn on canvas
+
+
+def _agreement_to_public(rec: dict) -> dict:
+    """Strip Mongo internal + sensitive fields before returning to client."""
+    if not rec: return None
+    return {
+        "token": rec.get("token"),
+        "firm_name": rec.get("firm_name"),
+        "sra": rec.get("sra"),
+        "address": rec.get("address"),
+        "contact_name": rec.get("contact_name"),
+        "contact_email": rec.get("contact_email"),
+        "status": rec.get("status"),  # "sent" | "signed" | "declined"
+        "sent_at": rec.get("sent_at"),
+        "signed_at": rec.get("signed_at"),
+        "aa_signer_name": rec.get("aa_signer_name"),
+        "firm_signer_name": rec.get("firm_signer_name"),
+    }
+
+
+def _generate_signed_pdf(rec: dict) -> str:
+    """Regenerate the agreement PDF with whatever signatures are on record. Returns the file path."""
+    from tools.generate_founding_firm_agreement import build as _build
+    safe = (rec.get("firm_name") or "Firm").replace(" ", "_").replace("/", "_")[:60]
+    out = f"/app/memory/agreements/{rec['token']}_{safe}.pdf"
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    _build(
+        firm_name=rec.get("firm_name") or "[FIRM NAME]",
+        sra_number=rec.get("sra") or "[SRA NUMBER]",
+        firm_address=rec.get("address") or "[FIRM ADDRESS]",
+        primary_contact=rec.get("contact_name") or "[CONTACT]",
+        firm_email=rec.get("contact_email") or "[FIRM EMAIL]",
+        signed_date=(rec.get("sent_at") or datetime.now(timezone.utc).isoformat())[:10],
+        aa_signature_data_url=rec.get("aa_signature_data_url"),
+        firm_signature_data_url=rec.get("firm_signature_data_url"),
+        firm_signed_date=(rec.get("signed_at") or "")[:10] if rec.get("signed_at") else None,
+        output_path=out,
+    )
+    return out
+
+
+@api_router.post("/admin/firm-agreements/send")
+async def admin_firm_agreement_send(
+    data: FirmAgreementSendPayload,
+    request: Request,
+    _: dict = Depends(require_admin),
+):
+    """Create a new firm agreement record + email the firm a signing link."""
+    if not (data.aa_signature_data_url or "").startswith("data:image/"):
+        raise HTTPException(400, "Founder signature required to send an agreement.")
+    if len(data.aa_signature_data_url) > 200_000:
+        raise HTTPException(413, "Signature image too large.")
+    if not data.contact_email or "@" not in data.contact_email:
+        raise HTTPException(400, "Valid firm contact email required.")
+
+    token = _secrets.token_urlsafe(20)
+    now = datetime.now(timezone.utc).isoformat()
+    rec = {
+        "_id": str(uuid.uuid4()),
+        "token": token,
+        "firm_name": data.firm_name.strip(),
+        "sra": data.sra.strip(),
+        "address": data.address.strip(),
+        "contact_name": data.contact_name.strip(),
+        "contact_email": data.contact_email.strip().lower(),
+        "aa_signer_name": "Samuel Malick",
+        "aa_signature_data_url": data.aa_signature_data_url,
+        "firm_signer_name": None,
+        "firm_signature_data_url": None,
+        "status": "sent",
+        "sent_at": now,
+        "signed_at": None,
+        "signer_ip": None,
+        "signer_user_agent": None,
+        # Snapshot of clause-1.6 wording at the time of sending — protects both parties
+        # from disputes if we update the template later.
+        "terms_snapshot_version": "2026-02-rev1",
+    }
+    await db.firm_agreements.insert_one(rec)
+
+    # Public app base URL (the firm needs to open this in their browser)
+    app_base = os.environ.get("APP_PUBLIC_URL") or os.environ.get("REACT_APP_BACKEND_URL") or "https://aiadvocate.co.uk"
+    signing_url = f"{app_base.rstrip('/')}/firm-sign/{token}"
+
+    # Email the firm
+    try:
+        from email_helper import send_email
+        await send_email(
+            to=data.contact_email,
+            subject=f"AI Advocate — Founding Firm Agreement for {data.firm_name}",
+            body_html=f"""<p>Hi {data.contact_name.split(',')[0]},</p>
+            <p>Thank you for joining the AI Advocate <strong>Founding Firm</strong> cohort.</p>
+            <p>Your Founding Firm Agreement is ready to sign. It locks in your £199/month rate for life and confirms all the benefits we discussed (70/30 referral split, App Store launch marketing, ranking boost, etc.).</p>
+            <p style="margin:24px 0;"><a href="{signing_url}" style="background:#f7c948;color:#1a1300;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:700;">Review &amp; sign agreement →</a></p>
+            <p style="color:#666;font-size:13px;">Or copy this link: <a href="{signing_url}">{signing_url}</a></p>
+            <p style="color:#666;font-size:12px;">You can review the full agreement on screen, draw your signature, and we'll email both parties a signed PDF copy. This link is unique to your firm — please don't forward it.</p>
+            <p>Any questions, just reply to this email or contact <a href="mailto:firms@aiadvocate.co.uk">firms@aiadvocate.co.uk</a>.</p>
+            <p>Samuel Malick<br/>Founder, AI Advocate Ltd.</p>""",
+        )
+    except Exception as e:
+        # Don't 500 — admin can resend or the firm can be given the link directly
+        print(f"[firm-agreement] Email send failed for {data.contact_email}: {e}")
+
+    return {"ok": True, "token": token, "signing_url": signing_url}
+
+
+@api_router.get("/firm-agreements/{token}")
+async def get_firm_agreement(token: str):
+    """Public endpoint — fetch agreement metadata for the signing page (no auth)."""
+    rec = await db.firm_agreements.find_one({"token": token})
+    if not rec:
+        raise HTTPException(404, "Agreement not found or link expired.")
+    return _agreement_to_public(rec)
+
+
+@api_router.post("/firm-agreements/{token}/sign")
+async def sign_firm_agreement(token: str, data: FirmAgreementSignPayload, request: Request):
+    """Public endpoint — firm submits their signature. Locks the record + emails both parties."""
+    rec = await db.firm_agreements.find_one({"token": token})
+    if not rec:
+        raise HTTPException(404, "Agreement not found.")
+    if rec.get("status") == "signed":
+        raise HTTPException(409, "This agreement has already been signed.")
+    if not (data.firm_signature_data_url or "").startswith("data:image/"):
+        raise HTTPException(400, "Signature required.")
+    if len(data.firm_signature_data_url) > 200_000:
+        raise HTTPException(413, "Signature image too large.")
+    if len((data.firm_signer_name or "").strip()) < 2:
+        raise HTTPException(400, "Please type your full name.")
+
+    now = datetime.now(timezone.utc).isoformat()
+    signer_ip = _client_ip(request)
+    signer_ua = (request.headers.get("user-agent") or "")[:300]
+
+    await db.firm_agreements.update_one({"token": token}, {"$set": {
+        "firm_signer_name": data.firm_signer_name.strip(),
+        "firm_signature_data_url": data.firm_signature_data_url,
+        "status": "signed",
+        "signed_at": now,
+        "signer_ip": signer_ip,
+        "signer_user_agent": signer_ua,
+    }})
+    fresh = await db.firm_agreements.find_one({"token": token})
+
+    # Regenerate signed PDF + email both parties
+    try:
+        pdf_path = _generate_signed_pdf(fresh)
+        try:
+            from email_helper import send_email
+            # Read PDF as base64 for the email attachment
+            import base64 as _b64
+            with open(pdf_path, "rb") as fh:
+                pdf_b64 = _b64.b64encode(fh.read()).decode("utf-8")
+            for recipient, who in [
+                (fresh["contact_email"], "Firm"),
+                ("firms@aiadvocate.co.uk", "AI Advocate"),
+            ]:
+                try:
+                    await send_email(
+                        to=recipient,
+                        subject=f"✅ Signed — Founding Firm Agreement: {fresh['firm_name']}",
+                        body_html=f"""<p>The Founding Firm Agreement between AI Advocate Ltd. and <strong>{fresh['firm_name']}</strong> has been signed by both parties.</p>
+                        <ul>
+                          <li>Signed by AI Advocate: {fresh.get('aa_signer_name')}</li>
+                          <li>Signed by Firm: {fresh.get('firm_signer_name')}</li>
+                          <li>Signed on: {now[:10]}</li>
+                        </ul>
+                        <p>A signed PDF copy is attached.</p>
+                        <p>Welcome to the Founding Firm cohort.</p>""",
+                        attachments=[{
+                            "filename": f"AI_Advocate_Founding_Firm_Agreement_{fresh['firm_name'].replace(' ', '_')[:40]}_SIGNED.pdf",
+                            "content": pdf_b64,
+                        }],
+                    )
+                except Exception as e:
+                    print(f"[firm-agreement] Email to {recipient} failed: {e}")
+        except Exception as e:
+            print(f"[firm-agreement] PDF email step failed: {e}")
+    except Exception as e:
+        print(f"[firm-agreement] PDF regen failed: {e}")
+
+    return {"ok": True, "status": "signed", "signed_at": now}
+
+
+@api_router.get("/firm-agreements/{token}/pdf")
+async def get_signed_firm_agreement_pdf(token: str):
+    """Public endpoint — download the (signed or in-progress) PDF for a given token."""
+    rec = await db.firm_agreements.find_one({"token": token})
+    if not rec:
+        raise HTTPException(404, "Agreement not found.")
+    from fastapi.responses import FileResponse
+    pdf_path = _generate_signed_pdf(rec)
+    safe = (rec.get("firm_name") or "Firm").replace(" ", "_")[:40]
+    suffix = "_SIGNED" if rec.get("status") == "signed" else ""
+    return FileResponse(
+        pdf_path, media_type="application/pdf",
+        filename=f"AI_Advocate_Founding_Firm_Agreement_{safe}{suffix}.pdf",
+    )
+
+
+@api_router.get("/admin/firm-agreements")
+async def admin_list_firm_agreements(_: dict = Depends(require_admin)):
+    """Admin — list every agreement we've sent, with status + signed_at."""
+    items = []
+    cursor = db.firm_agreements.find({}).sort("sent_at", -1).limit(200)
+    async for rec in cursor:
+        items.append(_agreement_to_public(rec))
+    return {"agreements": items}
+
+
 # ==================== Admin: Comp Pro Access (gift free Pro) ====================
 # Owner-only tool to grant free Pro access to family, friends, or unhappy customers.
 # Every grant is logged in db.comp_audit for accountability.

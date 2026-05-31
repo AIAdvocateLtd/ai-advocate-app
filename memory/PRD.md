@@ -10,6 +10,18 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 35 — Founding Firm e-signing flow)
+- ✍️ **In-app e-signature for the Founding Firm Agreement.** Admin signs once (canvas pad in the admin panel), then "Send for e-signature" emails the firm a unique signing URL (`/firm-sign/<token>`). Firm opens it, sees the agreement on screen, types name + draws signature on canvas + ticks acceptance, and clicks Sign. Backend captures IP + user-agent + timestamp, regenerates the PDF with BOTH signatures embedded, and emails signed copies to both parties. Legally binding under UK Electronic Communications Act 2000 + eIDAS as a "simple electronic signature."
+- New endpoints: `POST /api/admin/firm-agreements/send`, `GET /api/firm-agreements/{token}`, `POST /api/firm-agreements/{token}/sign`, `GET /api/firm-agreements/{token}/pdf`, `GET /api/admin/firm-agreements`.
+- New collection: `firm_agreements` (token, firm details, both signatures as data URLs, status, timestamps, signer IP/UA, terms_snapshot_version).
+- New frontend route: `/firm-sign/<token>` → `FirmSign.jsx` (standalone, no auth, with built-in 50-line canvas signature pad — no library dependency added).
+- PDF generator (`generate_founding_firm_agreement.py`) extended to accept signature data URLs and embed them as PNGs above the printed names.
+- Email helper (`email_helper.py`) extended with a generic `send_email(to, subject, body_html, attachments)` function — fixes a long-standing bug where `from email_helper import send_email` was failing silently because that function never existed (gift packs, firm onboarding emails were quietly dropping for weeks).
+- Admin panel: replaces the lone "Download agreement" button with: signature canvas + "📧 Send for e-signature" + "⬇️ Or download unsigned" + a status list of all agreements sent (SIGNED/PENDING badges, linkable to the signing page).
+- Verified end-to-end via curl: send → fetch → sign → list → download signed PDF (8.3 KB) with both signatures, 70% wording present, old 50% absent.
+
+
+
 ### 2026-02 (Iter 34 — Per-thread jurisdiction pill in Lex chat)
 - ⚖️ **Inline jurisdiction pill** above the Lex chat input. Shows "Using **United Kingdom** law" by default, with a `ChevronDown` to expand a country picker (all 15 supported countries, with flags). Selecting a country sets `threadCountry` state which overrides the `country` field sent in `/lex/chat` + `/lex/chat/stream` requests — backend already reads `data.country` from the body, so the override is honored without backend changes. Verified via curl: same prompt with `country=FR` → French Labour Code; `country=GB` → Employment Rights Act 1996. The override is scoped to the current `LexChat` mount (resets to profile country when reopened). System prompt continues to handle natural-language overrides ("actually, this is about UK law") for free-form questions.
 

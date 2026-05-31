@@ -6722,6 +6722,84 @@ function AdminSolicitorBriefCard({ lang }) {
   const [agrContact, setAgrContact] = useState("");
   const [agrEmail, setAgrEmail] = useState("");
 
+  // ⭐ Founding Firm Agreement — e-sign flow state
+  const [aaSignature, setAaSignature] = useState("");          // base64 data URL of the founder's drawn signature
+  const [sendingAgr, setSendingAgr] = useState(false);
+  const [agreements, setAgreements] = useState([]);             // list of sent / signed agreements
+  const sigCanvasRef = useRef(null);
+  const sigDrawingRef = useRef(false);
+  const sigLastRef = useRef(null);
+
+  // Inline tiny signature pad — keeps the dependency footprint at zero.
+  useEffect(() => {
+    const cv = sigCanvasRef.current; if (!cv) return;
+    const ctx = cv.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = 460 * dpr; cv.height = 110 * dpr;
+    cv.style.width = "460px"; cv.style.height = "110px";
+    ctx.scale(dpr, dpr);
+    ctx.strokeStyle = "#1a1a1a";
+    ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  }, []);
+  const sigPos = (e) => {
+    const cv = sigCanvasRef.current; const r = cv.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+    return { x: t.clientX - r.left, y: t.clientY - r.top };
+  };
+  const sigStart = (e) => { e.preventDefault(); sigDrawingRef.current = true; sigLastRef.current = sigPos(e); };
+  const sigMove = (e) => {
+    if (!sigDrawingRef.current) return;
+    e.preventDefault();
+    const p = sigPos(e);
+    const ctx = sigCanvasRef.current.getContext("2d");
+    ctx.beginPath(); ctx.moveTo(sigLastRef.current.x, sigLastRef.current.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+    sigLastRef.current = p;
+  };
+  const sigEnd = () => {
+    if (!sigDrawingRef.current) return;
+    sigDrawingRef.current = false;
+    if (sigCanvasRef.current) setAaSignature(sigCanvasRef.current.toDataURL("image/png"));
+  };
+  const sigClear = () => {
+    const cv = sigCanvasRef.current; if (!cv) return;
+    const ctx = cv.getContext("2d"); ctx.clearRect(0, 0, cv.width, cv.height);
+    setAaSignature("");
+  };
+
+  const loadAgreements = async () => {
+    try {
+      const { data } = await api.get("/admin/firm-agreements");
+      setAgreements(data.agreements || []);
+    } catch (e) { /* no-op */ }
+  };
+  useEffect(() => { loadAgreements(); }, []);
+
+  const sendForSignature = async () => {
+    if (!agrFirm || !agrContact || !agrEmail) {
+      aaToast("Firm name, contact and email are required to send for signature", "error"); return;
+    }
+    if (!aaSignature) {
+      aaToast("Please draw your signature before sending", "error"); return;
+    }
+    setSendingAgr(true);
+    try {
+      const { data } = await api.post("/admin/firm-agreements/send", {
+        firm_name: agrFirm, sra: agrSra, address: agrAddress,
+        contact_name: agrContact, contact_email: agrEmail,
+        aa_signature_data_url: aaSignature,
+      });
+      aaToast(`Sent! Signing link emailed to ${agrEmail}`, "success");
+      // Copy link to clipboard for convenience
+      try { await navigator.clipboard.writeText(data.signing_url); aaToast("Signing link also copied to clipboard", "info"); } catch (e) { /* no-op */ }
+      // Reset & reload list
+      setAgrFirm(""); setAgrSra(""); setAgrAddress(""); setAgrContact(""); setAgrEmail("");
+      sigClear();
+      loadAgreements();
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Send failed", "error");
+    } finally { setSendingAgr(false); }
+  };
+
   const download = async () => {
     setBusy(true);
     try {
@@ -6822,9 +6900,36 @@ function AdminSolicitorBriefCard({ lang }) {
                  value={agrEmail} onChange={(e) => setAgrEmail(e.target.value)}
                  style={{ padding: 8, borderRadius: 6, border: "1px solid var(--line)", background: "var(--bg-2)", color: "var(--text)", fontSize: 12 }} />
         </div>
-        <button data-testid="admin-download-founding-agreement"
-                disabled={busyAgr}
-                onClick={async () => {
+
+        {/* ✍️ Founder signature canvas — drawn once per firm, embedded in the PDF when sent */}
+        <div style={{ background: "rgba(247,201,72,0.04)", border: "1px dashed var(--gold-deep)", borderRadius: 8, padding: 10, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6, fontWeight: 600 }}>
+            Your signature (Samuel Malick) — draw with mouse or finger:
+          </div>
+          <div style={{ position: "relative", display: "inline-block" }}>
+            <canvas ref={sigCanvasRef}
+                    onMouseDown={sigStart} onMouseMove={sigMove} onMouseUp={sigEnd} onMouseLeave={sigEnd}
+                    onTouchStart={sigStart} onTouchMove={sigMove} onTouchEnd={sigEnd}
+                    style={{ background: "#fff", border: "1px solid var(--gold-deep)", borderRadius: 6, touchAction: "none", cursor: "crosshair", display: "block", maxWidth: "100%" }}
+                    data-testid="admin-aa-signature-canvas" />
+            <button type="button" onClick={sigClear} data-testid="admin-aa-signature-clear"
+                    style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.04)", color: "#888", border: "1px solid #ddd", borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer" }}>
+              Clear
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+          <button data-testid="admin-send-founding-agreement"
+                  disabled={sendingAgr || !aaSignature}
+                  onClick={sendForSignature}
+                  className="btn-gold"
+                  style={{ fontSize: 13 }}>
+            {sendingAgr ? <span className="spinner" /> : "📧 Send for e-signature"}
+          </button>
+          <button data-testid="admin-download-founding-agreement"
+                  disabled={busyAgr}
+                  onClick={async () => {
                   setBusyAgr(true);
                   try {
                     const params = new URLSearchParams();
@@ -6847,10 +6952,39 @@ function AdminSolicitorBriefCard({ lang }) {
                     aaToast(e?.response?.data?.detail || "Download failed", "error");
                   } finally { setBusyAgr(false); }
                 }}
-                className="btn-gold w-full"
-                style={{ fontSize: 13 }}>
-          {busyAgr ? <span className="spinner" /> : "⬇️ Download agreement (PDF)"}
-        </button>
+                  className="btn-ghost"
+                  style={{ fontSize: 12 }}>
+            {busyAgr ? <span className="spinner" /> : "⬇️ Or download unsigned"}
+          </button>
+        </div>
+
+        {/* 📋 Sent agreements status list */}
+        {agreements.length > 0 && (
+          <div data-testid="firm-agreements-list" style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line)" }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6, fontWeight: 600, letterSpacing: "0.04em" }}>
+              SENT AGREEMENTS ({agreements.length})
+            </div>
+            <div style={{ maxHeight: 160, overflowY: "auto" }}>
+              {agreements.map(a => (
+                <div key={a.token} data-testid={`firm-agreement-row-${a.token.slice(0,8)}`}
+                     style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", borderRadius: 6, marginBottom: 4, background: a.status === "signed" ? "rgba(74,222,128,0.08)" : "rgba(247,201,72,0.04)", fontSize: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <div style={{ color: "var(--text)", fontWeight: 600 }}>{a.firm_name}</div>
+                    <div style={{ color: "var(--text-muted)", fontSize: 10.5 }}>{a.contact_email} · {(a.sent_at || "").slice(0, 10)}</div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{
+                      padding: "2px 7px", borderRadius: 999, fontSize: 10, fontWeight: 700, letterSpacing: "0.04em",
+                      background: a.status === "signed" ? "#16a34a" : "#b8860b", color: "#fff",
+                    }}>{a.status === "signed" ? "SIGNED" : "PENDING"}</span>
+                    <a href={`/firm-sign/${a.token}`} target="_blank" rel="noreferrer"
+                       style={{ color: "var(--gold)", fontSize: 11, textDecoration: "none" }} title="Open signing page">↗</a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

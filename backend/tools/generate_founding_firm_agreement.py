@@ -29,8 +29,10 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, PageBreak,
-    Table, TableStyle,
+    Table, TableStyle, Image as RLImage,
 )
+import base64
+import io
 
 OUTPUT = "/app/memory/AI_Advocate_Founding_Firm_Agreement.pdf"
 
@@ -48,13 +50,26 @@ def build(firm_name="[FIRM NAME]",
           firm_address="[FIRM ADDRESS]",
           primary_contact="[PRIMARY CONTACT NAME, JOB TITLE]",
           firm_email="[FIRM EMAIL]",
-          signed_date=None):
+          signed_date=None,
+          aa_signature_data_url=None,
+          firm_signature_data_url=None,
+          firm_signed_date=None,
+          output_path=None):
+    """Render the Founding Firm Agreement PDF.
+
+    Optional signature params:
+      aa_signature_data_url   — base64 'data:image/png;base64,...' for the AI Advocate signer
+      firm_signature_data_url — base64 'data:image/png;base64,...' for the firm signer
+      firm_signed_date        — string date the firm signed (used on the firm side)
+      output_path             — override default OUTPUT location (used for per-firm signed copies)
+    """
     if not signed_date:
         signed_date = datetime.now().strftime("%d %B %Y")
 
-    os.makedirs(os.path.dirname(OUTPUT), exist_ok=True)
+    out_file = output_path or OUTPUT
+    os.makedirs(os.path.dirname(out_file), exist_ok=True)
     doc = SimpleDocTemplate(
-        OUTPUT, pagesize=A4,
+        out_file, pagesize=A4,
         leftMargin=22 * mm, rightMargin=22 * mm,
         topMargin=18 * mm, bottomMargin=20 * mm,
         title="AI Advocate — Founding Firm Agreement",
@@ -220,18 +235,38 @@ def build(firm_name="[FIRM NAME]",
     ))
 
     # ───── SIGNATURES ─────────────────────────────────────────────────
+    # Two rendering modes:
+    #   • UNSIGNED: blank ____ lines (current behaviour for download-before-send)
+    #   • SIGNED:   embeds PNG of canvas signature above the printed name; date
+    #                is the actual sign-date for that party.
+    def _sig_cell(data_url):
+        """Decode a 'data:image/png;base64,...' URL into a ReportLab Image, or
+        return a blank-line Paragraph if no signature provided."""
+        if not data_url or not data_url.startswith("data:image/"):
+            return Paragraph('<font color="#666">_______________________</font>', BODY)
+        try:
+            b64 = data_url.split(",", 1)[1]
+            raw = base64.b64decode(b64)
+            img = RLImage(io.BytesIO(raw), width=55 * mm, height=14 * mm)
+            img.hAlign = "LEFT"
+            return img
+        except Exception:
+            return Paragraph('<font color="#666">_______________________</font>', BODY)
+
+    aa_sig_cell = _sig_cell(aa_signature_data_url)
+    firm_sig_cell = _sig_cell(firm_signature_data_url)
+    firm_date_text = firm_signed_date if firm_signed_date else "__________________"
+
     story.append(Spacer(1, 12))
     story.append(Paragraph("6. SIGNATURES", H2))
     sig_table = Table([
         [Paragraph("<b>For AI Advocate Ltd.</b>", BODY),
          Paragraph(f"<b>For {firm_name}</b>", BODY)],
-        [Spacer(1, 14), Spacer(1, 14)],
-        [Paragraph('<font color="#666">_______________________</font>', BODY),
-         Paragraph('<font color="#666">_______________________</font>', BODY)],
+        [aa_sig_cell, firm_sig_cell],
         [Paragraph("<b>Samuel Malick</b><br/>Founder &amp; CEO<br/>AI Advocate Ltd.", BODY),
          Paragraph(f"<b>{primary_contact}</b><br/>{firm_name}<br/>{firm_email}", BODY)],
         [Paragraph(f'<font color="#666">Date: {signed_date}</font>', BODY),
-         Paragraph('<font color="#666">Date: __________________</font>', BODY)],
+         Paragraph(f'<font color="#666">Date: {firm_date_text}</font>', BODY)],
     ], colWidths=[82 * mm, 82 * mm])
     sig_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -261,8 +296,8 @@ def build(firm_name="[FIRM NAME]",
     story.append(bar2)
 
     doc.build(story)
-    print(f"✓ Founding Firm Agreement generated: {OUTPUT}")
-    print(f"  Size: {os.path.getsize(OUTPUT):,} bytes")
+    print(f"✓ Founding Firm Agreement generated: {out_file}")
+    print(f"  Size: {os.path.getsize(out_file):,} bytes")
     print(f"  Personalised for: {firm_name}")
 
 
