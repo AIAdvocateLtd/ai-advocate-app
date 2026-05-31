@@ -8063,9 +8063,11 @@ async def admin_firm_agreement_send(
     }
     await db.firm_agreements.insert_one(rec)
 
-    # Public app base URL (the firm needs to open this in their browser)
-    app_base = os.environ.get("APP_PUBLIC_URL") or os.environ.get("REACT_APP_BACKEND_URL") or "https://aiadvocate.co.uk"
-    signing_url = f"{app_base.rstrip('/')}/firm-sign/{token}"
+    # Production public URL — hardcoded to avoid env-var drift between deployments.
+    # If we ever support multiple domains, switch back to an env var, but for now
+    # this is the canonical site users open in their browser.
+    app_base = "https://aiadvocate.co.uk"
+    signing_url = f"{app_base}/firm-sign/{token}"
 
     # Email the firm
     try:
@@ -8080,7 +8082,7 @@ async def admin_firm_agreement_send(
             <p style="margin:24px 0;"><a href="{signing_url}" style="background:#f7c948;color:#1a1300;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:700;">Review &amp; sign agreement →</a></p>
             <p style="color:#666;font-size:13px;">Or copy this link: <a href="{signing_url}">{signing_url}</a></p>
             <p style="color:#666;font-size:12px;">You can review the full agreement on screen, draw your signature, and we'll email both parties a signed PDF copy. This link is unique to your firm — please don't forward it.</p>
-            <p>Any questions, just reply to this email or contact <a href="mailto:firms@aiadvocate.co.uk">firms@aiadvocate.co.uk</a>.</p>
+            <p>Any questions, please contact <a href="mailto:firms@aiadvocate.co.uk">firms@aiadvocate.co.uk</a>.</p>
             <p>Samuel Malick<br/>Founder, AI Advocate Ltd.</p>""",
         )
     except Exception as e:
@@ -8127,6 +8129,65 @@ async def sign_firm_agreement(token: str, data: FirmAgreementSignPayload, reques
         "signer_user_agent": signer_ua,
     }})
     fresh = await db.firm_agreements.find_one({"token": token})
+
+    # 🎯 Auto-promote to Founding Firm trial — lifetime £199 Premium tier.
+    # As soon as the firm signs, they show up in the "Firm trial active" list
+    # with a 100-year trial (effectively lifetime) at the Premium tier. Saves
+    # the founder a manual step and means the firm can log in to the firm
+    # portal immediately if they want to.
+    try:
+        contact_email = (fresh.get("contact_email") or "").lower()
+        if contact_email:
+            existing_firm = await db.firm_accounts.find_one({"email": contact_email})
+            if existing_firm:
+                # Firm already exists — extend trial to lifetime + bump tier.
+                until = (datetime.now(timezone.utc) + timedelta(days=36500)).isoformat()
+                await db.firm_accounts.update_one(
+                    {"id": existing_firm["id"]},
+                    {"$set": {
+                        "trial_until": until,
+                        "trial_tier": "premium",
+                        "trial_granted_by": "founding-firm-signed",
+                        "trial_granted_at": now,
+                        "founding_firm": True,
+                        "founding_firm_signed_at": now,
+                        "founding_firm_agreement_token": token,
+                    }}
+                )
+                await db.firm_comp_audit.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "granted_by_id": "system", "granted_by_email": "system",
+                    "target_firm_id": existing_firm["id"], "target_firm_email": contact_email,
+                    "target_firm_name": existing_firm.get("firm_name") or fresh.get("firm_name") or "",
+                    "days": 36500, "tier": "premium", "until": until,
+                    "reason": "Founding Firm Agreement signed — auto-promoted to lifetime Premium",
+                    "at": now, "action": "founding_firm_auto_promote",
+                })
+            else:
+                # Firm hasn't signed up to the portal yet — queue a pending grant
+                # so they get the lifetime Premium tier the moment they create an account.
+                await db.pending_firm_comp_grants.update_one(
+                    {"email": contact_email},
+                    {"$set": {
+                        "email": contact_email, "days": 36500, "tier": "premium",
+                        "reason": f"Founding Firm Agreement signed ({fresh.get('firm_name','')})",
+                        "granted_by_id": "system", "granted_by_email": "system",
+                        "queued_at": now, "founding_firm": True,
+                        "founding_firm_agreement_token": token,
+                    }},
+                    upsert=True,
+                )
+                await db.firm_comp_audit.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "granted_by_id": "system", "granted_by_email": "system",
+                    "target_firm_id": None, "target_firm_email": contact_email,
+                    "target_firm_name": fresh.get("firm_name") or "",
+                    "days": 36500, "tier": "premium", "until": None,
+                    "reason": "Founding Firm Agreement signed — queued for auto-promote on signup",
+                    "at": now, "action": "founding_firm_pre_comp_queued",
+                })
+    except Exception as e:
+        print(f"[firm-agreement] auto-promote failed (non-fatal): {e}")
 
     # Regenerate signed PDF + email both parties
     try:
@@ -8185,6 +8246,27 @@ async def get_signed_firm_agreement_pdf(token: str):
     )
 
 
+@api_router.delete("/admin/firm-agreements/{token}")
+async def admin_delete_firm_agreement(token: str, admin: dict = Depends(require_admin)):
+    """Permanently delete an agreement record. Useful for typos or wrong recipients.
+    Does NOT affect the firm_accounts row if the agreement was already signed —
+    the founder should revoke the firm trial separately from the firm trial list."""
+    rec = await db.firm_agreements.find_one({"token": token})
+    if not rec:
+        raise HTTPException(404, "Agreement not found.")
+    await db.firm_agreements.delete_one({"token": token})
+    await db.firm_comp_audit.insert_one({
+        "id": str(uuid.uuid4()),
+        "granted_by_id": admin["id"], "granted_by_email": admin["email"],
+        "target_firm_id": None, "target_firm_email": rec.get("contact_email"),
+        "target_firm_name": rec.get("firm_name") or "",
+        "days": 0, "tier": "", "until": None,
+        "reason": f"Founding Firm Agreement deleted (status was: {rec.get('status')})",
+        "at": datetime.now(timezone.utc).isoformat(), "action": "founding_firm_agreement_deleted",
+    })
+    return {"ok": True, "deleted": True}
+
+
 @api_router.post("/admin/firm-agreements/{token}/resend")
 async def admin_resend_firm_agreement(token: str, _: dict = Depends(require_admin)):
     """Re-send the signing link to the firm. Useful when they say "I lost the email."
@@ -8195,8 +8277,8 @@ async def admin_resend_firm_agreement(token: str, _: dict = Depends(require_admi
     if rec.get("status") == "signed":
         raise HTTPException(409, "Agreement already signed — no need to resend.")
 
-    app_base = os.environ.get("APP_PUBLIC_URL") or os.environ.get("REACT_APP_BACKEND_URL") or "https://aiadvocate.co.uk"
-    signing_url = f"{app_base.rstrip('/')}/firm-sign/{token}"
+    app_base = "https://aiadvocate.co.uk"
+    signing_url = f"{app_base}/firm-sign/{token}"
 
     try:
         from email_helper import send_email
@@ -8209,7 +8291,7 @@ async def admin_resend_firm_agreement(token: str, _: dict = Depends(require_admi
             <p>Just a quick reminder — your Founding Firm Agreement for <strong>{rec['firm_name']}</strong> is ready to sign.</p>
             <p style="margin:24px 0;"><a href="{signing_url}" style="background:#f7c948;color:#1a1300;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:700;">Review &amp; sign agreement →</a></p>
             <p style="color:#666;font-size:13px;">Or copy this link: <a href="{signing_url}">{signing_url}</a></p>
-            <p style="color:#666;font-size:12px;">No rush — but the Founding cohort only has 20 spots and we'd love to have you in. Reply to this email if you've got any questions or need a change to the agreement.</p>
+            <p style="color:#666;font-size:12px;">No rush — but the Founding cohort only has 20 spots and we'd love to have you in. If you've got any questions or need a change to the agreement, please contact <a href="mailto:firms@aiadvocate.co.uk">firms@aiadvocate.co.uk</a>.</p>
             <p>Samuel Malick<br/>Founder, AI Advocate Ltd.</p>""",
         )
     except Exception as e:
@@ -8536,7 +8618,7 @@ async def admin_founding_100_thank(data: FoundingDismissPayload, admin: dict = D
 # ============================================================
 class CompFirmPayload(BaseModel):
     email: str
-    days: int = Field(30, ge=1, le=3650)
+    days: int = Field(30, ge=1, le=36500)  # up to ~100 years to allow "Lifetime" comps for Founding Firms
     tier: str = Field("featured", pattern=r"^(featured|premium|practice)$")
     reason: str = ""
 

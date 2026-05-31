@@ -52,8 +52,10 @@ def _wrap(html_body: str, preview: str = "", kind: str = "user") -> str:
           "firm"           → firm-facing footer with firms@ contact and no "reply"
                              nudge (since these come from no-reply@)
     """
-    # Logo hosted on the public site — embedded as <img> so every mail client renders it.
-    logo_url = "https://aiadvocate.co.uk/icons/app-icon-1024.png"
+    # Hero logo — includes brand text + tagline, so no need for separate text headings.
+    # Hosted on production (.co.uk) so the same URL works whether the request came
+    # via preview or prod.
+    logo_url = "https://aiadvocate.co.uk/icons/email-logo.png"
 
     if kind == "firm":
         footer_html = (
@@ -66,7 +68,8 @@ def _wrap(html_body: str, preview: str = "", kind: str = "user") -> str:
         footer_html = (
             'AI Advocate Ltd. · ICO Registration ZC158457 · '
             '<a href="https://aiadvocate.co.uk" style="color:#b8860b; text-decoration:none;">aiadvocate.co.uk</a><br>'
-            "You're receiving this because you signed up at aiadvocate.co.uk. Reply to this email if you have questions."
+            "Questions? Email "
+            '<a href="mailto:support@aiadvocate.co.uk" style="color:#b8860b; text-decoration:none;">support@aiadvocate.co.uk</a>.'
         )
 
     return f"""<!doctype html>
@@ -76,17 +79,9 @@ def _wrap(html_body: str, preview: str = "", kind: str = "user") -> str:
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f5f5f5; padding:32px 0;">
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560" style="background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 16px rgba(0,0,0,0.06);">
-        <tr><td style="background:linear-gradient(135deg,#0a0a0a,#1a1300); padding:22px 28px;">
-          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
-            <td valign="middle" style="width:54px; padding-right:14px;">
-              <img src="{logo_url}" width="44" height="44" alt="AI Advocate"
-                   style="display:block; border-radius:10px; border:1px solid #f7c948;" />
-            </td>
-            <td valign="middle">
-              <div style="color:#f7c948; font-family:'Cinzel', Georgia, serif; font-size:22px; font-weight:700; letter-spacing:0.04em;">AI ADVOCATE</div>
-              <div style="color:#cfcfcf; font-size:11px; letter-spacing:0.08em; margin-top:4px;">AI LAWYER IN YOUR POCKET</div>
-            </td>
-          </tr></table>
+        <tr><td style="background:#0a0a0a; padding:28px 28px 24px; text-align:center;">
+          <img src="{logo_url}" width="180" alt="AI Advocate — AI lawyer in your pocket"
+               style="display:block; margin:0 auto; max-width:180px; height:auto;" />
         </td></tr>
         <tr><td style="padding:28px 28px 24px 28px; color:#1a1300; font-size:15px; line-height:1.6;">
           {html_body}

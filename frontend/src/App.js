@@ -6992,6 +6992,28 @@ function AdminSolicitorBriefCard({ lang }) {
                         Resend
                       </button>
                     )}
+                    <button data-testid={`firm-agreement-delete-${a.token.slice(0,8)}`}
+                            onClick={async () => {
+                              const ok = await aaConfirm({
+                                title: "Delete this agreement?",
+                                message: `Permanently delete the agreement for ${a.firm_name}? ${a.status === "signed" ? "Note: this does NOT remove the firm's lifetime trial — revoke that separately from the Firm Trial list." : ""}`,
+                                confirmLabel: "Delete",
+                                cancelLabel: "Cancel",
+                                danger: true,
+                              });
+                              if (!ok) return;
+                              try {
+                                await api.delete(`/admin/firm-agreements/${a.token}`);
+                                aaToast(`Agreement for ${a.firm_name} deleted`, "info");
+                                loadAgreements();
+                              } catch (e) {
+                                aaToast(e?.response?.data?.detail || "Delete failed", "error");
+                              }
+                            }}
+                            title="Delete this agreement"
+                            style={{ background: "transparent", border: "1px solid #dc2626", color: "#fca5a5", borderRadius: 6, padding: "2px 8px", fontSize: 10.5, cursor: "pointer", fontWeight: 600 }}>
+                      Delete
+                    </button>
                     <a href={`/firm-sign/${a.token}`} target="_blank" rel="noreferrer"
                        style={{ color: "var(--gold)", fontSize: 11, textDecoration: "none" }} title="Open signing page">↗</a>
                   </div>
@@ -7121,7 +7143,7 @@ function CompFirmAdminCard({ lang }) {
               </div>
               <button data-testid={`admin-firm-grant-${f.email}`} disabled={actionBusy} onClick={() => grant(f.email)}
                 className="btn-gold" style={{ padding: "6px 10px", fontSize: 11 }}>
-                + Grant {days}d {tier.charAt(0).toUpperCase()+tier.slice(1)}
+                + Grant {days >= 36500 ? "Lifetime" : `${days}d`} {tier.charAt(0).toUpperCase()+tier.slice(1)}
               </button>
             </div>
           ))}
@@ -7142,16 +7164,20 @@ function CompFirmAdminCard({ lang }) {
           </button>
         ))}
       </div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-        {[14, 30, 60, 90].map(d => (
-          <button key={d} data-testid={`admin-firm-days-${d}`} onClick={() => setDays(d)}
+      <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+        {[
+          { d: 14, lbl: "14d" }, { d: 30, lbl: "30d" }, { d: 60, lbl: "60d" }, { d: 90, lbl: "90d" },
+          { d: 36500, lbl: "♾ Lifetime" },
+        ].map(opt => (
+          <button key={opt.d} data-testid={`admin-firm-days-${opt.d}`} onClick={() => setDays(opt.d)}
             style={{
-              flex: 1, padding: "8px 4px", borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: "pointer",
-              background: days === d ? "var(--gold-deep)" : "transparent",
-              color: days === d ? "#0a0a0a" : "var(--gold)",
-              border: `1px solid ${days === d ? "var(--gold-deep)" : "var(--line)"}`,
+              flex: 1, minWidth: 60, padding: "8px 4px", borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: "pointer",
+              background: days === opt.d ? "var(--gold-deep)" : "transparent",
+              color: days === opt.d ? "#0a0a0a" : "var(--gold)",
+              border: `1px solid ${days === opt.d ? "var(--gold-deep)" : "var(--line)"}`,
+              whiteSpace: "nowrap",
             }}>
-            {d}d
+            {opt.lbl}
           </button>
         ))}
       </div>
@@ -7183,7 +7209,7 @@ function CompFirmAdminCard({ lang }) {
                            color: "#1a1300", border: "none", borderRadius: 10,
                            cursor: actionBusy ? "wait" : "pointer", whiteSpace: "nowrap",
                            opacity: (!directGrantEmail.includes("@") || actionBusy) ? 0.5 : 1 }}>
-            + Grant {days}d {tier}
+            + Grant {days >= 36500 ? "Lifetime" : `${days}d`} {tier}
           </button>
         </div>
         <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.4 }}>
