@@ -6155,6 +6155,157 @@ async def auth_2fa_login(req: TOTPLoginReq):
 
 
 # ==================== LAW FIRM PORTAL ====================
+# NB: founder-signature + commissions admin endpoints below use _check_admin_user
+# (defined inline) because the canonical require_admin Depends is declared
+# later in the file. They share the exact same enforcement: ADMIN_EMAILS env.
+async def _check_admin_user(user: dict = Depends(get_user)):
+    admin_set = {e.strip().lower() for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",") if e.strip()}
+    if (user.get("email") or "").lower() not in admin_set:
+        raise HTTPException(403, "Admin access required.")
+    return user
+
+
+@api_router.get("/admin/founder-signature")
+async def admin_get_founder_signature(_: dict = Depends(_check_admin_user)):
+    """Returns the saved founder signature (if any) as a data: URL.
+    Used by the admin panel to know whether auto-fire is enabled."""
+    doc = await db.app_settings.find_one({"key": "founder_signature"}, {"_id": 0})
+    return {
+        "is_set": bool(doc and doc.get("data_url", "").startswith("data:image/")),
+        "data_url": (doc or {}).get("data_url", ""),
+        "saved_at": (doc or {}).get("saved_at"),
+    }
+
+
+class FounderSignaturePayload(BaseModel):
+    data_url: str
+
+
+@api_router.post("/admin/founder-signature")
+async def admin_set_founder_signature(data: FounderSignaturePayload, admin: dict = Depends(_check_admin_user)):
+    """Save the founder's signature once. After this is set, every new firm
+    signup in the first 20 will trigger an automatic Founding Firm Agreement —
+    no need for the founder to manually draw a signature each time."""
+    u = (data.data_url or "").strip()
+    if not u.startswith("data:image/"):
+        raise HTTPException(400, "Signature must be a base64 data: image URL.")
+    if len(u) > 200_000:
+        raise HTTPException(413, "Signature image too large (max ~200KB).")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.app_settings.update_one(
+        {"key": "founder_signature"},
+        {"$set": {"key": "founder_signature", "data_url": u, "saved_at": now_iso, "saved_by": admin["email"]}},
+        upsert=True,
+    )
+    return {"ok": True, "saved_at": now_iso}
+
+
+@api_router.delete("/admin/founder-signature")
+async def admin_delete_founder_signature(_: dict = Depends(_check_admin_user)):
+    """Clear the stored founder signature → disables auto-fire."""
+    await db.app_settings.delete_one({"key": "founder_signature"})
+    return {"ok": True, "cleared": True}
+
+
+# ==================== Firm engagements & commission tracking ====================
+# Firms log closed engagements in their portal; we tot up the 30% commission
+# they owe AI Advocate. Founding Firm split locked at 30% per agreement clause 1.6.
+
+class EngagementCreate(BaseModel):
+    client_email: str
+    client_name: str = ""
+    fee_gbp: float = Field(..., gt=0, le=1_000_000)
+    closed_at: str = ""
+    notes: str = ""
+    matter_type: str = ""
+
+
+def _firm_commission_pct(firm: dict) -> float:
+    """30% standard rate — locked per Founding Firm Agreement."""
+    return 0.30
+
+
+@api_router.post("/firm/engagements")
+async def firm_log_engagement(data: EngagementCreate, firm: dict = Depends(get_firm)):
+    """Firm logs a closed engagement → backend records the commission owed."""
+    now = datetime.now(timezone.utc)
+    closed_at = data.closed_at or now.isoformat()[:10]
+    pct = _firm_commission_pct(firm)
+    commission = round(data.fee_gbp * pct, 2)
+    rec = {
+        "id": str(uuid.uuid4()),
+        "firm_id": firm["id"], "firm_email": firm["email"], "firm_name": firm.get("firm_name") or "",
+        "client_email": data.client_email.strip().lower(),
+        "client_name": data.client_name.strip(),
+        "matter_type": data.matter_type, "notes": data.notes[:500],
+        "fee_gbp": round(data.fee_gbp, 2),
+        "commission_pct": pct, "commission_owed_gbp": commission,
+        "closed_at": closed_at, "logged_at": now.isoformat(),
+        "billing_month": closed_at[:7],
+        "paid_status": "unpaid", "stripe_invoice_id": None,
+        "founding_firm": bool(firm.get("founding_firm")),
+    }
+    await db.firm_engagements.insert_one(rec)
+    rec.pop("_id", None)
+    return rec
+
+
+@api_router.get("/firm/engagements")
+async def firm_list_engagements(firm: dict = Depends(get_firm), month: str = ""):
+    q = {"firm_id": firm["id"]}
+    if month:
+        q["billing_month"] = month
+    cursor = db.firm_engagements.find(q, {"_id": 0}).sort("closed_at", -1).limit(500)
+    items = [e async for e in cursor]
+    total_fees = round(sum(e["fee_gbp"] for e in items), 2)
+    total_commission = round(sum(e["commission_owed_gbp"] for e in items), 2)
+    total_unpaid = round(sum(e["commission_owed_gbp"] for e in items if e["paid_status"] == "unpaid"), 2)
+    return {
+        "engagements": items,
+        "total_fees_gbp": total_fees,
+        "total_commission_gbp": total_commission,
+        "total_unpaid_commission_gbp": total_unpaid,
+    }
+
+
+@api_router.delete("/firm/engagements/{eid}")
+async def firm_delete_engagement(eid: str, firm: dict = Depends(get_firm)):
+    rec = await db.firm_engagements.find_one({"id": eid, "firm_id": firm["id"]})
+    if not rec:
+        raise HTTPException(404, "Engagement not found.")
+    if rec.get("paid_status") in ("invoiced", "paid"):
+        raise HTTPException(409, "Engagement already invoiced — contact firms@aiadvocate.co.uk to adjust.")
+    await db.firm_engagements.delete_one({"id": eid})
+    return {"ok": True, "deleted": True}
+
+
+@api_router.get("/admin/commissions/summary")
+async def admin_commission_summary(_: dict = Depends(_check_admin_user), month: str = ""):
+    if not month:
+        month = datetime.now(timezone.utc).isoformat()[:7]
+    pipeline = [
+        {"$match": {"billing_month": month}},
+        {"$group": {
+            "_id": "$firm_id",
+            "firm_name": {"$first": "$firm_name"},
+            "firm_email": {"$first": "$firm_email"},
+            "engagements_count": {"$sum": 1},
+            "total_fees_gbp": {"$sum": "$fee_gbp"},
+            "total_commission_gbp": {"$sum": "$commission_owed_gbp"},
+            "unpaid_commission_gbp": {"$sum": {
+                "$cond": [{"$eq": ["$paid_status", "unpaid"]}, "$commission_owed_gbp", 0]
+            }},
+        }},
+        {"$sort": {"total_commission_gbp": -1}},
+    ]
+    rows = []
+    async for row in db.firm_engagements.aggregate(pipeline):
+        row["firm_id"] = row.pop("_id")
+        rows.append(row)
+    grand_total = round(sum(r["total_commission_gbp"] for r in rows), 2)
+    return {"month": month, "by_firm": rows, "grand_total_commission_gbp": grand_total}
+
+
 @api_router.post("/firm/signup")
 async def firm_signup(data: FirmPortalSignup):
     existing = await db.firm_accounts.find_one({"email": data.email.lower()})
@@ -6213,6 +6364,81 @@ async def firm_signup(data: FirmPortalSignup):
 
     token = jwt.encode({"sub": fid, "kind": "firm", "exp": datetime.now(timezone.utc) + timedelta(days=30)}, JWT_SECRET, algorithm="HS256")
     doc.pop("_id", None); doc.pop("password", None)
+
+    # 🌟 AUTO-FOUNDING-FIRM AGREEMENT for the first 20 firms.
+    # If a founder signature is stored in app_settings, and this firm is in the
+    # first-20 cohort, automatically create + email the Founding Firm Agreement
+    # for them to sign. Saves the founder having to manually trigger it for
+    # every new firm — fully hands-off.
+    try:
+        cohort_count = await db.firm_accounts.count_documents({
+            "founding_firm_signed_at": {"$exists": True, "$ne": None},
+        })
+        # cohort_count counts already-signed founding firms; we also check
+        # outstanding agreements to avoid going past 20 total.
+        outstanding = await db.firm_agreements.count_documents({"status": "sent"})
+        if (cohort_count + outstanding) < 20:
+            settings_doc = await db.app_settings.find_one({"key": "founder_signature"})
+            if settings_doc and settings_doc.get("data_url", "").startswith("data:image/"):
+                # Mirror the same flow as the admin "Send for signature" endpoint.
+                agree_token = _secrets.token_urlsafe(20)
+                now_iso = datetime.now(timezone.utc).isoformat()
+                await db.firm_agreements.insert_one({
+                    "_id": str(uuid.uuid4()),
+                    "token": agree_token,
+                    "firm_name": data.firm_name,
+                    "sra": data.sra_number or "",
+                    "address": "",
+                    "contact_name": data.contact_name,
+                    "contact_email": data.email.lower(),
+                    "aa_signer_name": "Samuel Malick",
+                    "aa_signature_data_url": settings_doc["data_url"],
+                    "firm_signer_name": None,
+                    "firm_signature_data_url": None,
+                    "status": "sent",
+                    "sent_at": now_iso,
+                    "signed_at": None,
+                    "signer_ip": None,
+                    "signer_user_agent": None,
+                    "terms_snapshot_version": "2026-02-rev1",
+                    "auto_triggered": True,
+                    "cohort_slot": cohort_count + outstanding + 1,
+                })
+                signing_url = f"https://aiadvocate.co.uk/firm-sign/{agree_token}"
+                try:
+                    from email_helper import send_email
+                    await send_email(
+                        to=data.email.lower(),
+                        kind="firm",
+                        subject=f"🌟 You're in the Founding 20 — sign your AI Advocate Founding Firm Agreement",
+                        body_html=f"""<p>Hi {data.contact_name.split(',')[0]},</p>
+                        <p>Welcome to AI Advocate. You've just claimed slot <strong>{cohort_count + outstanding + 1} of 20</strong> in our Founding Firm cohort.</p>
+                        <p>That means £199/mo locked for life, 70/30 referral split, Founding Firm badge on your listing, and App Store launch marketing. Full terms in the agreement.</p>
+                        <p style="margin:24px 0;"><a href="{signing_url}" style="background:#f7c948;color:#1a1300;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:700;">Review &amp; sign your agreement →</a></p>
+                        <p style="color:#666;font-size:13px;">Or copy this link: <a href="{signing_url}">{signing_url}</a></p>
+                        <p style="color:#666;font-size:12px;">I've already pre-signed on behalf of AI Advocate — you just need to add your signature. Takes 2 minutes.</p>
+                        <p>Any questions, please contact <a href="mailto:firms@aiadvocate.co.uk">firms@aiadvocate.co.uk</a>.</p>
+                        <p>Samuel Malick<br/>Founder, AI Advocate Ltd.</p>""",
+                    )
+                except Exception as e:
+                    logger.warning(f"Auto-founding-agreement email failed for {data.email}: {e}")
+                # Internal heads-up
+                try:
+                    from email_helper import send_email
+                    await send_email(
+                        to="firms@aiadvocate.co.uk", kind="firm",
+                        subject=f"🌟 Founding Firm signup #{cohort_count + outstanding + 1}: {data.firm_name}",
+                        body_html=f"<p>New firm <strong>{data.firm_name}</strong> just signed up — auto-triggered Founding Firm Agreement.</p>"
+                                  f"<p>Slot {cohort_count + outstanding + 1} of 20. Email: {data.email}. SRA: {data.sra_number or '—'}.</p>"
+                                  f"<p>Signing link: <a href='{signing_url}'>{signing_url}</a></p>",
+                    )
+                except Exception:
+                    pass
+            else:
+                logger.info(f"[firm-signup] Founder signature not set — skipping auto-agreement for {data.email}")
+    except Exception as e:
+        logger.warning(f"Auto-founding-firm-agreement failed (non-fatal): {e}")
+
     return {"access_token": token, "firm": doc, "trial_days_remaining": 14}
 
 @api_router.post("/firm/login")
