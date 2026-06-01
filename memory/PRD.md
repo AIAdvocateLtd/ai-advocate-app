@@ -10,6 +10,17 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 42 — Phase 4a: ET1 Employment Tribunal Auto-Fill)
+- 📋 **New tile "ET1 Auto-Fill"** (free tier, isNew badge) on the dashboard. Tap → `ET1AutoFillModal` (2-step: input form → structured result).
+- 🧠 **Lex generates a full UK Employment Tribunal ET1 claim** from a plain-English narrative + optional personal/employer/employment fields. Claude Sonnet 4.5 extracts the right claim types (`unfair_dismissal`, `discrimination`, `redundancy_pay`, `unauthorised_deductions`, `breach_of_contract`, `equal_pay`, `harassment`, `victimisation`, `whistleblowing`, `automatic_unfair_dismissal`, `constructive_dismissal`), picks the right protected characteristics for discrimination (Equality Act 2010), drafts first-person narrative citing UK statutes (ERA 1996 s.94/s.139, Equality Act 2010, PIDA 1998), builds a sorted chronology of key dates, lists supporting evidence, and warns about the 3-months-less-1-day deadline + mandatory ACAS Early Conciliation.
+- ⚙️ **Backend endpoints**:
+  - `POST /api/forms/et1/draft` — generate + persist. `extra_context` now has `Field(min_length=40)` defence-in-depth so direct API callers get 422 instead of wasting tokens.
+  - `GET /api/forms/et1/{draft_id}` — fetch saved draft (owner-scoped; cross-user returns 404).
+  - `PUT /api/forms/et1/{draft_id}` — update structured data.
+  - `GET /api/forms/et1/{draft_id}/pdf` — server-side reportlab PDF (~8KB, %PDF magic verified) mirroring the gov.uk ET1 format as a fill-in companion.
+- 🎨 **Frontend (App.js)**: `ET1AutoFillModal` + `ET1Result` + `ET1Section` components. Result view shows claim type chips, protected-characteristic chips (red for discrimination), narrative, legal basis, key dates timeline, remedy block, evidence list, warnings block, + buttons to download PDF / open gov.uk online filing / open ACAS portal.
+- ✅ **Testing**: 11/11 backend pytest tests (`/app/backend/tests/test_et1_autofill.py`) + full frontend E2E (testing_agent_v3_fork iter_22) — all green. Cross-user 404 isolation verified. PDF download verified (content-type `application/pdf`, 7826 bytes, valid magic bytes).
+
 ### 2026-02 (Iter 41 — Phase 3: Solicitor Sanity Check hybrid AI+human flow)
 - 🎖 **Consumer-side**: new "🎖 Solicitor check · £49" button on every Lex answer (next to 👍 👎 🪜 😈). Tap → confirms with user → creates Stripe one-off checkout → user pays → webhook auto-routes to a verified UK law firm with capacity → solicitor reviews within 24h → user gets the verdict by email + visible in app.
 - ⚙️ **Backend (new collection `sanity_checks`)**:

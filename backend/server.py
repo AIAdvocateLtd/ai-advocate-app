@@ -9328,7 +9328,7 @@ class ET1DraftRequest(BaseModel):
     notice_period: str = ""
     acas_certificate_number: str = ""
     acas_received_date: str = ""
-    extra_context: str = ""
+    extra_context: str = Field(default="", min_length=40, description="Plain-English narrative of what happened. Min 40 chars to avoid wasting Claude tokens on too-short prompts.")
     language: str = "en-GB"
 
 
