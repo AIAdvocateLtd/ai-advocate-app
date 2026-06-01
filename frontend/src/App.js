@@ -1533,6 +1533,79 @@ function DevilAdvocatePanel({ devil }) {
 }
 
 
+// 👥 InviteWitnessFromChatPanel — quick witness-invite trigger from inside the
+// Lex chat. The context is pre-filled from the user's question + Lex's reply.
+function InviteWitnessFromChatPanel({ caseId, initialContext, onClose }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [context, setContext] = useState(initialContext || "");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [err, setErr] = useState("");
+
+  const send = async () => {
+    if (!caseId) { setErr("This chat isn't linked to a case yet. Open the chat from inside a case to invite a witness."); return; }
+    if (name.trim().length < 2 || context.trim().length < 20) {
+      setErr("Add a witness name and at least 20 chars of context."); return;
+    }
+    setBusy(true); setErr("");
+    try {
+      const { data } = await api.post(`/cases/${caseId}/witness/invite`, {
+        witness_name: name.trim(),
+        witness_email: email.trim() || null,
+        context_for_witness: context.trim(),
+      });
+      setResult(data);
+    } catch (e) { setErr(e?.response?.data?.detail || "Failed"); }
+    finally { setBusy(false); }
+  };
+
+  const copyLink = (link) => {
+    navigator.clipboard.writeText(link);
+    setCopied(true); setTimeout(() => setCopied(false), 1800);
+  };
+
+  return (
+    <div data-testid="invite-witness-chat-panel" style={{ marginTop: 10, background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          👥 Invite a witness about this
+        </div>
+        <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 16 }} data-testid="invite-witness-chat-close">×</button>
+      </div>
+      {!result ? (
+        <>
+          <p style={{ color: "var(--text-dim)", fontSize: 11.5, marginBottom: 8, lineHeight: 1.5 }}>
+            We've pre-filled the context from this chat. Edit anything you don't want to share with the witness, then send.
+          </p>
+          <input className="input" placeholder="Witness's name *" value={name} onChange={(e) => setName(e.target.value)} data-testid="invite-witness-chat-name" style={{ marginBottom: 6, fontSize: 12.5 }} />
+          <input className="input" type="email" placeholder="Witness's email (optional — we'll send the link)" value={email} onChange={(e) => setEmail(e.target.value)} data-testid="invite-witness-chat-email" style={{ marginBottom: 6, fontSize: 12.5 }} />
+          <textarea className="input" rows={5} value={context} onChange={(e) => setContext(e.target.value)} data-testid="invite-witness-chat-context"
+            style={{ marginBottom: 8, fontSize: 12 }} />
+          {err && <div style={{ background: "#2a0a0a", border: "1px solid #7f1d1d", color: "#fca5a5", padding: 8, borderRadius: 6, fontSize: 11.5, marginBottom: 8 }}>{err}</div>}
+          <button className="btn-gold w-full" onClick={send} disabled={busy || !caseId} data-testid="invite-witness-chat-send">
+            {busy ? <span className="spinner" /> : "Generate secure link"}
+          </button>
+        </>
+      ) : (
+        <div data-testid="invite-witness-chat-result">
+          <div style={{ padding: 10, background: "rgba(34,197,94,0.10)", border: "1px solid #22c55e", borderRadius: 8, marginBottom: 8, color: "#86efac", fontSize: 12 }}>
+            ✓ Invite created. {result.email_sent ? "Email sent." : "Copy the link to share."}
+          </div>
+          <div style={{ background: "var(--bg-2)", border: "1px solid var(--gold-deep)", borderRadius: 6, padding: 8, marginBottom: 8, wordBreak: "break-all", fontSize: 10.5, color: "var(--text-dim)", fontFamily: "monospace" }} data-testid="invite-witness-chat-link">
+            {result.magic_link}
+          </div>
+          <button onClick={() => copyLink(result.magic_link)} className="btn-gold w-full" data-testid="invite-witness-chat-copy" style={{ fontSize: 12 }}>
+            {copied ? "✓ Copied" : "Copy link"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // ---------- Lex Chat ----------
 function LexChat({ lang, country, category, title, onClose, autoMic = false, tier = "free", onSwitchCategory, initialSeed = "", resumeSessionId = null, caseId = null }) {
   const [messages, setMessages] = useState([]);
@@ -2217,6 +2290,24 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                                  borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
                         {m._sanityBusy ? "…" : "🎖 Solicitor check · £49"}
                       </button>
+
+                      {/* 👥 Invite a witness about this — pre-fills context from the chat turn.
+                          Only available when the chat is linked to a case (caseId). */}
+                      {caseId && (
+                        <button data-testid={`invite-witness-${i}`} title="Invite a witness about what we're discussing"
+                          onClick={() => {
+                            // Build context from the user's last question + Lex's reply
+                            const prevUser = messages[i - 1]?.role === "user" ? messages[i - 1].content : "";
+                            const ctx = (prevUser ? `What I discussed with Lex:\n${prevUser}\n\n` : "") +
+                                        `Lex's analysis:\n${(m.content || "").slice(0, 800)}\n\n` +
+                                        "Please write what you witnessed about the above event.";
+                            setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _witnessOpen: !mm._witnessOpen, _witnessCtx: ctx } : mm));
+                          }}
+                          style={{ background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)",
+                                   borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "pointer" }}>
+                          {m._witnessOpen ? "👥 Hide" : "👥 Invite witness"}
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -2228,6 +2319,14 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                   {/* 😈 Devil's Advocate rendering */}
                   {m.role === "lex" && m._devilOpen && m._devil && (
                     <DevilAdvocatePanel devil={m._devil} />
+                  )}
+
+                  {/* 👥 Invite-witness inline panel (auto-prefilled context from chat) */}
+                  {m.role === "lex" && m._witnessOpen && caseId && (
+                    <InviteWitnessFromChatPanel
+                      caseId={caseId} initialContext={m._witnessCtx || ""}
+                      onClose={() => setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _witnessOpen: false } : mm))}
+                    />
                   )}
                   {m.at && (
                     <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2, padding: "0 6px" }} data-testid={`ts-${i}`}>
@@ -4912,6 +5011,189 @@ function CaseWitnessTab({ caseId, lang }) {
           No witnesses yet. Tap "Invite witness" above to send a secure link.
         </p>
       )}
+
+      {/* 📎 Evidence-collection invites — same magic-link pattern, but for ANYONE to upload documents */}
+      <EvidenceCollectionPanel caseId={caseId} />
+    </div>
+  );
+}
+
+// 📎 EvidenceCollectionPanel — magic-link invites for ANYONE to upload documents.
+// Lives inside the case "People & files" tab below the witness section.
+function EvidenceCollectionPanel({ caseId }) {
+  const [data, setData] = useState({ invites: [], files: [] });
+  const [loading, setLoading] = useState(true);
+  const [showInvite, setShowInvite] = useState(false);
+  const [form, setForm] = useState({ label: "", instructions: "", uploader_email: "", uploader_name: "" });
+  const [inviteResult, setInviteResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const load = async () => {
+    if (!caseId) return;
+    setLoading(true);
+    try { const { data: d } = await api.get(`/cases/${caseId}/evidence/invites`); setData(d); }
+    catch (e) { /* ignore */ }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [caseId]);
+
+  const sendInvite = async () => {
+    if (form.label.length < 2 || form.instructions.length < 10) {
+      aaToast("Please give the request a label and clear instructions (≥10 chars)", "error"); return;
+    }
+    setBusy(true); setInviteResult(null);
+    try {
+      const { data: r } = await api.post(`/cases/${caseId}/evidence/invite`, {
+        label: form.label,
+        instructions: form.instructions,
+        uploader_email: form.uploader_email || null,
+        uploader_name: form.uploader_name || "",
+      });
+      setInviteResult(r);
+      await load();
+    } catch (e) { aaToast(e?.response?.data?.detail || "Failed", "error"); }
+    finally { setBusy(false); }
+  };
+
+  const closeInvite = async (inviteId) => {
+    try {
+      await api.post(`/cases/${caseId}/evidence/invites/${inviteId}/close`);
+      await load();
+    } catch (e) { aaToast(e?.response?.data?.detail || "Failed", "error"); }
+  };
+
+  const downloadFile = async (fileId, filename) => {
+    try {
+      const r = await fetch(`${API}/cases/${caseId}/evidence/files/${fileId}/download`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("aa_token")}` },
+      });
+      if (!r.ok) throw new Error("Download failed");
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename || `evidence-${fileId.slice(0,8)}`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { aaToast("Download failed", "error"); }
+  };
+
+  const copyLink = (link) => {
+    navigator.clipboard.writeText(link);
+    setCopied(true); setTimeout(() => setCopied(false), 1800);
+  };
+
+  return (
+    <div data-testid="evidence-collection-panel" style={{ marginTop: 20, paddingTop: 18, borderTop: "1px dashed var(--line)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div>
+          <div style={{ color: "var(--gold)", fontSize: 13, fontWeight: 700 }}>📎 Evidence Collection</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>Get anyone (HR, ex-employer, friend) to upload documents directly into this case. No signup for them.</div>
+        </div>
+        <button onClick={() => { setShowInvite(true); setInviteResult(null); setForm({ label: "", instructions: "", uploader_email: "", uploader_name: "" }); }}
+                className="btn-gold" data-testid="evidence-invite-open-btn" style={{ fontSize: 12, padding: "8px 14px", whiteSpace: "nowrap" }}>
+          + Request files
+        </button>
+      </div>
+
+      {showInvite && (
+        <div className="modal-bg" data-testid="evidence-invite-modal" style={{ zIndex: 200 }} onClick={(e) => { if (e.target === e.currentTarget) setShowInvite(false); }}>
+          <div className="modal-card" style={{ padding: 20, maxWidth: 520 }}>
+            <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+              <h3 className="brand-font gold" style={{ fontSize: 18, margin: 0 }}>Request documents</h3>
+              <button onClick={() => setShowInvite(false)} data-testid="evidence-invite-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
+            </div>
+            {!inviteResult ? (
+              <>
+                <input className="input" placeholder="What are you asking for? e.g. 'Manager's emails' *" value={form.label}
+                  onChange={(e) => setForm({ ...form, label: e.target.value })} data-testid="evidence-invite-label" style={{ marginBottom: 10 }} />
+                <textarea className="input" placeholder="Detailed instructions — what files do they need to upload? Any specifics? *" rows={4}
+                  value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })}
+                  data-testid="evidence-invite-instructions" style={{ marginBottom: 10 }} />
+                <input className="input" placeholder="Uploader's name (optional)" value={form.uploader_name}
+                  onChange={(e) => setForm({ ...form, uploader_name: e.target.value })} data-testid="evidence-invite-uploader-name" style={{ marginBottom: 10 }} />
+                <input className="input" type="email" placeholder="Their email (optional — we'll send the link)" value={form.uploader_email}
+                  onChange={(e) => setForm({ ...form, uploader_email: e.target.value })} data-testid="evidence-invite-uploader-email" style={{ marginBottom: 12 }} />
+                <button className="btn-gold w-full" disabled={busy || form.label.length < 2 || form.instructions.length < 10}
+                        onClick={sendInvite} data-testid="evidence-invite-send-btn">
+                  {busy ? <span className="spinner" /> : "Generate secure link"}
+                </button>
+              </>
+            ) : (
+              <div data-testid="evidence-invite-result">
+                <div style={{ padding: 12, background: "rgba(34,197,94,0.10)", border: "1px solid #22c55e", borderRadius: 10, marginBottom: 12, color: "#86efac", fontSize: 13 }}>
+                  ✓ Link created. {inviteResult.email_sent ? "Email sent to your uploader." : "Share this link with them:"}
+                </div>
+                <div style={{ background: "var(--bg-2)", border: "1px solid var(--gold-deep)", borderRadius: 8, padding: 10, marginBottom: 10, wordBreak: "break-all", fontSize: 11.5, color: "var(--text-dim)", fontFamily: "monospace" }} data-testid="evidence-magic-link">
+                  {inviteResult.magic_link}
+                </div>
+                <button onClick={() => copyLink(inviteResult.magic_link)} className="btn-gold w-full" data-testid="evidence-copy-link-btn" style={{ marginBottom: 8 }}>
+                  {copied ? "✓ Copied" : "Copy link"}
+                </button>
+                <button onClick={() => setShowInvite(false)} className="btn-ghost w-full" data-testid="evidence-invite-done-btn">Done</button>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 10, lineHeight: 1.5 }}>
+                  Up to 8 files, 12 MB each. Link expires in 30 days. You'll get an email each time a file is uploaded.
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {loading && <div style={{ textAlign: "center", padding: 14 }}><span className="spinner" /></div>}
+
+      {!loading && data.files.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 10.5, color: "var(--gold)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+            Received ({data.files.length})
+          </div>
+          {data.files.map(f => (
+            <div key={f.id} data-testid={`evidence-file-${f.id}`} style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 10, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: "var(--gold)", fontWeight: 600, fontSize: 13 }}>{f.filename}</div>
+                <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                  From <strong>{f.uploader_name}</strong> · {((f.size_bytes||0)/1024).toFixed(1)} KB · {f.content_type}
+                </div>
+                {f.description && <div style={{ color: "var(--text-dim)", fontSize: 11.5, marginTop: 3, fontStyle: "italic" }}>"{f.description}"</div>}
+                <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 3 }}>
+                  Uploaded {f.uploaded_at?.slice(0, 16).replace("T", " ")} · SHA-256 {(f.sha256 || "").slice(0, 12)}…
+                </div>
+              </div>
+              <button onClick={() => downloadFile(f.id, f.filename)} className="btn-gold" data-testid={`evidence-download-${f.id}`} style={{ fontSize: 11, padding: "6px 10px", whiteSpace: "nowrap" }}>
+                Download
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && data.invites.filter(i => i.status === "open").length > 0 && (
+        <div>
+          <div style={{ fontSize: 10.5, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+            Active requests ({data.invites.filter(i => i.status === "open").length})
+          </div>
+          {data.invites.filter(i => i.status === "open").map(inv => {
+            const base = (process.env.REACT_APP_BACKEND_URL || window.location.origin).replace(/\/$/, "");
+            const link = `${base}/evidence/${inv.token}`;
+            return (
+              <div key={inv.id} data-testid={`evidence-invite-${inv.id}`} style={{ background: "var(--bg-card)", border: "1px dashed var(--line)", borderRadius: 10, padding: 10, marginBottom: 6 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>{inv.label}</div>
+                    <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                      {inv.uploader_email || "no email — share link manually"} · {inv.upload_count}/{inv.max_uploads} uploaded
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <button onClick={() => copyLink(link)} className="btn-ghost" style={{ fontSize: 10.5, padding: "4px 8px", border: "1px solid var(--gold-deep)", color: "var(--gold)" }} data-testid={`evidence-invite-copy-${inv.id}`}>Copy</button>
+                    <button onClick={() => closeInvite(inv.id)} className="btn-ghost" style={{ fontSize: 10.5, padding: "4px 8px", border: "1px solid #7f1d1d", color: "#fca5a5" }} data-testid={`evidence-invite-close-${inv.id}`}>Close</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -5105,6 +5387,141 @@ function WitnessPublicPage() {
           You'll see a confirmation once it's delivered. No account needed.
         </p>
       </div>
+    </Box>
+  );
+}
+
+// ---------- Public Evidence Upload Page (no auth — accessed via magic link) ----------
+function EvidencePublicPage() {
+  const token = window.location.pathname.split("/evidence/")[1]?.replace(/\/$/, "") || "";
+  const [state, setState] = useState("loading"); // loading | ready | expired | closed | limit_reached | not_found
+  const [invite, setInvite] = useState(null);
+  const [uploaderName, setUploaderName] = useState("");
+  const [uploaderEmail, setUploaderEmail] = useState("");
+  const [description, setDescription] = useState("");
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [uploaded, setUploaded] = useState([]); // [{filename, sha256}]
+  const fileRef = useRef(null);
+
+  useEffect(() => {
+    if (!token) { setState("not_found"); return; }
+    (async () => {
+      try {
+        const { data } = await api.get(`/evidence/${token}`);
+        if (data.status === "ready") {
+          setInvite(data); setState("ready");
+          if (data.uploader_name_hint) setUploaderName(data.uploader_name_hint);
+        } else if (data.status === "closed") setState("closed");
+        else if (data.status === "expired") setState("expired");
+        else if (data.status === "limit_reached") setState("limit_reached");
+        else setState("not_found");
+      } catch (e) { setState("not_found"); }
+    })();
+  }, [token]);
+
+  const upload = async () => {
+    if (!file) return;
+    if (uploaderName.trim().length < 2) { setErr("Please enter your name."); return; }
+    setBusy(true); setErr("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("uploader_name", uploaderName);
+      if (uploaderEmail) fd.append("uploader_email", uploaderEmail);
+      if (description) fd.append("description", description);
+      const { data } = await api.post(`/evidence/${token}/upload`, fd);
+      setUploaded(u => [...u, { filename: file.name, size: file.size }]);
+      setFile(null); setDescription("");
+      if (fileRef.current) fileRef.current.value = "";
+      // Refresh invite state (upload counter / limit)
+      try {
+        const { data: nu } = await api.get(`/evidence/${token}`);
+        if (nu.status === "limit_reached") setState("limit_reached");
+        else if (nu.status === "ready") setInvite(nu);
+      } catch (_) {}
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Upload failed");
+    } finally { setBusy(false); }
+  };
+
+  const Box = ({ children }) => (
+    <div style={{ minHeight: "100vh", background: "var(--bg, #0a0a0a)", color: "var(--text)", padding: "40px 16px", display: "flex", alignItems: "flex-start", justifyContent: "center" }} data-testid="evidence-public-page">
+      <div style={{ maxWidth: 640, width: "100%", background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 28 }}>{children}</div>
+    </div>
+  );
+
+  if (state === "loading") return <Box><div style={{ textAlign: "center" }}><span className="spinner" /></div></Box>;
+  if (state === "not_found") return <Box>
+    <h2 className="brand-font gold" style={{ fontSize: 22, margin: "0 0 8px" }}>Link not recognised</h2>
+    <p style={{ color: "var(--text-dim)" }}>This evidence-upload link doesn't exist or has been revoked.</p>
+  </Box>;
+  if (state === "expired") return <Box>
+    <h2 className="brand-font gold" style={{ fontSize: 22, margin: "0 0 8px" }}>This link has expired</h2>
+    <p style={{ color: "var(--text-dim)" }}>Please ask the requester to send you a new link.</p>
+  </Box>;
+  if (state === "closed") return <Box>
+    <h2 className="brand-font gold" style={{ fontSize: 22, margin: "0 0 8px" }}>This request was closed</h2>
+    <p style={{ color: "var(--text-dim)" }}>The requester has closed this evidence request. No further uploads accepted.</p>
+  </Box>;
+  if (state === "limit_reached") return <Box>
+    <h2 className="brand-font gold" style={{ fontSize: 22, margin: "0 0 8px" }}>Upload limit reached</h2>
+    <p style={{ color: "var(--text-dim)" }}>Thanks — the maximum number of files has been received. Ask the requester for a new link if you have more.</p>
+  </Box>;
+
+  return (
+    <Box>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: "var(--gold)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>AI Advocate · Evidence Request</div>
+        <h2 className="brand-font gold" style={{ fontSize: 24, margin: 0 }}>📎 {invite.label}</h2>
+        <p style={{ color: "var(--text-dim)", fontSize: 13, marginTop: 6, lineHeight: 1.55 }}>
+          <strong>{invite.requester_name}</strong> has asked you to upload some documents. Your files are end-to-end encrypted and only the requester can access them.
+        </p>
+      </div>
+
+      <div style={{ background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 13, color: "var(--text)", lineHeight: 1.55 }}>
+        <div style={{ fontSize: 11, color: "var(--gold)", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>What's needed:</div>
+        {invite.instructions}
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)", marginBottom: 12 }}>
+        <span>{invite.upload_count} of {invite.max_uploads} uploaded</span>
+        <span>Max 12 MB per file</span>
+      </div>
+
+      {uploaded.length > 0 && (
+        <div style={{ background: "rgba(34,197,94,0.08)", border: "1px solid #22c55e", borderRadius: 10, padding: 10, marginBottom: 12 }} data-testid="evidence-uploaded-list">
+          {uploaded.map((u, i) => (
+            <div key={i} style={{ fontSize: 12, color: "#86efac", marginBottom: 2 }}>✓ {u.filename} uploaded</div>
+          ))}
+        </div>
+      )}
+
+      <input className="input" placeholder="Your name *" value={uploaderName} onChange={(e) => setUploaderName(e.target.value)} data-testid="evidence-uploader-name" style={{ marginBottom: 8 }} />
+      <input className="input" type="email" placeholder="Your email (optional)" value={uploaderEmail} onChange={(e) => setUploaderEmail(e.target.value)} data-testid="evidence-uploader-email" style={{ marginBottom: 8 }} />
+
+      <input ref={fileRef} type="file" onChange={(e) => { setFile(e.target.files?.[0] || null); setErr(""); }} accept="image/*,application/pdf,.doc,.docx,.txt,audio/*,video/*"
+        data-testid="evidence-file-input" style={{ marginBottom: 8, color: "var(--text-dim)", fontSize: 12 }} />
+
+      {file && (
+        <div style={{ background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: 8, padding: 10, marginBottom: 8, fontSize: 12, color: "var(--text)" }}>
+          📎 {file.name} <span style={{ color: "var(--text-muted)" }}>({(file.size/1024).toFixed(1)} KB)</span>
+        </div>
+      )}
+
+      <textarea className="input" rows={3} placeholder="Quick note about this file (optional, e.g. 'screenshot from work Slack on 12 March')"
+        value={description} onChange={(e) => setDescription(e.target.value)} data-testid="evidence-description" style={{ marginBottom: 10, fontSize: 12.5 }} />
+
+      {err && <div style={{ background: "#2a0a0a", border: "1px solid #7f1d1d", color: "#fca5a5", padding: 10, borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>{err}</div>}
+
+      <button className="btn-gold w-full" disabled={busy || !file || uploaderName.length < 2}
+        onClick={upload} data-testid="evidence-upload-btn">
+        {busy ? <span className="spinner" /> : "Upload file"}
+      </button>
+      <p style={{ color: "var(--text-muted)", fontSize: 10.5, marginTop: 10, lineHeight: 1.5, textAlign: "center" }}>
+        SHA-256 of each file is recorded for chain-of-custody. The requester is notified by email on every upload.
+      </p>
     </Box>
   );
 }
@@ -5368,7 +5785,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
                          border: "none", cursor: "pointer",
                          background: tab === "witness" ? "var(--gold)" : "transparent",
                          color: tab === "witness" ? "#1a1300" : "var(--text-dim)" }}>
-                👥 Witnesses
+                👥 People & files
               </button>
             </div>
 
@@ -13440,10 +13857,10 @@ function ManageDataModal({ lang, onClose, onAccountDeleted }) {
 // ---------- Demo banner removed — see top of file note re: demo deletion ----------
 
 function App() {
-  // Public witness magic-link page — bypass auth/marketing entirely. We capture
-  // this BEFORE running any hooks but defer rendering to after all hooks so we
-  // never violate the rules-of-hooks.
+  // Public magic-link pages — bypass auth/marketing entirely. Captured BEFORE
+  // hooks but rendered AFTER all hooks to respect rules-of-hooks.
   const _isWitnessPath = typeof window !== "undefined" && window.location.pathname.startsWith("/witness/");
+  const _isEvidencePath = typeof window !== "undefined" && window.location.pathname.startsWith("/evidence/");
 
   const [lang, setLang] = useState(localStorage.getItem("aa_lang") || "en-GB");
   const [country, setCountry] = useState(localStorage.getItem("aa_country") || "GB");
@@ -13464,7 +13881,7 @@ function App() {
   // The "always-static" paths are handled here on mount.
   useEffect(() => {
     const p = (window.location.pathname || "/").replace(/\/+$/, "") || "/";
-    if (p.startsWith("/witness/")) return; // public magic-link, handled at top of App()
+    if (p.startsWith("/witness/") || p.startsWith("/evidence/")) return; // public magic-link pages
     if (p === "/welcome") { window.location.replace("/welcome.html"); return; }
     if (p === "/for-firms" || p === "/for-law-firms") { window.location.replace("/founding-firm-pitch.html"); return; }
     // Signal-clear: if user explicitly navigated to /app or /signin, mark a
@@ -13568,8 +13985,9 @@ function App() {
 
   if (step === "loading") return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}><span className="spinner" /></div>;
 
-  // Public witness magic-link page — render after all hooks have been declared
+  // Public witness/evidence magic-link pages — render after all hooks have been declared
   if (_isWitnessPath) return <WitnessPublicPage />;
+  if (_isEvidencePath) return <EvidencePublicPage />;
 
   return (
     <div className="App app-shell">

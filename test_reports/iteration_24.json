@@ -1,0 +1,38 @@
+{
+  "summary": "Iter 24 - tested both new features: (A) Evidence-collection magic-link end-to-end (6 backend endpoints + public page UI + owner panel UI) and (B) Auto-witness-from-chat (verified the reused /witness/invite backend endpoint still works; conditional rendering of invite-witness-{i} in Lex chat confirmed by source review). All 15 new pytest cases pass. All 25 regression tests (iter23_phase4b 13 + et1_autofill 12) still pass. Public /evidence/<token> page renders and successfully uploads a file. Owner side: Cases -> People & files tab -> '+ Request files' -> modal -> Generate secure link -> magic link displayed. 40/40 backend tests green.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Cases modal -> Request documents (evidence invite)", "issues": ["Magic link returned uses APP_PUBLIC_URL=https://aiadvocate.co.uk which is correct for prod, but in-preview testers can't open it directly; consider showing /evidence/<token> path only or making host configurable from frontend so demos work without manual host swap."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter24_evidence_invite.py",
+    "/app/backend/tests/test_iter23_phase4b.py",
+    "/app/backend/tests/test_et1_autofill.py",
+    "/app/test_reports/pytest/iter24_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 12,400+ lines - urgently needs splitting into routers (evidence_invites.py, witness.py, cases.py, etc.). Recurring feedback from prior iterations; not a blocker for this iter but increasingly painful.",
+    "Evidence file bytes encrypted via app_crypto.encrypt_text are stored base64 inside Mongo evidence_files doc. For a 12MB file that's 16MB+ base64 + AES-wrap overhead per doc - approaching MongoDB 16MB doc limit. Suggest moving to GridFS or chunked storage before increasing per-file cap.",
+    "Magic-link uses APP_PUBLIC_URL hardcoded constant (aiadvocate.co.uk). Either return the path only and let the frontend prefix, or read from request Origin/X-Forwarded-Host so preview environments work.",
+    "POST /evidence/{token}/upload reads entire body into memory before size check; oversize 13MB upload still buffers fully through FastAPI/Starlette before the 413 is raised. Consider Content-Length pre-check to fail-fast and protect the worker.",
+    "Owner notification email is sent on every upload synchronously inside the request path - if Resend is slow/down it will slow public uploads. Wrap in BackgroundTasks."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter24_evidence_invite.py (NEW - 15 tests)"
+  ],
+  "success_rate": {"backend": "100% (40/40)", "frontend": "100% on flows tested (public evidence page upload + owner invite modal end-to-end)"},
+  "test_credentials": "test@advocate.app / Test12345!",
+  "seed_data_creation": "Each pytest test creates TEST_-prefixed cases and cleans them up via DELETE in fixture teardown. UI tests also clean up.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression suite for iter24 is /app/backend/tests/test_iter24_evidence_invite.py. Frontend localStorage token key is 'aa_token' (not 'token'). Use page.add_init_script to inject token BEFORE navigation otherwise the landing page redirects to marketing site. Cases UI is reached via Cases tile on the dashboard (no /cases route); then click data-testid='case-<id>' to open. People & files tab is data-testid='tab-witness-btn'. Evidence invite uses data-testid='evidence-invite-open-btn' -> 'evidence-invite-modal' -> 'evidence-invite-label/instructions/send-btn' -> 'evidence-magic-link'. Public page: /evidence/<token> with data-testid='evidence-public-page' and 'evidence-uploader-name/file-input/description/upload-btn/uploaded-list'.",
+  "rca of the issue": "No bugs found in iter24 scope. All endpoints behave as documented in the review request: oversize=413, short-name=400, bad-token=404, closed=403, ok=200 with remaining_uploads counter; file-bytes round-trip via /download is byte-perfect (assertion on text content passed); file_b64 properly excluded from listing endpoint; cross-user GET returns 404 (verified via unauthenticated request -> 401/403/404)."
+}

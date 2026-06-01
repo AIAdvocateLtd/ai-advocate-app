@@ -12050,6 +12050,258 @@ async def witness_statement_pdf(case_id: str, ws_id: str, user: dict = Depends(g
     )
 
 
+# ==========================================================================
+# 🗂  EVIDENCE-COLLECTION MAGIC-LINK (Iter 45)
+# Anyone (HR, ex-employer, friend) can upload documents directly into a case
+# without signing up. Owner creates a tokenised invite → uploader gets a link
+# → uploads files (max 12MB each, max 8 files per invite) → files land in the
+# case_items + raw bytes stored in evidence_files (encrypted base64).
+# ==========================================================================
+
+
+class EvidenceInviteRequest(BaseModel):
+    label: str = Field(min_length=2, max_length=120)
+    instructions: str = Field(min_length=10, max_length=2000)
+    uploader_email: Optional[EmailStr] = None
+    uploader_name: Optional[str] = ""
+
+
+@api_router.post("/cases/{case_id}/evidence/invite")
+async def evidence_invite(case_id: str, data: EvidenceInviteRequest, request: Request, user: dict = Depends(get_user)):
+    case = await db.cases.find_one({"id": case_id, "user_id": user["id"]}, {"_id": 0})
+    if not case:
+        raise HTTPException(404, "Case not found")
+
+    token = _secrets.token_urlsafe(32)
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    invite_id = str(uuid.uuid4())
+    invite = {
+        "id": invite_id, "token": token,
+        "case_id": case_id, "user_id": user["id"],
+        "label": data.label, "instructions": data.instructions,
+        "uploader_name_hint": data.uploader_name or "",
+        "uploader_email": data.uploader_email,
+        "status": "open",   # open | closed (owner can revoke). Uploads stay available until expiry.
+        "upload_count": 0, "max_uploads": 8,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": expires_at,
+    }
+    await db.evidence_invites.insert_one(invite)
+
+    base = os.environ.get("APP_PUBLIC_URL", "").rstrip("/")
+    if not base:
+        proto = "https" if request.url.scheme == "https" else request.url.scheme
+        base = f"{proto}://{request.url.netloc}"
+    magic_link = f"{base}/evidence/{token}"
+
+    email_sent = False
+    if data.uploader_email:
+        try:
+            from email_helper import send_email
+            requester = user.get("full_name") or user.get("email", "the case owner")
+            html = f"""
+              <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">You've been asked to share some documents</h2>
+              <p>Hi {(data.uploader_name or '').split(' ')[0] or 'there'},</p>
+              <p><strong>{requester}</strong> has asked you to share some documents for a legal matter they're dealing with through <strong>AI Advocate</strong>.</p>
+              <p style="background:#fffaeb; border-left:3px solid #f7c948; padding:10px 14px; margin:18px 0; font-size:13px; color:#1a1300;">
+                <strong>What they need:</strong><br/>"{data.instructions[:600]}"
+              </p>
+              <p>Click the secure link below to upload the files. No account needed — drag-and-drop works.</p>
+              <p style="margin:24px 0;">
+                <a href="{magic_link}" style="background:#f7c948; color:#1a1300; padding:12px 22px; border-radius:8px; font-weight:700; text-decoration:none; display:inline-block;">Upload your files →</a>
+              </p>
+              <p style="font-size:12.5px; color:#555;">The link expires in 30 days. Maximum 8 files, 12 MB each.</p>
+            """
+            email_sent = await send_email(
+                to=data.uploader_email,
+                subject=f"Document request from {requester}",
+                body_html=html, kind="user",
+            )
+        except Exception as e:
+            logger.warning(f"evidence invite email failed: {e}")
+
+    return {"invite_id": invite_id, "token": token, "magic_link": magic_link,
+            "expires_at": expires_at, "email_sent": email_sent}
+
+
+@api_router.get("/evidence/{token}")
+async def evidence_public_fetch(token: str):
+    """Public — uploader clicks the magic link."""
+    inv = await db.evidence_invites.find_one({"token": token}, {"_id": 0, "user_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invite not found")
+    if inv.get("status") == "closed":
+        return {"status": "closed", "label": inv.get("label")}
+    if inv.get("expires_at") and datetime.fromisoformat(inv["expires_at"]) < datetime.now(timezone.utc):
+        return {"status": "expired", "label": inv.get("label")}
+    if (inv.get("upload_count") or 0) >= (inv.get("max_uploads") or 8):
+        return {"status": "limit_reached", "label": inv.get("label"), "max_uploads": inv.get("max_uploads")}
+    # Requester display name
+    raw = await db.evidence_invites.find_one({"token": token}, {"_id": 0, "user_id": 1})
+    requester_name = "the case owner"
+    if raw and raw.get("user_id"):
+        u = await db.users.find_one({"id": raw["user_id"]}, {"_id": 0, "full_name": 1, "email": 1})
+        if u:
+            requester_name = u.get("full_name") or (u.get("email", "").split("@")[0] if u.get("email") else "the case owner")
+    return {
+        "status": "ready",
+        "label": inv.get("label"), "instructions": inv.get("instructions"),
+        "uploader_name_hint": inv.get("uploader_name_hint", ""),
+        "requester_name": requester_name,
+        "upload_count": inv.get("upload_count", 0),
+        "max_uploads": inv.get("max_uploads", 8),
+        "expires_at": inv.get("expires_at"),
+    }
+
+
+@api_router.post("/evidence/{token}/upload")
+async def evidence_public_upload(
+    token: str,
+    file: UploadFile = File(...),
+    uploader_name: str = Form(...),
+    uploader_email: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+):
+    """Public — uploader submits a file. Stores BYTES (encrypted, base64) so the
+    owner can actually download them later. Capped at 12MB per file, 8 per invite."""
+    inv = await db.evidence_invites.find_one({"token": token}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invite not found")
+    if inv.get("status") == "closed":
+        raise HTTPException(403, "This evidence request was closed by the requester.")
+    if inv.get("expires_at") and datetime.fromisoformat(inv["expires_at"]) < datetime.now(timezone.utc):
+        raise HTTPException(410, "Invite has expired")
+    if (inv.get("upload_count") or 0) >= (inv.get("max_uploads") or 8):
+        raise HTTPException(429, f"Upload limit reached ({inv.get('max_uploads')} files). Ask the requester for a new link.")
+
+    if not uploader_name or len(uploader_name.strip()) < 2:
+        raise HTTPException(400, "Please provide your name.")
+
+    raw = await file.read()
+    if len(raw) > 12 * 1024 * 1024:
+        raise HTTPException(413, "File too large (12 MB max)")
+    if len(raw) < 50:
+        raise HTTPException(400, "File seems empty.")
+    import hashlib as _hl
+    sha = _hl.sha256(raw).hexdigest()
+    mt = (file.content_type or "application/octet-stream").lower()
+    kind = ("photo" if mt.startswith("image/") else
+            "video" if mt.startswith("video/") else
+            "audio" if mt.startswith("audio/") else "document")
+
+    # Store the bytes encrypted in evidence_files (separate collection — keeps
+    # case_items lean for listing).
+    evidence_file_id = str(uuid.uuid4())
+    file_b64 = base64.b64encode(raw).decode("ascii")
+    await db.evidence_files.insert_one({
+        "id": evidence_file_id, "case_id": inv["case_id"], "user_id": inv["user_id"],
+        "invite_id": inv["id"], "token_hash": _hl.sha256(token.encode()).hexdigest()[:32],
+        "filename": file.filename or "evidence",
+        "content_type": mt, "size_bytes": len(raw), "sha256": sha,
+        "file_b64": encrypt_text(file_b64),
+        "uploader_name": uploader_name.strip()[:200],
+        "uploader_email": (uploader_email or "").strip()[:200] or None,
+        "description": (description or "")[:1000],
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    # Auto-create a case_item so it shows up in the case + timeline immediately
+    case_item_id = str(uuid.uuid4())
+    await db.case_items.insert_one({
+        "id": case_item_id,
+        "case_id": inv["case_id"], "user_id": inv["user_id"],
+        "item_type": kind, "item_id": evidence_file_id,
+        "title": f"{file.filename or 'Evidence'} — from {uploader_name.strip()[:80]}",
+        "preview": (description or "")[:500],
+        "filename": file.filename or "",
+        "content_type": mt, "size_bytes": len(raw), "sha256": sha,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "kind": "evidence_upload", "evidence_file_id": evidence_file_id,
+        "uploader_name": uploader_name.strip()[:200],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    await db.cases.update_one(
+        {"id": inv["case_id"]},
+        {"$inc": {"items_count": 1}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    await db.evidence_invites.update_one({"token": token}, {"$inc": {"upload_count": 1}})
+
+    # Notify owner
+    try:
+        owner = await db.users.find_one({"id": inv["user_id"]}, {"_id": 0, "email": 1, "full_name": 1})
+        if owner and owner.get("email"):
+            from email_helper import send_email
+            html = f"""
+              <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">📎 New evidence received</h2>
+              <p>Hi {(owner.get('full_name') or '').split(' ')[0] or 'there'},</p>
+              <p><strong>{uploader_name}</strong> just uploaded a file to your "<em>{inv.get('label')}</em>" evidence request.</p>
+              <p style="background:#fffaeb; border-left:3px solid #f7c948; padding:10px 14px; margin:18px 0; font-size:13px; color:#1a1300;">
+                <strong>File:</strong> {file.filename or 'evidence'} ({(len(raw)/1024):.0f} KB)<br/>
+                {('<strong>Note:</strong> ' + description) if description else ''}
+              </p>
+              <p>Log in to AI Advocate and open the case to view + download the file.</p>
+              <p style="font-size:12.5px; color:#555;">SHA-256: {sha[:16]}… · Uploaded {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}</p>
+            """
+            await send_email(to=owner["email"], subject=f"Evidence received — {uploader_name}", body_html=html)
+    except Exception as e:
+        logger.warning(f"evidence owner-notify failed: {e}")
+
+    return {"ok": True, "evidence_file_id": evidence_file_id,
+            "remaining_uploads": (inv.get("max_uploads") or 8) - (inv.get("upload_count") or 0) - 1}
+
+
+@api_router.get("/cases/{case_id}/evidence/invites")
+async def evidence_invites_list(case_id: str, user: dict = Depends(get_user)):
+    case = await db.cases.find_one({"id": case_id, "user_id": user["id"]}, {"_id": 0, "id": 1})
+    if not case:
+        raise HTTPException(404, "Case not found")
+    invites = [
+        i async for i in db.evidence_invites.find(
+            {"case_id": case_id, "user_id": user["id"]},
+            {"_id": 0, "id": 1, "label": 1, "instructions": 1, "uploader_email": 1,
+             "uploader_name_hint": 1, "status": 1, "upload_count": 1, "max_uploads": 1,
+             "created_at": 1, "expires_at": 1, "token": 1},
+        ).sort("created_at", -1)
+    ]
+    files = [
+        f async for f in db.evidence_files.find(
+            {"case_id": case_id, "user_id": user["id"]},
+            {"_id": 0, "file_b64": 0},  # exclude bytes
+        ).sort("uploaded_at", -1)
+    ]
+    return {"invites": invites, "files": files}
+
+
+@api_router.get("/cases/{case_id}/evidence/files/{file_id}/download")
+async def evidence_file_download(case_id: str, file_id: str, user: dict = Depends(get_user)):
+    rec = await db.evidence_files.find_one(
+        {"id": file_id, "case_id": case_id, "user_id": user["id"]}, {"_id": 0},
+    )
+    if not rec:
+        raise HTTPException(404, "File not found")
+    try:
+        decoded = base64.b64decode(decrypt_text(rec["file_b64"]))
+    except Exception:
+        raise HTTPException(500, "File could not be decrypted")
+    fname = rec.get("filename") or f"evidence-{file_id[:8]}"
+    return StreamingResponse(
+        io.BytesIO(decoded),
+        media_type=rec.get("content_type") or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@api_router.post("/cases/{case_id}/evidence/invites/{invite_id}/close")
+async def evidence_invite_close(case_id: str, invite_id: str, user: dict = Depends(get_user)):
+    r = await db.evidence_invites.update_one(
+        {"id": invite_id, "case_id": case_id, "user_id": user["id"]},
+        {"$set": {"status": "closed", "closed_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    if r.matched_count == 0:
+        raise HTTPException(404, "Invite not found")
+    return {"ok": True}
+
+
 app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware, allow_credentials=True,
