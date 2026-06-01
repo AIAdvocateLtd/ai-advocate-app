@@ -9387,6 +9387,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "reminders", label: t(lang, "reminders"), Icon: ReminderIcon, req: "free" },
     { id: "recycle", label: t(lang, "recycleBin"), Icon: RecycleIcon, req: "free" },
     { id: "letter", label: t(lang, "letterLibrary"), Icon: LetterIcon, req: "free" },
+    { id: "et1", label: "ET1 Auto-Fill", sub: "Employment Tribunal claim", Icon: ContractIcon, req: "free", isNew: true },
     { id: "immigration", label: t(lang, "immigration"), Icon: ImmigrationIcon, cat: "immigration", req: "plus" },
     { id: "employment", label: t(lang, "employment"), Icon: EmploymentIcon, cat: "employment", req: "plus" },
     { id: "property", label: t(lang, "property"), Icon: PropertyIcon, cat: "property", req: "plus" },
@@ -9415,6 +9416,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     else if (tile.id === "legal_aid") setModal({ type: "legal_aid" });
     else if (tile.id === "lawyers") setModal({ type: "lawyers" });
     else if (tile.id === "courtroom") setModal({ type: "courtroom" });
+    else if (tile.id === "et1") setModal({ type: "et1" });
     else if (tile.id === "ask_lex") setModal({ type: "chat", title: t(lang, "askLex"), category: tile.cat });
     else setModal({ type: "chat", title: tile.label, category: tile.cat });
   };
@@ -9638,6 +9640,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "outcome" && <OutcomeModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "cost" && <CostEstimateModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "hearing" && <HearingRecorderModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "et1" && <ET1AutoFillModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {/* Legacy "hearing" tile id removed — merged into "record" via RecordHub. The
           modal route above stays for any external aa:open-modal events that still target it. */}
       {modal?.type === "legal_aid" && <LegalAidModal lang={lang} country={country} onClose={() => setModal(null)} />}
@@ -9816,6 +9819,265 @@ function CostEstimateModal({ lang, country, onClose }) {
     </div>
   );
 }
+
+
+// =============== 📋 ET1 Employment Tribunal Auto-Fill ===============
+// Two-step flow: (1) collect minimal user inputs → POST /forms/et1/draft →
+// (2) show structured result with download/print. Lex does the heavy lifting
+// (chat history extraction + claim type detection + statute citations).
+function ET1AutoFillModal({ lang, country, onClose }) {
+  const [step, setStep] = useState("input"); // input | result
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({
+    full_name: "", address: "", postcode: "", phone: "", email: "", dob: "",
+    employer_name: "", employer_address: "",
+    job_title: "", employment_start_date: "", employment_end_date: "",
+    weekly_hours: "", gross_pay: "", net_pay: "", notice_period: "",
+    acas_certificate_number: "", acas_received_date: "",
+    extra_context: "",
+  });
+  const [result, setResult] = useState(null);
+
+  const generate = async () => {
+    if (form.extra_context.length < 40) {
+      aaToast("Please describe what happened in more detail (at least a couple of sentences)", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { data } = await api.post("/forms/et1/draft", { ...form, language: lang });
+      setResult(data);
+      setStep("result");
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Couldn't draft the ET1", "error");
+    } finally { setBusy(false); }
+  };
+
+  const downloadPdf = async () => {
+    try {
+      const r = await fetch(`${API}/forms/et1/${result.draft_id}/pdf`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("aa_token")}` },
+      });
+      if (!r.ok) throw new Error("PDF failed");
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `ai-advocate-ET1-${result.draft_id.slice(0,8)}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { aaToast("PDF download failed", "error"); }
+  };
+
+  return (
+    <div className="modal-bg" data-testid="et1-modal">
+      <div className="modal-card" style={{ padding: 0, display: "flex", flexDirection: "column", maxHeight: "92vh", maxWidth: 720 }}>
+        <div className="flex items-center justify-between" style={{ padding: "18px 20px 12px", borderBottom: "1px solid var(--line)" }}>
+          <div>
+            <h2 className="brand-font gold" style={{ fontSize: 20, margin: 0 }}>📋 ET1 Auto-Fill</h2>
+            <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>
+              Employment Tribunal claim form · UK · ~30 sec
+            </div>
+          </div>
+          <button onClick={onClose} data-testid="et1-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
+        </div>
+
+        <div style={{ padding: 20, overflowY: "auto", flex: 1 }}>
+          {step === "input" && (
+            <>
+              <div style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.55 }}>
+                <strong style={{ color: "var(--gold)" }}>How it works:</strong> Tell us what happened in plain English. Lex extracts the legal claims, identifies the right statutes, drafts the full ET1 narrative + remedy section, and produces a PDF you can use to fill out the official online form at <strong>employmenttribunal.service.gov.uk</strong>. You can leave any field blank — Lex inserts <code style={{ background: "var(--bg-2)", padding: "1px 5px", borderRadius: 3 }}>[PLACEHOLDER]</code> markers for you to fill in later.
+              </div>
+
+              <textarea className="input" rows={5} placeholder="What happened? E.g. 'I was made redundant on 15 March 2026 after 9 months maternity leave. My role went to a male colleague who joined 3 months before my leave...'"
+                value={form.extra_context} onChange={(e) => setForm({ ...form, extra_context: e.target.value })}
+                data-testid="et1-narrative" style={{ marginBottom: 12, resize: "vertical" }} />
+
+              <div style={{ fontSize: 10.5, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Your details</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                <input className="input" placeholder="Full legal name" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} data-testid="et1-name" />
+                <input className="input" placeholder="Date of birth (DD/MM/YYYY)" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} data-testid="et1-dob" />
+              </div>
+              <input className="input" placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} data-testid="et1-address" style={{ marginBottom: 8 }} />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+                <input className="input" placeholder="Postcode" value={form.postcode} onChange={(e) => setForm({ ...form, postcode: e.target.value })} data-testid="et1-postcode" />
+                <input className="input" placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="et1-phone" />
+                <input className="input" placeholder="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} data-testid="et1-email" />
+              </div>
+
+              <div style={{ fontSize: 10.5, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Employer</div>
+              <input className="input" placeholder="Employer name" value={form.employer_name} onChange={(e) => setForm({ ...form, employer_name: e.target.value })} data-testid="et1-employer-name" style={{ marginBottom: 8 }} />
+              <input className="input" placeholder="Employer address" value={form.employer_address} onChange={(e) => setForm({ ...form, employer_address: e.target.value })} data-testid="et1-employer-address" style={{ marginBottom: 12 }} />
+
+              <div style={{ fontSize: 10.5, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Employment</div>
+              <input className="input" placeholder="Job title" value={form.job_title} onChange={(e) => setForm({ ...form, job_title: e.target.value })} data-testid="et1-job" style={{ marginBottom: 8 }} />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                <input className="input" placeholder="Start date (DD/MM/YYYY)" value={form.employment_start_date} onChange={(e) => setForm({ ...form, employment_start_date: e.target.value })} data-testid="et1-start" />
+                <input className="input" placeholder="End date (or blank if still employed)" value={form.employment_end_date} onChange={(e) => setForm({ ...form, employment_end_date: e.target.value })} data-testid="et1-end" />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+                <input className="input" placeholder="Hours / week" value={form.weekly_hours} onChange={(e) => setForm({ ...form, weekly_hours: e.target.value })} data-testid="et1-hours" />
+                <input className="input" placeholder="Gross pay" value={form.gross_pay} onChange={(e) => setForm({ ...form, gross_pay: e.target.value })} data-testid="et1-gross" />
+                <input className="input" placeholder="Net pay" value={form.net_pay} onChange={(e) => setForm({ ...form, net_pay: e.target.value })} data-testid="et1-net" />
+              </div>
+
+              <div style={{ background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.3)", borderRadius: 10, padding: 10, marginBottom: 8, fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.5 }}>
+                ⚠ <strong>ACAS Early Conciliation is required before you can file an ET1.</strong> If you've already completed it, enter your certificate number below. If not, do that first at <a href="https://www.acas.org.uk/early-conciliation" target="_blank" rel="noreferrer" style={{ color: "var(--gold)" }}>acas.org.uk</a> (free, 30 days).
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+                <input className="input" placeholder="ACAS certificate number" value={form.acas_certificate_number} onChange={(e) => setForm({ ...form, acas_certificate_number: e.target.value })} data-testid="et1-acas" />
+                <input className="input" placeholder="ACAS date received" value={form.acas_received_date} onChange={(e) => setForm({ ...form, acas_received_date: e.target.value })} data-testid="et1-acas-date" />
+              </div>
+
+              <button className="btn-gold w-full" disabled={busy || form.extra_context.length < 40} onClick={generate} data-testid="et1-generate">
+                {busy ? <span className="spinner" /> : "✨ Draft my ET1 with Lex"}
+              </button>
+            </>
+          )}
+
+          {step === "result" && result && (
+            <ET1Result result={result} onBack={() => setStep("input")} onDownload={downloadPdf} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function ET1Result({ result, onBack, onDownload }) {
+  const data = result.data || {};
+  const claimLabels = {
+    unfair_dismissal: "Unfair dismissal", discrimination: "Discrimination",
+    redundancy_pay: "Redundancy pay", unauthorised_deductions: "Unauthorised deductions",
+    breach_of_contract: "Breach of contract", equal_pay: "Equal pay",
+    harassment: "Harassment", victimisation: "Victimisation",
+    whistleblowing: "Whistleblowing (PIDA)", automatic_unfair_dismissal: "Automatic unfair dismissal",
+    constructive_dismissal: "Constructive dismissal", other: "Other",
+  };
+  const discLabels = {
+    age: "Age", disability: "Disability", gender_reassignment: "Gender reassignment",
+    marriage_civil_partnership: "Marriage / civil partnership", pregnancy_maternity: "Pregnancy / maternity",
+    race: "Race", religion_belief: "Religion or belief", sex: "Sex", sexual_orientation: "Sexual orientation",
+  };
+
+  return (
+    <div data-testid="et1-result">
+      <div style={{ background: "rgba(34,197,94,0.08)", border: "1px solid #22c55e", borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 12.5, color: "#86efac" }}>
+        ✓ <strong>ET1 draft ready.</strong> Review each section below, then download the PDF and use it as a fill-in companion when you complete the official form online.
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <button className="btn-gold" onClick={onDownload} data-testid="et1-download" style={{ flex: 1, minWidth: 140, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          <Download size={14} /> Download PDF
+        </button>
+        <a href={result.online_submission_url} target="_blank" rel="noreferrer" data-testid="et1-official"
+          style={{ flex: 1, minWidth: 140, padding: "10px 14px", borderRadius: 8, border: "1px solid var(--gold-deep)", background: "transparent", color: "var(--gold)", fontSize: 12.5, textAlign: "center", textDecoration: "none", fontWeight: 600 }}>
+          📄 File on gov.uk
+        </a>
+        <a href={result.acas_url} target="_blank" rel="noreferrer" data-testid="et1-acas-link"
+          style={{ flex: 1, minWidth: 120, padding: "10px 14px", borderRadius: 8, border: "1px solid var(--line)", background: "transparent", color: "var(--text-dim)", fontSize: 12.5, textAlign: "center", textDecoration: "none" }}>
+          ACAS
+        </a>
+      </div>
+
+      <ET1Section title="Claim types identified">
+        {(data.claim_types || []).length > 0 ? (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {data.claim_types.map((c, i) => (
+              <span key={i} style={{ background: "rgba(247,201,72,0.15)", color: "var(--gold)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: "4px 12px", fontSize: 11.5, fontWeight: 600 }}>
+                ☑ {claimLabels[c] || c}
+              </span>
+            ))}
+          </div>
+        ) : <span style={{ color: "var(--text-muted)" }}>None identified</span>}
+      </ET1Section>
+
+      {(data.discrimination_grounds || []).length > 0 && (
+        <ET1Section title="Protected characteristics (discrimination)">
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {data.discrimination_grounds.map((g, i) => (
+              <span key={i} style={{ background: "rgba(239,68,68,0.1)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 14, padding: "4px 12px", fontSize: 11.5, fontWeight: 600 }}>
+                ☑ {discLabels[g] || g}
+              </span>
+            ))}
+          </div>
+        </ET1Section>
+      )}
+
+      <ET1Section title="What happened (narrative)">
+        <div style={{ background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: 8, padding: 12, fontSize: 12.5, color: "var(--text)", lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 280, overflowY: "auto" }}>
+          {data.narrative?.what_happened || "—"}
+        </div>
+      </ET1Section>
+
+      {data.narrative?.why_unfair_or_unlawful && (
+        <ET1Section title="Why this was unfair or unlawful (legal basis)">
+          <div style={{ background: "rgba(247,201,72,0.05)", border: "1px solid var(--gold-deep)", borderRadius: 8, padding: 12, fontSize: 12.5, color: "var(--text)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+            {data.narrative.why_unfair_or_unlawful}
+          </div>
+        </ET1Section>
+      )}
+
+      {(data.narrative?.key_dates_chronology || []).length > 0 && (
+        <ET1Section title="Key dates">
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {data.narrative.key_dates_chronology.map((c, i) => (
+              <div key={i} style={{ display: "flex", gap: 10, fontSize: 12, padding: "6px 8px", background: "var(--bg-2)", borderRadius: 6 }}>
+                <div style={{ color: "var(--gold)", fontWeight: 700, minWidth: 86 }}>{c.date}</div>
+                <div style={{ color: "var(--text-dim)" }}>{c.event}</div>
+              </div>
+            ))}
+          </div>
+        </ET1Section>
+      )}
+
+      {data.remedy_sought && (
+        <ET1Section title="What you're asking for (remedy)">
+          <div style={{ fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.6 }}>
+            {data.remedy_sought.compensation && <div>☑ Compensation {data.remedy_sought.compensation_amount_sought && <strong style={{ color: "var(--gold)" }}>· {data.remedy_sought.compensation_amount_sought}</strong>}</div>}
+            {data.remedy_sought.reinstatement && <div>☑ Reinstatement</div>}
+            {data.remedy_sought.reengagement && <div>☑ Re-engagement</div>}
+            {data.remedy_sought.declaration && <div>☑ Declaration of breach</div>}
+            {data.remedy_sought.recommendation && <div>☑ Tribunal recommendation</div>}
+            {data.remedy_sought.explanation && <div style={{ marginTop: 6, fontStyle: "italic" }}>{data.remedy_sought.explanation}</div>}
+          </div>
+        </ET1Section>
+      )}
+
+      {(data.supporting_evidence_list || []).length > 0 && (
+        <ET1Section title="Supporting documents to attach">
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.7 }}>
+            {data.supporting_evidence_list.map((e, i) => <li key={i}>{e}</li>)}
+          </ul>
+        </ET1Section>
+      )}
+
+      {(data.warnings_for_claimant || []).length > 0 && (
+        <ET1Section title="⚠ Important — before you file">
+          <div style={{ background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.3)", borderRadius: 8, padding: 12 }}>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: "var(--text)", lineHeight: 1.7 }}>
+              {data.warnings_for_claimant.map((w, i) => <li key={i}>{w}</li>)}
+            </ul>
+          </div>
+        </ET1Section>
+      )}
+
+      <p style={{ color: "var(--text-muted)", fontSize: 10.5, marginTop: 14, lineHeight: 1.5 }}>{result.disclaimer}</p>
+      <button className="btn-ghost w-full" onClick={onBack} style={{ marginTop: 8 }} data-testid="et1-back">← Edit and redraft</button>
+    </div>
+  );
+}
+
+
+function ET1Section({ title, children }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 11, color: "var(--gold)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
 
 // ---------- Legal Aid Finder ----------
 function LegalAidModal({ lang, country, onClose }) {

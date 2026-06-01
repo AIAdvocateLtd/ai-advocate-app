@@ -9303,6 +9303,340 @@ async def legal_aid_draft_application_pdf(data: DraftApplicationRequest, user: d
     )
 
 
+# ==================== 📋 ET1 Employment Tribunal Auto-Fill (Phase 4a) ====================
+# Lex generates a fully-populated ET1 claim from the user's chat history (+ a
+# few targeted top-up questions). Output is a structured JSON payload AND a
+# downloadable PDF that mirrors the gov.uk ET1 format — ready as a fill-in
+# companion for the official online service.
+
+class ET1DraftRequest(BaseModel):
+    session_id: str = ""
+    full_name: str = ""
+    address: str = ""
+    postcode: str = ""
+    phone: str = ""
+    email: str = ""
+    dob: str = ""
+    employer_name: str = ""
+    employer_address: str = ""
+    job_title: str = ""
+    employment_start_date: str = ""
+    employment_end_date: str = ""
+    weekly_hours: str = ""
+    gross_pay: str = ""
+    net_pay: str = ""
+    notice_period: str = ""
+    acas_certificate_number: str = ""
+    acas_received_date: str = ""
+    extra_context: str = ""
+    language: str = "en-GB"
+
+
+def _et1_structure_schema() -> str:
+    return """{
+  "claimant": {"title": "Mr|Mrs|Ms|Mx|other", "full_name": "string", "dob": "DD/MM/YYYY", "address": "full multi-line address", "postcode": "string", "phone": "string", "email": "string"},
+  "respondent": {"employer_name": "string", "employer_address": "full multi-line address with postcode"},
+  "acas": {"certificate_number": "string (e.g. R123456/26/12) or [REQUIRED]", "received_date": "DD/MM/YYYY or [REQUIRED]"},
+  "employment": {"job_title": "string", "start_date": "DD/MM/YYYY", "end_date": "DD/MM/YYYY or 'Still employed'", "still_employed": true|false, "weekly_hours": "string", "gross_pay": "string", "net_pay": "string", "notice_period": "string"},
+  "claim_types": ["unfair_dismissal" | "discrimination" | "redundancy_pay" | "unauthorised_deductions" | "breach_of_contract" | "equal_pay" | "harassment" | "victimisation" | "whistleblowing" | "automatic_unfair_dismissal" | "constructive_dismissal" | "other"],
+  "discrimination_grounds": ["age" | "disability" | "gender_reassignment" | "marriage_civil_partnership" | "pregnancy_maternity" | "race" | "religion_belief" | "sex" | "sexual_orientation"],
+  "narrative": {"what_happened": "3-6 paragraph factual narrative in first person", "why_unfair_or_unlawful": "1-2 paragraphs naming the relevant statute", "key_dates_chronology": [{"date": "DD/MM/YYYY", "event": "what happened"}]},
+  "remedy_sought": {"compensation": true|false, "reinstatement": true|false, "reengagement": true|false, "declaration": true|false, "recommendation": true|false, "compensation_amount_sought": "string", "explanation": "1-2 sentences"},
+  "supporting_evidence_list": ["specific document e.g. 'Dismissal letter dated 12/03/2026'"],
+  "warnings_for_claimant": ["string"]
+}"""
+
+
+@api_router.post("/forms/et1/draft")
+async def forms_et1_draft(data: ET1DraftRequest, user: dict = Depends(get_user)):
+    chat_context = ""
+    if data.session_id:
+        cursor = db.conversations.find(
+            {"user_id": user["id"], "session_id": data.session_id, "user_message": {"$ne": None}},
+            sort=[("created_at", -1)], projection={"_id": 0, "user_message": 1, "assistant_response": 1},
+        ).limit(10)
+        msgs = [m async for m in cursor]
+        msgs.reverse()
+        chat_context = "\n\n".join(
+            f"USER: {m['user_message']}\nLEX: {m.get('assistant_response','')[:2500]}" for m in msgs
+        )[:18000]
+
+    user_overrides = {
+        "full_name": data.full_name, "address": data.address, "postcode": data.postcode,
+        "phone": data.phone, "email": data.email, "dob": data.dob,
+        "employer_name": data.employer_name, "employer_address": data.employer_address,
+        "job_title": data.job_title, "start_date": data.employment_start_date,
+        "end_date": data.employment_end_date, "weekly_hours": data.weekly_hours,
+        "gross_pay": data.gross_pay, "net_pay": data.net_pay, "notice_period": data.notice_period,
+        "acas_certificate_number": data.acas_certificate_number,
+        "acas_received_date": data.acas_received_date,
+    }
+    user_overrides = {k: v for k, v in user_overrides.items() if v}
+
+    system = f"""You are a UK Employment Tribunal paralegal drafting an ET1 claim form for a self-represented claimant.
+
+Produce ONLY a single valid JSON object matching this schema (no prose, no markdown fences):
+
+{_et1_structure_schema()}
+
+CRITICAL RULES:
+1. Extract facts ONLY from the chat history + user-provided fields. NEVER invent facts. Unknown facts = "[PLACEHOLDER — claimant to confirm]".
+2. Pick claim_types CONSERVATIVELY. Only include if the chat clearly evidences it.
+3. narrative.what_happened — FIRST PERSON, 3-6 paragraphs, dated and named events, plain English.
+4. Name UK statutes: Employment Rights Act 1996 (s.94 unfair dismissal, s.139 redundancy), Equality Act 2010 (discrimination), Public Interest Disclosure Act 1998 (whistleblowing), TULRCA 1992.
+5. acas.certificate_number — if not provided: "[REQUIRED — get an ACAS Early Conciliation Certificate before filing. Visit acas.org.uk or call 0300 123 1100. Free.]"
+6. warnings_for_claimant MUST include: (a) 3-months-less-1-day time limit reminder, (b) "attach X" reminders, (c) ACAS requirement if not done.
+7. key_dates_chronology — extract every date mentioned, sort ascending.
+8. Return ONLY the JSON object."""
+
+    user_msg = f"""USER-PROVIDED FIELDS (override Lex's chat inferences):
+{json.dumps(user_overrides, indent=2) if user_overrides else "(none — extract everything from chat history)"}
+
+EXTRA CONTEXT FROM USER:
+{data.extra_context or "(none)"}
+
+CHAT HISTORY:
+{chat_context or "(no chat history — rely on user-provided fields above)"}
+
+Produce the ET1 JSON now."""
+
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"et1-{uuid.uuid4().hex[:12]}", system_message=system)\
+            .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=6000)
+        raw = await chat.send_message(UserMessage(text=user_msg))
+    except Exception as e:
+        logger.exception("ET1 draft error")
+        raise HTTPException(500, f"AI error: {e}")
+
+    et1 = _extract_json_object(raw)
+    if not et1:
+        logger.warning(f"ET1 JSON parse failed (raw len={len(raw or '')}): {(raw or '')[:600]}")
+        raise HTTPException(502, "Lex couldn't structure the ET1 right now. Try again in a moment.")
+
+    draft_id = str(uuid.uuid4())
+    rec = {
+        "id": draft_id, "user_id": user["id"], "form": "ET1",
+        "data": et1, "user_overrides": user_overrides,
+        "extra_context": data.extra_context,
+        "session_id": data.session_id, "language": data.language,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.form_drafts.insert_one(rec)
+
+    return {
+        "draft_id": draft_id, "form": "ET1",
+        "data": et1,
+        "official_form_url": "https://www.gov.uk/government/publications/employment-tribunal-claim-form-et1",
+        "online_submission_url": "https://employmenttribunal.service.gov.uk/",
+        "acas_url": "https://www.acas.org.uk/early-conciliation",
+        "disclaimer": "AI-generated draft. Review every field carefully. Lex cannot file the form for you — this is preparation only.",
+    }
+
+
+@api_router.get("/forms/et1/{draft_id}")
+async def forms_et1_get(draft_id: str, user: dict = Depends(get_user)):
+    rec = await db.form_drafts.find_one({"id": draft_id, "user_id": user["id"], "form": "ET1"}, {"_id": 0})
+    if not rec:
+        raise HTTPException(404, "Draft not found")
+    return rec
+
+
+class ET1UpdateRequest(BaseModel):
+    data: dict
+
+
+@api_router.put("/forms/et1/{draft_id}")
+async def forms_et1_update(draft_id: str, body: ET1UpdateRequest, user: dict = Depends(get_user)):
+    rec = await db.form_drafts.find_one({"id": draft_id, "user_id": user["id"], "form": "ET1"})
+    if not rec:
+        raise HTTPException(404, "Draft not found")
+    await db.form_drafts.update_one(
+        {"id": draft_id},
+        {"$set": {"data": body.data, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True}
+
+
+@api_router.get("/forms/et1/{draft_id}/pdf")
+async def forms_et1_pdf(draft_id: str, user: dict = Depends(get_user)):
+    rec = await db.form_drafts.find_one({"id": draft_id, "user_id": user["id"], "form": "ET1"}, {"_id": 0})
+    if not rec:
+        raise HTTPException(404, "Draft not found")
+    et1 = rec["data"]
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.colors import HexColor
+    from reportlab.lib.enums import TA_LEFT
+    import io as _io
+
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm, topMargin=1.6*cm, bottomMargin=1.6*cm)
+    styles = getSampleStyleSheet()
+    GOLD = HexColor("#7a5c00"); DARK = HexColor("#1a1300")
+    title = ParagraphStyle("title", parent=styles["Title"], fontSize=18, leading=22, textColor=DARK, alignment=TA_LEFT, spaceAfter=4)
+    sub = ParagraphStyle("sub", parent=styles["BodyText"], fontSize=10, textColor=HexColor("#666"), spaceAfter=10)
+    h2 = ParagraphStyle("h2", parent=styles["Heading2"], fontSize=12, leading=15, textColor=GOLD, spaceBefore=10, spaceAfter=6)
+    body = ParagraphStyle("body", parent=styles["BodyText"], fontSize=10, leading=14, spaceAfter=4)
+    label = ParagraphStyle("label", parent=body, textColor=HexColor("#666"), fontName="Helvetica-Bold")
+    warn = ParagraphStyle("warn", parent=body, textColor=HexColor("#b91c1c"), backColor=HexColor("#fef2f2"))
+
+    story = [
+        Paragraph("ET1 · Employment Tribunal Claim Form", title),
+        Paragraph("AI Advocate auto-fill companion. Use alongside the gov.uk online form at employmenttribunal.service.gov.uk.", sub),
+    ]
+
+    def kv_table(rows):
+        data_rows = [[Paragraph(f"<b>{k}</b>", label), Paragraph(str(v) if v else "—", body)] for k, v in rows]
+        t = Table(data_rows, colWidths=[5*cm, 12*cm])
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (0, -1), HexColor("#fff8e1")),
+            ("BOX", (0, 0), (-1, -1), 0.5, HexColor("#cccccc")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.25, HexColor("#dddddd")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        return t
+
+    c = et1.get("claimant", {}) or {}
+    story.append(Paragraph("1. Your details (the claimant)", h2))
+    story.append(kv_table([
+        ("Title", c.get("title", "")), ("Full name", c.get("full_name", "")),
+        ("Date of birth", c.get("dob", "")), ("Address", c.get("address", "")),
+        ("Postcode", c.get("postcode", "")), ("Phone", c.get("phone", "")),
+        ("Email", c.get("email", "")),
+    ]))
+
+    r = et1.get("respondent", {}) or {}
+    story.append(Paragraph("2. The respondent (employer)", h2))
+    story.append(kv_table([("Employer name", r.get("employer_name", "")), ("Employer address", r.get("employer_address", ""))]))
+
+    a = et1.get("acas", {}) or {}
+    story.append(Paragraph("3. ACAS Early Conciliation (required before filing)", h2))
+    story.append(kv_table([("Certificate number", a.get("certificate_number", "")), ("Date received", a.get("received_date", ""))]))
+
+    e = et1.get("employment", {}) or {}
+    story.append(Paragraph("4. Employment details", h2))
+    story.append(kv_table([
+        ("Job title", e.get("job_title", "")), ("Employment start date", e.get("start_date", "")),
+        ("Employment end date", e.get("end_date", "")),
+        ("Still employed?", "Yes" if e.get("still_employed") else "No"),
+        ("Hours / week", e.get("weekly_hours", "")), ("Gross pay", e.get("gross_pay", "")),
+        ("Net pay", e.get("net_pay", "")), ("Notice period", e.get("notice_period", "")),
+    ]))
+
+    story.append(Paragraph("5. Type of claim", h2))
+    claim_types = et1.get("claim_types") or []
+    if claim_types:
+        labels = {
+            "unfair_dismissal": "Unfair dismissal", "discrimination": "Discrimination",
+            "redundancy_pay": "Redundancy pay", "unauthorised_deductions": "Unauthorised deductions from wages",
+            "breach_of_contract": "Breach of contract", "equal_pay": "Equal pay",
+            "harassment": "Harassment", "victimisation": "Victimisation",
+            "whistleblowing": "Whistleblowing (PIDA)", "automatic_unfair_dismissal": "Automatic unfair dismissal",
+            "constructive_dismissal": "Constructive dismissal", "other": "Other",
+        }
+        story.append(Paragraph("<br/>".join(f"☑ {labels.get(t, t)}" for t in claim_types), body))
+    else:
+        story.append(Paragraph("(none identified)", body))
+
+    disc = et1.get("discrimination_grounds") or []
+    if disc:
+        story.append(Paragraph("5a. Protected characteristics (discrimination grounds)", h2))
+        dlabels = {
+            "age": "Age", "disability": "Disability", "gender_reassignment": "Gender reassignment",
+            "marriage_civil_partnership": "Marriage / civil partnership", "pregnancy_maternity": "Pregnancy / maternity",
+            "race": "Race", "religion_belief": "Religion or belief", "sex": "Sex", "sexual_orientation": "Sexual orientation",
+        }
+        story.append(Paragraph("<br/>".join(f"☑ {dlabels.get(g, g)}" for g in disc), body))
+
+    n = et1.get("narrative", {}) or {}
+    story.append(Paragraph("8. Your claim — what happened (the facts)", h2))
+    what = (n.get("what_happened") or "").strip()
+    for para in what.split("\n\n"):
+        if para.strip():
+            safe = para.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
+            story.append(Paragraph(safe, body))
+
+    why = (n.get("why_unfair_or_unlawful") or "").strip()
+    if why:
+        story.append(Paragraph("Why this was unfair or unlawful", h2))
+        safe = why.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
+        story.append(Paragraph(safe, body))
+
+    chrono = n.get("key_dates_chronology") or []
+    if chrono:
+        story.append(Paragraph("Chronology of key dates", h2))
+        rows = [[Paragraph(f"<b>{cr.get('date','—')}</b>", label), Paragraph(cr.get('event',''), body)] for cr in chrono]
+        t = Table(rows, colWidths=[3*cm, 14*cm])
+        t.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("BOX", (0, 0), (-1, -1), 0.5, HexColor("#cccccc")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.25, HexColor("#dddddd")),
+            ("BACKGROUND", (0, 0), (0, -1), HexColor("#fff8e1")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        story.append(t)
+
+    rem = et1.get("remedy_sought", {}) or {}
+    story.append(Paragraph("9. What outcome you are seeking (remedy)", h2))
+    rem_bullets = []
+    if rem.get("compensation"): rem_bullets.append("☑ Compensation")
+    if rem.get("reinstatement"): rem_bullets.append("☑ Reinstatement (return to your old job)")
+    if rem.get("reengagement"): rem_bullets.append("☑ Re-engagement (a different role with the same employer)")
+    if rem.get("declaration"): rem_bullets.append("☑ Declaration that your rights have been breached")
+    if rem.get("recommendation"): rem_bullets.append("☑ Recommendation (tribunal asks employer to take action)")
+    if rem_bullets:
+        story.append(Paragraph("<br/>".join(rem_bullets), body))
+    if rem.get("compensation_amount_sought"):
+        story.append(Paragraph(f"<b>Amount sought:</b> {rem['compensation_amount_sought']}", body))
+    if rem.get("explanation"):
+        story.append(Paragraph(rem["explanation"], body))
+
+    evi = et1.get("supporting_evidence_list") or []
+    if evi:
+        story.append(Paragraph("10. Supporting documents to attach", h2))
+        story.append(Paragraph("<br/>".join(f"• {x}" for x in evi), body))
+
+    warnings = et1.get("warnings_for_claimant") or []
+    if warnings:
+        story.append(Spacer(1, 6))
+        story.append(Paragraph("⚠ Important — read before filing", h2))
+        for w in warnings:
+            safe = w.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            story.append(Paragraph(f"• {safe}", warn))
+
+    story.append(Spacer(1, 14))
+    story.append(Paragraph(
+        "<i>This document was generated by AI Advocate. It is preparatory and informational only — not legal advice. Always file your ET1 via the official online service at employmenttribunal.service.gov.uk and complete ACAS Early Conciliation first (acas.org.uk).</i>",
+        ParagraphStyle("foot", parent=body, fontSize=8, textColor=HexColor("#888")),
+    ))
+
+    doc.build(story)
+    buf.seek(0)
+    from fastapi.responses import StreamingResponse
+    fname = f"ai-advocate-ET1-{draft_id[:8]}.pdf"
+    return StreamingResponse(
+        buf, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@api_router.get("/forms/drafts")
+async def forms_list_drafts(user: dict = Depends(get_user)):
+    cursor = db.form_drafts.find(
+        {"user_id": user["id"]},
+        {"_id": 0, "data": 0},
+    ).sort("created_at", -1).limit(40)
+    items = [d async for d in cursor]
+    return {"items": items}
+
+
+
 # ==================== Round 2: Case Sharing (read-only links) ====================
 @api_router.post("/cases/{case_id}/share")
 async def share_case(case_id: str, user: dict = Depends(get_user)):
