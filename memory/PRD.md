@@ -10,6 +10,23 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 41 — Phase 3: Solicitor Sanity Check hybrid AI+human flow)
+- 🎖 **Consumer-side**: new "🎖 Solicitor check · £49" button on every Lex answer (next to 👍 👎 🪜 😈). Tap → confirms with user → creates Stripe one-off checkout → user pays → webhook auto-routes to a verified UK law firm with capacity → solicitor reviews within 24h → user gets the verdict by email + visible in app.
+- ⚙️ **Backend (new collection `sanity_checks`)**:
+  - `POST /api/sanity-checks/create-and-checkout` — creates pending_payment row + Stripe Checkout session using `price_data` (no pre-created Stripe Price needed). Auto-pulls the latest Lex exchange from the session if question/answer not provided.
+  - Webhook handler in `/api/stripe/webhook` recognises `metadata.kind=sanity_check` → activates → routes.
+  - `_route_sanity_check()` selects the eligible firm with fewest open Sanity Checks (round-robin fairness, max 5 concurrent per firm). Only premium/practice/founding tier firms are eligible. Respects `declined_by` array so a declining firm doesn't get the same SC routed back.
+  - `GET /api/sanity-checks` (user history) · `GET /api/sanity-checks/{id}` · `GET /api/firm/sanity-checks` · `POST /api/firm/sanity-checks/{id}/submit` (min 60 chars) · `POST /api/firm/sanity-checks/{id}/decline` · `GET /api/admin/sanity-checks` (admin oversight + by-status counts).
+- 💷 **Auto-commission integration**: when a firm submits, a `firm_engagements` row is auto-inserted with `commission_owed_gbp = -30` (negative = AA owes the firm). This credits the firm on their next monthly invoice — clean reconciliation with the existing hybrid auto-billing pipeline (Iter 38).
+- 📧 **Email orchestration** (Resend):
+  - Firm assigned → "New Sanity Check assigned — £30 on completion"
+  - Client when assigned → "Your Sanity Check is on its way — solicitor will respond within 24h"
+  - Client when complete → "Your Sanity Check is back — ✓ Confirmed" or "⚠ A solicitor found concerns" with the solicitor's verbatim response
+- 🔒 **Privacy**: the firm sees the matter type, the question text, and Lex's answer — but NOT the consumer's email/name. "AI Advocate doesn't share your contact details unless you ask us to" — clearly stated in the client email.
+- 🎨 **Firm Portal UI**: new `FirmSanityCheckQueue` card with open/completed split, expandable review pane, anti-typo 60-char minimum, "Decline & re-route" fallback, capacity badge.
+- 🛠 **Same `get_firm`/`_check_admin_user` lateness gotcha hit again** — fixed by moving firm + admin endpoints below their dependencies (consistent with the Iter 37 commissions fix).
+- Verified full lifecycle end-to-end via curl: pending_payment → pending_assignment → assigned → completed, with commission auto-logged.
+
 ### 2026-02 (Iter 40 — Phase 2: Legal Aid done right + Courtroom scroll fix)
 - 🏛 **Legal Aid modal** rebuilt as a 3-tab flow (Eligibility · Draft application · Find an adviser).
 - ✍️ **Draft Statement in Support generator** — new `POST /api/legal-aid/draft-application` returns a markdown statement structured per LAA expectations (Applicant details, Nature of problem, Why representation needed, Means test, Merits test, What I'm applying for, Supporting documents, Declaration). Claude Sonnet 4.5 cites the right UK statutes (Housing Act 1988, Equality Act 2010, Children Act 1989 etc.) and leaves `[SQUARE BRACKET]` placeholders for missing facts. Companion `POST /api/legal-aid/draft-application/pdf` renders to a downloadable PDF via reportlab. Verified on a real eviction scenario — Claude correctly identified the retaliatory-eviction angle and cited Section 21 Housing Act 1988.

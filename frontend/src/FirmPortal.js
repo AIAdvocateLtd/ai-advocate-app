@@ -255,6 +255,9 @@ function FirmDashboard({ firm, onLogout }) {
         ))}
       </div>
 
+      {/* 🎖 Sanity Check Queue — £30 per completed review for premium/practice/founding firms */}
+      <FirmSanityCheckQueue />
+
       {/* 💷 Commissions ledger — log closed engagements + see what's owed to AI Advocate */}
       <FirmCommissionsCard />
 
@@ -325,6 +328,192 @@ function NewEngagementModal({ onClose, onCreated }) {
 // =============================== COMMISSIONS LEDGER ===============================
 // Firms log closed paying engagements here (matter, client, fee).
 // Backend calculates the 30% AI Advocate commission per the Founding Firm Agreement.
+
+// =============================== 🎖 SANITY CHECK QUEUE ===============================
+// Premium / Practice / Founding firms receive real consumer questions to verify.
+// Consumer paid £49 — firm earns £30 on submission. 24h turnaround.
+function FirmSanityCheckQueue() {
+  const [items, setItems] = useState([]);
+  const [openCount, setOpenCount] = useState(0);
+  const [capacityMax, setCapacityMax] = useState(5);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(null);  // sc_id of the one being reviewed
+  const [reviewText, setReviewText] = useState("");
+  const [confirms, setConfirms] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await fapi.get("/firm/sanity-checks");
+      setItems(data.items || []);
+      setOpenCount(data.open_count || 0);
+      setCapacityMax(data.capacity_max || 5);
+    } catch (e) { /* no-op */ }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const submit = async (sc_id) => {
+    if (reviewText.trim().length < 60) {
+      alert("Please write at least a couple of sentences (60+ characters).");
+      return;
+    }
+    setBusy(true);
+    try {
+      await fapi.post(`/firm/sanity-checks/${sc_id}/submit`, {
+        response_text: reviewText, confirms_lex: confirms,
+      });
+      setExpanded(null); setReviewText(""); setConfirms(true);
+      await load();
+    } catch (e) {
+      alert(e?.response?.data?.detail || "Submit failed");
+    } finally { setBusy(false); }
+  };
+
+  const decline = async (sc_id) => {
+    if (!window.confirm("Decline this Sanity Check? It will be re-routed to another firm.")) return;
+    setBusy(true);
+    try {
+      await fapi.post(`/firm/sanity-checks/${sc_id}/decline`);
+      setExpanded(null);
+      await load();
+    } catch (e) { alert(e?.response?.data?.detail || "Decline failed"); }
+    finally { setBusy(false); }
+  };
+
+  const fmtDeadline = (iso) => {
+    if (!iso) return "";
+    try {
+      const ms = new Date(iso).getTime() - Date.now();
+      if (ms < 0) return "⚠ Overdue";
+      const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+      return h > 0 ? `${h}h ${m}m left` : `${m}m left`;
+    } catch { return iso; }
+  };
+
+  const open = items.filter(s => s.status === "assigned");
+  const done = items.filter(s => s.status === "completed");
+
+  return (
+    <div data-testid="firm-sanity-queue-card" style={{ background: "#0c0c0c", border: "1px solid #222", borderRadius: 14, padding: 16, marginTop: 22 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <h2 style={{ fontSize: 14, color: "#f7c948", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>
+            🎖 Sanity Check queue
+          </h2>
+          <div style={{ fontSize: 11.5, color: "#888", marginTop: 4 }}>
+            Real consumers paying £49 for solicitor verification · You earn £30 per completion
+          </div>
+        </div>
+        <div style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, background: openCount >= capacityMax ? "rgba(252,165,165,0.15)" : "rgba(247,201,72,0.15)", color: openCount >= capacityMax ? "#fca5a5" : "#f7c948", fontWeight: 700 }}>
+          {openCount} / {capacityMax} open
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ color: "#888", fontSize: 12, textAlign: "center", padding: 20 }}>Loading…</div>
+      ) : items.length === 0 ? (
+        <div style={{ textAlign: "center", color: "#666", padding: 24, border: "1px dashed #222", borderRadius: 10, fontSize: 12.5 }}>
+          No Sanity Checks routed to your firm yet. When a consumer pays for one, we'll route it here automatically.
+        </div>
+      ) : (
+        <>
+          {open.length > 0 && (
+            <>
+              <div style={{ fontSize: 10.5, color: "#f7c948", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                Open · need your review
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+                {open.map(s => (
+                  <div key={s.id} data-testid={`sanity-row-${s.id}`} style={{ background: "#080808", border: "1px solid rgba(247,201,72,0.35)", borderRadius: 10, padding: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ color: "#f7c948", fontWeight: 700, fontSize: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          {s.matter_type}
+                        </div>
+                        <div style={{ color: "#888", fontSize: 10.5, marginTop: 2 }}>
+                          Assigned {s.assigned_at ? new Date(s.assigned_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"} · {fmtDeadline(s.deadline_at)}
+                        </div>
+                      </div>
+                      <button onClick={() => { setExpanded(expanded === s.id ? null : s.id); setReviewText(""); }}
+                        data-testid={`sanity-toggle-${s.id}`}
+                        style={{ ...btnGold, fontSize: 11, padding: "5px 12px" }}>
+                        {expanded === s.id ? "Hide" : "Review →"}
+                      </button>
+                    </div>
+
+                    {expanded === s.id && (
+                      <div style={{ marginTop: 8, borderTop: "1px solid #1a1a1a", paddingTop: 10 }}>
+                        <div style={{ fontSize: 10, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontWeight: 700 }}>Client's question</div>
+                        <div style={{ background: "#0a0a0a", border: "1px solid #1a1a1a", borderRadius: 6, padding: 8, fontSize: 12, color: "#ccc", marginBottom: 8, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                          {s.question}
+                        </div>
+                        {s.user_notes && (
+                          <>
+                            <div style={{ fontSize: 10, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontWeight: 700 }}>Client's notes</div>
+                            <div style={{ background: "#0a0a0a", border: "1px solid #1a1a1a", borderRadius: 6, padding: 8, fontSize: 12, color: "#ccc", marginBottom: 8, fontStyle: "italic" }}>{s.user_notes}</div>
+                          </>
+                        )}
+                        <div style={{ fontSize: 10, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontWeight: 700 }}>Lex's answer (verify this)</div>
+                        <div style={{ background: "#0a0a0a", border: "1px solid #1a1a1a", borderRadius: 6, padding: 10, fontSize: 12, color: "#ddd", marginBottom: 10, lineHeight: 1.55, maxHeight: 240, overflowY: "auto", whiteSpace: "pre-wrap" }}>
+                          {s.lex_answer}
+                        </div>
+
+                        <div style={{ fontSize: 11, color: "#f7c948", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Your verification</div>
+                        <textarea data-testid={`sanity-review-${s.id}`} rows={5}
+                          placeholder="Confirm or correct Lex's answer. Add anything important the client should know. The client receives this verbatim."
+                          value={reviewText} onChange={(e) => setReviewText(e.target.value)}
+                          style={{ ...inp, resize: "vertical", marginBottom: 8 }} />
+
+                        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#ccc", marginBottom: 12, cursor: "pointer" }}>
+                          <input type="checkbox" data-testid={`sanity-confirms-${s.id}`} checked={confirms} onChange={(e) => setConfirms(e.target.checked)} />
+                          Lex's answer was substantially correct
+                        </label>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                          <button data-testid={`sanity-submit-${s.id}`} onClick={() => submit(s.id)} disabled={busy || reviewText.trim().length < 60}
+                            style={{ ...btnGold, padding: "10px 14px", fontSize: 13 }}>
+                            {busy ? "Submitting…" : `Submit & earn £30`}
+                          </button>
+                          <button data-testid={`sanity-decline-${s.id}`} onClick={() => decline(s.id)} disabled={busy}
+                            style={{ ...btnPlain, color: "#fca5a5", border: "1px solid #2a1a1a", padding: "10px 14px", fontSize: 12 }}>
+                            Decline & re-route
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {done.length > 0 && (
+            <>
+              <div style={{ fontSize: 10.5, color: "#86efac", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                Recently completed
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {done.slice(0, 5).map(s => (
+                  <div key={s.id} style={{ background: "#080808", border: "1px solid #1d1d1d", borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", fontSize: 11.5 }}>
+                    <div>
+                      <div style={{ color: "#fff", fontWeight: 600 }}>{s.matter_type}</div>
+                      <div style={{ color: "#888", fontSize: 10.5 }}>{s.firm_response_at ? new Date(s.firm_response_at).toLocaleString() : "—"} · {s.firm_confirms_lex ? "✓ confirmed" : "⚠ concerns"}</div>
+                    </div>
+                    <div style={{ color: "#86efac", fontWeight: 700 }}>+£30</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+
 // We auto-invoice via Stripe monthly (admin-triggered).
 function FirmCommissionsCard() {
   const [items, setItems] = useState([]);

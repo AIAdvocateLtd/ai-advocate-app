@@ -4190,6 +4190,194 @@ def _effective_topup_tier(user: dict) -> Optional[str]:
         return None
 
 
+# ==================== 🎖 SOLICITOR SANITY CHECK ====================
+# £49 one-off consumer purchase. User pays AA. AA routes the question + Lex's
+# answer to a Founding Firm with capacity. Firm reviews, submits verification
+# within 24h. AA keeps £19, firm earns £30 (auto-logged as commission).
+# Status lifecycle: pending_payment → pending_assignment → assigned → completed | refunded
+
+SANITY_CHECK_PRICE_GBP = 49.00
+SANITY_CHECK_FIRM_PAYOUT_GBP = 30.00
+SANITY_CHECK_TURNAROUND_HOURS = 24
+SANITY_FIRM_CAPACITY = 5  # max concurrent open sanity checks per firm
+
+
+class SanityCheckCreate(BaseModel):
+    """Created from the Lex chat 'Get a solicitor to verify' CTA."""
+    session_id: str = ""
+    question: str = ""
+    lex_answer: str = ""
+    matter_type: str = ""
+    user_notes: str = ""
+    language: str = "en-GB"
+    country: str = "GB"
+
+
+@api_router.post("/sanity-checks/create-and-checkout")
+async def sanity_check_create(data: SanityCheckCreate, request: Request, user: dict = Depends(get_user)):
+    """Creates a pending_payment SanityCheck row + Stripe one-off checkout URL.
+    On payment success the webhook flips it to pending_assignment + routes to
+    a Founding Firm with capacity."""
+    if not stripe.api_key:
+        raise HTTPException(503, "Stripe not configured")
+
+    question = (data.question or "").strip()
+    lex_answer = (data.lex_answer or "").strip()
+    if (not question or not lex_answer) and data.session_id:
+        ex = await _last_lex_exchange(user["id"], data.session_id)
+        if ex:
+            question = question or (ex.get("user_message") or "")
+            lex_answer = lex_answer or (ex.get("assistant_response") or "")
+    if not question or not lex_answer:
+        raise HTTPException(400, "We couldn't find a Lex answer to verify. Try asking Lex first, then tap the Sanity Check button on the answer.")
+
+    sc_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    rec = {
+        "id": sc_id,
+        "user_id": user["id"], "user_email": user["email"], "user_name": user.get("name", ""),
+        "question": question[:8000], "lex_answer": lex_answer[:16000],
+        "matter_type": (data.matter_type or "general")[:120],
+        "user_notes": (data.user_notes or "")[:2000],
+        "language": data.language, "country": data.country,
+        "status": "pending_payment",
+        "price_gbp": SANITY_CHECK_PRICE_GBP,
+        "firm_payout_gbp": SANITY_CHECK_FIRM_PAYOUT_GBP,
+        "assigned_firm_id": None, "assigned_firm_email": None,
+        "firm_response_text": None, "firm_response_at": None,
+        "stripe_session_id": None, "stripe_payment_intent": None,
+        "paid_at": None, "deadline_at": None,
+        "created_at": now.isoformat(),
+    }
+    await db.sanity_checks.insert_one(rec)
+
+    try:
+        origin = (os.environ.get("FRONTEND_URL") or request.headers.get("origin") or APP_PUBLIC_URL).rstrip("/")
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "gbp",
+                    "unit_amount": int(SANITY_CHECK_PRICE_GBP * 100),
+                    "product_data": {
+                        "name": "AI Advocate · Solicitor Sanity Check",
+                        "description": f"Verified solicitor review of your Lex answer · {SANITY_CHECK_TURNAROUND_HOURS}h turnaround",
+                    },
+                },
+                "quantity": 1,
+            }],
+            customer_email=user["email"],
+            client_reference_id=user["id"],
+            success_url=f"{origin}/?sanity=success&id={sc_id}",
+            cancel_url=f"{origin}/?sanity=cancel&id={sc_id}",
+            metadata={"kind": "sanity_check", "sanity_check_id": sc_id, "user_id": user["id"]},
+            allow_promotion_codes=True,
+        )
+    except Exception as e:
+        logger.exception("sanity-check checkout error")
+        await db.sanity_checks.delete_one({"id": sc_id})
+        raise HTTPException(500, f"Checkout error: {e}")
+
+    await db.sanity_checks.update_one({"id": sc_id}, {"$set": {"stripe_session_id": session.id}})
+    return {"sanity_check_id": sc_id, "checkout_url": session.url, "price_gbp": SANITY_CHECK_PRICE_GBP}
+
+
+async def _activate_sanity_check(sc_id: str, stripe_session_id: str = None):
+    sc = await db.sanity_checks.find_one({"id": sc_id})
+    if not sc:
+        logger.warning(f"sanity-check activate: id {sc_id} not found")
+        return
+    if sc.get("status") not in ("pending_payment", None):
+        logger.info(f"sanity-check {sc_id} already in status {sc.get('status')} — skipping activate")
+        return
+    now = datetime.now(timezone.utc)
+    deadline = now + timedelta(hours=SANITY_CHECK_TURNAROUND_HOURS)
+    await db.sanity_checks.update_one({"id": sc_id}, {"$set": {
+        "status": "pending_assignment",
+        "paid_at": now.isoformat(),
+        "deadline_at": deadline.isoformat(),
+    }})
+    await _route_sanity_check(sc_id)
+
+
+async def _route_sanity_check(sc_id: str) -> Optional[str]:
+    sc = await db.sanity_checks.find_one({"id": sc_id})
+    if not sc or sc.get("status") != "pending_assignment":
+        return None
+    elig_q = {
+        "deleted_at": {"$in": [None, ""]},
+        "billing_status": {"$in": ["active", "trial", "comp"]},
+        "billing_tier": {"$in": ["premium", "practice", "founding"]},
+    }
+    candidates = []
+    declined_set = set(sc.get("declined_by") or [])
+    async for f in db.firm_accounts.find(elig_q, {"_id": 0}):
+        if f["id"] in declined_set:
+            continue
+        open_count = await db.sanity_checks.count_documents(
+            {"assigned_firm_id": f["id"], "status": "assigned"}
+        )
+        if open_count < SANITY_FIRM_CAPACITY:
+            candidates.append((open_count, f))
+    if not candidates:
+        logger.warning(f"sanity-check {sc_id}: no firm with capacity — staying pending_assignment for cron retry")
+        return None
+    candidates.sort(key=lambda x: x[0])
+    firm = candidates[0][1]
+    now = datetime.now(timezone.utc)
+    await db.sanity_checks.update_one({"id": sc_id}, {"$set": {
+        "status": "assigned",
+        "assigned_firm_id": firm["id"],
+        "assigned_firm_email": firm["email"],
+        "assigned_at": now.isoformat(),
+    }})
+    try:
+        from email_helper import send_email
+        await send_email(
+            to=firm["email"], kind="firm",
+            subject=f"⚖️ New Sanity Check assigned — £{SANITY_CHECK_FIRM_PAYOUT_GBP:.2f} on completion",
+            body_html=f"""<p>Hi {firm.get('contact_name','team')},</p>
+                <p>A new <strong>Solicitor Sanity Check</strong> has been routed to your firm. The client paid £{SANITY_CHECK_PRICE_GBP:.2f}; you'll be credited £{SANITY_CHECK_FIRM_PAYOUT_GBP:.2f} once you submit the review.</p>
+                <ul>
+                  <li>Matter: <strong>{sc.get('matter_type','general')}</strong></li>
+                  <li>Turnaround: within {SANITY_CHECK_TURNAROUND_HOURS} hours</li>
+                </ul>
+                <p><a href="https://aiadvocate.co.uk/firm-portal" style="background:#f7c948;color:#1a1300;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700">Open the Firm Portal →</a></p>
+                <p style="font-size:12px;color:#666">If you cannot complete this within 24h, please use the "Decline" button so we can route to another firm.</p>""",
+        )
+        await send_email(
+            to=sc["user_email"], kind="user",
+            subject="Your Sanity Check is on its way — a solicitor will respond within 24h",
+            body_html=f"""<p>Hi,</p>
+                <p>Thanks — your <strong>Solicitor Sanity Check</strong> has been routed to <strong>{firm.get('firm_name') or 'a verified UK law firm'}</strong>. You'll get an email the moment they submit their review (typically within 24 hours).</p>
+                <p>Your matter: <em>{sc.get('matter_type','general')}</em></p>
+                <p>If 24h passes without a response, we'll automatically re-route to another firm — no action needed from you.</p>
+                <p>Samuel Malick<br/>Founder, AI Advocate Ltd.</p>""",
+        )
+    except Exception as e:
+        logger.warning(f"sanity-check notification email failed: {e}")
+    return firm["id"]
+
+
+@api_router.get("/sanity-checks")
+async def list_my_sanity_checks(user: dict = Depends(get_user)):
+    cursor = db.sanity_checks.find(
+        {"user_id": user["id"]},
+        {"_id": 0, "lex_answer": 0},
+    ).sort("created_at", -1).limit(50)
+    items = [s async for s in cursor]
+    return {"items": items}
+
+
+@api_router.get("/sanity-checks/{sc_id}")
+async def get_my_sanity_check(sc_id: str, user: dict = Depends(get_user)):
+    sc = await db.sanity_checks.find_one({"id": sc_id, "user_id": user["id"]}, {"_id": 0})
+    if not sc:
+        raise HTTPException(404, "Sanity check not found")
+    return sc
+
+
 # ==================== Winback: free Day Pass (lifetime, once per user) ====================
 # When a free user hits the chat cap and has dismissed the upgrade modal at least
 # twice, we gift them a free 24h Day Pass (Plus features). Goal: turn a frustrated
@@ -4319,6 +4507,13 @@ async def stripe_webhook(request: Request):
                 await _activate_topup_for_user(user_id, topup_pack)
                 logger.info(f"Top-up {topup_pack} activated for {user_id} via Stripe webhook")
                 return {"ok": True, "topup_activated": topup_pack}
+
+        # 🎖 SANITY CHECK — metadata.kind=sanity_check set by /api/sanity-checks/checkout
+        if meta.get("kind") == "sanity_check":
+            sc_id = meta.get("sanity_check_id")
+            if sc_id:
+                await _activate_sanity_check(sc_id, stripe_session_id=obj.get("id"))
+                return {"ok": True, "sanity_check_activated": sc_id}
 
         # FIRM portal checkout — metadata.firm_id is set by /api/firm/subscribe
         firm_id = (obj.get("metadata") or {}).get("firm_id")
@@ -6366,6 +6561,20 @@ async def _check_admin_user(user: dict = Depends(get_user)):
     return user
 
 
+@api_router.get("/admin/sanity-checks")
+async def admin_list_sanity_checks(_: dict = Depends(_check_admin_user)):
+    cursor = db.sanity_checks.find({}, {"_id": 0}).sort("created_at", -1).limit(200)
+    items = [s async for s in cursor]
+    return {
+        "items": items,
+        "by_status": {s: sum(1 for i in items if i.get("status") == s)
+                      for s in ("pending_payment", "pending_assignment", "assigned", "completed", "refunded")},
+    }
+
+
+
+
+
 @api_router.get("/admin/founder-signature")
 async def admin_get_founder_signature(_: dict = Depends(_check_admin_user)):
     """Returns the saved founder signature (if any) as a data: URL.
@@ -6612,6 +6821,97 @@ def _firm_commission_pct(firm: dict) -> float:
 
 # ⚠️ IMPORTANT — these used to mount on `/firm/engagements` which collided with the
 # client-thread engagement endpoints below. Renamed to `/firm/commissions` to disambiguate.
+@api_router.get("/firm/sanity-checks")
+async def firm_list_sanity_checks(firm: dict = Depends(get_firm)):
+    cursor = db.sanity_checks.find(
+        {"assigned_firm_id": firm["id"]},
+        {"_id": 0, "user_email": 0, "user_name": 0},  # privacy: hide user PII from firm
+    ).sort("assigned_at", -1).limit(50)
+    items = [s async for s in cursor]
+    return {
+        "items": items,
+        "open_count": sum(1 for s in items if s.get("status") == "assigned"),
+        "capacity_max": SANITY_FIRM_CAPACITY,
+    }
+
+
+class FirmSanityResponse(BaseModel):
+    response_text: str
+    confirms_lex: bool = True
+    additional_concerns: str = ""
+
+
+@api_router.post("/firm/sanity-checks/{sc_id}/submit")
+async def firm_submit_sanity_check(sc_id: str, data: FirmSanityResponse, firm: dict = Depends(get_firm)):
+    sc = await db.sanity_checks.find_one({"id": sc_id, "assigned_firm_id": firm["id"]})
+    if not sc:
+        raise HTTPException(404, "Not assigned to your firm")
+    if sc.get("status") != "assigned":
+        raise HTTPException(409, f"Already {sc.get('status')}")
+    text = (data.response_text or "").strip()
+    if len(text) < 60:
+        raise HTTPException(400, "Please write at least a couple of sentences (minimum 60 chars).")
+    now = datetime.now(timezone.utc)
+    await db.sanity_checks.update_one({"id": sc_id}, {"$set": {
+        "status": "completed",
+        "firm_response_text": text[:10000],
+        "firm_confirms_lex": bool(data.confirms_lex),
+        "firm_additional_concerns": (data.additional_concerns or "")[:2000],
+        "firm_response_at": now.isoformat(),
+    }})
+    closed_at = now.isoformat()[:10]
+    commission_rec = {
+        "id": str(uuid.uuid4()),
+        "firm_id": firm["id"], "firm_email": firm["email"], "firm_name": firm.get("firm_name") or "",
+        "client_email": sc.get("user_email") or "(sanity-check)",
+        "client_name": "Sanity Check",
+        "matter_type": f"Sanity Check · {sc.get('matter_type','general')}",
+        "notes": f"Solicitor sanity check completed for SC #{sc_id[:8]}",
+        "fee_gbp": SANITY_CHECK_PRICE_GBP,
+        "commission_pct": SANITY_CHECK_FIRM_PAYOUT_GBP / SANITY_CHECK_PRICE_GBP,
+        # NEGATIVE owed = AI Advocate owes the firm (payout) rather than the
+        # firm owing AA. Surfaces as a credit on the firm's monthly statement.
+        "commission_owed_gbp": -SANITY_CHECK_FIRM_PAYOUT_GBP,
+        "closed_at": closed_at, "logged_at": now.isoformat(),
+        "billing_month": closed_at[:7],
+        "paid_status": "unpaid", "stripe_invoice_id": None,
+        "founding_firm": bool(firm.get("founding_firm")),
+        "source": "sanity_check", "sanity_check_id": sc_id,
+    }
+    await db.firm_engagements.insert_one(commission_rec)
+    try:
+        from email_helper import send_email
+        verdict_label = "✓ Confirmed by a solicitor" if data.confirms_lex else "⚠ A solicitor found concerns"
+        await send_email(
+            to=sc["user_email"], kind="user",
+            subject=f"Your Sanity Check is back — {verdict_label}",
+            body_html=f"""<p>Hi,</p>
+                <p>Your <strong>Solicitor Sanity Check</strong> has been completed by <strong>{firm.get('firm_name') or 'a verified UK law firm'}</strong>.</p>
+                <p><strong>Verdict:</strong> {verdict_label}</p>
+                <p style="background:#f7f7f7;border-left:3px solid #f7c948;padding:10px 14px;border-radius:4px;white-space:pre-wrap">{text[:3000]}</p>
+                <p style="margin-top:14px"><a href="https://aiadvocate.co.uk/" style="background:#f7c948;color:#1a1300;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700">View full response in app →</a></p>
+                <p style="font-size:12px;color:#666">If you'd like to engage {firm.get('firm_name') or 'the firm'} for ongoing representation, they'll be in touch separately. AI Advocate doesn't share your contact details unless you ask us to.</p>""",
+        )
+    except Exception as e:
+        logger.warning(f"Sanity check client email failed: {e}")
+    return {"ok": True, "status": "completed"}
+
+
+@api_router.post("/firm/sanity-checks/{sc_id}/decline")
+async def firm_decline_sanity_check(sc_id: str, firm: dict = Depends(get_firm)):
+    sc = await db.sanity_checks.find_one({"id": sc_id, "assigned_firm_id": firm["id"]})
+    if not sc or sc.get("status") != "assigned":
+        raise HTTPException(404, "Not currently assigned to your firm")
+    await db.sanity_checks.update_one({"id": sc_id}, {"$set": {
+        "status": "pending_assignment",
+        "assigned_firm_id": None,
+        "assigned_firm_email": None,
+    }, "$push": {"declined_by": firm["id"]}})
+    new_firm = await _route_sanity_check(sc_id)
+    return {"ok": True, "rerouted_to": new_firm}
+
+
+
 @api_router.post("/firm/commissions")
 async def firm_log_commission(data: CommissionEntryCreate, firm: dict = Depends(get_firm)):
     """Firm logs a closed paying engagement → backend records the commission owed."""

@@ -2195,6 +2195,28 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                                  borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
                         {m._devilBusy ? "…" : m._devilOpen ? "😈 Hide" : "😈 Other side"}
                       </button>
+
+                      {/* 🎖 Solicitor Sanity Check — £49 one-off, routed to a Founding Firm */}
+                      <button data-testid={`sanity-${i}`} title="Get a real UK solicitor to verify this answer (£49)"
+                        onClick={async () => {
+                          if (!aaConfirm("Get a real UK solicitor to review and verify this Lex answer? £49 one-off · 24-hour turnaround · response emailed to you the moment a verified law firm completes the review.")) return;
+                          setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _sanityBusy: true } : mm));
+                          try {
+                            const { data: r } = await api.post("/sanity-checks/create-and-checkout", {
+                              session_id: sessionId, matter_type: category || "general", language: lang, country,
+                            });
+                            // Open Stripe checkout in the same tab so the success URL returns cleanly
+                            window.location.href = r.checkout_url;
+                          } catch (e) {
+                            aaToast(e?.response?.data?.detail || "Couldn't start checkout", "error");
+                            setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _sanityBusy: false } : mm));
+                          }
+                        }}
+                        style={{ background: "linear-gradient(135deg, rgba(247,201,72,0.2), rgba(247,201,72,0.05))",
+                                 border: "1px solid var(--gold)", color: "var(--gold)",
+                                 borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
+                        {m._sanityBusy ? "…" : "🎖 Solicitor check · £49"}
+                      </button>
                     </div>
                   )}
 
@@ -9279,6 +9301,23 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       }
       // Clean the URL
       params.delete("topup"); params.delete("pack");
+      const qs = params.toString();
+      window.history.replaceState({}, "", window.location.pathname + (qs ? "?" + qs : ""));
+    } catch (e) { /* no-op */ }
+  }, []);
+
+  // 🎖 Sanity Check post-checkout toast
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const status = params.get("sanity");
+      if (!status) return;
+      if (status === "success") {
+        aaToast("🎖 Payment received! A verified UK solicitor will review your answer within 24 hours. You'll get the response by email.", "success");
+      } else if (status === "cancel") {
+        aaToast("Sanity Check cancelled — no charge.", "info");
+      }
+      params.delete("sanity"); params.delete("id");
       const qs = params.toString();
       window.history.replaceState({}, "", window.location.pathname + (qs ? "?" + qs : ""));
     } catch (e) { /* no-op */ }
