@@ -3414,6 +3414,7 @@ function CourtroomModal({ lang, country, onClose }) {
                       {LIVE_SCENARIOS.map(s => <option key={s.v} value={s.v}>{s.label}</option>)}
                     </select>
                     <textarea className="input" data-testid="live-facts" rows={2} value={lFacts} onChange={(e) => setLFacts(e.target.value)} placeholder={t(lang, "liveFactsPlaceholder")} />
+                    <PastSessionsBrowser />
                   </>
                 )}
                 <button className="btn-gold w-full" data-testid={liveActive ? "live-stop" : "live-start"} onClick={liveActive ? stopLive : startLive}
@@ -3446,6 +3447,8 @@ function CourtroomModal({ lang, country, onClose }) {
                     border: "2px solid var(--gold)",
                     borderRadius: 14, padding: 14, marginTop: 10,
                     boxShadow: "0 0 24px rgba(247,201,72,0.25)",
+                    // Cap height so long advice can't starve the history scroll
+                    maxHeight: "38vh", overflowY: "auto", flexShrink: 0,
                   }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 8 }}>
                       <div style={{
@@ -3526,7 +3529,7 @@ function CourtroomModal({ lang, country, onClose }) {
                     </button>
                   </>
                 )}
-                <div style={{ flex: 1, overflowY: "auto", marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ flex: 1, overflowY: "auto", marginTop: 12, display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
                   {advice.length === 0 && liveActive && <div style={{ color: "var(--text-muted)", textAlign: "center", padding: 20, fontSize: 13 }}>{t(lang, "waitingForOtherSide")}</div>}
                   {/* During live mode the latest advice is shown in the SAY THIS pinned card above — skip it here to avoid duplication. */}
                   {(liveActive ? advice.slice(1) : advice).map((a, i) => (
@@ -3590,6 +3593,7 @@ function CourtroomModal({ lang, country, onClose }) {
                 </div>
                 <input className="input" data-testid="trans-context" placeholder="Context (optional, e.g. 'Iraqi checkpoint, tourist')"
                   value={tContext} onChange={(e) => setTContext(e.target.value)} style={{ marginBottom: 10 }} disabled={tActive} />
+                {!tActive && <PastSessionsBrowser />}
                 <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
                   {!tActive ? (
                     <button className="btn-gold flex-1" data-testid="trans-start" onClick={startTranslation}
@@ -3632,6 +3636,9 @@ function CourtroomModal({ lang, country, onClose }) {
                     boxShadow: tHistory[0].dir === "incoming"
                       ? "0 0 24px rgba(34,211,238,0.25)"
                       : "0 0 24px rgba(247,201,72,0.25)",
+                    // 🔑 Cap the pinned card so a long translation cannot eat
+                    // the whole modal and starve the history scroll area.
+                    maxHeight: "38vh", overflowY: "auto", flexShrink: 0,
                   }}>
                     <div style={{
                       fontSize: 10, fontWeight: 800, letterSpacing: "0.12em",
@@ -3671,7 +3678,7 @@ function CourtroomModal({ lang, country, onClose }) {
 
                 <TransReplyBar lang={lang} myLang={tMyLang} disabled={tReplyBusy} onSend={speakMyReply} />
 
-                <div style={{ flex: 1, overflowY: "auto", marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ flex: 1, overflowY: "auto", marginTop: 10, display: "flex", flexDirection: "column", gap: 8, minHeight: 0 }}>
                   {tHistory.length === 0 && tActive && <div style={{ color: "var(--text-muted)", textAlign: "center", padding: 20, fontSize: 13 }}>Waiting for the other party to speak…</div>}
                   {tHistory.slice(1).map((h, i) => (
                     <div key={i} style={{
@@ -3694,6 +3701,93 @@ function CourtroomModal({ lang, country, onClose }) {
     </div>
   );
 }
+
+// =============== PAST SESSIONS BROWSER ===============
+// Lists every saved Courtroom Trainer / Live Assist / Translation session
+// for the logged-in user. Lets them re-download the timestamped PDF of any
+// past session at any time (sessions are stored server-side in db.live_notes,
+// not on the user's device, so they survive log-out / reinstall / new phone).
+function PastSessionsBrowser() {
+  const [open, setOpen] = useState(false);
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get("/live/sessions");
+      setSessions(Array.isArray(data) ? data : []);
+    } catch (e) { /* ignore */ }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { if (open) load(); /* eslint-disable-next-line */ }, [open]);
+
+  const exportPdf = async (sid) => {
+    try {
+      const r = await fetch(`${API}/live/notes/${sid}/export`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("aa_token")}` },
+      });
+      if (!r.ok) throw new Error("export failed");
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `ai-advocate-session-${sid.slice(0, 8)}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      aaToast("Could not export. Try again.", "error");
+    }
+  };
+
+  return (
+    <div data-testid="past-sessions-browser" style={{ marginBottom: 10, border: "1px solid var(--line)", borderRadius: 10, background: "var(--bg-2)" }}>
+      <button onClick={() => setOpen(o => !o)} data-testid="past-sessions-toggle"
+        style={{ width: "100%", background: "transparent", border: "none", color: "var(--text)", padding: "10px 12px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12.5 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          📁 <strong style={{ color: "var(--gold)" }}>Past sessions</strong>
+          <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>— recorded transcripts saved to your account</span>
+        </span>
+        <span style={{ color: "var(--text-muted)" }}>{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <div style={{ padding: "0 12px 12px", maxHeight: 240, overflowY: "auto" }}>
+          {loading ? (
+            <div style={{ fontSize: 12, color: "var(--text-muted)", padding: 10, textAlign: "center" }}>Loading…</div>
+          ) : sessions.length === 0 ? (
+            <div style={{ fontSize: 12, color: "var(--text-muted)", padding: 10, textAlign: "center", fontStyle: "italic" }}>
+              No past sessions yet. Start a Live Assist or Translation session to record one.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {sessions.map(s => (
+                <div key={s.session_id} data-testid={`past-session-${s.session_id}`}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600 }}>
+                      {new Date(s.first_at).toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 2 }}>
+                      {s.count} turn{s.count === 1 ? "" : "s"} · ID {s.session_id.slice(0, 8)}
+                    </div>
+                  </div>
+                  <button data-testid={`past-session-dl-${s.session_id}`} onClick={() => exportPdf(s.session_id)}
+                    style={{ background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <Download size={11} /> PDF
+                  </button>
+                </div>
+              ))}
+              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4, textAlign: "center", fontStyle: "italic" }}>
+                💡 Saved on AI Advocate servers — survives log-out / device change.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 // Whisper Mode button — TTS read-aloud for the SAY THIS card.
 // Includes a court-proximity warning with one-tap override (legitimate uses:
