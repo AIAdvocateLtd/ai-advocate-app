@@ -1,0 +1,41 @@
+{
+  "summary": "Phase 4a ET1 Employment Tribunal Auto-Fill — full end-to-end validation. 11/11 backend pytest tests PASS (POST /api/forms/et1/draft, GET, PUT, GET /pdf, cross-user 404, unauth 401, _id excluded). Frontend flow PASS end-to-end: dashboard tile (tile-et1) → modal (et1-modal) → narrative min-length validation (button disabled <40 chars) → form submission → Claude Sonnet 4.5 returns structured ET1 in ~20s → et1-result renders claim type chips (Unfair dismissal, Discrimination, Automatic unfair dismissal), protected characteristics (Pregnancy/maternity, Sex), narrative, dates, remedy, warnings → et1-download triggers 7826-byte PDF (content-type application/pdf, %PDF magic bytes). Regression: legal-aid-modal, contracts, letter, cases tiles all still open correctly. NO blocking issues found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/forms/et1/draft", "issue": "Backend does NOT enforce min-length 40 chars on extra_context (validation is frontend-only). Acceptable per design, but worth a Pydantic Field(min_length=40) for defence-in-depth so direct API callers also get a 422 instead of consuming Claude tokens on a too-short narrative."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "ET1 modal + dashboard", "issues": ["The 'It looks like you're in United States' geo banner and the cookie consent banner overlap the top/bottom of the ET1 modal on mobile viewport (390x844). Modal is still usable (form fields below the banners scroll fine and force-clicks work), but on a fresh visit the banners visually crowd the modal. Consider auto-dismissing both banners when a modal is open, or raising the modal z-index above them."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_et1_autofill.py",
+    "/app/test_reports/pytest/et1_autofill.xml"
+  ],
+  "action_items": [
+    "(Optional, defence-in-depth) Add Pydantic min_length=40 to ET1DraftRequest.extra_context (or a server-side check) so the API itself rejects short narratives with 422 — currently only the frontend disables the Generate button.",
+    "(Optional, polish) When a top-level modal opens, auto-dismiss / hide the geo + cookie banners so they don't visually overlap the modal on small viewports."
+  ],
+  "critical_code_review_comments": [
+    "ET1 endpoints correctly exclude MongoDB _id via projection {'_id': 0} in GET and PDF handlers — verified by test.",
+    "Cross-user access correctly returns 404 (not 403) — good for resource enumeration protection.",
+    "PUT /forms/et1/{id} replaces data.data wholesale via $set; no partial-merge support. Acceptable since frontend only edits in the result view, but worth noting if future features add field-level edits.",
+    "Frontend has good loading state (busy spinner on generate button) and clean error handling via aaToast — verified the validation path.",
+    "server.py is now 11,418 lines — the long-standing router-split recommendation from prior iterations is still outstanding; ET1 adds ~250 more lines."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_et1_autofill.py (new — 11 pytest tests, 38.84s end-to-end)"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (all critical flows + 4/4 regression tiles)"},
+  "test_credentials": "test@advocate.app / Test12345! (primary), appstore.reviewer@aiadvocate.co.uk / Review2026!Lex (used for cross-user 404 verification)",
+  "seed_data_creation": "Each pytest run creates one ET1 draft (form_drafts collection) for test@advocate.app with TEST_ prefixed personal details. Drafts persist (no cleanup endpoint) — minor DB growth (~1 record per run). Safe.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "ET1 Auto-Fill (Phase 4a) is GREEN end-to-end. Backend tests live at /app/backend/tests/test_et1_autofill.py (11 tests, ~40s). For frontend, login via API → set localStorage('aa_token') → goto /app (NOT /) → dashboard at data-testid='dashboard'. Geo banner ('Keep United Kingdom') and cookie banner can intercept clicks at the top/bottom of the viewport — dismiss them first or use force=True. ET1 generation via Claude Sonnet 4.5 takes 15-25s, use timeout >= 60s. The narrative min-length=40 is enforced ONLY on frontend (generate button disabled state), not in backend Pydantic.",
+  "rca of the issue": "No defects found in feature. The only blocker encountered during testing was overlay interception (cookie + geo banners) on first frontend run, which masked a successful API call — fixed by dismissing banners before clicking. No code change required."
+}
