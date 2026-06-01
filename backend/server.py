@@ -5,7 +5,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os, logging, uuid, jwt, bcrypt, base64, io, tempfile, re, asyncio, json
+import os, logging, uuid, jwt, bcrypt, base64, io, tempfile, re, asyncio, json, secrets as _secrets
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Literal, Tuple
@@ -154,6 +154,7 @@ class LegalLetterRequest(BaseModel):
     your_name: str
     details: str
     language: str = "en-GB"
+    tone: Literal["polite", "firm", "pre_action", "court"] = "firm"
 
 class CheckoutRequest(BaseModel):
     plan: str = "plus"  # free-form so unknown plans return 400 via our handler, not 422 from pydantic
@@ -3656,11 +3657,19 @@ async def generate_letter(data: LegalLetterRequest, user: dict = Depends(get_use
         session_id=str(uuid.uuid4()),
         system_message=lex_system_prompt(data.language, user.get("country", "GB"), "legal_letter"),
     ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2000)
+    tone_instructions = {
+        "polite": "Polite, professional, opens with goodwill and reasonable request. NO threats. Frames as 'I'd be grateful if you could…'. Suitable for first-contact / opening salvo.",
+        "firm": "Firm and direct. Cites the user's rights and the relevant statute by name (e.g. 'Section 13 of the Employment Rights Act 1996'). Sets a clear 14-day deadline. No threats but the legal basis is unmistakable.",
+        "pre_action": "Pre-action protocol letter (UK Civil Procedure Rules pre-action conduct). Headed 'LETTER BEFORE ACTION'. Cites specific statute and case-law where relevant. States that proceedings WILL be issued if no satisfactory response within 14 days. Demands: admission of liability, remedy sought, costs. Includes a numbered list of facts and a numbered list of remedies sought.",
+        "court": "Skeleton argument / court submission format. Numbered paragraphs, formal address ('To the Honourable Tribunal'), cites case-law in proper UK citation format (e.g. 'Smith v Jones [2024] EWCA Civ 123 at [42]'). Statement of truth at the end. NOT for casual use — only when court proceedings are active.",
+    }
     prompt = f"""Draft a formal legal letter.
 Type: {data.letter_type}
 From (your client): {data.your_name}
 To (recipient): {data.recipient}
 Facts / what they want to achieve: {data.details}
+
+TONE: {data.tone.upper()} — {tone_instructions.get(data.tone, tone_instructions['firm'])}
 
 Output ONLY the letter (no extra commentary)."""
     try:
@@ -8870,10 +8879,52 @@ class CostEstimateRequest(BaseModel):
     category: Optional[str] = None
     country: str = "GB"
     language: str = "en-GB"
+    postcode: Optional[str] = None  # UK outward code (first 1-2 letters) is enough
+
+
+# UK regional multipliers vs national average solicitor rate. London commands the
+# highest premium; the North East / South West are typically below national mean.
+_UK_REGION_MULTIPLIER = {
+    "EC": 1.55, "WC": 1.55, "E1": 1.45, "E2": 1.45, "E14": 1.55, "N1": 1.35,
+    "SE1": 1.35, "SW1": 1.55, "W1": 1.55, "W2": 1.45, "NW1": 1.35, "SW3": 1.55,
+    # Greater London (most outward codes)
+    "N": 1.25, "E": 1.25, "SE": 1.20, "SW": 1.30, "W": 1.30, "NW": 1.25,
+    # South East commuter belt
+    "GU": 1.15, "KT": 1.20, "TW": 1.20, "UB": 1.15, "HA": 1.15, "EN": 1.10,
+    "BR": 1.15, "CR": 1.15, "DA": 1.10, "RM": 1.05, "IG": 1.05, "WD": 1.10,
+    # Other premium markets
+    "OX": 1.10, "CB": 1.10, "RG": 1.10, "MK": 1.05, "RH": 1.10, "SL": 1.10,
+    # Major cities
+    "M": 1.05, "B": 1.05, "BS": 1.05, "EH": 1.05, "G": 1.00, "LS": 1.00, "L": 1.00,
+    "NE": 0.90, "CF": 0.95, "BT": 0.95, "PL": 0.90, "TR": 0.90, "EX": 0.95,
+    "TQ": 0.90, "SN": 0.95, "BA": 1.00, "PO": 1.00, "BN": 1.05,
+}
+
+
+def _postcode_multiplier(postcode: Optional[str]) -> tuple[float, str]:
+    """Return (multiplier, region_label) for a given UK postcode."""
+    if not postcode:
+        return 1.0, "National average"
+    pc = (postcode or "").upper().strip().replace(" ", "")
+    # Try most specific match first (3-char), then 2-char, then 1-char prefix
+    for n in (3, 2, 1):
+        prefix = pc[:n]
+        if prefix in _UK_REGION_MULTIPLIER:
+            mult = _UK_REGION_MULTIPLIER[prefix]
+            label = (
+                "Central London (premium)" if mult >= 1.50 else
+                "Greater London" if mult >= 1.20 else
+                "South East / commuter belt" if mult >= 1.10 else
+                "Major UK city" if mult >= 1.00 else
+                "Regional UK"
+            )
+            return mult, label
+    return 1.0, "National average"
 
 @api_router.post("/cost/estimate")
 async def lawyer_cost_estimate(data: CostEstimateRequest, user: dict = Depends(get_user)):
     lang_name = LANG_NAMES.get(data.language, "English")
+    mult, region_label = _postcode_multiplier(data.postcode) if (data.country or "").upper() == "GB" else (1.0, "")
     sysmsg = f"""You are AI Advocate's lawyer-cost estimator for {data.country}. Reply in {lang_name}.
 Return STRICT JSON (no markdown):
 {{
@@ -8898,11 +8949,62 @@ Be honest and realistic for UK / common-law rates if country=GB; use local marke
     payload = _re.sub(r"^```(?:json)?\s*", "", resp.strip())
     payload = _re.sub(r"\s*```$", "", payload).strip()
     try:
-        return _json.loads(payload)
+        result = _json.loads(payload)
     except Exception:
-        return {"low_estimate_gbp": 0, "high_estimate_gbp": 0, "court_fees_gbp": 0,
+        result = {"low_estimate_gbp": 0, "high_estimate_gbp": 0, "court_fees_gbp": 0,
                 "typical_hours": 0, "hourly_rate_range_gbp": "—",
                 "no_win_no_fee_available": False, "explanation": payload[:300], "ai_advocate_saving": ""}
+
+    # Apply postcode multiplier (UK only) to low/high estimate
+    low = int((result.get("low_estimate_gbp") or 0) * mult)
+    high = int((result.get("high_estimate_gbp") or 0) * mult)
+    result["low_estimate_gbp"] = low
+    result["high_estimate_gbp"] = high
+    result["postcode_region"] = region_label
+    result["postcode_multiplier"] = round(mult, 2)
+
+    # Build 3-way comparison: DIY vs AI Advocate vs Solicitor
+    aa_plus_annual = 14.99 * 12   # £179.88
+    aa_pro_annual  = 34.99 * 12   # £419.88
+    avg_solicitor = (low + high) // 2 if (low + high) > 0 else 0
+    court_fees = result.get("court_fees_gbp") or 0
+    result["comparison"] = {
+        "diy": {
+            "label": "DIY (litigant in person)",
+            "fee_low": 0, "fee_high": 0,
+            "court_fees": court_fees,
+            "total_low": court_fees, "total_high": court_fees,
+            "downside": "You do all the work. High chance of procedural errors. Tribunal/court may strike out claims for non-compliance. Emotional toll is real.",
+            "pros": ["Cheapest by far", "No third-party delays", "You control the timeline"],
+            "cons": ["No legal expertise", "Strict deadlines easy to miss", "Burden falls entirely on you"],
+        },
+        "ai_advocate": {
+            "label": "AI Advocate Pro",
+            "fee_low": int(aa_pro_annual), "fee_high": int(aa_pro_annual),
+            "court_fees": court_fees,
+            "total_low": int(aa_pro_annual) + court_fees,
+            "total_high": int(aa_pro_annual) + court_fees,
+            "downside": "Lex is brilliant for prep + drafts but isn't a regulated solicitor. For court advocacy you'd still need a barrister (or use Solicitor Sanity Check at £49 per question).",
+            "pros": ["~95% cost saving vs solicitor", "24/7 access", "ET1/N1 auto-fill, letter drafting, evidence analysis included"],
+            "cons": ["Not a regulated solicitor", "Cannot represent you in court", "Premium tier required for full toolkit"],
+        },
+        "solicitor": {
+            "label": "Full-service solicitor",
+            "fee_low": low, "fee_high": high,
+            "court_fees": court_fees,
+            "total_low": low + court_fees,
+            "total_high": high + court_fees,
+            "downside": "Average UK matter: 60-80 hours of solicitor time at £180-£350/hr. No win = full bill due unless no-win-no-fee deal in place.",
+            "pros": ["Regulated profession (SRA)", "Can represent you", "Insurance-backed advice"],
+            "cons": ["Most expensive option", "Slow response times", "Risk of bill shock"],
+        },
+    }
+    # Savings vs solicitor mid-point
+    if avg_solicitor > 0:
+        result["aa_pro_saving_vs_solicitor_gbp"] = avg_solicitor - int(aa_pro_annual)
+        result["aa_pro_saving_percent"] = max(0, int(((avg_solicitor - aa_pro_annual) / avg_solicitor) * 100))
+
+    return result
 
 
 # ==================== Round 2: Hearing Recorder (full transcript) ====================
@@ -11303,6 +11405,583 @@ async def clear_timeline(user: dict = Depends(get_user)):
         {"$set": {"deleted_at": now_iso}},
     )
     return {"cleared": True, "conversations": convs.modified_count, "reminders": rems.modified_count}
+
+
+# ==========================================================================
+# 🚀 PHASE 4b BATCH — 6 features added 2026-02:
+#   1. OCR Form Scanner (POST /api/forms/ocr/detect)
+#   2. Letter Counter-Ladder (POST /api/letters/counter-ladder)
+#   3. Case Timeline Lex Summary (POST /api/cases/{id}/timeline/summarise)
+#   4. Witness Statement Invite + magic-link (POST /api/cases/{id}/witness/invite)
+#   5. Witness public submit (GET/POST /api/witness/{token})
+#   6. Witness list + PDF (GET /api/cases/{id}/witness-statements, /pdf)
+# Letter Writing tone slider + Lawyer Cost postcode/comparison are upgrades
+# applied in-place to existing endpoints above.
+# ==========================================================================
+
+# ---------- 1. OCR Form Scanner ----------
+# Gemini 2.5 Flash vision → detects UK gov form type + extracts visible field values.
+# Supports: ET1 (Employment Tribunal), N1 (Money Claim), N9 (Defence), N244
+# (Application Notice), MC100 (Money Claim), DR1 (Divorce). Unknown forms get a
+# graceful fallback with extracted text + best-guess field labels.
+
+_KNOWN_FORMS = {
+    "ET1": {"label": "Employment Tribunal Claim (ET1)", "modal": "et1", "fields": [
+        "claimant_name", "claimant_address", "claimant_postcode", "claimant_dob", "claimant_email",
+        "respondent_name", "respondent_address", "acas_number", "job_title",
+        "start_date", "end_date", "weekly_hours", "gross_pay", "net_pay",
+    ]},
+    "ET3": {"label": "Employment Tribunal Response (ET3)", "modal": "manual", "fields": [
+        "respondent_name", "respondent_address", "case_number", "claimant_name",
+    ]},
+    "N1":  {"label": "Money Claim (N1)", "modal": "manual", "fields": [
+        "claimant_name", "claimant_address", "defendant_name", "defendant_address",
+        "claim_amount", "brief_details", "court_fee",
+    ]},
+    "N9":  {"label": "Acknowledgement of Service / Defence (N9)", "modal": "manual", "fields": [
+        "case_number", "court", "defendant_name", "claimant_name",
+    ]},
+    "N244": {"label": "Application Notice (N244)", "modal": "manual", "fields": [
+        "case_number", "court", "applicant_name", "application_sought", "evidence_relied_on",
+    ]},
+    "MC100": {"label": "Money Claim — Online (MC100/MCOL)", "modal": "manual", "fields": [
+        "claimant_name", "defendant_name", "claim_amount",
+    ]},
+    "DR1": {"label": "Divorce / Dissolution Application (D8)", "modal": "manual", "fields": [
+        "applicant_name", "respondent_name", "marriage_date", "grounds",
+    ]},
+}
+
+
+@api_router.post("/forms/ocr/detect")
+async def forms_ocr_detect(
+    file: UploadFile = File(...),
+    language: str = Form("en-GB"),
+    user: dict = Depends(get_user),
+):
+    """Photo/scan of a UK gov form → Gemini vision detects which form + extracts
+    visible field values. Used to pre-fill the ET1 Auto-Fill modal (or signpost
+    the right tool for other forms)."""
+    pub = user_to_public(user)
+    ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "doc_analyze", "monthly")
+    if not ok:
+        raise HTTPException(429, f"OCR limit reached ({used}/{limit}). Upgrade to Plus.")
+
+    raw = await file.read()
+    if len(raw) > 12 * 1024 * 1024:
+        raise HTTPException(413, "File too large (max 12MB)")
+    if len(raw) < 200:
+        raise HTTPException(400, "File too small / empty")
+    suffix = "." + (file.filename.split(".")[-1].lower() if "." in (file.filename or "") else "jpg")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(raw); tmp.flush(); tmp.close()
+    lang_name = LANG_NAMES.get(language, "English")
+    form_codes = ", ".join(_KNOWN_FORMS.keys())
+
+    sysmsg = f"""You are AI Advocate's UK legal form-OCR specialist. The user uploaded a photo/scan of
+a UK government or court form (or a letter). Reply in {lang_name}.
+
+Return STRICT JSON (no markdown, no commentary):
+{{
+  "form_type": "<one of: {form_codes}, OTHER_FORM, NOT_A_FORM>",
+  "form_label": "<plain-English name e.g. 'Employment Tribunal claim form (ET1)'>",
+  "confidence": <float 0.0-1.0>,
+  "extracted_fields": {{ "<field_name>": "<value as printed>" }},
+  "raw_text": "<full visible text, max 4000 chars, line-by-line>",
+  "warnings": ["<any visible deadlines, signature blocks unsigned, missing ACAS, etc.>"]
+}}
+
+Field-name guidance (use these EXACT keys when found):
+- claimant_name, claimant_address, claimant_postcode, claimant_dob, claimant_email, claimant_phone
+- respondent_name, respondent_address (or defendant_name, defendant_address for N1/N9)
+- acas_number, acas_date
+- job_title, start_date, end_date, weekly_hours, gross_pay, net_pay
+- case_number, court, claim_amount, court_fee
+- applicant_name, application_sought, evidence_relied_on
+If a field is handwritten and unclear, return your best guess prefixed with '~'.
+If completely unreadable, omit the field rather than guessing wildly.
+If this is NOT a legal form at all, set form_type='NOT_A_FORM'."""
+
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"ocr-{uuid.uuid4()}", system_message=sysmsg)\
+        .with_model("gemini", "gemini-2.5-flash").with_params(max_tokens=3000)
+    try:
+        resp = await chat.send_message(UserMessage(
+            text="Analyse the attached form image and extract every visible field.",
+            file_contents=[FileContentWithMimeType(file_path=tmp.name, mime_type=file.content_type or "image/jpeg")],
+        ))
+    except Exception as e:
+        try: os.unlink(tmp.name)
+        except Exception: pass
+        logger.exception("forms ocr failed"); raise HTTPException(500, f"AI error: {e}")
+    try: os.unlink(tmp.name)
+    except Exception: pass
+
+    parsed = _extract_json_object(resp) or {}
+    form_type = (parsed.get("form_type") or "OTHER_FORM").upper()
+    known = _KNOWN_FORMS.get(form_type)
+    parsed["suggested_route"] = known["modal"] if known else ("manual" if form_type == "OTHER_FORM" else "none")
+    parsed["form_label"] = parsed.get("form_label") or (known["label"] if known else "Unknown form")
+    parsed["known_form"] = bool(known)
+
+    # Persist the OCR detection for audit
+    await db.form_ocr_scans.insert_one({
+        "id": str(uuid.uuid4()), "user_id": user["id"],
+        "form_type": form_type, "filename": file.filename,
+        "result": parsed, "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return parsed
+
+
+# ---------- 2. Letter Counter-Ladder ----------
+# Given a received letter (decoded) + user's desired outcome, produce 4 escalation
+# drafts (Polite → Firm → Pre-action → Court). Used by the Letter Reader upgrade.
+
+class CounterLadderRequest(BaseModel):
+    received_letter_summary: str = Field(min_length=20)
+    desired_outcome: str = Field(min_length=10)
+    your_name: str = "[Your name]"
+    recipient: str = "[Recipient]"
+    category: str = "other"
+    language: str = "en-GB"
+
+
+@api_router.post("/letters/counter-ladder")
+async def letters_counter_ladder(data: CounterLadderRequest, user: dict = Depends(get_user)):
+    pub = user_to_public(user)
+    if not pub.get("has_access"):
+        raise HTTPException(402, "Subscription required.")
+    lang_name = LANG_NAMES.get(data.language, "English")
+    # Delimiter-based output is far more robust than nested JSON for long letter
+    # bodies (newlines in JSON strings break frequently). We use distinctive
+    # ASCII fences and split client-side.
+    sysmsg = f"""You are AI Advocate. Reply in {lang_name}. The user received a letter and wants to push
+back. Generate FOUR drafts at escalating tones — Polite → Firm → Pre-action → Court.
+
+Output EXACTLY this structure (no JSON, no markdown fences, no commentary):
+
+===POLITE===
+WHEN: <one-sentence guidance on when to use this tone>
+---
+<full letter body — sender, date, recipient, salutation, body, sign-off>
+
+===FIRM===
+WHEN: <one-sentence guidance>
+---
+<full letter body>
+
+===PRE_ACTION===
+WHEN: <one-sentence guidance>
+---
+<full letter body — must begin "LETTER BEFORE ACTION">
+
+===COURT===
+WHEN: <one-sentence guidance>
+---
+<full letter body — numbered paragraphs, statement of truth at the end>
+
+Tone rules:
+- POLITE: goodwill + reasonable request, NO threats.
+- FIRM: 14-day deadline + cite UK statute by name.
+- PRE_ACTION: headed "LETTER BEFORE ACTION", warning of proceedings, numbered facts and remedies.
+- COURT: numbered paragraphs, "To the Honourable [Tribunal/Court]", statement of truth.
+"""
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"ladder-{uuid.uuid4()}", system_message=sysmsg)\
+        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=4500)
+    user_msg = f"""RECEIVED LETTER SUMMARY:
+{data.received_letter_summary}
+
+CATEGORY: {data.category}
+DESIRED OUTCOME: {data.desired_outcome}
+FROM: {data.your_name}
+TO: {data.recipient}
+
+Produce the 4 escalating drafts now using the EXACT delimiter format."""
+    try:
+        raw = await chat.send_message(UserMessage(text=user_msg))
+    except Exception as e:
+        logger.exception("counter-ladder failed"); raise HTTPException(500, f"AI error: {e}")
+
+    # Parse the delimiter format
+    labels = {"polite": "Polite opener", "firm": "Firm — statute-cited",
+              "pre_action": "Pre-action protocol", "court": "Skeleton submission"}
+    result = {}
+    keys = ["polite", "firm", "pre_action", "court"]
+    # Split on the fences (===NAME===)
+    pattern = re.compile(r"===\s*(POLITE|FIRM|PRE_ACTION|COURT)\s*===", re.IGNORECASE)
+    parts = pattern.split(raw)
+    # parts = [preamble, name1, content1, name2, content2, ...]
+    if len(parts) >= 3:
+        for i in range(1, len(parts) - 1, 2):
+            key = parts[i].strip().lower().replace("-", "_")
+            content = parts[i + 1].strip()
+            # Split WHEN line + body using the --- separator
+            when = ""
+            body = content
+            if "---" in content:
+                head, _, body = content.partition("---")
+                head = head.strip()
+                # extract WHEN: line if present
+                m = re.search(r"WHEN\s*:\s*(.+)", head, re.IGNORECASE)
+                if m:
+                    when = m.group(1).strip()
+            body = body.strip()
+            if key in keys:
+                result[key] = {"tone_label": labels.get(key, key.title()),
+                               "body": body, "when_to_use": when}
+
+    # Fallback: ensure all 4 keys present (even if Lex truncated)
+    for k in keys:
+        if k not in result:
+            result[k] = {"tone_label": labels[k], "body": "", "when_to_use": ""}
+
+    if not any(result[k]["body"] for k in keys):
+        raise HTTPException(502, "Lex couldn't structure the ladder. Try again.")
+    return result
+
+
+# ---------- 3. Case Timeline — Lex Auto-Summary ----------
+
+@api_router.post("/cases/{case_id}/timeline/summarise")
+async def case_timeline_summarise(case_id: str, user: dict = Depends(get_user)):
+    """Lex turns the raw event timeline into a chronological prose summary
+    ready for a solicitor handover. Cached per-case for 24h."""
+    feed = await _build_case_timeline(case_id, user)
+    events = feed.get("events", [])
+    if not events:
+        raise HTTPException(400, "No events in timeline yet — add chats / evidence first.")
+
+    # Compact event list for the prompt
+    lines = []
+    for ev in events:
+        when = (ev.get("at") or "")[:10]
+        kind = ev.get("kind", "")
+        title = ev.get("title", "") or ""
+        extra = ""
+        if kind == "lex_turn":
+            extra = f" — Q: {ev.get('user_message','')[:160]}... → A: {ev.get('lex_reply','')[:160]}..."
+        elif ev.get("summary"):
+            extra = f" — {ev.get('summary')[:200]}"
+        elif ev.get("preview"):
+            extra = f" — {ev.get('preview')[:200]}"
+        lines.append(f"[{when}] {kind}: {title}{extra}")
+    timeline_text = "\n".join(lines)[:14000]
+
+    case = feed.get("case", {})
+    sysmsg = """You are AI Advocate's solicitor-handover writer. Turn this raw event chronology into a
+CRISP, NEUTRAL, third-person narrative. The output is going to a UK solicitor as a handover briefing.
+
+Return STRICT JSON (no markdown):
+{
+  "headline": "<one-line case summary>",
+  "narrative": "<3-5 paragraphs in plain English, chronological, third-person, factual only. No legal advice. Reference dates inline (e.g. 'On 15 March 2026...'). End with where the case currently stands.>",
+  "key_dates": [{"date": "DD/MM/YYYY", "what": "<short event>"}],
+  "open_questions": ["<question solicitor should ask the client>", "..."],
+  "next_legal_steps": ["<deadline-driven action>", "..."]
+}
+
+RULES:
+- Stick to facts in the timeline. NEVER invent dates, names, or events.
+- If a date is missing, write '[date unclear]' inline.
+- key_dates: max 8, sorted ascending.
+- open_questions: max 5 — focus on gaps a solicitor will need answered.
+- next_legal_steps: max 4 — actionable, deadline-aware.
+"""
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"casesum-{case_id[:8]}", system_message=sysmsg)\
+        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2500)
+    user_msg = f"""CASE: {case.get('name')} ({case.get('category') or 'general'})
+
+CHRONOLOGY:
+{timeline_text}
+
+Produce the handover JSON now."""
+    try:
+        raw = await chat.send_message(UserMessage(text=user_msg))
+    except Exception as e:
+        logger.exception("timeline summarise failed"); raise HTTPException(500, f"AI error: {e}")
+    parsed = _extract_json_object(raw)
+    if not parsed:
+        raise HTTPException(502, "Lex couldn't structure the summary. Try again.")
+    # Persist for re-use
+    await db.case_timeline_summaries.update_one(
+        {"case_id": case_id, "user_id": user["id"]},
+        {"$set": {**parsed, "event_count": len(events),
+                  "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {**parsed, "event_count": len(events), "case": case}
+
+
+# ---------- 4. Witness Statement Invite (magic link) ----------
+
+class WitnessInviteRequest(BaseModel):
+    witness_name: str = Field(min_length=2, max_length=120)
+    witness_email: Optional[EmailStr] = None
+    context_for_witness: str = Field(min_length=20, max_length=2000)
+    # Optional: a couple of guiding questions for the witness
+    questions: Optional[List[str]] = None
+
+
+@api_router.post("/cases/{case_id}/witness/invite")
+async def witness_invite(case_id: str, data: WitnessInviteRequest, request: Request, user: dict = Depends(get_user)):
+    case = await db.cases.find_one({"id": case_id, "user_id": user["id"]}, {"_id": 0})
+    if not case:
+        raise HTTPException(404, "Case not found")
+
+    token = _secrets.token_urlsafe(32)
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    invite_id = str(uuid.uuid4())
+
+    invite = {
+        "id": invite_id, "token": token,
+        "case_id": case_id, "user_id": user["id"],
+        "witness_name": data.witness_name,
+        "witness_email": data.witness_email,
+        "context_for_witness": data.context_for_witness,
+        "questions": (data.questions or [])[:6],
+        "status": "pending",  # pending | submitted | expired
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": expires_at,
+    }
+    await db.witness_invites.insert_one(invite)
+
+    # Public link — uses APP_PUBLIC_URL or falls back to the request's base URL
+    base = os.environ.get("APP_PUBLIC_URL", "").rstrip("/")
+    if not base:
+        # Build from request
+        proto = "https" if request.url.scheme == "https" else request.url.scheme
+        base = f"{proto}://{request.url.netloc}"
+    magic_link = f"{base}/witness/{token}"
+
+    # Email the witness if email was provided
+    email_sent = False
+    if data.witness_email:
+        try:
+            from email_helper import send_email
+            requester = user.get("full_name") or user.get("email", "the case owner")
+            html = f"""
+              <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">You've been asked to give a witness statement</h2>
+              <p>Hi {data.witness_name.split()[0]},</p>
+              <p><strong>{requester}</strong> has asked you to provide a witness statement for a legal matter they're dealing with through <strong>AI Advocate</strong>.</p>
+              <p style="background:#fffaeb; border-left:3px solid #f7c948; padding:10px 14px; margin:18px 0; font-size:13px; color:#1a1300;">
+                <strong>What they wrote:</strong><br/>"{data.context_for_witness[:600]}"
+              </p>
+              <p>Click the secure link below to write your statement. No account needed — it takes about 5-10 minutes.</p>
+              <p style="margin:24px 0;">
+                <a href="{magic_link}" style="background:#f7c948; color:#1a1300; padding:12px 22px; border-radius:8px; font-weight:700; text-decoration:none; display:inline-block;">Write your statement →</a>
+              </p>
+              <p style="font-size:12.5px; color:#555;">The link expires in 30 days. Your statement will be private to {requester} and won't be shared without your consent.</p>
+              <p style="font-size:13px; color:#666;">If you don't recognise this request, simply ignore this email.</p>
+            """
+            email_sent = await send_email(
+                to=data.witness_email,
+                subject=f"Witness statement request from {requester}",
+                body_html=html,
+                kind="user",
+            )
+        except Exception as e:
+            logger.warning(f"witness invite email failed: {e}")
+
+    return {
+        "invite_id": invite_id, "token": token,
+        "magic_link": magic_link, "expires_at": expires_at,
+        "email_sent": email_sent,
+    }
+
+
+@api_router.get("/witness/{token}")
+async def witness_public_fetch(token: str):
+    """Public — witness clicks the magic link, frontend loads the brief."""
+    inv = await db.witness_invites.find_one({"token": token}, {"_id": 0, "user_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invite not found")
+    if inv.get("status") == "submitted":
+        return {"status": "already_submitted", "witness_name": inv.get("witness_name")}
+    if inv.get("expires_at") and datetime.fromisoformat(inv["expires_at"]) < datetime.now(timezone.utc):
+        return {"status": "expired", "witness_name": inv.get("witness_name")}
+    # Look up requester name (not email — privacy) — separate fetch since the public
+    # projection above excludes user_id.
+    raw = await db.witness_invites.find_one({"token": token}, {"_id": 0, "user_id": 1})
+    requester_name = "the case owner"
+    if raw and raw.get("user_id"):
+        u = await db.users.find_one({"id": raw["user_id"]}, {"_id": 0, "full_name": 1, "email": 1})
+        if u:
+            requester_name = u.get("full_name") or (u.get("email", "").split("@")[0] if u.get("email") else "the case owner")
+    return {
+        "status": "ready",
+        "witness_name": inv.get("witness_name"),
+        "context_for_witness": inv.get("context_for_witness"),
+        "questions": inv.get("questions", []),
+        "requester_name": requester_name,
+        "expires_at": inv.get("expires_at"),
+    }
+
+
+class WitnessSubmitRequest(BaseModel):
+    statement: str = Field(min_length=80, max_length=20000)
+    witness_full_name: str = Field(min_length=2, max_length=200)
+    witness_address: Optional[str] = ""
+    witness_occupation: Optional[str] = ""
+    witness_phone: Optional[str] = ""
+    witness_email: Optional[EmailStr] = None
+    statement_of_truth: bool = False  # must be True to submit
+
+
+@api_router.post("/witness/{token}/submit")
+async def witness_public_submit(token: str, data: WitnessSubmitRequest):
+    """Public — witness submits the statement. Tokens are single-use."""
+    if not data.statement_of_truth:
+        raise HTTPException(400, "You must confirm the Statement of Truth to submit.")
+    inv = await db.witness_invites.find_one({"token": token}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invite not found")
+    if inv.get("status") == "submitted":
+        raise HTTPException(409, "This statement has already been submitted.")
+    if inv.get("expires_at") and datetime.fromisoformat(inv["expires_at"]) < datetime.now(timezone.utc):
+        raise HTTPException(410, "This invite has expired. Ask the case owner for a new link.")
+
+    statement_id = str(uuid.uuid4())
+    rec = {
+        "id": statement_id,
+        "invite_id": inv["id"], "case_id": inv["case_id"], "user_id": inv["user_id"],
+        "witness_name": data.witness_full_name,
+        "witness_address": data.witness_address or "",
+        "witness_occupation": data.witness_occupation or "",
+        "witness_phone": data.witness_phone or "",
+        "witness_email": data.witness_email or inv.get("witness_email") or "",
+        "statement": data.statement,
+        "statement_of_truth": True,
+        "submitted_at": datetime.now(timezone.utc).isoformat(),
+        "ip_hash": "",  # could hash the requesting IP for audit
+    }
+    await db.witness_statements.insert_one(rec.copy())
+    await db.witness_invites.update_one(
+        {"token": token}, {"$set": {"status": "submitted", "submitted_at": rec["submitted_at"]}},
+    )
+
+    # Auto-link into the case as a case_item so it shows in the case + timeline
+    try:
+        await db.case_items.insert_one({
+            "id": str(uuid.uuid4()),
+            "case_id": inv["case_id"], "user_id": inv["user_id"],
+            "item_type": "note", "item_id": statement_id,
+            "title": f"Witness statement — {data.witness_full_name}",
+            "preview": data.statement[:300],
+            "timestamp_utc": rec["submitted_at"],
+            "kind": "witness_statement",
+            "created_at": rec["submitted_at"],
+        })
+        await db.cases.update_one(
+            {"id": inv["case_id"]},
+            {"$inc": {"items_count": 1}, "$set": {"updated_at": rec["submitted_at"]}},
+        )
+    except Exception as e:
+        logger.warning(f"witness → case_items link failed: {e}")
+
+    # Notify the case owner by email
+    try:
+        owner = await db.users.find_one({"id": inv["user_id"]}, {"_id": 0, "email": 1, "full_name": 1})
+        if owner and owner.get("email"):
+            from email_helper import send_email
+            html = f"""
+              <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">📬 Witness statement received</h2>
+              <p>Hi {(owner.get('full_name') or '').split(' ')[0] or 'there'},</p>
+              <p><strong>{data.witness_full_name}</strong> has just submitted their witness statement for your case.</p>
+              <p style="background:#fffaeb; border-left:3px solid #f7c948; padding:10px 14px; margin:18px 0; font-size:13px; color:#1a1300; line-height:1.5;">
+                <strong>Statement preview:</strong><br/>"{data.statement[:400]}{'...' if len(data.statement)>400 else ''}"
+              </p>
+              <p>Log in to AI Advocate and open the case to view the full statement and download a CPR 32-compliant PDF.</p>
+              <p style="font-size:12.5px; color:#555;">The statement of truth was signed at {rec['submitted_at']}.</p>
+            """
+            await send_email(to=owner["email"], subject=f"Witness statement received — {data.witness_full_name}", body_html=html)
+    except Exception as e:
+        logger.warning(f"owner-notify email failed: {e}")
+
+    return {"ok": True, "statement_id": statement_id}
+
+
+@api_router.get("/cases/{case_id}/witness-statements")
+async def witness_statements_list(case_id: str, user: dict = Depends(get_user)):
+    case = await db.cases.find_one({"id": case_id, "user_id": user["id"]}, {"_id": 0, "id": 1})
+    if not case:
+        raise HTTPException(404, "Case not found")
+    statements = [
+        s async for s in db.witness_statements.find(
+            {"case_id": case_id, "user_id": user["id"]}, {"_id": 0},
+        ).sort("submitted_at", -1)
+    ]
+    pending = [
+        i async for i in db.witness_invites.find(
+            {"case_id": case_id, "user_id": user["id"], "status": "pending"},
+            {"_id": 0, "witness_name": 1, "witness_email": 1, "id": 1,
+             "created_at": 1, "expires_at": 1, "token": 1},
+        ).sort("created_at", -1)
+    ]
+    return {"statements": statements, "pending_invites": pending}
+
+
+@api_router.get("/cases/{case_id}/witness-statements/{ws_id}/pdf")
+async def witness_statement_pdf(case_id: str, ws_id: str, user: dict = Depends(get_user)):
+    ws = await db.witness_statements.find_one(
+        {"id": ws_id, "case_id": case_id, "user_id": user["id"]}, {"_id": 0},
+    )
+    if not ws:
+        raise HTTPException(404, "Statement not found")
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.lib.enums import TA_LEFT
+    import io as _io
+
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=2*cm, bottomMargin=2*cm, leftMargin=2.2*cm, rightMargin=2.2*cm)
+    styles = getSampleStyleSheet()
+    body = ParagraphStyle("body", parent=styles["BodyText"], fontSize=11, leading=15, alignment=TA_LEFT)
+    bold = ParagraphStyle("bold", parent=body, fontName="Helvetica-Bold")
+    small = ParagraphStyle("small", parent=body, fontSize=9, textColor="#555")
+
+    case = await db.cases.find_one({"id": case_id}, {"_id": 0, "name": 1, "category": 1}) or {}
+    story = []
+    story += [Paragraph("WITNESS STATEMENT", ParagraphStyle("title", parent=body, fontSize=15, alignment=1, fontName="Helvetica-Bold")), Spacer(1, 6)]
+    story += [Paragraph(f"In the matter of: <b>{case.get('name','')}</b>", body), Spacer(1, 4)]
+    story += [Paragraph(f"Category: {case.get('category','general')}", small), Spacer(1, 14)]
+
+    story += [Paragraph(f"<b>Witness:</b> {ws['witness_name']}", body)]
+    if ws.get("witness_occupation"):
+        story += [Paragraph(f"<b>Occupation:</b> {ws['witness_occupation']}", body)]
+    if ws.get("witness_address"):
+        story += [Paragraph(f"<b>Address:</b> {ws['witness_address']}", body)]
+    story += [Spacer(1, 14)]
+
+    story += [Paragraph("Statement:", bold), Spacer(1, 6)]
+    # Number paragraphs (CPR 32 style)
+    paragraphs = [p.strip() for p in ws["statement"].split("\n\n") if p.strip()]
+    if not paragraphs:
+        paragraphs = [ws["statement"]]
+    for i, p in enumerate(paragraphs, 1):
+        story += [Paragraph(f"{i}. {p}", body), Spacer(1, 6)]
+
+    story += [Spacer(1, 12)]
+    story += [Paragraph("<b>Statement of Truth</b>", body)]
+    story += [Paragraph(
+        "I believe that the facts stated in this witness statement are true. I understand that "
+        "proceedings for contempt of court may be brought against anyone who makes, or causes to be "
+        "made, a false statement in a document verified by a statement of truth without an honest "
+        "belief in its truth.", body)]
+    story += [Spacer(1, 18)]
+    story += [Paragraph(f"Signed: {ws['witness_name']}", body)]
+    story += [Paragraph(f"Date submitted: {ws['submitted_at'][:10]}", small)]
+    story += [Spacer(1, 12)]
+    story += [Paragraph("Generated by AI Advocate · CPR Part 32 compliant template · NOT a substitute for legal advice.", small)]
+
+    doc.build(story)
+    buf.seek(0)
+    fname = f"witness-statement-{ws['witness_name'].replace(' ','_')}-{ws_id[:8]}.pdf"
+    return StreamingResponse(
+        buf, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 app.include_router(api_router)

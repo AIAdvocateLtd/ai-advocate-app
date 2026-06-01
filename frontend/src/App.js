@@ -4092,8 +4092,16 @@ function ContractUploader({ lang, country, onClose }) {
 
 // ---------- Legal Letter ----------
 function LegalLetterModal({ lang, country, onClose }) {
-  const [form, setForm] = useState({ letter_type: "", recipient: "", your_name: "", details: "" });
+  const [form, setForm] = useState({ letter_type: "", recipient: "", your_name: "", details: "", tone: "firm" });
   const [letter, setLetter] = useState(""); const [busy, setBusy] = useState(false);
+
+  const TONE_INFO = {
+    polite:     { label: "Polite",     hint: "Goodwill, reasonable request. NO threats. First-contact tone.", pos: 0 },
+    firm:       { label: "Firm",       hint: "14-day deadline + named statute. Direct but no threats.", pos: 1 },
+    pre_action: { label: "Pre-action", hint: "LETTER BEFORE ACTION. Court WILL be issued if ignored.", pos: 2 },
+    court:      { label: "Court",      hint: "Skeleton submission. Numbered paras + statement of truth.", pos: 3 },
+  };
+  const toneKeys = ["polite", "firm", "pre_action", "court"];
 
   const generate = async () => {
     setBusy(true);
@@ -4117,19 +4125,57 @@ function LegalLetterModal({ lang, country, onClose }) {
             <input className="input" data-testid="letter-yourname" placeholder={t(lang, "yourName")} value={form.your_name} onChange={(e) => setForm({ ...form, your_name: e.target.value })} style={{ marginBottom: 10 }} />
             <input className="input" data-testid="letter-recipient" placeholder={t(lang, "recipient")} value={form.recipient} onChange={(e) => setForm({ ...form, recipient: e.target.value })} style={{ marginBottom: 10 }} />
             <textarea className="input" data-testid="letter-details" placeholder={t(lang, "details")} rows={6} value={form.details} onChange={(e) => setForm({ ...form, details: e.target.value })} />
+
+            {/* TONE SLIDER */}
+            <div style={{ marginTop: 14, padding: 12, background: "rgba(247,201,72,0.04)", border: "1px solid var(--gold-deep)", borderRadius: 10 }}>
+              <div style={{ fontSize: 10.5, color: "var(--gold)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                Tone of letter
+              </div>
+              <div style={{ display: "flex", gap: 4, marginBottom: 8 }} data-testid="letter-tone-pills">
+                {toneKeys.map((k) => (
+                  <button key={k} data-testid={`letter-tone-${k}`}
+                    onClick={() => setForm({ ...form, tone: k })}
+                    style={{
+                      flex: 1, padding: "8px 4px", fontSize: 11.5, fontWeight: 600, borderRadius: 8, cursor: "pointer",
+                      background: form.tone === k ? "var(--gold)" : "transparent",
+                      color: form.tone === k ? "#1a1300" : "var(--gold)",
+                      border: `1px solid ${form.tone === k ? "var(--gold)" : "var(--gold-deep)"}`,
+                    }}>
+                    {TONE_INFO[k].label}
+                  </button>
+                ))}
+              </div>
+              {/* Position indicator bar */}
+              <div style={{ position: "relative", height: 4, background: "var(--bg-2)", borderRadius: 2, overflow: "hidden", marginBottom: 6 }}>
+                <div style={{
+                  position: "absolute", left: 0, top: 0, height: "100%",
+                  width: `${((TONE_INFO[form.tone].pos + 1) / 4) * 100}%`,
+                  background: form.tone === "court" ? "#ef4444" : form.tone === "pre_action" ? "#fb923c" : form.tone === "firm" ? "var(--gold)" : "#22c55e",
+                  transition: "width 0.25s ease",
+                }} />
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.4 }} data-testid="letter-tone-hint">
+                {TONE_INFO[form.tone].hint}
+              </div>
+            </div>
+
             <button className="btn-gold w-full" data-testid="letter-generate-btn" onClick={generate} disabled={busy || !form.letter_type || !form.details} style={{ marginTop: 12 }}>
               {busy ? <span className="spinner" /> : t(lang, "generate")}
             </button>
           </div>
         ) : (
           <div style={{ overflowY: "auto" }}>
+            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+              <span style={{ fontSize: 10.5, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Tone:</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--gold)" }}>{TONE_INFO[form.tone].label}</span>
+            </div>
             <pre style={{ background: "#0a0a0a", padding: 16, borderRadius: 12, whiteSpace: "pre-wrap", color: "var(--text-dim)", fontSize: 13.5, fontFamily: "Outfit, sans-serif" }}>{letter}</pre>
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               <button className="btn-gold" data-testid="letter-pdf-btn" onClick={() => pdfInline({
                 title: form.letter_type || "Legal Letter",
                 subtitle: `From: ${form.your_name} · To: ${form.recipient}`,
                 body: letter,
-                meta: { Date: new Date().toLocaleDateString() },
+                meta: { Date: new Date().toLocaleDateString(), Tone: TONE_INFO[form.tone].label },
                 filename: `${(form.letter_type || "letter").replace(/[^A-Za-z0-9]/g, "_")}.pdf`
               })} style={{ flex: 1 }}>
                 <Download size={16} style={{ display: "inline", marginRight: 6 }} />Download PDF
@@ -4554,6 +4600,454 @@ function FilesModal({ lang, onClose }) {
 }
 
 // ---------- Case Files (group chats / photos / videos / letters per case) ----------
+
+// 🎯 TimelineRibbon — horizontal scrubable visual timeline (month-by-month buckets).
+// Renders compact pills the user can click to jump down to that event group.
+function TimelineRibbon({ events }) {
+  // Bucket events by year-month
+  const buckets = {};
+  for (const ev of events) {
+    if (!ev.at) continue;
+    const ym = (ev.at || "").slice(0, 7); // YYYY-MM
+    if (!ym) continue;
+    if (!buckets[ym]) buckets[ym] = [];
+    buckets[ym].push(ev);
+  }
+  const sortedKeys = Object.keys(buckets).sort();
+  if (sortedKeys.length === 0) return null;
+  const fmtMonth = (ym) => {
+    const [y, m] = ym.split("-");
+    const dt = new Date(parseInt(y), parseInt(m) - 1, 1);
+    return dt.toLocaleString("default", { month: "short", year: "2-digit" });
+  };
+  return (
+    <div data-testid="timeline-ribbon" style={{
+      marginBottom: 14, padding: "10px 12px",
+      background: "linear-gradient(135deg, rgba(247,201,72,0.06), rgba(247,201,72,0.02))",
+      border: "1px solid var(--gold-deep)", borderRadius: 12,
+    }}>
+      <div style={{ fontSize: 10.5, color: "var(--gold)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+        Chronology — {sortedKeys.length} {sortedKeys.length === 1 ? "month" : "months"}
+      </div>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 }}>
+        {sortedKeys.map((ym, i) => (
+          <div key={ym} data-testid={`ribbon-month-${ym}`} style={{
+            flex: "0 0 auto", padding: "6px 10px",
+            background: "var(--bg-card)", border: "1px solid var(--gold-deep)",
+            borderRadius: 8, minWidth: 64, textAlign: "center", position: "relative",
+          }}>
+            <div style={{ color: "var(--gold)", fontSize: 11, fontWeight: 700 }}>{fmtMonth(ym)}</div>
+            <div style={{ color: "var(--text-dim)", fontSize: 10 }}>{buckets[ym].length} {buckets[ym].length === 1 ? "event" : "events"}</div>
+            {/* Connector dot/line to next month */}
+            {i < sortedKeys.length - 1 && (
+              <div style={{ position: "absolute", right: -6, top: "50%", width: 6, height: 1, background: "var(--gold-deep)" }} />
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// 🤖 CaseTimelineSummary — generates a Lex prose narrative from the raw events.
+// Cached on the backend so subsequent renders re-use the prior summary instantly.
+function CaseTimelineSummary({ caseId, eventCount }) {
+  const [busy, setBusy] = useState(false);
+  const [summary, setSummary] = useState(null);
+  const [err, setErr] = useState("");
+  const [show, setShow] = useState(false);
+
+  const run = async () => {
+    if (!caseId) return;
+    setBusy(true); setErr("");
+    try {
+      const { data } = await api.post(`/cases/${caseId}/timeline/summarise`);
+      setSummary(data); setShow(true);
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Couldn't generate the summary");
+    } finally { setBusy(false); }
+  };
+
+  if (eventCount < 2) return null;
+  return (
+    <div data-testid="timeline-summary" style={{ marginBottom: 14 }}>
+      {!show && !summary && (
+        <button data-testid="timeline-summary-btn" onClick={run} disabled={busy} className="btn-gold w-full" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 14px" }}>
+          {busy ? <span className="spinner" /> : "🤖 Generate Lex solicitor handover"}
+        </button>
+      )}
+      {err && <div style={{ background: "#2a0a0a", border: "1px solid #7f1d1d", color: "#fca5a5", padding: 10, borderRadius: 8, fontSize: 12, marginTop: 8 }}>{err}</div>}
+      {summary && show && (
+        <div data-testid="timeline-summary-result" style={{ padding: 14, background: "linear-gradient(135deg, rgba(247,201,72,0.08), rgba(247,201,72,0.02))", border: "1px solid var(--gold)", borderRadius: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+            <div style={{ color: "var(--gold)", fontSize: 14, fontWeight: 700, lineHeight: 1.4 }}>
+              {summary.headline}
+            </div>
+            <button onClick={() => setShow(false)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 18 }} data-testid="timeline-summary-collapse">▾</button>
+          </div>
+          {summary.narrative && (
+            <div style={{ color: "var(--text)", fontSize: 12.5, lineHeight: 1.6, marginBottom: 10, whiteSpace: "pre-wrap" }}>
+              {summary.narrative}
+            </div>
+          )}
+          {(summary.key_dates || []).length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ color: "var(--gold)", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Key dates</div>
+              {summary.key_dates.map((kd, i) => (
+                <div key={i} style={{ fontSize: 11.5, color: "var(--text-dim)", marginBottom: 2 }}>
+                  <strong style={{ color: "var(--gold)" }}>{kd.date}</strong> · {kd.what}
+                </div>
+              ))}
+            </div>
+          )}
+          {(summary.open_questions || []).length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ color: "var(--gold)", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Open questions</div>
+              <ul style={{ paddingLeft: 18, margin: 0, fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.55 }}>
+                {summary.open_questions.map((q, i) => <li key={i}>{q}</li>)}
+              </ul>
+            </div>
+          )}
+          {(summary.next_legal_steps || []).length > 0 && (
+            <div>
+              <div style={{ color: "var(--gold)", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Next legal steps</div>
+              <ul style={{ paddingLeft: 18, margin: 0, fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.55 }}>
+                {summary.next_legal_steps.map((s, i) => <li key={i}>{s}</li>)}
+              </ul>
+            </div>
+          )}
+          <button onClick={run} disabled={busy} className="btn-ghost" style={{ marginTop: 10, fontSize: 11, padding: "6px 10px", border: "1px solid var(--gold-deep)", color: "var(--gold)" }} data-testid="timeline-summary-regenerate">
+            {busy ? <span className="spinner" /> : "↻ Regenerate"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 👥 CaseWitnessTab — invite witnesses + see received statements.
+function CaseWitnessTab({ caseId, lang }) {
+  const [data, setData] = useState({ statements: [], pending_invites: [] });
+  const [loading, setLoading] = useState(true);
+  const [showInvite, setShowInvite] = useState(false);
+  const [form, setForm] = useState({ witness_name: "", witness_email: "", context_for_witness: "", questions_text: "" });
+  const [inviteResult, setInviteResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const load = async () => {
+    if (!caseId) return;
+    setLoading(true);
+    try {
+      const { data: d } = await api.get(`/cases/${caseId}/witness-statements`);
+      setData(d);
+    } catch (e) { aaToast(e?.response?.data?.detail || "Failed to load", "error"); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [caseId]);
+
+  const sendInvite = async () => {
+    if (form.witness_name.length < 2 || form.context_for_witness.length < 20) {
+      aaToast("Please provide a witness name and context (≥20 chars)", "error"); return;
+    }
+    setBusy(true); setInviteResult(null);
+    try {
+      const questions = form.questions_text.split(/\n+/).map(s => s.trim()).filter(Boolean).slice(0, 6);
+      const { data: r } = await api.post(`/cases/${caseId}/witness/invite`, {
+        witness_name: form.witness_name,
+        witness_email: form.witness_email || null,
+        context_for_witness: form.context_for_witness,
+        questions,
+      });
+      setInviteResult(r);
+      await load();
+    } catch (e) { aaToast(e?.response?.data?.detail || "Failed to send invite", "error"); }
+    finally { setBusy(false); }
+  };
+
+  const downloadStatement = async (wsId, witnessName) => {
+    try {
+      const r = await fetch(`${API}/cases/${caseId}/witness-statements/${wsId}/pdf`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("aa_token")}` },
+      });
+      if (!r.ok) throw new Error("PDF failed");
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `witness-${witnessName.replace(/\s+/g, "_")}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { aaToast("Download failed", "error"); }
+  };
+
+  const copyLink = (link) => {
+    navigator.clipboard.writeText(link);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
+  return (
+    <div data-testid="case-witness-tab">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div>
+          <div style={{ color: "var(--gold)", fontSize: 13, fontWeight: 700 }}>Witness Statements</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>Invite witnesses to write CPR 32-compliant statements — they get a magic link, no signup needed.</div>
+        </div>
+        <button onClick={() => { setShowInvite(true); setInviteResult(null); setForm({ witness_name: "", witness_email: "", context_for_witness: "", questions_text: "" }); }}
+                className="btn-gold" data-testid="witness-invite-open-btn" style={{ fontSize: 12, padding: "8px 14px", whiteSpace: "nowrap" }}>
+          + Invite witness
+        </button>
+      </div>
+
+      {loading && <div style={{ textAlign: "center", padding: 18 }}><span className="spinner" /></div>}
+
+      {/* Invite modal */}
+      {showInvite && (
+        <div className="modal-bg" data-testid="witness-invite-modal" style={{ zIndex: 200 }} onClick={(e) => { if (e.target === e.currentTarget) setShowInvite(false); }}>
+          <div className="modal-card" style={{ padding: 20, maxWidth: 520 }}>
+            <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+              <h3 className="brand-font gold" style={{ fontSize: 18, margin: 0 }}>Invite a witness</h3>
+              <button onClick={() => setShowInvite(false)} data-testid="witness-invite-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={22} /></button>
+            </div>
+            {!inviteResult ? (
+              <>
+                <input className="input" placeholder="Witness full name *" value={form.witness_name} onChange={(e) => setForm({ ...form, witness_name: e.target.value })} data-testid="witness-name-input" style={{ marginBottom: 10 }} />
+                <input className="input" placeholder="Witness email (optional — we'll send them the link)" type="email" value={form.witness_email} onChange={(e) => setForm({ ...form, witness_email: e.target.value })} data-testid="witness-email-input" style={{ marginBottom: 10 }} />
+                <textarea className="input" placeholder="What did they witness? Give context so they know what to write about… *" rows={4}
+                  value={form.context_for_witness} onChange={(e) => setForm({ ...form, context_for_witness: e.target.value })}
+                  data-testid="witness-context-input" style={{ marginBottom: 10 }} />
+                <textarea className="input" placeholder="Optional: guiding questions, one per line (e.g. 'What time was it?', 'Who else was there?')" rows={3}
+                  value={form.questions_text} onChange={(e) => setForm({ ...form, questions_text: e.target.value })}
+                  data-testid="witness-questions-input" style={{ marginBottom: 12 }} />
+                <button className="btn-gold w-full" disabled={busy || form.witness_name.length < 2 || form.context_for_witness.length < 20}
+                  onClick={sendInvite} data-testid="witness-send-invite-btn">
+                  {busy ? <span className="spinner" /> : "Generate secure link"}
+                </button>
+              </>
+            ) : (
+              <div data-testid="witness-invite-result">
+                <div style={{ padding: 12, background: "rgba(34,197,94,0.10)", border: "1px solid #22c55e", borderRadius: 10, marginBottom: 12, color: "#86efac", fontSize: 13 }}>
+                  ✓ Invite created. {inviteResult.email_sent ? "Email sent to your witness." : "Share this link with them:"}
+                </div>
+                <div style={{ background: "var(--bg-2)", border: "1px solid var(--gold-deep)", borderRadius: 8, padding: 10, marginBottom: 10, wordBreak: "break-all", fontSize: 11.5, color: "var(--text-dim)", fontFamily: "monospace" }} data-testid="witness-magic-link">
+                  {inviteResult.magic_link}
+                </div>
+                <button onClick={() => copyLink(inviteResult.magic_link)} className="btn-gold w-full" data-testid="witness-copy-link-btn" style={{ marginBottom: 8 }}>
+                  {copied ? "✓ Copied" : "Copy link"}
+                </button>
+                <button onClick={() => setShowInvite(false)} className="btn-ghost w-full" data-testid="witness-invite-done-btn">Done</button>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 10, lineHeight: 1.5 }}>
+                  Link expires in 30 days. When the witness submits, you'll get an email and see their statement here.
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Statements received */}
+      {!loading && data.statements.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 10.5, color: "var(--gold)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+            Received ({data.statements.length})
+          </div>
+          {data.statements.map(ws => (
+            <div key={ws.id} data-testid={`witness-statement-${ws.id}`} style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 12, marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div>
+                  <div style={{ color: "var(--gold)", fontWeight: 700, fontSize: 13 }}>{ws.witness_name}</div>
+                  {ws.witness_occupation && <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{ws.witness_occupation}</div>}
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => setExpandedId(expandedId === ws.id ? null : ws.id)} className="btn-ghost" data-testid={`witness-expand-${ws.id}`} style={{ fontSize: 11, padding: "5px 8px", border: "1px solid var(--gold-deep)", color: "var(--gold)" }}>
+                    {expandedId === ws.id ? "Collapse" : "View"}
+                  </button>
+                  <button onClick={() => downloadStatement(ws.id, ws.witness_name)} className="btn-gold" data-testid={`witness-pdf-${ws.id}`} style={{ fontSize: 11, padding: "5px 8px" }}>
+                    PDF
+                  </button>
+                </div>
+              </div>
+              {expandedId === ws.id && (
+                <div style={{ background: "var(--bg-2)", borderRadius: 6, padding: 10, marginTop: 6, fontSize: 12.5, color: "var(--text)", lineHeight: 1.55, whiteSpace: "pre-wrap", maxHeight: 280, overflowY: "auto" }}>
+                  {ws.statement}
+                </div>
+              )}
+              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6 }}>
+                Submitted {ws.submitted_at?.slice(0, 16).replace("T", " ")} · Statement of Truth signed ✓
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Pending invites */}
+      {!loading && data.pending_invites.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10.5, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+            Pending ({data.pending_invites.length})
+          </div>
+          {data.pending_invites.map(inv => {
+            const base = (process.env.REACT_APP_BACKEND_URL || window.location.origin).replace(/\/$/, "");
+            const link = `${base}/witness/${inv.token}`;
+            return (
+              <div key={inv.id} data-testid={`witness-pending-${inv.id}`} style={{ background: "var(--bg-card)", border: "1px dashed var(--line)", borderRadius: 10, padding: 10, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>{inv.witness_name}</div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                    {inv.witness_email || "no email — share link manually"} · invited {inv.created_at?.slice(0, 10)}
+                  </div>
+                </div>
+                <button onClick={() => copyLink(link)} className="btn-ghost" style={{ fontSize: 11, padding: "5px 8px", border: "1px solid var(--gold-deep)", color: "var(--gold)" }} data-testid={`witness-pending-copy-${inv.id}`}>
+                  Copy link
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!loading && data.statements.length === 0 && data.pending_invites.length === 0 && (
+        <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 24, fontSize: 13 }}>
+          No witnesses yet. Tap "Invite witness" above to send a secure link.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------- Public Witness Page (no auth — accessed via magic link) ----------
+function WitnessPublicPage() {
+  const token = window.location.pathname.split("/witness/")[1]?.replace(/\/$/, "") || "";
+  const [state, setState] = useState("loading"); // loading | ready | already_submitted | expired | not_found | submitted
+  const [invite, setInvite] = useState(null);
+  const [form, setForm] = useState({
+    statement: "", witness_full_name: "", witness_address: "",
+    witness_occupation: "", witness_phone: "", witness_email: "",
+    statement_of_truth: false,
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (!token) { setState("not_found"); return; }
+    (async () => {
+      try {
+        const { data } = await api.get(`/witness/${token}`);
+        if (data.status === "ready") {
+          setInvite(data); setState("ready");
+          setForm(f => ({ ...f, witness_full_name: data.witness_name || "" }));
+        } else if (data.status === "already_submitted") setState("already_submitted");
+        else if (data.status === "expired") setState("expired");
+        else setState("not_found");
+      } catch (e) {
+        setState("not_found");
+      }
+    })();
+  }, [token]);
+
+  const submit = async () => {
+    setBusy(true); setErr("");
+    try {
+      await api.post(`/witness/${token}/submit`, form);
+      setState("submitted");
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Failed to submit");
+    } finally { setBusy(false); }
+  };
+
+  const Box = ({ children }) => (
+    <div style={{ minHeight: "100vh", background: "var(--bg, #0a0a0a)", color: "var(--text)", padding: "40px 16px", display: "flex", alignItems: "flex-start", justifyContent: "center" }}>
+      <div style={{ maxWidth: 640, width: "100%", background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 28 }}>
+        {children}
+      </div>
+    </div>
+  );
+
+  if (state === "loading") return <Box><div style={{ textAlign: "center" }}><span className="spinner" /></div></Box>;
+  if (state === "not_found") return <Box>
+    <h2 className="brand-font gold" style={{ fontSize: 22, margin: "0 0 8px" }}>Link not recognised</h2>
+    <p style={{ color: "var(--text-dim)" }}>This witness invite link doesn't exist or has been revoked.</p>
+  </Box>;
+  if (state === "expired") return <Box>
+    <h2 className="brand-font gold" style={{ fontSize: 22, margin: "0 0 8px" }}>This invite has expired</h2>
+    <p style={{ color: "var(--text-dim)" }}>Please ask the case owner to send you a new link.</p>
+  </Box>;
+  if (state === "already_submitted") return <Box>
+    <h2 className="brand-font gold" style={{ fontSize: 22, margin: "0 0 8px" }}>Already submitted ✓</h2>
+    <p style={{ color: "var(--text-dim)" }}>Thank you. Your statement has already been recorded.</p>
+  </Box>;
+  if (state === "submitted") return <Box data-testid="witness-submitted">
+    <h2 className="brand-font gold" style={{ fontSize: 24, margin: "0 0 8px" }}>Statement received — thank you 🙏</h2>
+    <p style={{ color: "var(--text-dim)", lineHeight: 1.6 }}>
+      Your witness statement has been securely delivered to {invite?.requester_name || "the case owner"}. They'll receive an email confirmation now.
+    </p>
+    <p style={{ color: "var(--text-muted)", fontSize: 12.5, marginTop: 14 }}>
+      You can safely close this tab.
+    </p>
+  </Box>;
+
+  // state = ready
+  return (
+    <Box>
+      <div data-testid="witness-public-page">
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: "var(--gold)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>AI Advocate · Witness Statement</div>
+          <h2 className="brand-font gold" style={{ fontSize: 24, margin: 0 }}>You've been asked to give a witness statement</h2>
+          <p style={{ color: "var(--text-dim)", fontSize: 13, marginTop: 6, lineHeight: 1.55 }}>
+            Hi {invite.witness_name?.split(" ")[0]} — <strong>{invite.requester_name}</strong> has asked you to write a witness statement for a legal matter they're dealing with. Your statement is private and will only be used in their case.
+          </p>
+        </div>
+
+        {invite.context_for_witness && (
+          <div style={{ background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 13, color: "var(--text)", lineHeight: 1.55 }}>
+            <div style={{ fontSize: 11, color: "var(--gold)", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>What they wrote:</div>
+            "{invite.context_for_witness}"
+          </div>
+        )}
+
+        {(invite.questions || []).length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: "var(--gold)", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Guiding questions</div>
+            <ul style={{ paddingLeft: 20, color: "var(--text-dim)", fontSize: 12.5, lineHeight: 1.7, margin: 0 }}>
+              {invite.questions.map((q, i) => <li key={i}>{q}</li>)}
+            </ul>
+          </div>
+        )}
+
+        <input className="input" placeholder="Your full legal name *" value={form.witness_full_name} onChange={(e) => setForm({ ...form, witness_full_name: e.target.value })} data-testid="witness-form-name" style={{ marginBottom: 8 }} />
+        <input className="input" placeholder="Your occupation (optional)" value={form.witness_occupation} onChange={(e) => setForm({ ...form, witness_occupation: e.target.value })} data-testid="witness-form-occ" style={{ marginBottom: 8 }} />
+        <input className="input" placeholder="Your address (optional)" value={form.witness_address} onChange={(e) => setForm({ ...form, witness_address: e.target.value })} data-testid="witness-form-addr" style={{ marginBottom: 8 }} />
+        <input className="input" placeholder="Your phone (optional)" value={form.witness_phone} onChange={(e) => setForm({ ...form, witness_phone: e.target.value })} data-testid="witness-form-phone" style={{ marginBottom: 8 }} />
+        <input className="input" type="email" placeholder="Your email (optional)" value={form.witness_email} onChange={(e) => setForm({ ...form, witness_email: e.target.value })} data-testid="witness-form-email" style={{ marginBottom: 12 }} />
+
+        <textarea className="input" rows={12} placeholder="Write your statement in your own words. Use plain English. Describe what you saw, heard, and did, in chronological order. Mention dates and times where you can. Separate paragraphs with a blank line. *"
+          value={form.statement} onChange={(e) => setForm({ ...form, statement: e.target.value })}
+          data-testid="witness-form-statement" style={{ marginBottom: 12, resize: "vertical", fontSize: 14, lineHeight: 1.6 }} />
+
+        <div style={{ background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.3)", borderRadius: 10, padding: 12, marginBottom: 14 }}>
+          <label style={{ display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer", fontSize: 12.5, color: "var(--text)", lineHeight: 1.55 }} data-testid="witness-form-truth-label">
+            <input type="checkbox" checked={form.statement_of_truth} onChange={(e) => setForm({ ...form, statement_of_truth: e.target.checked })} data-testid="witness-form-truth" style={{ marginTop: 3, flexShrink: 0 }} />
+            <span>
+              <strong>Statement of Truth (CPR Part 32):</strong> I believe that the facts stated in this witness statement are true. I understand that proceedings for contempt of court may be brought against anyone who makes, or causes to be made, a false statement in a document verified by a statement of truth without an honest belief in its truth.
+            </span>
+          </label>
+        </div>
+
+        {err && <div style={{ background: "#2a0a0a", border: "1px solid #7f1d1d", color: "#fca5a5", padding: 10, borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>{err}</div>}
+
+        <button className="btn-gold w-full" disabled={busy || !form.statement_of_truth || form.statement.length < 80 || !form.witness_full_name}
+          onClick={submit} data-testid="witness-form-submit">
+          {busy ? <span className="spinner" /> : "Submit my statement"}
+        </button>
+        <p style={{ color: "var(--text-muted)", fontSize: 10.5, marginTop: 10, lineHeight: 1.5, textAlign: "center" }}>
+          You'll see a confirmation once it's delivered. No account needed.
+        </p>
+      </div>
+    </Box>
+  );
+}
+
 function CaseFilesModal({ lang, onClose, openCaseId }) {
   const [showExplain, setShowExplain] = useState(false);
   const [cases, setCases] = useState([]);
@@ -4799,7 +5293,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
                          border: "none", cursor: "pointer",
                          background: tab === "items" ? "var(--gold)" : "transparent",
                          color: tab === "items" ? "#1a1300" : "var(--text-dim)" }}>
-                📂 Files & uploads
+                📂 Files
               </button>
               <button data-testid="tab-timeline-btn" onClick={() => setTab("timeline")}
                 style={{ flex: 1, padding: "7px 10px", fontSize: 12, fontWeight: 700, borderRadius: 7,
@@ -4808,7 +5302,16 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
                          color: tab === "timeline" ? "#1a1300" : "var(--text-dim)" }}>
                 🕘 Timeline
               </button>
+              <button data-testid="tab-witness-btn" onClick={() => setTab("witness")}
+                style={{ flex: 1, padding: "7px 10px", fontSize: 12, fontWeight: 700, borderRadius: 7,
+                         border: "none", cursor: "pointer",
+                         background: tab === "witness" ? "var(--gold)" : "transparent",
+                         color: tab === "witness" ? "#1a1300" : "var(--text-dim)" }}>
+                👥 Witnesses
+              </button>
             </div>
+
+            {tab === "witness" && <CaseWitnessTab caseId={open?.id} lang={lang} />}
 
             {tab === "items" && <>
             {/* Upload to case — accepts document/photo/audio/video. Stored as a case_item with SHA256 + timestamp. */}
@@ -4898,6 +5401,15 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
                   <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 14, fontSize: 13 }}>
                     No events yet. Upload evidence or chat with Lex about this matter to populate the timeline.
                   </p>
+                )}
+                {!feedLoading && feed && feed.events.length > 0 && (
+                  <>
+                    {/* HORIZONTAL TIMELINE RIBBON — scrubable visual scrubber */}
+                    <TimelineRibbon events={feed.events} />
+
+                    {/* LEX AUTO-SUMMARY trigger */}
+                    <CaseTimelineSummary caseId={open?.id} eventCount={feed.events.length} />
+                  </>
                 )}
                 {!feedLoading && feed && feed.events.length > 0 && (
                   <div style={{ position: "relative", paddingLeft: 26 }}>
@@ -9761,13 +10273,41 @@ function OutcomeModal({ lang, country, onClose }) {
 function CostEstimateModal({ lang, country, onClose }) {
   const [summary, setSummary] = useState("");
   const [category, setCategory] = useState("");
+  const [postcode, setPostcode] = useState("");
   const [busy, setBusy] = useState(false);
   const [r, setR] = useState(null);
+  const [tab, setTab] = useState("summary"); // summary | compare
   const run = async () => {
     setBusy(true);
-    try { const { data } = await api.post("/cost/estimate", { case_summary: summary, category, country, language: lang }); setR(data); }
+    try { const { data } = await api.post("/cost/estimate", { case_summary: summary, category, country, language: lang, postcode: postcode.toUpperCase().trim() || null }); setR(data); }
     catch (e) { alert(e?.response?.data?.detail || "Failed"); }
     finally { setBusy(false); }
+  };
+  const Option = ({ k }) => {
+    const c = r?.comparison?.[k]; if (!c) return null;
+    const totalLow = c.total_low || 0; const totalHigh = c.total_high || 0;
+    const isAA = k === "ai_advocate";
+    return (
+      <div data-testid={`cost-compare-${k}`} style={{
+        background: isAA ? "linear-gradient(135deg, rgba(247,201,72,0.10), rgba(247,201,72,0.02))" : "var(--bg-card)",
+        border: `1px solid ${isAA ? "var(--gold)" : "var(--line)"}`,
+        borderRadius: 12, padding: 14, marginBottom: 10,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+          <div style={{ color: isAA ? "var(--gold)" : "var(--text)", fontWeight: 700, fontSize: 14 }}>{c.label}</div>
+          <div style={{ color: isAA ? "var(--gold)" : "var(--text)", fontSize: 16, fontWeight: 700, textAlign: "right" }}>
+            {totalLow === totalHigh ? `£${totalLow.toLocaleString()}` : `£${totalLow.toLocaleString()} – £${totalHigh.toLocaleString()}`}
+          </div>
+        </div>
+        {(c.pros || []).slice(0, 3).map((p, i) => (
+          <div key={`p${i}`} style={{ color: "#86efac", fontSize: 11.5, marginBottom: 2 }}>✓ {p}</div>
+        ))}
+        {(c.cons || []).slice(0, 2).map((p, i) => (
+          <div key={`c${i}`} style={{ color: "#fca5a5", fontSize: 11.5, marginBottom: 2 }}>✗ {p}</div>
+        ))}
+        <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 8, fontStyle: "italic", lineHeight: 1.4 }}>{c.downside}</div>
+      </div>
+    );
   };
   return (
     <div className="modal-bg" data-testid="cost-modal">
@@ -9778,41 +10318,90 @@ function CostEstimateModal({ lang, country, onClose }) {
         </div>
         {!r ? (
           <>
-            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12 }}>Find out roughly what a solicitor would charge for your matter.</p>
+            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12 }}>Find out roughly what a solicitor would charge for your matter — with postcode-aware regional uplift.</p>
             <textarea className="input" rows={5} value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="Brief description of your case…" data-testid="cost-summary" style={{ marginBottom: 8 }} />
             <input className="input" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Category (optional)" data-testid="cost-category" style={{ marginBottom: 8 }} />
+            <input className="input" value={postcode} onChange={(e) => setPostcode(e.target.value)} placeholder="UK postcode (optional, e.g. EC1A or SW1)" data-testid="cost-postcode" style={{ marginBottom: 8 }} maxLength={8} />
             <button className="btn-gold w-full" disabled={busy || summary.trim().length < 20} onClick={run} data-testid="cost-run-btn">
               {busy ? <span className="spinner" /> : "Estimate cost"}
             </button>
           </>
         ) : (
           <div data-testid="cost-result">
-            <div style={{ textAlign: "center", margin: "8px 0 18px" }}>
-              <div style={{ color: "var(--text-muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>Likely solicitor fee</div>
-              <div style={{ color: "var(--gold)", fontSize: 32, fontWeight: 700, marginTop: 4 }}>£{r.low_estimate_gbp?.toLocaleString()} – £{r.high_estimate_gbp?.toLocaleString()}</div>
-              <div style={{ color: "var(--text-dim)", fontSize: 12, marginTop: 2 }}>+ court fees ≈ £{r.court_fees_gbp || 0}</div>
+            {/* Tab pills */}
+            <div style={{ display: "flex", gap: 4, marginBottom: 14, borderBottom: "1px solid var(--line)" }}>
+              {[
+                { v: "summary", label: "Summary" },
+                { v: "compare", label: "Compare options" },
+              ].map(b => (
+                <button key={b.v} data-testid={`cost-tab-${b.v}`} onClick={() => setTab(b.v)}
+                  style={{
+                    padding: "8px 14px", borderRadius: "8px 8px 0 0", cursor: "pointer",
+                    background: tab === b.v ? "var(--gold)" : "transparent",
+                    color: tab === b.v ? "#1a1300" : "var(--gold)",
+                    border: "1px solid var(--gold-deep)", borderBottom: "none",
+                    fontWeight: 600, fontSize: 12,
+                  }}>
+                  {b.label}
+                </button>
+              ))}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-              <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, textAlign: "center" }}>
-                <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Typical hours</div>
-                <div style={{ color: "var(--text)", fontWeight: 600 }}>{r.typical_hours}</div>
-              </div>
-              <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, textAlign: "center" }}>
-                <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Hourly rate</div>
-                <div style={{ color: "var(--text)", fontWeight: 600 }}>£{r.hourly_rate_range_gbp}</div>
-              </div>
-            </div>
-            {r.no_win_no_fee_available && (
-              <div style={{ background: "rgba(34,197,94,0.1)", border: "1px solid #22c55e", color: "#86efac", padding: 10, borderRadius: 10, fontSize: 13, marginBottom: 12 }}>
-                ✓ No Win No Fee may be available for this type of case.
+
+            {tab === "summary" && (
+              <>
+                <div style={{ textAlign: "center", margin: "8px 0 12px" }}>
+                  <div style={{ color: "var(--text-muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>Likely solicitor fee</div>
+                  <div style={{ color: "var(--gold)", fontSize: 32, fontWeight: 700, marginTop: 4 }}>£{r.low_estimate_gbp?.toLocaleString()} – £{r.high_estimate_gbp?.toLocaleString()}</div>
+                  <div style={{ color: "var(--text-dim)", fontSize: 12, marginTop: 2 }}>+ court fees ≈ £{r.court_fees_gbp || 0}</div>
+                  {r.postcode_region && r.postcode_multiplier !== 1.0 && (
+                    <div data-testid="cost-region-badge" style={{ display: "inline-block", marginTop: 6, padding: "3px 10px", background: "rgba(247,201,72,0.12)", border: "1px solid var(--gold-deep)", borderRadius: 10, color: "var(--gold)", fontSize: 10.5, fontWeight: 600, letterSpacing: "0.04em" }}>
+                      📍 {r.postcode_region} · ×{r.postcode_multiplier} uplift
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+                  <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, textAlign: "center" }}>
+                    <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Typical hours</div>
+                    <div style={{ color: "var(--text)", fontWeight: 600 }}>{r.typical_hours}</div>
+                  </div>
+                  <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, textAlign: "center" }}>
+                    <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Hourly rate</div>
+                    <div style={{ color: "var(--text)", fontWeight: 600 }}>£{r.hourly_rate_range_gbp}</div>
+                  </div>
+                </div>
+                {r.no_win_no_fee_available && (
+                  <div style={{ background: "rgba(34,197,94,0.1)", border: "1px solid #22c55e", color: "#86efac", padding: 10, borderRadius: 10, fontSize: 13, marginBottom: 12 }}>
+                    ✓ No Win No Fee may be available for this type of case.
+                  </div>
+                )}
+                <p style={{ color: "var(--text-dim)", fontSize: 13, lineHeight: 1.6, marginBottom: 14 }}>{r.explanation}</p>
+                <div style={{ background: "linear-gradient(135deg, rgba(247,201,72,0.12), rgba(247,201,72,0.02))", border: "1px solid var(--gold)", borderRadius: 12, padding: 12, fontSize: 13, color: "var(--text)" }}>
+                  <strong style={{ color: "var(--gold)" }}>AI Advocate covers this from £19.99/mo</strong>
+                  <div style={{ color: "var(--text-dim)", marginTop: 4 }}>{r.ai_advocate_saving}</div>
+                  {r.aa_pro_saving_vs_solicitor_gbp > 0 && (
+                    <div data-testid="cost-saving-banner" style={{ marginTop: 8, padding: 8, background: "rgba(34,197,94,0.10)", borderRadius: 8, color: "#86efac", fontSize: 12.5 }}>
+                      💷 Save ≈ £{r.aa_pro_saving_vs_solicitor_gbp.toLocaleString()} ({r.aa_pro_saving_percent}%) vs full solicitor.
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {tab === "compare" && (
+              <div data-testid="cost-compare-view">
+                <p style={{ color: "var(--text-dim)", fontSize: 12.5, marginBottom: 12, lineHeight: 1.5 }}>
+                  Side-by-side: doing it yourself vs using AI Advocate vs hiring a full-service solicitor. Total cost includes court fees.
+                </p>
+                <Option k="diy" />
+                <Option k="ai_advocate" />
+                <Option k="solicitor" />
+                <p style={{ color: "var(--text-muted)", fontSize: 10.5, marginTop: 8, lineHeight: 1.5 }}>
+                  Estimates are illustrative. Actual solicitor fees vary by firm, complexity, and outcome. AA Pro = £34.99/mo (£419.88/yr).
+                </p>
               </div>
             )}
-            <p style={{ color: "var(--text-dim)", fontSize: 13, lineHeight: 1.6, marginBottom: 14 }}>{r.explanation}</p>
-            <div style={{ background: "linear-gradient(135deg, rgba(247,201,72,0.12), rgba(247,201,72,0.02))", border: "1px solid var(--gold)", borderRadius: 12, padding: 12, fontSize: 13, color: "var(--text)" }}>
-              <strong style={{ color: "var(--gold)" }}>AI Advocate covers this from £19.99/mo</strong>
-              <div style={{ color: "var(--text-dim)", marginTop: 4 }}>{r.ai_advocate_saving}</div>
-            </div>
-            <button className="btn-ghost w-full" onClick={() => { setR(null); setSummary(""); }} style={{ marginTop: 12 }}>Estimate another</button>
+
+            <button className="btn-ghost w-full" onClick={() => { setR(null); setSummary(""); setPostcode(""); setTab("summary"); }} style={{ marginTop: 12 }} data-testid="cost-restart-btn">Estimate another</button>
           </div>
         )}
       </div>
@@ -9828,6 +10417,9 @@ function CostEstimateModal({ lang, country, onClose }) {
 function ET1AutoFillModal({ lang, country, onClose }) {
   const [step, setStep] = useState("input"); // input | result
   const [busy, setBusy] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState(null);
+  const scanInputRef = useRef(null);
   const [form, setForm] = useState({
     full_name: "", address: "", postcode: "", phone: "", email: "", dob: "",
     employer_name: "", employer_address: "",
@@ -9837,6 +10429,43 @@ function ET1AutoFillModal({ lang, country, onClose }) {
     extra_context: "",
   });
   const [result, setResult] = useState(null);
+
+  const scanForm = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = "";
+    if (!f) return;
+    setScanning(true); setScanResult(null);
+    try {
+      const fd = new FormData(); fd.append("file", f); fd.append("language", lang);
+      const { data } = await api.post("/forms/ocr/detect", fd);
+      setScanResult(data);
+      // Merge extracted fields into the form where keys match
+      const ef = data.extracted_fields || {};
+      const merged = { ...form };
+      const map = {
+        claimant_name: "full_name", claimant_address: "address", claimant_postcode: "postcode",
+        claimant_phone: "phone", claimant_email: "email", claimant_dob: "dob",
+        respondent_name: "employer_name", respondent_address: "employer_address",
+        job_title: "job_title", start_date: "employment_start_date", end_date: "employment_end_date",
+        weekly_hours: "weekly_hours", gross_pay: "gross_pay", net_pay: "net_pay",
+        acas_number: "acas_certificate_number",
+      };
+      let filledCount = 0;
+      for (const [src, dst] of Object.entries(map)) {
+        if (ef[src] && !merged[dst]) {
+          merged[dst] = String(ef[src]).replace(/^~/, "").trim();
+          filledCount++;
+        }
+      }
+      // Use raw text snippet to seed narrative if empty
+      if (!merged.extra_context && data.raw_text) {
+        merged.extra_context = `[Scanned from ${data.form_label || "form"}]\n` + data.raw_text.slice(0, 600);
+      }
+      setForm(merged);
+      aaToast(filledCount > 0 ? `📋 ${filledCount} fields pre-filled from ${data.form_label || "scan"}` : "Scan complete — no matching fields found", filledCount > 0 ? "success" : "info");
+    } catch (err) {
+      aaToast(err?.response?.data?.detail || "OCR failed", "error");
+    } finally { setScanning(false); }
+  };
 
   const generate = async () => {
     if (form.extra_context.length < 40) {
@@ -9884,6 +10513,29 @@ function ET1AutoFillModal({ lang, country, onClose }) {
         <div style={{ padding: 20, overflowY: "auto", flex: 1 }}>
           {step === "input" && (
             <>
+              {/* OCR Scan-a-form entry point */}
+              <input ref={scanInputRef} type="file" accept="image/*,application/pdf" capture="environment"
+                     onChange={scanForm} style={{ display: "none" }} data-testid="et1-scan-input" />
+              <div style={{ marginBottom: 14, padding: 12, background: "linear-gradient(135deg, rgba(247,201,72,0.10), rgba(247,201,72,0.02))", border: "1px solid var(--gold-deep)", borderRadius: 10, display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ fontSize: 24 }}>📸</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: "var(--gold)", fontSize: 13, fontWeight: 700, marginBottom: 2 }}>Got a paper form already?</div>
+                  <div style={{ color: "var(--text-dim)", fontSize: 11.5, lineHeight: 1.4 }}>Snap the ET1 form, your dismissal letter, or any UK gov form — Lex extracts the fields automatically.</div>
+                </div>
+                <button onClick={() => scanInputRef.current?.click()} disabled={scanning} data-testid="et1-scan-btn"
+                  className="btn-gold" style={{ fontSize: 12, padding: "8px 14px", whiteSpace: "nowrap" }}>
+                  {scanning ? <span className="spinner" /> : "Scan form"}
+                </button>
+              </div>
+              {scanResult && (
+                <div data-testid="et1-scan-result" style={{ marginBottom: 14, padding: 10, background: "rgba(34,197,94,0.08)", border: "1px solid #22c55e", borderRadius: 10, fontSize: 12, color: "#86efac" }}>
+                  ✓ Detected: <strong>{scanResult.form_label}</strong> ({Math.round((scanResult.confidence || 0) * 100)}% confidence)
+                  {(scanResult.warnings || []).slice(0, 2).map((w, i) => (
+                    <div key={i} style={{ color: "#fbbf24", fontSize: 11, marginTop: 4 }}>⚠ {w}</div>
+                  ))}
+                </div>
+              )}
+
               <div style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.55 }}>
                 <strong style={{ color: "var(--gold)" }}>How it works:</strong> Tell us what happened in plain English. Lex extracts the legal claims, identifies the right statutes, drafts the full ET1 narrative + remedy section, and produces a PDF you can use to fill out the official online form at <strong>employmenttribunal.service.gov.uk</strong>. You can leave any field blank — Lex inserts <code style={{ background: "var(--bg-2)", padding: "1px 5px", borderRadius: 3 }}>[PLACEHOLDER]</code> markers for you to fill in later.
               </div>
@@ -12087,6 +12739,7 @@ function LetterReaderModal({ lang, country, onClose }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [err, setErr] = useState("");
+  const [showLadder, setShowLadder] = useState(false);
   const inputRef = useRef(null);
   const uploadRef = useRef(null);
 
@@ -12190,6 +12843,10 @@ function LetterReaderModal({ lang, country, onClose }) {
               </span>
               <span style={{ color: "var(--gold)", fontSize: 13, textTransform: "capitalize" }}>{result.category?.replace(/_/g, " ")}</span>
             </div>
+
+            {/* THREAT METER — visual escalation 1-5 derived from severity */}
+            <LetterThreatMeter severity={result.severity} />
+
             <div style={{ color: "var(--text)", fontSize: 14, lineHeight: 1.6, marginBottom: 14 }}>{result.summary}</div>
 
             {result.deadlines?.length > 0 && (
@@ -12219,15 +12876,165 @@ function LetterReaderModal({ lang, country, onClose }) {
                   onChange={(e) => setResult({ ...result, suggested_response: e.target.value })}
                   data-testid="letter-response-textarea"
                   style={{ fontSize: 13, lineHeight: 1.5, fontFamily: "inherit" }} />
-                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                  <button className="btn-gold" data-testid="letter-copy-btn" onClick={copyResponse} style={{ flex: 1 }}>Copy response</button>
-                  <button className="btn-ghost" data-testid="letter-new-btn" onClick={() => { setResult(null); setFile(null); if (preview) URL.revokeObjectURL(preview); setPreview(null); }} style={{ flex: 1 }}>Analyse another</button>
+                <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                  <button className="btn-gold" data-testid="letter-copy-btn" onClick={copyResponse} style={{ flex: 1, minWidth: 120 }}>Copy response</button>
+                  <button className="btn-ghost" data-testid="letter-ladder-btn" onClick={() => setShowLadder(true)} style={{ flex: 1, minWidth: 120, border: "1px solid var(--gold-deep)", color: "var(--gold)" }}>
+                    🪜 Show ladder
+                  </button>
+                  <button className="btn-ghost" data-testid="letter-new-btn" onClick={() => { setResult(null); setFile(null); if (preview) URL.revokeObjectURL(preview); setPreview(null); }} style={{ flex: 1, minWidth: 120 }}>Analyse another</button>
                 </div>
               </>
+            )}
+
+            {showLadder && (
+              <CounterLadderPanel
+                summary={result.summary}
+                category={result.category}
+                onClose={() => setShowLadder(false)}
+                lang={lang}
+              />
             )}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------- Letter Threat Meter (visual 1-5 escalation) ----------
+function LetterThreatMeter({ severity }) {
+  const level = ({ low: 1, medium: 2, high: 4, urgent: 5 })[severity] || 2;
+  const color = severity === "urgent" ? "#ef4444" : severity === "high" ? "#fb923c" : severity === "medium" ? "#f7c948" : "#22c55e";
+  return (
+    <div data-testid="letter-threat-meter" style={{ marginBottom: 14, padding: 10, background: "var(--bg-2)", border: `1px solid ${color}40`, borderRadius: 10 }}>
+      <div style={{ fontSize: 10.5, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+        Threat level
+      </div>
+      <div style={{ display: "flex", gap: 4 }}>
+        {[1,2,3,4,5].map(n => (
+          <div key={n} data-testid={`threat-bar-${n}`} style={{
+            flex: 1, height: 8, borderRadius: 4,
+            background: n <= level ? color : "var(--bg-card)",
+            border: "1px solid var(--line)", transition: "background 0.25s",
+          }} />
+        ))}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 9.5, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+        <span>Routine</span><span>Notice</span><span>Action req</span><span>Urgent</span><span>Crisis</span>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Counter-Letter Ladder Panel ----------
+// 4 escalating drafts (Polite → Firm → Pre-action → Court), generated on-demand
+// from the analysed letter's summary. Shown inline below the Letter Reader.
+function CounterLadderPanel({ summary, category, onClose, lang }) {
+  const [busy, setBusy] = useState(true);
+  const [drafts, setDrafts] = useState(null);
+  const [active, setActive] = useState("firm");
+  const [outcome, setOutcome] = useState("");
+  const [err, setErr] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    // Auto-generate the ladder immediately using the letter summary as input
+    let cancel = false;
+    (async () => {
+      try {
+        setBusy(true); setErr("");
+        const { data } = await api.post("/letters/counter-ladder", {
+          received_letter_summary: summary || "",
+          desired_outcome: outcome || "Push back on the demands and protect my position.",
+          category: category || "other",
+          language: lang,
+        });
+        if (!cancel) setDrafts(data);
+      } catch (e) {
+        if (!cancel) setErr(e?.response?.data?.detail || "Couldn't generate the ladder");
+      } finally { if (!cancel) setBusy(false); }
+    })();
+    return () => { cancel = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const regenerate = async () => {
+    setBusy(true); setErr("");
+    try {
+      const { data } = await api.post("/letters/counter-ladder", {
+        received_letter_summary: summary || "",
+        desired_outcome: outcome || "Push back on the demands and protect my position.",
+        category: category || "other",
+        language: lang,
+      });
+      setDrafts(data);
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Couldn't regenerate");
+    } finally { setBusy(false); }
+  };
+
+  const ladderKeys = ["polite", "firm", "pre_action", "court"];
+  const KEY_COLORS = { polite: "#22c55e", firm: "#f7c948", pre_action: "#fb923c", court: "#ef4444" };
+  const current = drafts?.[active];
+
+  const copyBody = () => {
+    if (!current?.body) return;
+    navigator.clipboard.writeText(current.body);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
+  return (
+    <div data-testid="counter-ladder-panel" style={{ marginTop: 18, padding: 14, background: "rgba(247,201,72,0.04)", border: "1px solid var(--gold-deep)", borderRadius: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <h4 style={{ color: "var(--gold)", fontSize: 13, margin: 0, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+          🪜 Counter-Letter Ladder
+        </h4>
+        <button onClick={onClose} data-testid="ladder-close" style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 18 }}>×</button>
+      </div>
+      <p style={{ color: "var(--text-dim)", fontSize: 11.5, marginBottom: 10, lineHeight: 1.5 }}>
+        Four escalating drafts from polite opener through to a court submission. Start at the bottom of the ladder and only climb if they ignore you.
+      </p>
+
+      <input className="input" placeholder="What do you actually want? (e.g. 'Drop the eviction notice')" value={outcome} onChange={(e) => setOutcome(e.target.value)} data-testid="ladder-outcome" style={{ marginBottom: 8, fontSize: 12 }} />
+      <button className="btn-ghost" onClick={regenerate} disabled={busy} data-testid="ladder-regenerate" style={{ fontSize: 11.5, padding: "6px 10px", marginBottom: 10, border: "1px solid var(--gold-deep)", color: "var(--gold)" }}>
+        {busy ? <span className="spinner" /> : "↻ Regenerate with this outcome"}
+      </button>
+
+      <div style={{ display: "flex", gap: 4, marginBottom: 10, flexWrap: "wrap" }}>
+        {ladderKeys.map((k) => (
+          <button key={k} data-testid={`ladder-tab-${k}`} onClick={() => setActive(k)}
+            style={{
+              padding: "6px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: "pointer",
+              background: active === k ? KEY_COLORS[k] : "transparent",
+              color: active === k ? "#0a0a0a" : KEY_COLORS[k],
+              border: `1px solid ${KEY_COLORS[k]}`,
+            }}>
+            {drafts?.[k]?.tone_label || k.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      {busy && <div style={{ textAlign: "center", padding: 14 }}><span className="spinner" /><div style={{ color: "var(--text-dim)", marginTop: 6, fontSize: 12 }}>Lex is drafting 4 escalation tones…</div></div>}
+      {err && <div style={{ background: "#2a0a0a", border: "1px solid #7f1d1d", color: "#fca5a5", padding: 10, borderRadius: 8, fontSize: 12 }}>{err}</div>}
+
+      {current && !busy && (
+        <div data-testid={`ladder-draft-${active}`}>
+          {current.when_to_use && (
+            <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginBottom: 8, padding: 8, background: "var(--bg-2)", borderRadius: 6, borderLeft: `3px solid ${KEY_COLORS[active]}` }}>
+              <strong style={{ color: KEY_COLORS[active] }}>When to use:</strong> {current.when_to_use}
+            </div>
+          )}
+          <pre style={{
+            background: "#0a0a0a", padding: 12, borderRadius: 8, maxHeight: 320, overflowY: "auto",
+            whiteSpace: "pre-wrap", color: "var(--text-dim)", fontSize: 12, lineHeight: 1.55,
+            fontFamily: "Outfit, sans-serif", marginBottom: 8,
+          }}>{current.body}</pre>
+          <button className="btn-gold w-full" onClick={copyBody} data-testid="ladder-copy-btn" style={{ fontSize: 12 }}>
+            {copied ? "✓ Copied" : "Copy this draft"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -12572,6 +13379,11 @@ function ManageDataModal({ lang, onClose, onAccountDeleted }) {
 // ---------- Demo banner removed — see top of file note re: demo deletion ----------
 
 function App() {
+  // Public witness magic-link page — bypass auth/marketing entirely. We capture
+  // this BEFORE running any hooks but defer rendering to after all hooks so we
+  // never violate the rules-of-hooks.
+  const _isWitnessPath = typeof window !== "undefined" && window.location.pathname.startsWith("/witness/");
+
   const [lang, setLang] = useState(localStorage.getItem("aa_lang") || "en-GB");
   const [country, setCountry] = useState(localStorage.getItem("aa_country") || "GB");
   const [step, setStep] = useState("loading"); // loading | lang | terms | auth | app
@@ -12591,6 +13403,7 @@ function App() {
   // The "always-static" paths are handled here on mount.
   useEffect(() => {
     const p = (window.location.pathname || "/").replace(/\/+$/, "") || "/";
+    if (p.startsWith("/witness/")) return; // public magic-link, handled at top of App()
     if (p === "/welcome") { window.location.replace("/welcome.html"); return; }
     if (p === "/for-firms" || p === "/for-law-firms") { window.location.replace("/founding-firm-pitch.html"); return; }
     // Signal-clear: if user explicitly navigated to /app or /signin, mark a
@@ -12693,6 +13506,9 @@ function App() {
   const onLogout = () => { localStorage.removeItem("aa_token"); setToken(null); setUser(null); setAuthHeader(null); clearSentryUser(); resetAnalytics(); setStep("auth"); };
 
   if (step === "loading") return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}><span className="spinner" /></div>;
+
+  // Public witness magic-link page — render after all hooks have been declared
+  if (_isWitnessPath) return <WitnessPublicPage />;
 
   return (
     <div className="App app-shell">
