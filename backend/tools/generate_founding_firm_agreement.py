@@ -170,7 +170,7 @@ def build(firm_name="[FIRM NAME]",
     # ───── BENEFITS ─────────────────────────────────────────────────────
     story.append(Paragraph("1. FOUNDING FIRM BENEFITS", H2))
     benefits = [
-        "<b>Founding £199/month rate, lock-in survival</b> — the Firm is granted the Premium tier at £199 per month. If AI Advocate raises the public Premium rate above £199 at any point during the Firm's continuous subscription, the Firm's rate stays at £199 (or the then-current Premium rate, whichever is lower) for the duration of that continuous subscription. Subject to clause 3.4.",
+        "<b>Founding £199/month rate, lock-in survival</b> — the Firm is granted the Premium tier at £199 per month. If AI Advocate raises the public Premium rate above £199 at any point during the Firm's continuous subscription, the Firm's rate stays at £199 (or the then-current Premium rate, whichever is lower) for the duration of that continuous subscription. Subject to clause 4.4.",
         "<b>90-day free trial</b> — the first 90 days are entirely complimentary. No card required. The Firm may cancel at any time during this period with no obligation.",
         "<b>Founding Firm badge</b> — displayed on the Firm's directory listing while the Firm remains an active Founding Firm subscriber, signalling early-partner status to all AI Advocate users.",
         "<b>Ranking boost</b> — the Firm's listing receives priority placement in the postcode and specialism searches relevant to its practice.",
@@ -195,16 +195,27 @@ def build(firm_name="[FIRM NAME]",
     for c in commits:
         story.append(Paragraph(f"▸ {c}", BULLET))
 
-    # ───── TERMS ───────────────────────────────────────────────────────
-    story.append(Paragraph("3. TERM AND TERMINATION", H2))
+    # ───── COMMISSION INVOICING ────────────────────────────────────────
+    story.append(Paragraph("3. COMMISSION CALCULATION AND INVOICING", H2))
     story.append(Paragraph(
-        "3.1 <b>Initial term</b> — 12 months from the date of the first paid month (i.e. after the 90-day trial). "
+        "3.1 <b>Self-reporting</b> — the Firm shall log all closed engagements arising from AI Advocate referrals via the AI Advocate Firm Portal, recording at minimum: client identifier, matter type, total fee charged to the client (exclusive of VAT and disbursements), and date of closure. The Firm shall log each closed engagement within <b>10 working days</b> of completion.<br/><br/>"
+        "3.2 <b>Automated invoicing</b> — AI Advocate will use <b>commercially reasonable efforts</b> to: (a) email the Firm a heads-up summary approximately seven (7) days before each monthly invoicing date setting out the projected commission for that month; (b) generate a draft Stripe invoice on or around the 1st of each calendar month for the preceding month's logged engagements; and (c) dispatch the finalised Stripe invoice to the Firm within a 48-hour review window. The Firm acknowledges that automated processes may occasionally be delayed, postponed or interrupted (including but not limited to scheduled maintenance, third-party service outages, or anomaly-detection holds requiring manual review) and that any such delay shall not constitute a breach of this Agreement.<br/><br/>"
+        "3.3 <b>Firm's verification obligation</b> — the Firm is responsible for reviewing each invoice for accuracy. Any discrepancy (including but not limited to incorrectly logged fees, duplicated engagements, or wrongly attributed referrals) must be notified to firms@aiadvocate.co.uk in writing within <b>14 days</b> of invoice issuance. Failure to do so within that period shall constitute the Firm's acceptance of the invoice as accurate. AI Advocate will issue credits or corrected invoices for verified discrepancies notified within the 14-day window.<br/><br/>"
+        "3.4 <b>Payment terms</b> — invoices are payable within <b>14 days</b> of issuance via Stripe. Late payments accrue interest at the statutory rate under the Late Payment of Commercial Debts (Interest) Act 1998.<br/><br/>"
+        "3.5 <b>Manual fallback</b> — if automated invoicing is unavailable for any reason, AI Advocate retains the right to issue commission invoices manually for the relevant period, in which case the same terms (14-day verification window, 14-day payment terms) apply from the date of manual issuance.",
+        BODY,
+    ))
+
+    # ───── TERMS ───────────────────────────────────────────────────────
+    story.append(Paragraph("4. TERM AND TERMINATION", H2))
+    story.append(Paragraph(
+        "4.1 <b>Initial term</b> — 12 months from the date of the first paid month (i.e. after the 90-day trial). "
         "Auto-renews monthly thereafter unless terminated.<br/>"
-        "3.2 <b>Cancellation</b> — the Firm may cancel at any time with 30 days' written notice, no fees, no penalty. "
+        "4.2 <b>Cancellation</b> — the Firm may cancel at any time with 30 days' written notice, no fees, no penalty. "
         "If cancelled, the Firm's £199 rate is forfeit; re-onboarding would be at then-current public pricing.<br/>"
-        "3.3 <b>Termination by AI Advocate</b> — only for cause (loss of regulatory authorisation, material breach of these terms, "
+        "4.3 <b>Termination by AI Advocate</b> — only for cause (loss of regulatory authorisation, material breach of these terms, "
         "or 60+ days of unanswered client invites). 30 days' notice and cure period.<br/>"
-        "3.4 <b>£199 rate survival</b> — provided the Firm has not cancelled or been terminated for cause, the £199 rate "
+        "4.4 <b>£199 rate survival</b> — provided the Firm has not cancelled or been terminated for cause, the £199 rate "
         "remains in force during the Firm's continuous subscription. This commitment is binding on AI Advocate Ltd. (Company No. 16612244). "
         "In the event of a sale, merger, or change of control of AI Advocate, the acquirer or successor entity shall be required to honour "
         "the Founding Firm rate for the remainder of the Firm's then-current annual term.",
@@ -212,7 +223,7 @@ def build(firm_name="[FIRM NAME]",
     ))
 
     # ───── LIABILITY ────────────────────────────────────────────────────
-    story.append(Paragraph("4. NON-ADVICE POSITIONING", H2))
+    story.append(Paragraph("5. NON-ADVICE POSITIONING", H2))
     story.append(Paragraph(
         "4.1 The AI Advocate consumer-facing service provides general legal <i>information</i> only and not advice. "
         "AI Advocate is not a regulated provider of legal services in the United Kingdom under the Legal Services Act 2007.<br/>"
@@ -224,7 +235,7 @@ def build(firm_name="[FIRM NAME]",
     ))
 
     # ───── DATA ────────────────────────────────────────────────────────
-    story.append(Paragraph("5. DATA PROTECTION", H2))
+    story.append(Paragraph("6. DATA PROTECTION", H2))
     story.append(Paragraph(
         "Both parties act as separate data controllers in respect of their own operations. Where the Firm processes personal "
         "data of users introduced via AI Advocate, the Firm is the data controller in respect of that processing. AI Advocate's "
@@ -258,7 +269,7 @@ def build(firm_name="[FIRM NAME]",
     firm_date_text = firm_signed_date if firm_signed_date else "__________________"
 
     story.append(Spacer(1, 12))
-    story.append(Paragraph("6. SIGNATURES", H2))
+    story.append(Paragraph("7. SIGNATURES", H2))
     sig_table = Table([
         [Paragraph("<b>For AI Advocate Ltd.</b>", BODY),
          Paragraph(f"<b>For {firm_name}</b>", BODY)],
