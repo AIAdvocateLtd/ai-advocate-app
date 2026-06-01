@@ -4957,7 +4957,7 @@ function WitnessPublicPage() {
   };
 
   const Box = ({ children }) => (
-    <div style={{ minHeight: "100vh", background: "var(--bg, #0a0a0a)", color: "var(--text)", padding: "40px 16px", display: "flex", alignItems: "flex-start", justifyContent: "center" }}>
+    <div style={{ minHeight: "100vh", background: "var(--bg, #0a0a0a)", color: "var(--text)", padding: "40px 16px", display: "flex", alignItems: "flex-start", justifyContent: "center" }} data-testid="witness-public-page">
       <div style={{ maxWidth: 640, width: "100%", background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 28 }}>
         {children}
       </div>
@@ -4990,7 +4990,7 @@ function WitnessPublicPage() {
   // state = ready
   return (
     <Box>
-      <div data-testid="witness-public-page">
+      <div>
         <div style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 11, color: "var(--gold)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>AI Advocate · Witness Statement</div>
           <h2 className="brand-font gold" style={{ fontSize: 24, margin: 0 }}>You've been asked to give a witness statement</h2>
