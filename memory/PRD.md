@@ -10,6 +10,12 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 45 — Evidence-collection link + Auto-witness from chat)
+- 📎 **Shareable evidence-collection magic-link** — Owner taps "+ Request files" inside any case → enters a label + instructions → gets a tokenised public link they can share with HR, ex-employers, friends, etc. Uploader visits the link (no signup), drops a file (max 12MB, max 8 per invite), Lex stores it encrypted (AES via `app_crypto.encrypt_text` → base64 in `evidence_files` collection), auto-creates a `case_item` so it lands in the case + timeline, and emails the owner with SHA-256 chain-of-custody. Owner can close the invite at any time. Backend: 6 new endpoints (create / public fetch / public upload / list / download / close). Frontend: `EvidencePublicPage` (public route `/evidence/<token>`) + `EvidenceCollectionPanel` inside the "People & files" case tab (renamed from "Witnesses").
+- 👥 **Auto-Witness from Lex chat** — When a Lex chat is linked to a case, every Lex reply bubble gets a "👥 Invite witness" button. Clicking opens an inline panel with the witness context pre-filled from the previous user question + Lex's reply ("What I discussed with Lex: …\n\nLex's analysis: …\n\nPlease write what you witnessed…"). Owner edits, hits Send, magic-link is created via the existing `/api/cases/{id}/witness/invite` endpoint. Privacy: only Lex's reply + the user's last question (which the user themselves wrote) are passed forward — never the full chat history.
+- 🛡 Privacy preserved: encrypted-at-rest file storage, SHA-256 logged, single-token-per-invite, expires in 30 days, max 8 uploads per invite, owner can close anytime.
+- ✅ **Testing**: 15/15 new pytest + 25/25 regression = 40/40 PASS. Full frontend E2E green (testing_agent_v3_fork iter_24).
+
 ### 2026-02 (Iter 44 — Witness Statement Auto-Draft)
 - ✨ **Lex auto-draft for witness statements** — public route `/witness/<token>` now has a "✨ Help me write this — Lex can draft a first version" CTA above the freestyle textarea. The witness jots bullets (dates, names, what they saw), clicks Generate, and Lex returns a numbered CPR Part 32-compliant statement ready to review/edit.
 - 🔒 **Privacy by design** — `POST /api/witness/{token}/auto-draft` (public, no auth) only sends the witness's bullets + the invite's `context_for_witness` + guiding questions to Claude. The case owner's chat history, evidence, and other case items are NEVER passed to the LLM nor visible to the witness. Tested + documented in the public privacy note shown to the witness.
