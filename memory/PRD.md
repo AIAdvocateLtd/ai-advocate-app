@@ -10,6 +10,11 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 44 — Witness Statement Auto-Draft)
+- ✨ **Lex auto-draft for witness statements** — public route `/witness/<token>` now has a "✨ Help me write this — Lex can draft a first version" CTA above the freestyle textarea. The witness jots bullets (dates, names, what they saw), clicks Generate, and Lex returns a numbered CPR Part 32-compliant statement ready to review/edit.
+- 🔒 **Privacy by design** — `POST /api/witness/{token}/auto-draft` (public, no auth) only sends the witness's bullets + the invite's `context_for_witness` + guiding questions to Claude. The case owner's chat history, evidence, and other case items are NEVER passed to the LLM nor visible to the witness. Tested + documented in the public privacy note shown to the witness.
+- 🛡 Auth invariants preserved: 404 for invalid tokens, 409 for already-submitted, 410 for expired, 400 if both bullets and invite context are empty.
+
 ### 2026-02 (Iter 43 — Phase 4b: 6-feature batch + 2 upgrades)
 - 📸 **OCR Form Scanner** — Gemini 2.5 Flash vision detects UK gov forms (ET1/ET3/N1/N9/N244/MC100/D8) + extracts visible field values + signposts the right modal. New endpoint `POST /api/forms/ocr/detect`. ET1 modal now has "📸 Scan form" button that auto-fills claimant/employer/employment fields from a photo.
 - 🪜 **Letter Counter-Ladder** — `POST /api/letters/counter-ladder` returns 4 escalating drafts (Polite → Firm → Pre-action → Court) with statute citations. Uses delimiter parsing (`===POLITE===` fences) instead of JSON to avoid escaping issues with long letter bodies. Frontend: "Show ladder" button in Letter Reader → `CounterLadderPanel` with 4 tone tabs.

@@ -11826,6 +11826,72 @@ class WitnessSubmitRequest(BaseModel):
     statement_of_truth: bool = False  # must be True to submit
 
 
+class WitnessAutoDraftRequest(BaseModel):
+    bullet_points: str = Field(default="", max_length=4000, description="Witness's own rough notes / bullets")
+    witness_full_name: str = Field(default="", max_length=200)
+    witness_occupation: Optional[str] = ""
+    language: str = "en-GB"
+
+
+@api_router.post("/witness/{token}/auto-draft")
+async def witness_auto_draft(token: str, data: WitnessAutoDraftRequest):
+    """Public — witness asks Lex to draft a first version of their statement from
+    their own bullet points + the invite's context_for_witness. PRIVACY: only
+    the witness's own input + the invite context are passed to the LLM — NEVER
+    the case owner's chat history or other case items."""
+    inv = await db.witness_invites.find_one({"token": token}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invite not found")
+    if inv.get("status") == "submitted":
+        raise HTTPException(409, "Already submitted")
+    if inv.get("expires_at") and datetime.fromisoformat(inv["expires_at"]) < datetime.now(timezone.utc):
+        raise HTTPException(410, "Invite has expired")
+
+    if not (data.bullet_points or "").strip() and not (inv.get("context_for_witness") or "").strip():
+        raise HTTPException(400, "Need either your own notes OR the invite context to draft from.")
+
+    lang_name = LANG_NAMES.get(data.language, "English")
+    witness_name = data.witness_full_name or inv.get("witness_name") or "[Witness name]"
+    occ = data.witness_occupation or ""
+
+    sysmsg = f"""You are AI Advocate's witness-statement drafter. Reply in {lang_name}.
+
+Draft a UK CPR Part 32-compliant witness statement IN FIRST PERSON ("I").
+
+CRITICAL RULES:
+- Use ONLY the facts in the bullet points + the invite context provided. NEVER invent facts.
+- If a date/name/place is missing, write '[date unclear]' or '[name to confirm]' — do NOT guess.
+- Plain English. Chronological. Numbered paragraphs (1, 2, 3...).
+- First paragraph: who the witness is, occupation if given, how they know the parties / what they witnessed.
+- Middle paragraphs: factual chronology of what they saw/heard/did. One event per paragraph.
+- Final paragraph: confirms they are willing to attend court / give oral evidence if required.
+- Do NOT include the Statement of Truth — the form handles that separately.
+- Output ONLY the body of the statement. No greeting, no header, no markdown fences."""
+
+    user_msg = f"""WITNESS NAME: {witness_name}
+WITNESS OCCUPATION: {occ or "(not provided)"}
+
+CONTEXT FROM THE CASE OWNER (what they asked the witness to write about):
+{inv.get("context_for_witness", "(none provided)")}
+
+GUIDING QUESTIONS THE OWNER WANTS ANSWERED:
+{chr(10).join(f"- {q}" for q in (inv.get("questions") or [])) or "(none)"}
+
+WITNESS'S OWN ROUGH BULLETS / NOTES:
+{data.bullet_points or "(none — work from the context above only)"}
+
+Draft the witness statement now."""
+
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"wdraft-{uuid.uuid4().hex[:10]}", system_message=sysmsg)\
+            .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2500)
+        draft = await chat.send_message(UserMessage(text=user_msg))
+    except Exception as e:
+        logger.exception("witness auto-draft failed"); raise HTTPException(500, f"AI error: {e}")
+
+    return {"draft": (draft or "").strip(), "based_on_bullets": bool((data.bullet_points or "").strip())}
+
+
 @api_router.post("/witness/{token}/submit")
 async def witness_public_submit(token: str, data: WitnessSubmitRequest):
     """Public — witness submits the statement. Tokens are single-use."""

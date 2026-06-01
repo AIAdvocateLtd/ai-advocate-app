@@ -4928,6 +4928,10 @@ function WitnessPublicPage() {
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  // Auto-draft helpers
+  const [bullets, setBullets] = useState("");
+  const [drafting, setDrafting] = useState(false);
+  const [showDraftHelper, setShowDraftHelper] = useState(false);
 
   useEffect(() => {
     if (!token) { setState("not_found"); return; }
@@ -4954,6 +4958,30 @@ function WitnessPublicPage() {
     } catch (e) {
       setErr(e?.response?.data?.detail || "Failed to submit");
     } finally { setBusy(false); }
+  };
+
+  const generateDraft = async () => {
+    setDrafting(true); setErr("");
+    try {
+      const { data } = await api.post(`/witness/${token}/auto-draft`, {
+        bullet_points: bullets,
+        witness_full_name: form.witness_full_name,
+        witness_occupation: form.witness_occupation,
+        language: "en-GB",
+      });
+      if (data?.draft) {
+        // If the user has already written something, append; else replace.
+        setForm(f => ({
+          ...f,
+          statement: f.statement?.trim()
+            ? f.statement.trim() + "\n\n" + data.draft
+            : data.draft,
+        }));
+        setShowDraftHelper(false);
+      }
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Couldn't generate draft");
+    } finally { setDrafting(false); }
   };
 
   const Box = ({ children }) => (
@@ -5020,6 +5048,39 @@ function WitnessPublicPage() {
         <input className="input" placeholder="Your address (optional)" value={form.witness_address} onChange={(e) => setForm({ ...form, witness_address: e.target.value })} data-testid="witness-form-addr" style={{ marginBottom: 8 }} />
         <input className="input" placeholder="Your phone (optional)" value={form.witness_phone} onChange={(e) => setForm({ ...form, witness_phone: e.target.value })} data-testid="witness-form-phone" style={{ marginBottom: 8 }} />
         <input className="input" type="email" placeholder="Your email (optional)" value={form.witness_email} onChange={(e) => setForm({ ...form, witness_email: e.target.value })} data-testid="witness-form-email" style={{ marginBottom: 12 }} />
+
+        {/* ✨ Auto-draft helper — Lex drafts a first version from bullets + invite context */}
+        <div style={{ marginBottom: 10, padding: 10, background: "rgba(247,201,72,0.05)", border: "1px solid var(--gold-deep)", borderRadius: 10 }}>
+          {!showDraftHelper ? (
+            <button onClick={() => setShowDraftHelper(true)} data-testid="witness-draft-open-btn"
+              className="btn-ghost w-full" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 14px", border: "1px solid var(--gold-deep)", color: "var(--gold)", fontSize: 13, fontWeight: 600 }}>
+              ✨ Help me write this — Lex can draft a first version
+            </button>
+          ) : (
+            <>
+              <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginBottom: 8, lineHeight: 1.5 }}>
+                Jot down your rough notes (dates, names, what you saw — bullets are fine). Lex will turn them into a numbered CPR Part 32 witness statement that you can review and edit before submitting.
+              </div>
+              <textarea className="input" rows={5} value={bullets}
+                onChange={(e) => setBullets(e.target.value)}
+                placeholder={"e.g.\n- 12 March 2026, around 2pm, office canteen\n- Heard manager Sarah tell Jane she'd be replaced by 'a younger employee'\n- Two other colleagues there: Mark and Priya\n- Jane looked shocked, left the room"}
+                data-testid="witness-draft-bullets" style={{ marginBottom: 8, fontSize: 12.5 }} />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={generateDraft} disabled={drafting} className="btn-gold" data-testid="witness-draft-generate-btn"
+                  style={{ flex: 1, fontSize: 12.5, padding: "8px 12px" }}>
+                  {drafting ? <span className="spinner" /> : "✨ Generate draft"}
+                </button>
+                <button onClick={() => setShowDraftHelper(false)} className="btn-ghost" data-testid="witness-draft-cancel-btn"
+                  style={{ fontSize: 12, padding: "8px 12px", border: "1px solid var(--line)" }}>
+                  Cancel
+                </button>
+              </div>
+              <p style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
+                Privacy: only your notes + the context the case owner gave you are sent to Lex. The case owner's private chats and other documents are never shared with you or with Lex's draft.
+              </p>
+            </>
+          )}
+        </div>
 
         <textarea className="input" rows={12} placeholder="Write your statement in your own words. Use plain English. Describe what you saw, heard, and did, in chronological order. Mention dates and times where you can. Separate paragraphs with a blank line. *"
           value={form.statement} onChange={(e) => setForm({ ...form, statement: e.target.value })}
