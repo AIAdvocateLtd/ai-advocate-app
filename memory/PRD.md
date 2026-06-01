@@ -10,6 +10,14 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 39 — Phase 1: Lex becomes a strategist)
+- 🪜 **Outcome Ladder** — new `POST /api/lex/outcome-ladder` endpoint takes the user's most recent Lex exchange in a session and returns a structured worst-case / likely-case / best-case JSON with probabilities, "next step" guidance, and a warm calm-note. Free for all tiers. Powered by Claude Sonnet 4.5 via Emergent LLM key.
+- 😈 **Devil's Advocate** — new `POST /api/lex/devil-advocate` returns the opposing party's strongest 3 arguments, evidence they'll use, loaded questions to expect, user's honest weakest point + strongest counter, and a prep checklist. Reframed as "case preparation" (not adversarial language) so Claude doesn't refuse. Verified output cites named UK statutes appropriately (Protection from Eviction Act 1977, Tenancy Deposit Scheme, etc.).
+- 🎨 **UI**: two new buttons added to every Lex answer footer ("🪜 Outcome ladder" + "😈 Other side"). When tapped, an inline panel renders below with branded gold/red theming, prob badges, and clean typography. Toggle to hide/show without re-querying.
+- 🛠 **Critical bug fix**: `json` module was never imported at the top of `server.py` (`NameError("name 'json' is not defined")` — silently swallowed by `except Exception: pass`). Fixed by adding `json` to the top-level imports.
+- 🛠 **Tolerant JSON parser**: new `_extract_json_object()` + `_normalize_json_string_newlines()` helpers handle Claude's markdown-fenced output AND multi-line strings (which are invalid JSON per spec). Reusable for future structured-output features (forms auto-fill, witness statement builder, etc.).
+- Verified end-to-end via curl on real cases (eviction with deposit dispute, adverse-possession claim) — both endpoints return well-structured, accurate UK-jurisdiction outputs in ~3-6 seconds.
+
 ### 2026-02 (Iter 38 — Hybrid auto-billing scheduler)
 - 🤖 **APScheduler cron** for hands-off commission billing. Three jobs (all 09:00 UTC):
   - **22nd of month** → `_send_headsup_emails` — sends a 7-day-ahead heads-up to every firm with unpaid commission, showing estimated total. Skips firms <30 days old.

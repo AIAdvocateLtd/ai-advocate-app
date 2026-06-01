@@ -1404,6 +1404,135 @@ function VoiceModeOverlay({ lang, country, category, initialText, onClose }) {
   );
 }
 
+
+// ---------- Strategic helper panels — Outcome Ladder + Devil's Advocate ----------
+// Both render below a Lex answer when the user taps the corresponding button.
+// Designed to feel premium and structured without overwhelming the chat flow.
+
+function OutcomeLadderPanel({ ladder }) {
+  const probColor = (p) => {
+    if (!p) return "var(--text-muted)";
+    const x = String(p).toLowerCase();
+    if (x.includes("high")) return "#fca5a5";
+    if (x.includes("moderate")) return "#f7c948";
+    return "#86efac";
+  };
+  const Step = ({ data, accent }) => (
+    <div data-testid={`ladder-step-${data?.label}`} style={{ background: "var(--bg-2)", border: `1px solid ${accent}`, borderLeft: `3px solid ${accent}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, gap: 8 }}>
+        <div style={{ color: accent, fontWeight: 700, fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>{data?.label}</div>
+        {data?.probability && (
+          <div style={{ fontSize: 10, color: probColor(data.probability), background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 6, padding: "2px 8px", textTransform: "uppercase", fontWeight: 600 }}>
+            {data.probability}
+          </div>
+        )}
+      </div>
+      <div style={{ color: "var(--text)", fontSize: 13, lineHeight: 1.5, marginBottom: 6 }}>{data?.summary}</div>
+      {data?.next_step && (
+        <div style={{ fontSize: 12, color: "var(--gold)", fontWeight: 600, marginTop: 6 }}>→ {data.next_step}</div>
+      )}
+      {data?.what_triggers_it && (
+        <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginTop: 4, fontStyle: "italic" }}>Avoid: {data.what_triggers_it}</div>
+      )}
+      {data?.how_to_aim_for_it && (
+        <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginTop: 4, fontStyle: "italic" }}>Aim: {data.how_to_aim_for_it}</div>
+      )}
+    </div>
+  );
+  return (
+    <div data-testid="outcome-ladder-panel" style={{ marginTop: 10, background: "rgba(247,201,72,0.04)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 12 }}>
+      {ladder?.headline && (
+        <div style={{ fontSize: 13, color: "var(--gold)", fontWeight: 700, marginBottom: 10, fontFamily: "'Cinzel', serif", letterSpacing: "0.02em" }}>
+          🪜 {ladder.headline}
+        </div>
+      )}
+      <Step data={ladder?.worst_case} accent="#fca5a5" />
+      <Step data={ladder?.likely_case} accent="#f7c948" />
+      <Step data={ladder?.best_case} accent="#86efac" />
+      {ladder?.calm_note && (
+        <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 8, padding: "8px 10px", background: "var(--bg-card)", borderRadius: 8, fontStyle: "italic", lineHeight: 1.5 }}>
+          {ladder.calm_note}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DevilAdvocatePanel({ devil }) {
+  return (
+    <div data-testid="devil-advocate-panel" style={{ marginTop: 10, background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.35)", borderRadius: 12, padding: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 18 }}>😈</span>
+        <div style={{ fontSize: 13, color: "#fca5a5", fontWeight: 700, fontFamily: "'Cinzel', serif" }}>What the other side will argue</div>
+      </div>
+      {devil?.their_position_in_one_line && (
+        <div style={{ background: "var(--bg-2)", borderLeft: "3px solid #fca5a5", borderRadius: 6, padding: "8px 10px", marginBottom: 10, fontSize: 13, color: "var(--text)", fontStyle: "italic" }}>
+          "{devil.their_position_in_one_line}"
+        </div>
+      )}
+
+      {Array.isArray(devil?.their_strongest_arguments) && devil.their_strongest_arguments.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Their strongest arguments</div>
+          {devil.their_strongest_arguments.map((a, idx) => (
+            <div key={idx} style={{ background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: 8, padding: 10, marginBottom: 6 }}>
+              <div style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600, marginBottom: 4 }}>{idx + 1}. {a.argument}</div>
+              {a.why_it_might_work && (
+                <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginBottom: 4 }}>⚠ Why it might work: {a.why_it_might_work}</div>
+              )}
+              {a.how_to_neutralise_it && (
+                <div style={{ fontSize: 11.5, color: "#86efac" }}>✓ Your counter: {a.how_to_neutralise_it}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {Array.isArray(devil?.evidence_they_will_try_to_use) && devil.evidence_they_will_try_to_use.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Evidence they'll use</div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "var(--text-dim)", lineHeight: 1.6 }}>
+            {devil.evidence_they_will_try_to_use.map((e, i) => <li key={i}>{e}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {Array.isArray(devil?.questions_they_will_try_to_trap_you_with) && devil.questions_they_will_try_to_trap_you_with.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Loaded questions to expect</div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "var(--text-dim)", lineHeight: 1.6, fontStyle: "italic" }}>
+            {devil.questions_they_will_try_to_trap_you_with.map((q, i) => <li key={i}>"{q}"</li>)}
+          </ul>
+        </div>
+      )}
+
+      {devil?.your_weakest_point && (
+        <div style={{ background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.3)", borderRadius: 8, padding: 10, marginBottom: 8 }}>
+          <div style={{ fontSize: 11, color: "#fca5a5", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Your weakest point (honest)</div>
+          <div style={{ fontSize: 12.5, color: "var(--text)", lineHeight: 1.5 }}>{devil.your_weakest_point}</div>
+        </div>
+      )}
+
+      {devil?.your_strongest_counter && (
+        <div style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: 8, padding: 10, marginBottom: 8 }}>
+          <div style={{ fontSize: 11, color: "#86efac", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Your best counter</div>
+          <div style={{ fontSize: 12.5, color: "var(--text)", lineHeight: 1.5 }}>{devil.your_strongest_counter}</div>
+        </div>
+      )}
+
+      {Array.isArray(devil?.preparation_checklist) && devil.preparation_checklist.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: "var(--gold)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Preparation checklist</div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: "var(--text)", lineHeight: 1.6 }}>
+            {devil.preparation_checklist.map((p, i) => <li key={i}>{p}</li>)}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // ---------- Lex Chat ----------
 function LexChat({ lang, country, category, title, onClose, autoMic = false, tier = "free", onSwitchCategory, initialSeed = "", resumeSessionId = null, caseId = null }) {
   const [messages, setMessages] = useState([]);
@@ -1999,7 +2128,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                     );
                   })()}
                   {m.role === "lex" && (
-                    <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                    <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
                       <button data-testid={`fb-up-${i}`} title="Helpful" disabled={m._fb}
                         onClick={async () => {
                           try { await api.post("/feedback", { rating: "up", session_id: sessionId, surface: "lex_chat" }); } catch {}
@@ -2020,7 +2149,63 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                                  borderRadius: 8, padding: "2px 8px", fontSize: 11, cursor: m._fb ? "default" : "pointer" }}>
                         👎
                       </button>
+
+                      {/* 🪜 Outcome Ladder — strategic on-demand structuring */}
+                      <button data-testid={`ladder-${i}`} title="See worst / likely / best outcomes"
+                        disabled={m._ladderBusy}
+                        onClick={async () => {
+                          if (m._ladder) {
+                            setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _ladderOpen: !mm._ladderOpen } : mm));
+                            return;
+                          }
+                          setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _ladderBusy: true } : mm));
+                          try {
+                            const { data: r } = await api.post("/lex/outcome-ladder", { session_id: sessionId, language: lang, country });
+                            setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _ladder: r.ladder, _ladderOpen: true, _ladderBusy: false } : mm));
+                          } catch (e) {
+                            aaToast(e?.response?.data?.detail || "Couldn't build the outcome ladder", "error");
+                            setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _ladderBusy: false } : mm));
+                          }
+                        }}
+                        style={{ background: m._ladderOpen ? "rgba(247,201,72,0.18)" : "transparent",
+                                 border: "1px solid var(--gold-deep)", color: "var(--gold)",
+                                 borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
+                        {m._ladderBusy ? "…" : m._ladderOpen ? "🪜 Hide outcomes" : "🪜 Outcome ladder"}
+                      </button>
+
+                      {/* 😈 Devil's Advocate — what would the other side argue */}
+                      <button data-testid={`devil-${i}`} title="What the other side would argue"
+                        disabled={m._devilBusy}
+                        onClick={async () => {
+                          if (m._devil) {
+                            setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _devilOpen: !mm._devilOpen } : mm));
+                            return;
+                          }
+                          setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _devilBusy: true } : mm));
+                          try {
+                            const { data: r } = await api.post("/lex/devil-advocate", { session_id: sessionId, language: lang, country });
+                            setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _devil: r.devil_advocate, _devilOpen: true, _devilBusy: false } : mm));
+                          } catch (e) {
+                            aaToast(e?.response?.data?.detail || "Couldn't run devil's advocate", "error");
+                            setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _devilBusy: false } : mm));
+                          }
+                        }}
+                        style={{ background: m._devilOpen ? "rgba(239,68,68,0.16)" : "transparent",
+                                 border: "1px solid rgba(239,68,68,0.4)", color: "#fca5a5",
+                                 borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
+                        {m._devilBusy ? "…" : m._devilOpen ? "😈 Hide" : "😈 Other side"}
+                      </button>
                     </div>
+                  )}
+
+                  {/* 🪜 Outcome Ladder rendering */}
+                  {m.role === "lex" && m._ladderOpen && m._ladder && (
+                    <OutcomeLadderPanel ladder={m._ladder} />
+                  )}
+
+                  {/* 😈 Devil's Advocate rendering */}
+                  {m.role === "lex" && m._devilOpen && m._devil && (
+                    <DevilAdvocatePanel devil={m._devil} />
                   )}
                   {m.at && (
                     <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2, padding: "0 6px" }} data-testid={`ts-${i}`}>

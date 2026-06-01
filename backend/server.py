@@ -5,7 +5,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os, logging, uuid, jwt, bcrypt, base64, io, tempfile, re, asyncio
+import os, logging, uuid, jwt, bcrypt, base64, io, tempfile, re, asyncio, json
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Literal, Tuple
@@ -2137,6 +2137,207 @@ Rules:
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     return {"session_id": session_id, "response": response}
+
+
+# ==================== Strategic helpers — Outcome Ladder + Devil's Advocate ====================
+# On-demand structured upgrades to a Lex answer. The user taps a button below
+# any Lex reply; we pull the last (user_message, assistant_response) pair from
+# the conversation and ask Claude Sonnet to reframe it strategically.
+
+class StrategicHelperRequest(BaseModel):
+    session_id: str
+    language: str = "en-GB"
+    country: str = "GB"
+
+
+async def _last_lex_exchange(user_id: str, session_id: str) -> Optional[dict]:
+    """Return the most recent (user_message, assistant_response) for this session."""
+    doc = await db.conversations.find_one(
+        {"user_id": user_id, "session_id": session_id, "user_message": {"$ne": None}},
+        sort=[("created_at", -1)],
+        projection={"_id": 0, "user_message": 1, "assistant_response": 1, "category": 1},
+    )
+    return doc
+
+
+def _normalize_json_string_newlines(s: str) -> str:
+    """Replace literal newlines/carriage-returns that appear INSIDE JSON string
+    values with a single space. Claude sometimes emits multi-line strings which
+    are invalid JSON — this makes them parseable without losing the content."""
+    out = []
+    in_str = False
+    prev_escape = False
+    for ch in s:
+        if ch == '"' and not prev_escape:
+            in_str = not in_str
+            out.append(ch)
+        elif in_str and ch in ('\n', '\r'):
+            out.append(' ')
+        else:
+            out.append(ch)
+        prev_escape = (ch == '\\' and not prev_escape)
+    return ''.join(out)
+
+
+def _extract_json_object(raw: str) -> Optional[dict]:
+    """Tolerantly pull a single JSON object out of an LLM reply that may include
+    markdown fences, prose, or multi-line strings. Returns the parsed dict or None."""
+    if not raw:
+        logger.warning("_extract_json_object: raw is empty/None")
+        return None
+    s = raw.strip()
+    # Strip markdown fences if present
+    if s.startswith("```"):
+        s = s.split("\n", 1)[1] if "\n" in s else s.lstrip("`")
+        if "```" in s:
+            s = s.rsplit("```", 1)[0]
+        s = s.strip()
+    # Locate the outermost JSON object even if there's prose around it
+    start = s.find("{")
+    end = s.rfind("}")
+    if start != -1 and end > start:
+        s = s[start:end + 1]
+    # Try direct parse
+    try:
+        return json.loads(s)
+    except Exception as e1:
+        logger.warning(f"_extract_json_object direct parse fail: {e1!r}")
+    # Fallback: normalize literal newlines inside strings, retry
+    try:
+        return json.loads(_normalize_json_string_newlines(s))
+    except Exception as e2:
+        logger.warning(f"_extract_json_object normalized parse fail: {e2!r}")
+        return None
+
+
+@api_router.post("/lex/outcome-ladder")
+async def lex_outcome_ladder(data: StrategicHelperRequest, user: dict = Depends(get_user)):
+    """Returns a structured 'worst case / likely case / best case' ladder for
+    the user's most recent Lex exchange in this session. Free tier allowed —
+    this is exactly the calming-clarity feature we want everyone to feel."""
+    exchange = await _last_lex_exchange(user["id"], data.session_id)
+    if not exchange:
+        raise HTTPException(404, "No recent Lex conversation in this session to analyse")
+
+    lang_name = LANG_NAMES.get(data.language, "English")
+    system = f"""You are Lex, the AI Advocate strategist. The user just asked a legal question and you answered it. Now they want strategic clarity.
+
+Re-frame the situation as an **Outcome Ladder** in {lang_name}. Return ONLY valid JSON, no prose, no markdown fences, with EXACTLY this shape:
+
+{{
+  "headline": "<one-line plain-English summary of the user's situation, max 12 words>",
+  "worst_case": {{
+    "label": "Worst case",
+    "summary": "<what's the realistic worst outcome, 1-2 sentences>",
+    "probability": "<low|moderate|high>",
+    "what_triggers_it": "<the one thing the user can do/avoid that makes this less likely, 1 sentence>"
+  }},
+  "likely_case": {{
+    "label": "Most likely",
+    "summary": "<the realistic middle outcome — the one you'd bet on, 1-2 sentences>",
+    "probability": "high",
+    "next_step": "<the single most valuable thing the user should do in the next 7 days, imperative voice>"
+  }},
+  "best_case": {{
+    "label": "Best case",
+    "summary": "<the realistic best outcome (NOT fantasy), 1-2 sentences>",
+    "probability": "<low|moderate>",
+    "how_to_aim_for_it": "<one action that increases the chance, 1 sentence>"
+  }},
+  "calm_note": "<one short, warm sentence reminding the user this is solvable. Never patronising. Never minimising.>"
+}}
+
+Hard rules:
+- Be REALISTIC. Don't inflate the worst case to scare the user; don't inflate the best case to flatter them.
+- Each summary is 1-2 sentences. Plain English. No legal jargon unless you explain it inline.
+- The user lives in country: {data.country}. Apply that jurisdiction.
+- If the situation has criminal exposure, label it clearly in worst_case.
+- Return ONLY the JSON object, nothing else."""
+
+    user_msg = f"""User's question:
+{exchange.get('user_message','(not recorded)')}
+
+Your previous answer:
+{exchange.get('assistant_response','(not recorded)')[:4000]}
+
+Now produce the Outcome Ladder JSON for this situation."""
+
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"ladder-{data.session_id}", system_message=system)\
+            .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=1600)
+        raw = await chat.send_message(UserMessage(text=user_msg))
+    except Exception as e:
+        logger.exception("outcome-ladder error")
+        raise HTTPException(500, f"AI error: {e}")
+
+    # Robust JSON parse
+    ladder = _extract_json_object(raw)
+    if not ladder:
+        logger.warning(f"Outcome ladder JSON parse failed (raw len={len(raw or '')}): {(raw or '')[:600]}")
+        raise HTTPException(502, "Lex couldn't structure the outcome ladder. Try again in a moment.")
+
+    return {"session_id": data.session_id, "ladder": ladder}
+
+
+@api_router.post("/lex/devil-advocate")
+async def lex_devil_advocate(data: StrategicHelperRequest, user: dict = Depends(get_user)):
+    """Returns a 'what would the other side argue' breakdown for the user's
+    most recent Lex exchange. Helps the user spot their own weaknesses BEFORE
+    the other side does. Free tier allowed — gateway feature."""
+    exchange = await _last_lex_exchange(user["id"], data.session_id)
+    if not exchange:
+        raise HTTPException(404, "No recent Lex conversation in this session to analyse")
+
+    lang_name = LANG_NAMES.get(data.language, "English")
+    system = f"""You are Lex helping the user prepare for the opposing arguments in their case. The user has explained their situation and you previously gave them advice supporting their position. Now help them prepare by mapping out the strongest counter-arguments the other party could raise — so the user can prepare responses BEFORE they're caught off guard.
+
+Return ONLY valid JSON in {lang_name}, no prose, no markdown fences, EXACTLY this shape:
+
+{{
+  "their_position_in_one_line": "<the other party's strongest framing in plain English, max 18 words>",
+  "their_strongest_arguments": [
+    {{
+      "argument": "<their argument, 1-2 sentences>",
+      "why_it_might_work": "<the vulnerability in the user's case this exploits, 1 sentence>",
+      "how_to_neutralise_it": "<the user's best counter, imperative voice, 1-2 sentences>"
+    }}
+  ],
+  "evidence_they_will_try_to_use": ["<short bullet>", "<short bullet>", "<short bullet>"],
+  "questions_they_will_try_to_trap_you_with": ["<sample loaded question>", "<sample loaded question>"],
+  "your_weakest_point": "<the single biggest vulnerability in the user's case, named honestly, 1-2 sentences>",
+  "your_strongest_counter": "<the user's single best response if pushed on the weakest point, 1-2 sentences>",
+  "preparation_checklist": ["<one specific action>", "<another>", "<another>"]
+}}
+
+Hard rules:
+- Provide exactly 3 their_strongest_arguments.
+- Be honest and constructive. If the user's case has weak areas, name them so they can prepare — not to discourage them.
+- Stay UK-centred unless country code says otherwise (country: {data.country}).
+- No legal jargon without inline explanation.
+- Return ONLY the JSON object."""
+
+    user_msg = f"""User's situation:
+{exchange.get('user_message','(not recorded)')}
+
+Your previous answer supporting their position:
+{exchange.get('assistant_response','(not recorded)')[:4000]}
+
+Now help them prepare — produce the JSON above mapping out the opposing party's strongest counter-arguments so the user can prepare responses."""
+
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"devil-{data.session_id}", system_message=system)\
+            .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2000)
+        raw = await chat.send_message(UserMessage(text=user_msg))
+    except Exception as e:
+        logger.exception("devil-advocate error")
+        raise HTTPException(500, f"AI error: {e}")
+
+    devil = _extract_json_object(raw)
+    if not devil:
+        logger.warning(f"Devil's advocate JSON parse failed (raw len={len(raw or '')}): {(raw or '')[:600]}")
+        raise HTTPException(502, "Lex couldn't structure the analysis. Try again in a moment.")
+
+    return {"session_id": data.session_id, "devil_advocate": devil}
 
 
 class LiveAssistRequest(BaseModel):
