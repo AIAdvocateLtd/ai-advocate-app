@@ -8714,6 +8714,283 @@ async def legal_aid_check(data: LegalAidCheckRequest, user: dict = Depends(get_u
     }
 
 
+# ==================== Phase 2 — Legal Aid done right ====================
+# 1. Find a Legal Adviser — scrapes gov.uk's official directory (no public API)
+# 2. Draft Application Statement — AI-generated statement of support for civ/crim legal aid
+
+# UK Legal Aid Agency category codes (used by the gov.uk search)
+LAA_CATEGORY_CODES = {
+    "housing": "hou", "eviction": "hou", "homelessness": "hou",
+    "family": "fam",
+    "immigration": "imm", "asylum": "imm",
+    "debt": "deb",
+    "welfare": "wel", "benefits": "wel",
+    "community_care": "cmh",
+    "mental_health": "mhe", "mental_capacity": "mhe",
+    "discrimination": "dis",
+    "education": "edu",
+    "public_law": "pub",
+    "actions_against_police": "aap",
+    "clinical_negligence": "cln",
+    "personal_injury": "per",
+    "consumer": "com",
+    "employment": "emp",
+    "crime": "cri",
+    # Fallback
+    "general": "com",
+    "other": "com",
+}
+
+
+class FindAdvisersRequest(BaseModel):
+    postcode: str
+    case_category: str = "general"
+    language: str = "en-GB"
+
+
+@api_router.post("/legal-aid/find-advisers")
+async def legal_aid_find_advisers(data: FindAdvisersRequest, user: dict = Depends(get_user)):
+    """Real-time lookup of legal aid advisers near a UK postcode using the gov.uk
+    'Find a legal aid adviser or family mediator' directory (find-legal-advice.justice.gov.uk).
+    Returns up to 12 nearest advisers with phone, address, distance, and matter categories."""
+    postcode = (data.postcode or "").strip().upper().replace("  ", " ")
+    if not postcode:
+        raise HTTPException(400, "Postcode is required")
+
+    # Map to category code (best-effort — fall back to 'com' = consumer/general)
+    cat_key = (data.case_category or "general").lower().replace(" ", "_")
+    cat_code = LAA_CATEGORY_CODES.get(cat_key) or LAA_CATEGORY_CODES.get(
+        next((k for k in LAA_CATEGORY_CODES if k in cat_key), "general"), "com"
+    )
+
+    import httpx
+    from bs4 import BeautifulSoup
+
+    url = "https://find-legal-advice.justice.gov.uk/search"
+    params = {"postcode": postcode, "categories": cat_code, "page": "1"}
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; AI-Advocate/1.0; +https://aiadvocate.co.uk)"}
+    try:
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as c:
+            r = await c.get(url, params=params, headers=headers)
+            r.raise_for_status()
+            html = r.text
+    except Exception as e:
+        logger.warning(f"find-legal-advice fetch failed: {e}")
+        raise HTTPException(502, "Could not reach the gov.uk legal-aid directory. Please try again in a moment.")
+
+    soup = BeautifulSoup(html, "html.parser")
+    items = soup.select("li.results-list-item")
+    advisers = []
+    for li in items[:12]:
+        name_el = li.find("h2")
+        dist_el = li.select_one("p.govuk-body-s")
+        tel_el = li.select_one(".telephone .tel")
+        addr_el = li.select_one(".address")
+        cats_el = li.select(".categories li")
+        # Address: collect all non-visually-hidden text spans
+        addr_parts = []
+        if addr_el:
+            for span in addr_el.find_all("span"):
+                txt = span.get_text(strip=True)
+                if txt and "Address" not in txt:
+                    addr_parts.append(txt.rstrip(","))
+        # Distance
+        dist_txt = None
+        if dist_el:
+            t = dist_el.get_text(" ", strip=True).replace("Distance", "").strip()
+            dist_txt = t or None
+        # Map URL — gov.uk uses google maps deep links
+        map_url = None
+        for a in li.find_all("a", href=True):
+            if "google.com/maps" in a["href"]:
+                map_url = a["href"]
+                break
+        advisers.append({
+            "name": name_el.get_text(strip=True) if name_el else "Unknown",
+            "telephone": tel_el.get_text(strip=True) if tel_el else None,
+            "address": ", ".join([p for p in addr_parts if p]) if addr_parts else None,
+            "distance": dist_txt,
+            "categories": [c.get_text(" ", strip=True) for c in cats_el][:8],
+            "map_url": map_url,
+        })
+
+    count_el = soup.select_one("#result-count-overall")
+    total_count = 0
+    if count_el:
+        try:
+            total_count = int(count_el.get_text(strip=True).split()[0])
+        except Exception:
+            pass
+
+    return {
+        "postcode": postcode,
+        "category_used": cat_code,
+        "total_count": total_count,
+        "advisers": advisers,
+        "source": "https://find-legal-advice.justice.gov.uk/",
+        "disclaimer": "Live results from the Legal Aid Agency directory. Coverage varies — call before travelling.",
+    }
+
+
+class DraftApplicationRequest(BaseModel):
+    case_type: str = "civil"   # civil | criminal
+    case_category: str = ""    # eviction, employment, family, immigration, etc.
+    situation: str             # user's plain-English description
+    monthly_income_gbp: float = 0
+    savings_gbp: float = 0
+    household_size: int = 1
+    full_name: str = ""
+    address: str = ""
+    dob: str = ""
+    nino: str = ""             # National Insurance number (optional)
+    language: str = "en-GB"
+
+
+@api_router.post("/legal-aid/draft-application")
+async def legal_aid_draft_application(data: DraftApplicationRequest, user: dict = Depends(get_user)):
+    """AI-generated Statement in Support that the user attaches to the official
+    CIVAPP1 (civil legal aid) or CRM14 (criminal) form. Lex writes it in formal
+    LAA-friendly language with the right sections and citations."""
+    lang_name = LANG_NAMES.get(data.language, "English")
+
+    form_name = "CIVAPP1 (Application for civil legal aid)" if data.case_type == "civil" else "CRM14 (Application for legal aid in criminal proceedings)"
+
+    system = f"""You are a UK legal aid caseworker drafting a Statement in Support for a self-represented applicant.
+
+The statement will be attached to {form_name} submitted to the Legal Aid Agency. Write in formal but plain English ({lang_name}). Follow the structure below exactly. Be specific, factual, and sympathetic — but never exaggerate or invent facts. Where the applicant has not provided a detail, use a clear placeholder in [SQUARE BRACKETS] so they can fill it in.
+
+STRUCTURE (use these exact headings):
+
+# Statement in Support of {form_name}
+
+## Applicant
+- Full name: {data.full_name or "[Applicant's full legal name]"}
+- Date of birth: {data.dob or "[DD/MM/YYYY]"}
+- Address: {data.address or "[Current address including postcode]"}
+- National Insurance number: {data.nino or "[NI number]"}
+- Monthly income: £{data.monthly_income_gbp or "[Amount]"}
+- Total savings: £{data.savings_gbp or "[Amount]"}
+- Household size: {data.household_size or "[Number]"}
+
+## 1. Nature of the legal problem
+A clear factual narrative of the applicant's situation, written in the applicant's voice (first person, "I"). 2-4 paragraphs. Include dates, names of opposing parties, and the specific legal issue.
+
+## 2. Why I need legal representation
+Explain the urgency, the complexity, and what could happen without legal aid. Reference specific UK statutes that apply (e.g. Housing Act 1988 for eviction, Equality Act 2010 for discrimination, Children Act 1989 for family). Keep it factual.
+
+## 3. Means test — financial circumstances
+Restate the financial figures the applicant has given. Explain why they fall within the legal aid means thresholds for their case type. Note any debts, dependants, or hardship factors.
+
+## 4. Merits test — strength of the case
+Honest assessment of the case's chance of success. Reference the relevant Legal Aid Agency merits criteria. Use language like "There is a reasonable prospect of obtaining a positive outcome because…"
+
+## 5. What I am applying for
+Specify the form of legal aid (Legal Help / Help at Court / Family Help / Legal Representation / Controlled Legal Representation). Best-effort match to the case type.
+
+## 6. Supporting documents I will provide
+List the typical documents the LAA needs (payslips/benefits letter, bank statements last 3 months, tenancy agreement / employment contract / court papers, ID).
+
+## 7. Declaration
+End with: "I declare that the information given in this statement is true to the best of my knowledge and belief. I understand that providing false information may be a criminal offence."
+Signed: ___________________
+Date: ___________________
+
+Return ONLY the statement in Markdown. No preamble, no explanation, no JSON."""
+
+    user_msg = f"""APPLICANT'S SITUATION (plain English, in their words):
+{data.situation}
+
+CASE TYPE: {data.case_type}
+CASE CATEGORY: {data.case_category or "(not specified — infer from situation)"}
+
+Draft the full Statement in Support now."""
+
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"laa-{uuid.uuid4().hex[:12]}", system_message=system)\
+            .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=3500)
+        markdown = await chat.send_message(UserMessage(text=user_msg))
+    except Exception as e:
+        logger.exception("legal-aid draft-application error")
+        raise HTTPException(500, f"AI error: {e}")
+
+    if not markdown or not markdown.strip():
+        raise HTTPException(502, "Lex couldn't draft the application right now. Try again in a moment.")
+
+    # Determine the official form download link
+    form_link = (
+        "https://www.gov.uk/government/publications/legal-help-form-civapp1"
+        if data.case_type == "civil"
+        else "https://www.gov.uk/government/publications/crm-14-form-criminal-legal-aid"
+    )
+
+    return {
+        "case_type": data.case_type,
+        "form_name": form_name,
+        "official_form_url": form_link,
+        "statement_markdown": markdown.strip(),
+        "next_steps": [
+            f"Download the official {form_name} from gov.uk",
+            "Print this Statement in Support and attach it to the form",
+            "Gather your supporting documents (payslips, ID, court papers etc.)",
+            "Find a legal aid adviser to file the application (use the 'Find an adviser' tab)",
+            "Most legal aid advisers will submit the form on your behalf at no cost to you",
+        ],
+        "disclaimer": "This statement is AI-generated to help you prepare. A legal aid solicitor will adjust it before submission. Not a substitute for legal advice.",
+    }
+
+
+@api_router.post("/legal-aid/draft-application/pdf")
+async def legal_aid_draft_application_pdf(data: DraftApplicationRequest, user: dict = Depends(get_user)):
+    """Same as /draft-application but returns a downloadable PDF instead of markdown."""
+    # Generate the markdown first by reusing the endpoint
+    result = await legal_aid_draft_application(data, user)
+    markdown = result["statement_markdown"]
+
+    # Render to PDF using reportlab (already a dependency)
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+    from reportlab.lib.colors import HexColor
+    import io as _io
+
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm, topMargin=1.8*cm, bottomMargin=1.8*cm)
+    styles = getSampleStyleSheet()
+    h1 = ParagraphStyle("h1", parent=styles["Heading1"], fontSize=15, leading=18, textColor=HexColor("#1a1300"), spaceAfter=10)
+    h2 = ParagraphStyle("h2", parent=styles["Heading2"], fontSize=12, leading=15, textColor=HexColor("#7a5c00"), spaceAfter=6, spaceBefore=10)
+    body = ParagraphStyle("body", parent=styles["BodyText"], fontSize=10, leading=14, spaceAfter=6)
+    bullet = ParagraphStyle("bullet", parent=body, leftIndent=14)
+
+    story = [Paragraph("AI Advocate · Legal Aid Statement in Support", body), Spacer(1, 8)]
+    for raw_line in markdown.split("\n"):
+        line = raw_line.rstrip()
+        if not line.strip():
+            story.append(Spacer(1, 4)); continue
+        if line.startswith("# "):
+            story.append(Paragraph(line[2:].strip(), h1))
+        elif line.startswith("## "):
+            story.append(Paragraph(line[3:].strip(), h2))
+        elif line.startswith("- ") or line.startswith("* "):
+            story.append(Paragraph(f"• {line[2:].strip()}", bullet))
+        else:
+            # Escape angle brackets for reportlab Paragraph
+            safe = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            # Re-enable **bold**
+            import re as _re
+            safe = _re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", safe)
+            story.append(Paragraph(safe, body))
+
+    doc.build(story)
+    buf.seek(0)
+    from fastapi.responses import StreamingResponse
+    fname = f"ai-advocate-legal-aid-statement-{data.case_type}.pdf"
+    return StreamingResponse(
+        buf, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
 # ==================== Round 2: Case Sharing (read-only links) ====================
 @api_router.post("/cases/{case_id}/share")
 async def share_case(case_id: str, user: dict = Depends(get_user)):

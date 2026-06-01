@@ -9780,6 +9780,47 @@ function CostEstimateModal({ lang, country, onClose }) {
 
 // ---------- Legal Aid Finder ----------
 function LegalAidModal({ lang, country, onClose }) {
+  const [tab, setTab] = useState("check"); // check | advisers | draft
+
+  return (
+    <div className="modal-bg" data-testid="legal-aid-modal">
+      <div className="modal-card" style={{ padding: 0, display: "flex", flexDirection: "column", maxHeight: "92vh" }}>
+        <div className="flex items-center justify-between" style={{ padding: "18px 20px 8px" }}>
+          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "legalAidTitle")}</h2>
+          <button onClick={onClose} data-testid="legal-aid-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
+        </div>
+        {/* 3-tab nav */}
+        <div style={{ display: "flex", gap: 4, padding: "0 16px 8px", borderBottom: "1px solid var(--line)", flexWrap: "wrap" }}>
+          {[
+            { v: "check", label: "1 · Eligibility", icon: "✓" },
+            { v: "draft", label: "2 · Draft application", icon: "✍️" },
+            { v: "advisers", label: "3 · Find an adviser", icon: "📍" },
+          ].map(b => (
+            <button key={b.v} data-testid={`la-tab-${b.v}`} onClick={() => setTab(b.v)}
+              style={{
+                padding: "8px 14px", borderRadius: "8px 8px 0 0",
+                background: tab === b.v ? "var(--gold)" : "transparent",
+                color: tab === b.v ? "#1a1300" : "var(--gold)",
+                border: "1px solid var(--gold-deep)", borderBottom: "none",
+                fontWeight: 600, fontSize: 12, cursor: "pointer"
+              }}>
+              {b.icon} {b.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ padding: 20, overflowY: "auto", flex: 1 }}>
+          {tab === "check" && <LegalAidEligibilityTab lang={lang} country={country} />}
+          {tab === "draft" && <LegalAidDraftTab lang={lang} country={country} />}
+          {tab === "advisers" && <LegalAidAdvisersTab lang={lang} country={country} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// =============== TAB 1 — Eligibility check (existing logic, extracted) ===============
+function LegalAidEligibilityTab({ lang, country }) {
   const [form, setForm] = useState({ monthly_income_gbp: "", savings_gbp: "", household_size: "", case_category: "" });
   const [busy, setBusy] = useState(false);
   const [r, setR] = useState(null);
@@ -9793,48 +9834,278 @@ function LegalAidModal({ lang, country, onClose }) {
         case_category: form.case_category, country, language: lang,
       });
       setR(data);
-    } catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+    } catch (e) { aaToast(e?.response?.data?.detail || "Failed", "error"); }
     finally { setBusy(false); }
   };
+  if (!r) return (
+    <>
+      <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12 }}>Quick check — are you eligible for free legal aid or pro-bono help? Indicative only.</p>
+      <input className="input" type="number" placeholder="Monthly income (£)" value={form.monthly_income_gbp} onChange={(e) => setForm({ ...form, monthly_income_gbp: e.target.value })} data-testid="la-income" style={{ marginBottom: 8 }} />
+      <input className="input" type="number" placeholder="Total savings (£)" value={form.savings_gbp} onChange={(e) => setForm({ ...form, savings_gbp: e.target.value })} data-testid="la-savings" style={{ marginBottom: 8 }} />
+      <input className="input" type="number" placeholder="Household size" value={form.household_size} onChange={(e) => setForm({ ...form, household_size: e.target.value })} data-testid="la-household" style={{ marginBottom: 8 }} />
+      <input className="input" placeholder="Case category (e.g. eviction)" value={form.case_category} onChange={(e) => setForm({ ...form, case_category: e.target.value })} data-testid="la-category" style={{ marginBottom: 8 }} />
+      <button className="btn-gold w-full" disabled={busy || !form.monthly_income_gbp} onClick={run} data-testid="la-run-btn">
+        {busy ? <span className="spinner" /> : "Check eligibility"}
+      </button>
+    </>
+  );
   return (
-    <div className="modal-bg" data-testid="legal-aid-modal">
-      <div className="modal-card" style={{ padding: 20, overflowY: "auto" }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "legalAidTitle")}</h2>
-          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>
+    <div data-testid="legal-aid-result">
+      <div style={{ background: r.qualifies ? "rgba(34,197,94,0.1)" : "rgba(247,201,72,0.1)", border: `1px solid ${r.qualifies ? "#22c55e" : "var(--gold-deep)"}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+        <div style={{ color: r.qualifies ? "#86efac" : "var(--gold)", fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
+          {r.qualifies ? "✓ Likely eligible" : "Probably not eligible"}
         </div>
-        {!r ? (
-          <>
-            <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12 }}>Quick check — are you eligible for free legal aid or pro-bono help? Indicative only.</p>
-            <input className="input" type="number" placeholder="Monthly income (£)" value={form.monthly_income_gbp} onChange={(e) => setForm({ ...form, monthly_income_gbp: e.target.value })} data-testid="la-income" style={{ marginBottom: 8 }} />
-            <input className="input" type="number" placeholder="Total savings (£)" value={form.savings_gbp} onChange={(e) => setForm({ ...form, savings_gbp: e.target.value })} data-testid="la-savings" style={{ marginBottom: 8 }} />
-            <input className="input" type="number" placeholder="Household size" value={form.household_size} onChange={(e) => setForm({ ...form, household_size: e.target.value })} data-testid="la-household" style={{ marginBottom: 8 }} />
-            <input className="input" placeholder="Case category (e.g. eviction)" value={form.case_category} onChange={(e) => setForm({ ...form, case_category: e.target.value })} data-testid="la-category" style={{ marginBottom: 8 }} />
-            <button className="btn-gold w-full" disabled={busy || !form.monthly_income_gbp} onClick={run} data-testid="la-run-btn">
-              {busy ? <span className="spinner" /> : "Check eligibility"}
-            </button>
-          </>
-        ) : (
-          <div data-testid="legal-aid-result">
-            <div style={{ background: r.qualifies ? "rgba(34,197,94,0.1)" : "rgba(247,201,72,0.1)", border: `1px solid ${r.qualifies ? "#22c55e" : "var(--gold-deep)"}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
-              <div style={{ color: r.qualifies ? "#86efac" : "var(--gold)", fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
-                {r.qualifies ? "✓ Likely eligible" : "Probably not eligible"}
-              </div>
-              {(r.reasons || []).map((re, i) => <div key={i} style={{ color: "var(--text-dim)", fontSize: 13, marginTop: 4 }}>{re}</div>)}
-            </div>
-            <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Free help near you</div>
-            {(r.signposts || []).map((s, i) => (
-              <a key={i} href={s.url} target="_blank" rel="noreferrer"
-                 style={{ display: "block", background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginBottom: 6, color: "var(--text)", textDecoration: "none" }}>
-                <div style={{ color: "var(--gold)", fontWeight: 600, fontSize: 14 }}>{s.name}</div>
-                <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>{s.url}</div>
-              </a>
-            ))}
-            <p style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 14, lineHeight: 1.5 }}>{r.disclaimer}</p>
-            <button className="btn-ghost w-full" onClick={() => setR(null)} style={{ marginTop: 8 }}>Run another check</button>
-          </div>
-        )}
+        {(r.reasons || []).map((re, i) => <div key={i} style={{ color: "var(--text-dim)", fontSize: 13, marginTop: 4 }}>{re}</div>)}
       </div>
+      <div style={{ color: "var(--gold)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Free help near you</div>
+      {(r.signposts || []).map((s, i) => (
+        <a key={i} href={s.url} target="_blank" rel="noreferrer"
+           style={{ display: "block", background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginBottom: 6, color: "var(--text)", textDecoration: "none" }}>
+          <div style={{ color: "var(--gold)", fontWeight: 600, fontSize: 14 }}>{s.name}</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>{s.url}</div>
+        </a>
+      ))}
+      <p style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 14, lineHeight: 1.5 }}>{r.disclaimer}</p>
+      <button className="btn-ghost w-full" onClick={() => setR(null)} style={{ marginTop: 8 }} data-testid="la-rerun-btn">Run another check</button>
+    </div>
+  );
+}
+
+
+// =============== TAB 2 — Draft Statement in Support ===============
+function LegalAidDraftTab({ lang, country }) {
+  const [form, setForm] = useState({
+    case_type: "civil", case_category: "", situation: "",
+    full_name: "", address: "", dob: "", nino: "",
+    monthly_income_gbp: "", savings_gbp: "", household_size: "1",
+  });
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const generate = async () => {
+    if (!form.situation || form.situation.length < 30) {
+      aaToast("Please describe your situation in at least a sentence or two", "error"); return;
+    }
+    setBusy(true);
+    try {
+      const { data } = await api.post("/legal-aid/draft-application", {
+        ...form,
+        monthly_income_gbp: parseFloat(form.monthly_income_gbp) || 0,
+        savings_gbp: parseFloat(form.savings_gbp) || 0,
+        household_size: parseInt(form.household_size) || 1,
+        language: lang,
+      });
+      setResult(data);
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Couldn't draft the statement", "error");
+    } finally { setBusy(false); }
+  };
+
+  const downloadPdf = async () => {
+    try {
+      const r = await fetch(`${API}/legal-aid/draft-application/pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("aa_token")}` },
+        body: JSON.stringify({
+          ...form,
+          monthly_income_gbp: parseFloat(form.monthly_income_gbp) || 0,
+          savings_gbp: parseFloat(form.savings_gbp) || 0,
+          household_size: parseInt(form.household_size) || 1,
+          language: lang,
+        }),
+      });
+      if (!r.ok) throw new Error("PDF failed");
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `ai-advocate-legal-aid-${form.case_type}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { aaToast("PDF download failed", "error"); }
+  };
+
+  const copyText = async () => {
+    try {
+      await navigator.clipboard.writeText(result.statement_markdown);
+      setCopied(true); setTimeout(() => setCopied(false), 1800);
+    } catch (e) { aaToast("Copy failed", "error"); }
+  };
+
+  if (result) return (
+    <div data-testid="la-draft-result">
+      <div style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 12, marginBottom: 12 }}>
+        <div style={{ color: "var(--gold)", fontWeight: 700, fontSize: 13, marginBottom: 6 }}>✍️ Draft ready</div>
+        <div style={{ fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.6 }}>
+          Lex has drafted your <strong>Statement in Support</strong> for the <strong>{result.form_name}</strong>.
+          Square-bracketed placeholders <code style={{ background: "var(--bg-2)", padding: "1px 5px", borderRadius: 4 }}>[LIKE THIS]</code> need your input before filing.
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        <button className="btn-gold" onClick={downloadPdf} data-testid="la-draft-download" style={{ flex: 1, minWidth: 140, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          <Download size={14} /> Download PDF
+        </button>
+        <button onClick={copyText} data-testid="la-draft-copy" style={{ flex: 1, minWidth: 120, padding: "10px 14px", borderRadius: 8, border: "1px solid var(--line)", background: "transparent", color: "var(--text)", fontSize: 13, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          {copied ? <><Check size={14} /> Copied</> : <>📋 Copy text</>}
+        </button>
+        <a href={result.official_form_url} target="_blank" rel="noreferrer" data-testid="la-official-form"
+          style={{ flex: 1, minWidth: 140, padding: "10px 14px", borderRadius: 8, border: "1px solid var(--gold-deep)", background: "transparent", color: "var(--gold)", fontSize: 12.5, textAlign: "center", textDecoration: "none", fontWeight: 600 }}>
+          📄 Open gov.uk form
+        </a>
+      </div>
+      <div style={{ background: "#fff", color: "#1a1300", borderRadius: 10, padding: 16, fontSize: 12.5, lineHeight: 1.7, maxHeight: 360, overflowY: "auto", whiteSpace: "pre-wrap", fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace' }} data-testid="la-statement-text">
+        {result.statement_markdown}
+      </div>
+      <div style={{ background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginTop: 12 }}>
+        <div style={{ fontSize: 11, color: "var(--gold)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Next steps</div>
+        <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.6 }}>
+          {(result.next_steps || []).map((s, i) => <li key={i}>{s}</li>)}
+        </ol>
+      </div>
+      <p style={{ color: "var(--text-muted)", fontSize: 10.5, marginTop: 10, lineHeight: 1.5 }}>{result.disclaimer}</p>
+      <button className="btn-ghost w-full" onClick={() => setResult(null)} style={{ marginTop: 8 }} data-testid="la-draft-reset">Start a new draft</button>
+    </div>
+  );
+
+  return (
+    <div>
+      <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12, lineHeight: 1.5 }}>
+        Lex will draft a formal <strong>Statement in Support</strong> to attach to your official CIVAPP1 (civil) or CRM14 (criminal) form. It cites the right UK statutes and uses LAA-friendly language.
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+        <select className="input" value={form.case_type} onChange={(e) => setForm({ ...form, case_type: e.target.value })} data-testid="la-draft-case-type">
+          <option value="civil">Civil (housing, family, employment, immigration etc.)</option>
+          <option value="criminal">Criminal (CRM14)</option>
+        </select>
+        <input className="input" placeholder="Case category (eviction, divorce, immigration…)" value={form.case_category}
+          onChange={(e) => setForm({ ...form, case_category: e.target.value })} data-testid="la-draft-category" />
+      </div>
+      <textarea className="input" rows={4} placeholder="Describe your situation in your own words. The more detail you give, the better Lex's draft. (Names, dates, what happened, why you need legal help.)"
+        value={form.situation} onChange={(e) => setForm({ ...form, situation: e.target.value })} data-testid="la-draft-situation" style={{ marginBottom: 8, resize: "vertical" }} />
+
+      <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6, marginTop: 6 }}>Your details (optional — Lex will use placeholders if blank)</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+        <input className="input" placeholder="Full legal name" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} data-testid="la-draft-name" />
+        <input className="input" placeholder="Date of birth (DD/MM/YYYY)" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} data-testid="la-draft-dob" />
+      </div>
+      <input className="input" placeholder="Address (incl. postcode)" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} data-testid="la-draft-address" style={{ marginBottom: 8 }} />
+      <input className="input" placeholder="National Insurance number (optional)" value={form.nino} onChange={(e) => setForm({ ...form, nino: e.target.value })} data-testid="la-draft-nino" style={{ marginBottom: 8 }} />
+
+      <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6, marginTop: 4 }}>Financial details (for the means test)</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
+        <input className="input" type="number" placeholder="Income / mo (£)" value={form.monthly_income_gbp} onChange={(e) => setForm({ ...form, monthly_income_gbp: e.target.value })} data-testid="la-draft-income" />
+        <input className="input" type="number" placeholder="Savings (£)" value={form.savings_gbp} onChange={(e) => setForm({ ...form, savings_gbp: e.target.value })} data-testid="la-draft-savings" />
+        <input className="input" type="number" placeholder="Household size" value={form.household_size} onChange={(e) => setForm({ ...form, household_size: e.target.value })} data-testid="la-draft-household" />
+      </div>
+
+      <button className="btn-gold w-full" disabled={busy || !form.situation || form.situation.length < 30} onClick={generate} data-testid="la-draft-generate">
+        {busy ? <span className="spinner" /> : "✍️ Draft my Statement in Support"}
+      </button>
+    </div>
+  );
+}
+
+
+// =============== TAB 3 — Find a legal aid adviser (gov.uk directory) ===============
+function LegalAidAdvisersTab({ lang, country }) {
+  const [postcode, setPostcode] = useState("");
+  const [category, setCategory] = useState("general");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const categories = [
+    { v: "general", label: "General / consumer" },
+    { v: "housing", label: "Housing / eviction" },
+    { v: "family", label: "Family / divorce / children" },
+    { v: "immigration", label: "Immigration / asylum" },
+    { v: "debt", label: "Debt" },
+    { v: "welfare", label: "Welfare benefits" },
+    { v: "employment", label: "Employment" },
+    { v: "crime", label: "Crime / police" },
+    { v: "mental_health", label: "Mental health" },
+    { v: "community_care", label: "Community care" },
+    { v: "discrimination", label: "Discrimination" },
+    { v: "education", label: "Education" },
+    { v: "public_law", label: "Public law / judicial review" },
+    { v: "actions_against_police", label: "Actions against police" },
+    { v: "clinical_negligence", label: "Clinical negligence" },
+    { v: "personal_injury", label: "Personal injury" },
+  ];
+
+  const search = async () => {
+    if (!postcode.trim()) { aaToast("Enter a UK postcode", "error"); return; }
+    setBusy(true);
+    try {
+      const { data } = await api.post("/legal-aid/find-advisers", {
+        postcode: postcode.trim(), case_category: category, language: lang,
+      });
+      setResult(data);
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Search failed — try again", "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div data-testid="la-advisers-tab">
+      <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12, lineHeight: 1.5 }}>
+        Live results from the official <strong style={{ color: "var(--gold)" }}>gov.uk Legal Aid Agency</strong> directory. Phone numbers, addresses and matter categories — direct from source.
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+        <input className="input" placeholder="UK postcode (e.g. E15 4LJ)" value={postcode}
+          onChange={(e) => setPostcode(e.target.value)} data-testid="la-advisers-postcode"
+          onKeyDown={(e) => e.key === "Enter" && search()} />
+        <select className="input" value={category} onChange={(e) => setCategory(e.target.value)} data-testid="la-advisers-category">
+          {categories.map(c => <option key={c.v} value={c.v}>{c.label}</option>)}
+        </select>
+      </div>
+      <button className="btn-gold w-full" disabled={busy || !postcode.trim()} onClick={search} data-testid="la-advisers-search" style={{ marginBottom: 12 }}>
+        {busy ? <span className="spinner" /> : "📍 Find advisers near me"}
+      </button>
+
+      {result && (
+        <>
+          <div style={{ background: "rgba(34,197,94,0.08)", border: "1px solid #22c55e", borderRadius: 10, padding: 10, marginBottom: 10, fontSize: 12.5, color: "#86efac" }} data-testid="la-advisers-summary">
+            ✓ <strong>{result.total_count}</strong> legal aid adviser{result.total_count === 1 ? "" : "s"} near <strong>{result.postcode}</strong> — showing nearest {result.advisers?.length || 0}.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {(result.advisers || []).map((a, i) => (
+              <div key={i} data-testid={`la-adviser-${i}`} style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+                  <div style={{ color: "var(--gold)", fontWeight: 700, fontSize: 14, flex: 1 }}>{a.name}</div>
+                  {a.distance && (
+                    <div style={{ fontSize: 10.5, color: "var(--text-muted)", whiteSpace: "nowrap" }}>📍 {a.distance}</div>
+                  )}
+                </div>
+                {a.address && <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginBottom: 4 }}>{a.address}</div>}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: a.categories?.length ? 8 : 0 }}>
+                  {a.telephone && (
+                    <a href={`tel:${a.telephone.replace(/\s/g, "")}`} data-testid={`la-adviser-tel-${i}`}
+                      style={{ background: "var(--gold)", color: "#1a1300", borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 700, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      📞 {a.telephone}
+                    </a>
+                  )}
+                  {a.map_url && (
+                    <a href={a.map_url} target="_blank" rel="noreferrer" data-testid={`la-adviser-map-${i}`}
+                      style={{ background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 6, padding: "4px 10px", fontSize: 11, fontWeight: 600, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      🗺 Map
+                    </a>
+                  )}
+                </div>
+                {a.categories?.length > 0 && (
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    {a.categories.map((c, j) => (
+                      <span key={j} style={{ fontSize: 10, background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "2px 7px", color: "var(--text-dim)" }}>{c}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <p style={{ color: "var(--text-muted)", fontSize: 10.5, marginTop: 10, lineHeight: 1.5 }}>
+            {result.disclaimer} · <a href={result.source} target="_blank" rel="noreferrer" style={{ color: "var(--gold)" }}>View on gov.uk</a>
+          </p>
+        </>
+      )}
     </div>
   );
 }

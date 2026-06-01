@@ -10,6 +10,16 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 40 — Phase 2: Legal Aid done right + Courtroom scroll fix)
+- 🏛 **Legal Aid modal** rebuilt as a 3-tab flow (Eligibility · Draft application · Find an adviser).
+- ✍️ **Draft Statement in Support generator** — new `POST /api/legal-aid/draft-application` returns a markdown statement structured per LAA expectations (Applicant details, Nature of problem, Why representation needed, Means test, Merits test, What I'm applying for, Supporting documents, Declaration). Claude Sonnet 4.5 cites the right UK statutes (Housing Act 1988, Equality Act 2010, Children Act 1989 etc.) and leaves `[SQUARE BRACKET]` placeholders for missing facts. Companion `POST /api/legal-aid/draft-application/pdf` renders to a downloadable PDF via reportlab. Verified on a real eviction scenario — Claude correctly identified the retaliatory-eviction angle and cited Section 21 Housing Act 1988.
+- 📍 **Find a Legal Adviser** — new `POST /api/legal-aid/find-advisers` LIVE-scrapes the gov.uk Legal Aid Agency directory (`find-legal-advice.justice.gov.uk`) which has no public JSON API. Returns up to 12 nearest legal aid advisers with: name, telephone, address, distance, map link, and matter categories. Tested with E15 postcode + housing category → 404 real matching advisers returned.
+- 🆕 Mapping of 17 LAA category codes (housing, family, immigration, debt, welfare, employment, crime, mental health, community care, discrimination, education, public law, actions-against-police, clinical-negligence, personal-injury) and tolerant fallbacks.
+- 🛡 New dependency: `beautifulsoup4==4.14.3` (already added to requirements.txt via pip freeze).
+- 🛠 **Courtroom Trainer fixes**:
+  - **Scroll bug**: capped both pinned "SAY THIS" + "latest translation" cards at `maxHeight: 38vh` with internal overflow, added the classic flexbox `minHeight: 0` to history scroll containers so they actually shrink and scroll.
+  - **Past sessions browser**: new `PastSessionsBrowser` component shown in both Live Assist and Translation tabs (when not actively recording) — lists every saved session with date/time/turn-count and a one-click PDF re-download. Backend `/api/live/sessions` and `/api/live/notes/{id}/export` were already there but had no UI.
+
 ### 2026-02 (Iter 39 — Phase 1: Lex becomes a strategist)
 - 🪜 **Outcome Ladder** — new `POST /api/lex/outcome-ladder` endpoint takes the user's most recent Lex exchange in a session and returns a structured worst-case / likely-case / best-case JSON with probabilities, "next step" guidance, and a warm calm-note. Free for all tiers. Powered by Claude Sonnet 4.5 via Emergent LLM key.
 - 😈 **Devil's Advocate** — new `POST /api/lex/devil-advocate` returns the opposing party's strongest 3 arguments, evidence they'll use, loaded questions to expect, user's honest weakest point + strongest counter, and a prep checklist. Reframed as "case preparation" (not adversarial language) so Claude doesn't refuse. Verified output cites named UK statutes appropriately (Protection from Eviction Act 1977, Tenancy Deposit Scheme, etc.).
