@@ -4253,20 +4253,24 @@ async def sanity_check_create(data: SanityCheckCreate, request: Request, user: d
 
     try:
         origin = (os.environ.get("FRONTEND_URL") or request.headers.get("origin") or APP_PUBLIC_URL).rstrip("/")
-        session = stripe.checkout.Session.create(
+        # Prefer the configured Stripe Price ID (clean dashboard reporting + VAT-inclusive
+        # pricing rules). Fall back to inline price_data if the env var isn't set OR if
+        # Stripe rejects the price (test/live mismatch etc.) — checkout still works.
+        price_id = os.environ.get("STRIPE_PRICE_SANITY_CHECK", "").strip()
+        inline_li = [{
+            "price_data": {
+                "currency": "gbp",
+                "unit_amount": int(SANITY_CHECK_PRICE_GBP * 100),
+                "product_data": {
+                    "name": "AI Advocate · Solicitor Sanity Check",
+                    "description": f"Verified solicitor review of your Lex answer · {SANITY_CHECK_TURNAROUND_HOURS}h turnaround",
+                },
+            },
+            "quantity": 1,
+        }]
+        common_kwargs = dict(
             mode="payment",
             payment_method_types=["card"],
-            line_items=[{
-                "price_data": {
-                    "currency": "gbp",
-                    "unit_amount": int(SANITY_CHECK_PRICE_GBP * 100),
-                    "product_data": {
-                        "name": "AI Advocate · Solicitor Sanity Check",
-                        "description": f"Verified solicitor review of your Lex answer · {SANITY_CHECK_TURNAROUND_HOURS}h turnaround",
-                    },
-                },
-                "quantity": 1,
-            }],
             customer_email=user["email"],
             client_reference_id=user["id"],
             success_url=f"{origin}/?sanity=success&id={sc_id}",
@@ -4274,6 +4278,14 @@ async def sanity_check_create(data: SanityCheckCreate, request: Request, user: d
             metadata={"kind": "sanity_check", "sanity_check_id": sc_id, "user_id": user["id"]},
             allow_promotion_codes=True,
         )
+        session = None
+        if price_id:
+            try:
+                session = stripe.checkout.Session.create(line_items=[{"price": price_id, "quantity": 1}], **common_kwargs)
+            except stripe.error.InvalidRequestError as ire:
+                logger.warning(f"Sanity check price '{price_id}' invalid ({ire}) — falling back to inline price_data")
+        if session is None:
+            session = stripe.checkout.Session.create(line_items=inline_li, **common_kwargs)
     except Exception as e:
         logger.exception("sanity-check checkout error")
         await db.sanity_checks.delete_one({"id": sc_id})
