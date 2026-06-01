@@ -2376,12 +2376,15 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
             {jurisdictionPickerOpen && (
               <div data-testid="jurisdiction-pill-menu"
                    style={{
-                     position: "absolute", top: "100%", left: 0, marginTop: 6,
+                     position: "absolute", bottom: "100%", left: 0, marginBottom: 6,
                      background: "var(--bg-card)",
                      border: "1px solid var(--gold-deep)",
                      borderRadius: 10, padding: 6,
-                     boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
-                     zIndex: 50, minWidth: 200, maxHeight: 280, overflowY: "auto",
+                     boxShadow: "0 -8px 24px rgba(0,0,0,0.55)",
+                     zIndex: 50, minWidth: 220,
+                     // Mobile-safe: never taller than 60vh, always scrollable inside
+                     maxHeight: "min(60vh, 360px)",
+                     overflowY: "auto", WebkitOverflowScrolling: "touch",
                    }}>
                 <div style={{ fontSize: 10, color: "var(--text-muted)", padding: "4px 8px 6px",
                               letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 700 }}>
