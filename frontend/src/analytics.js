@@ -13,6 +13,7 @@ let initialized = false;
 function _consentGranted() {
   try {
     if (window.__aa_analytics_off === true) return false;
+    if (localStorage.getItem("aa_analytics_off") === "1") return false;  // Settings opt-out
     const c = localStorage.getItem("aa_cookie_consent");
     return c === "accepted";
   } catch (e) { return false; }

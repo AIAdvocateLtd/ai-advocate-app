@@ -4,17 +4,23 @@ import * as Sentry from "@sentry/react";
 
 const dsn = process.env.REACT_APP_SENTRY_DSN;
 
-if (dsn) {
+// 🔒 User opt-out — respected at init time + each beforeSend. Set in Settings →
+// Privacy & analytics. localStorage key: aa_crash_off = "1"
+function _crashOptedOut() {
+  try { return localStorage.getItem("aa_crash_off") === "1"; } catch (e) { return false; }
+}
+
+if (dsn && !_crashOptedOut()) {
   Sentry.init({
     dsn,
     sendDefaultPii: true,
     environment: process.env.NODE_ENV || "production",
-    // Production-friendly tracing rate — sample 20% of transactions.
     tracesSampleRate: 0.2,
     integrations: [
       Sentry.browserTracingIntegration(),
     ],
-    // Filter out noisy errors that aren't actionable.
+    // Drop events on the floor if the user has flipped the toggle since init
+    beforeSend: (event) => (_crashOptedOut() ? null : event),
     ignoreErrors: [
       "ResizeObserver loop limit exceeded",
       "Non-Error promise rejection captured",

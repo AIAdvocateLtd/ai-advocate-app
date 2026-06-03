@@ -6544,6 +6544,46 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
   const [autoDetectOn, setAutoDetectOn] = useState(localStorage.getItem("aa_autodetect") !== "0");
   const [locStampOn, setLocStampOn] = useState(localStorage.getItem("aa_locstamp") === "1");
   const [smartLocOn, setSmartLocOn] = useState(localStorage.getItem("aa_loc_safety") !== "0");
+  // 📊 Analytics + crash reporting opt-outs — promised in cookie consent banner.
+  // analyticsOn drives PostHog (already gated via aa_cookie_consent), crashOn drives Sentry.
+  // window globals are checked at runtime by /src/analytics.js and /src/sentry.js.
+  const [analyticsOn, setAnalyticsOn] = useState(() => {
+    try { return localStorage.getItem("aa_cookie_consent") === "accepted" && localStorage.getItem("aa_analytics_off") !== "1"; }
+    catch (e) { return false; }
+  });
+  const [crashOn, setCrashOn] = useState(() => {
+    try { return localStorage.getItem("aa_crash_off") !== "1"; }
+    catch (e) { return true; }
+  });
+  const toggleAnalytics = () => {
+    const next = !analyticsOn;
+    setAnalyticsOn(next);
+    try {
+      if (next) {
+        localStorage.setItem("aa_cookie_consent", "accepted");
+        localStorage.removeItem("aa_analytics_off");
+        window.__aa_analytics_off = false;
+      } else {
+        localStorage.setItem("aa_analytics_off", "1");
+        window.__aa_analytics_off = true;
+        // Best-effort: also tell PostHog to stop capturing this session
+        try { if (window.posthog && window.posthog.opt_out_capturing) window.posthog.opt_out_capturing(); } catch (e) {}
+      }
+    } catch (e) {}
+  };
+  const toggleCrash = () => {
+    const next = !crashOn;
+    setCrashOn(next);
+    try {
+      if (next) localStorage.removeItem("aa_crash_off");
+      else localStorage.setItem("aa_crash_off", "1");
+      // Tell Sentry to drop subsequent events without a reload
+      if (window.Sentry && window.Sentry.getClient) {
+        const client = window.Sentry.getClient();
+        if (client) client.getOptions().enabled = next;
+      }
+    } catch (e) {}
+  };
   const [legalDoc, setLegalDoc] = useState(null);   // "tos" | "privacy" | null
   const [showManage, setShowManage] = useState(false);
 
@@ -6919,6 +6959,42 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
                   style={{ width: 44, height: 24, borderRadius: 12, background: smartLocOn ? "var(--gold)" : "var(--line)", border: "none", cursor: "pointer", position: "relative" }}>
             <span style={{ position: "absolute", top: 2, left: smartLocOn ? 22 : 2, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left 0.18s ease" }}></span>
           </button>
+        </div>
+
+        {/* 📊 Privacy & analytics — opt-outs promised in cookie consent banner */}
+        <div data-testid="privacy-analytics-section" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 12, padding: 10, marginBottom: 12 }}>
+          <div style={{ color: "var(--gold)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8, paddingLeft: 4 }}>
+            Privacy &amp; analytics
+          </div>
+          <div data-testid="analytics-row" style={{ padding: 10, display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--line)" }}>
+            <div style={{ flex: 1, paddingRight: 10 }}>
+              <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 600 }}>Anonymous usage analytics</div>
+              <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 3, lineHeight: 1.45 }}>
+                Helps us see which features people actually use. No content, no names, no chat text. Powered by PostHog (EU servers).
+              </div>
+            </div>
+            <button onClick={toggleAnalytics} data-testid="analytics-toggle"
+                    style={{ width: 44, height: 24, borderRadius: 12, background: analyticsOn ? "var(--gold)" : "var(--line)", border: "none", cursor: "pointer", position: "relative", flexShrink: 0 }}>
+              <span style={{ position: "absolute", top: 2, left: analyticsOn ? 22 : 2, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left 0.18s ease" }}></span>
+            </button>
+          </div>
+          <div data-testid="crash-row" style={{ padding: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ flex: 1, paddingRight: 10 }}>
+              <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 600 }}>Crash &amp; error reporting</div>
+              <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 3, lineHeight: 1.45 }}>
+                Sends technical error reports to Sentry so we can fix bugs. Includes the page you were on, never the content you typed.
+              </div>
+            </div>
+            <button onClick={toggleCrash} data-testid="crash-toggle"
+                    style={{ width: 44, height: 24, borderRadius: 12, background: crashOn ? "var(--gold)" : "var(--line)", border: "none", cursor: "pointer", position: "relative", flexShrink: 0 }}>
+              <span style={{ position: "absolute", top: 2, left: crashOn ? 22 : 2, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left 0.18s ease" }}></span>
+            </button>
+          </div>
+          {!analyticsOn && !crashOn && (
+            <div style={{ fontSize: 10.5, color: "var(--text-muted)", padding: "0 12px 8px", lineHeight: 1.5 }}>
+              ✓ Both off. Restart the app to apply fully (existing browser sessions stop on next page load).
+            </div>
+          )}
         </div>
 
         {/* Legal & data section */}
