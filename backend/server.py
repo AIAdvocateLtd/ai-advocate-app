@@ -8411,24 +8411,45 @@ async def submit_feedback(data: FeedbackPayload, user: dict = Depends(get_user))
 
 @api_router.get("/tips/daily")
 async def daily_tip(language: str = "en-GB", country: str = "GB", user: dict = Depends(get_user)):
-    today = datetime.now(timezone.utc).date().isoformat()
+    """Daily 'Know Your Rights' tip. UK + English users get one from the curated
+    120-tip pool (rotated by day-of-year + a stable per-user offset so two users
+    don't see the same tip on the same day). Non-UK / non-English users get a
+    cached LLM-generated tip in their language."""
+    today_dt = datetime.now(timezone.utc).date()
+    today = today_dt.isoformat()
+
+    # 🇬🇧 UK + English path → curated pool (no LLM cost, no repetition for ~4 months)
+    if (country or "").upper() == "GB" and (language or "").lower().startswith("en"):
+        try:
+            from tips_pool import tip_for, all_tips
+            day_of_year = today_dt.timetuple().tm_yday
+            # Stable per-user offset so two users don't see the same tip on the same day
+            user_offset = (sum(ord(c) for c in (user.get("id") or "")) % len(all_tips()))
+            tip = tip_for(day_of_year, user_offset)
+            return {"date": today, "tip": tip, "cached": False, "source": "curated_pool"}
+        except Exception as e:
+            logger.exception("curated tip pool failed, falling back to LLM")
+            # Continue to LLM path below
+
+    # 🌍 Non-UK / non-English → cached LLM tip (1 LLM call per day per locale)
     cache_key = f"{today}-{language}-{country}"
     cached = await db.tips_cache.find_one({"key": cache_key}, {"_id": 0})
     if cached:
-        return {"date": today, "tip": cached["tip"], "cached": True}
+        return {"date": today, "tip": cached["tip"], "cached": True, "source": "llm"}
     lang_name = LANG_NAMES.get(language, "English")
     sysmsg = f"""You are AI Advocate writing today's "Know Your Rights" tip for users in {country}.
 Output ONE concise tip (max 35 words) in {lang_name}. Practical, useful, surprising-but-true.
-No greetings, no preamble — just the tip itself."""
+Cite the relevant statute or scheme by name. No greetings, no preamble — just the tip itself."""
     chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"tip-{cache_key}", system_message=sysmsg)\
         .with_model("anthropic", "claude-haiku-4-5-20251001").with_params(max_tokens=80)
     try:
         tip = (await chat.send_message(UserMessage(text="Today's tip please."))).strip()
     except Exception:
-        logger.exception("daily tip failed"); tip = "Always ask for an officer's badge number — you have the right to record it."
+        logger.exception("daily tip LLM failed")
+        tip = "Always ask for an officer's badge number — you have the right to record it."
     await db.tips_cache.insert_one({"key": cache_key, "tip": tip,
                                      "created_at": datetime.now(timezone.utc).isoformat()})
-    return {"date": today, "tip": tip, "cached": False}
+    return {"date": today, "tip": tip, "cached": False, "source": "llm"}
 
 
 # ==================== File Deletion (soft delete → recycle bin) ====================
