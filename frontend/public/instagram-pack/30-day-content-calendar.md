@@ -45,18 +45,34 @@ All saved at `/instagram-pack/real-screens/` on your production site, i.e.:
 
 ### WEEK 1 — Launch announcements & big-feature reveals
 
-#### Day 1 · 🚀 The Launch
-**Image**: `01_home_clean.png`
+#### Day 1 · 🚀 The Launch — The Founder's Story
+**Image**: `01_home_clean.png` *(or a black-and-gold portrait quote card with the line "Built so no one else has to feel this alone.")*
 **Caption**:
-> The law in the palm of your hand. Live now.
+> **This is why I built AI Advocate.**
 >
-> AI Advocate is the UK's first true "lawyer in your pocket." Real-time legal answers, letter drafting, court prep, evidence storage, emergency rights — all from £0.
+> My wife lives with me in the UK on a spouse visa. She is a refugee, and her French travel document expired while she was here. She had already applied to renew it — the only thing missing was the journey back to France to collect the new one.
 >
-> First 100 sign-ups get a free 24-hour Pro day pass (worth £4.99).
+> We did everything by the book. We approached UK immigration solicitors. None could help. We then instructed French immigration lawyers based in France. They couldn't help either. The only advice we received was, "Go to the French embassy in London — she is under their protection, they will know what to do."
+>
+> We booked an appointment. We turned up on the day. We were met at the door by non-French security guards who refused to let her in. She never reached the appointment she had paid for, with the one institution that is supposed to protect her.
+>
+> She felt invisible. We had already paid solicitors. We had followed every official channel. We had no one left to turn to.
+>
+> I work at an airport, so I spoke to two airlines directly. The first said she could fly, but couldn't guarantee what French border control would say on arrival. The national carrier of the country protecting her refused her boarding outright.
+>
+> After weeks of research I found one untested route: Eurostar. The French border begins on UK soil at St Pancras — meaning if she were refused, she would still be in the UK, not stranded abroad. It worked. She made it to France, renewed her document, and came home.
+>
+> That experience changed me. There are people right now in a similar position — desperate, frightened, running out of money and out of doors to knock on. People who can't afford £350-an-hour solicitors for an answer that may or may not be the right one.
+>
+> So I built **AI Advocate**.
+>
+> Real-time legal information, grounded in UK statute, available in 11 languages. Free to start. Genuinely useful from the first question. Built for the person who has been turned away one too many times.
+>
+> If you've ever felt that helpless, this app is for you.
 >
 > 👉 aiadvocate.co.uk (link in bio)
 >
-> #LegalTech #UKLaw #AIlawyer #LegalAdvice #LaunchDay
+> #LegalTech #UKLaw #FoundersStory #ImmigrationLaw #AccessToJustice #BuiltForRealPeople
 
 #### Day 2 · 💬 The headline feature
 **Image**: `03_ask_lex_empty.png`

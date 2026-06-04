@@ -1,12 +1,21 @@
 # AI Advocate — Product Requirements Document
 
 ## Original Problem Statement
-"AI Advocate" — a multilingual "lawyer in your pocket" application. Free, Plus (£14.99), and Pro (£34.99) tiers with tiered LLM access. Stripe live subscriptions for consumers + law firms. Vault encryption, evidence analysis, Lex chat, hearing recorder, contract hub, firm portal with case threads, courtroom practice, emergency rights. Native iOS/Android wrap via Capacitor.
+"AI Advocate" — a multilingual "lawyer in your pocket" application. Free, Plus (£19.99), and Pro (£34.99) tiers with tiered LLM access. Stripe live subscriptions for consumers + law firms. Vault encryption, evidence analysis, Lex chat, hearing recorder, contract hub, firm portal with case threads, courtroom practice, emergency rights. Native iOS/Android wrap via Capacitor.
 
 ## Target Users
 - **Consumers** (UK/EU primarily, 11 languages supported) needing legal information
-- **Law firms** (B2B Featured £49 / Premium £199 / Practice £399 tiers)
+- **Law firms** (B2B Featured £49 / Premium £199 / Practice £499 tiers)
 - **Lawyers** working B2B2C via Firm Portal
+
+
+### 2026-02 (Iter 46 — Founder story + For-Firms PDF downloads + Tip-of-Day verified)
+- 📘 **For-Firms PDF download section** added to `/founding-firm-pitch.html` (route `/for-firms`). Two CTAs: Partner Introduction Pack (`/intro-pack.html`, 8pp A4) + One-page Pitch Card (`/pitch-card.html`). Plus a "copy share link" button. Lives above the trial-length pill grid. Test-ids: `firm-download-intro-pack`, `firm-download-pitch-card`, `firm-share-intro-pack`. Verified both PDFs load 200 in preview.
+- 🌟 **Day 1 Instagram launch post REWRITTEN** with the real founder story (wife's French travel document, embassies refusing her, Eurostar workaround). Professional tone. Replaces the generic ET1-helping-a-friend draft. Updated in `/app/frontend/public/instagram-pack/30-day-content-calendar.md`.
+- 💼 **New file `/app/memory/LINKEDIN_OUTREACH.md`** — pinned founder-story post (professional version), solicitor 1:1 DM template, weekly LinkedIn status template, posting cadence, and a price reference table (Plus = £19.99, NOT £14.99 — the old number was the Weekend Pass top-up, NOT the subscription).
+- 🧹 **Stale £14.99 references fixed** in `/app/memory/PRD.md` (was internal-only, never user-facing). Backend Stripe prices were always correct at £19.99.
+- ✅ **Tip-of-the-Day curated pool** verified live: 120 hand-written UK tips across 9 categories, deterministic rotation by day-of-year + per-user offset. Non-UK locales still get cached LLM translation. `source: "curated_pool"` for GB+en, `source: "llm"` elsewhere. Confirmed end-to-end via curl.
+- ✅ **Pricing inconsistency resolved**: aligned Practice tier text everywhere to **£499/mo** (matches `/founding-firm-pitch.html`). Fixed in `backend/server.py` lines 7798 + 7887 and `memory/PRD.md` target-users line. **CRITICAL TODO for founder**: update the live Stripe Price ID `STRIPE_PRICE_FIRM_PRACTICE` in `.env` (currently `price_1TcVaHFh8lRHrXPIGOKrL55T`) to a £499/mo price object in the Stripe Dashboard, otherwise the checkout will still charge the old amount. UI text is now consistent; Stripe Dashboard is the only remaining step.
 
 ## Completed Implementation (rolling)
 
@@ -288,7 +297,7 @@
 - **Cookie / PECR consent banner**: Persistent bottom banner on first visit with "Essential only" / "Accept all" choice; persists in localStorage. PostHog analytics is now gated — `ensureInit()` refuses to initialise until consent is granted, honouring `respect_dnt` browser flag.
 - **999 / Emergency Services banner**: Prominent tappable red banner at top of Emergency modal — `tel:999` direct dial, with EU 112 and US/CA 911 reminders. Coroner-report risk mitigation.
 - **DPIA template** at `/app/memory/DPIA.md` — full ICO-compliant DPIA scaffold covering lawful bases, processing description, retention, risk assessment, and sign-off section ready for your solicitor / DPO.
-- **Pricing left as-is** for now (£14.99 / £34.99 / £319.99) — these touch live Stripe price IDs and need an explicit decision before changing.
+- **Pricing left as-is** for now (£19.99 / £34.99 / £319.99) — these touch live Stripe price IDs and need an explicit decision before changing.
 
 ### 2026-02 (Session 2g — Capacitor 7 wrap prep)
 - **Installed Capacitor 7** (`@capacitor/core`, `@capacitor/cli`, `@capacitor/ios`, `@capacitor/android`) and all essential plugins: Geolocation, Filesystem, Share, Preferences (Keychain/EncryptedSharedPreferences), SplashScreen, StatusBar, App, Haptics, Network, Device, Clipboard, Keyboard, Browser.

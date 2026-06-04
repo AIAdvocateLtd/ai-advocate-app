@@ -7795,7 +7795,7 @@ async def firm_remove_user(user_id: str, firm: dict = Depends(get_firm)):
 
 @api_router.post("/firm/subscribe")
 async def firm_subscribe(plan: str = "featured", firm: dict = Depends(get_firm)):
-    """Stripe checkout for firms — £49/mo Featured, £199/mo Premium, £399/mo Practice."""
+    """Stripe checkout for firms — £49/mo Featured, £199/mo Premium, £499/mo Practice."""
     if plan not in ("featured", "premium", "practice"):
         raise HTTPException(400, "plan must be 'featured', 'premium', or 'practice'")
     if not STRIPE_API_KEY:
@@ -7884,7 +7884,7 @@ async def firm_create_engagement(data: EngagementCreate, firm: dict = Depends(ge
     """Firm initiates an engagement with a client. Returns invite_token URL for client to accept."""
     tier = _firm_tier(firm)
     if FIRM_ENGAGEMENT_LIMITS[tier] <= 0:
-        raise HTTPException(402, "Client engagements aren't included in your current plan. Upgrade to Premium (£199/mo) or Practice (£399/mo) to invite clients securely.")
+        raise HTTPException(402, "Client engagements aren't included in your current plan. Upgrade to Premium (£199/mo) or Practice (£499/mo) to invite clients securely.")
     # Block self-invite (firm contact email == client email)
     if data.client_email and (data.client_email or "").lower() == (firm.get("email") or "").lower():
         raise HTTPException(400, "You cannot invite your own firm email as a client.")
