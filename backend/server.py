@@ -6593,6 +6593,68 @@ async def admin_list_sanity_checks(_: dict = Depends(_check_admin_user)):
     }
 
 
+@api_router.get("/admin/stripe-price-audit")
+async def admin_stripe_price_audit(_: dict = Depends(_check_admin_user)):
+    """One-shot audit: resolve every STRIPE_PRICE_* env var to its real
+    product name + amount in Stripe. Use after editing Price IDs in .env."""
+    if not STRIPE_API_KEY:
+        raise HTTPException(503, "Stripe not configured")
+    targets = {
+        "STRIPE_PRICE_PLUS":            ("Plus consumer",  19.99, "month"),
+        "STRIPE_PRICE_PRO":             ("Pro consumer",   34.99, "month"),
+        "STRIPE_PRICE_YEARLY_PRO":      ("Pro yearly",    319.99, "year"),
+        "STRIPE_PRICE_FIRM_FEATURED":   ("Firm Featured",  49.00, "month"),
+        "STRIPE_PRICE_FIRM_PREMIUM":    ("Firm Premium",  199.00, "month"),
+        "STRIPE_PRICE_FIRM_PRACTICE":   ("Firm Practice", 499.00, "month"),
+        "STRIPE_PRICE_TOPUP_DAY_PASS":  ("Day Pass",        4.99, "one_time"),
+        "STRIPE_PRICE_TOPUP_LETTER_PACK":("Letter Pack",    9.99, "one_time"),
+        "STRIPE_PRICE_TOPUP_WEEKEND_PASS":("Weekend Pass", 14.99, "one_time"),
+        "STRIPE_PRICE_TOPUP_CRISIS_PACK":("Crisis Pack",   29.99, "one_time"),
+        "STRIPE_PRICE_SANITY_CHECK":   ("Solicitor Sanity Check", 49.00, "one_time"),
+    }
+    rows = []
+    for env_key, (label, expected_gbp, expected_interval) in targets.items():
+        pid = os.environ.get(env_key, "").strip()
+        row = {"env_var": env_key, "expected_label": label,
+               "expected_gbp": expected_gbp, "expected_interval": expected_interval,
+               "price_id": pid}
+        if not pid:
+            row["status"] = "missing"
+            rows.append(row); continue
+        try:
+            p = stripe.Price.retrieve(pid)
+            actual_gbp = (p.unit_amount or 0) / 100.0
+            actual_currency = (p.currency or "").upper()
+            actual_interval = (p.recurring.interval if p.recurring else "one_time")
+            prod = stripe.Product.retrieve(p.product)
+            row.update({
+                "actual_gbp": actual_gbp,
+                "actual_currency": actual_currency,
+                "actual_interval": actual_interval,
+                "actual_product_name": prod.name,
+                "active": p.active,
+                "match": (
+                    abs(actual_gbp - expected_gbp) < 0.01
+                    and actual_currency == "GBP"
+                    and actual_interval == expected_interval
+                ),
+            })
+            row["status"] = "ok" if row["match"] else "MISMATCH"
+        except Exception as e:
+            row["status"] = "error"
+            row["error"] = str(e)
+        rows.append(row)
+    summary = {
+        "ok":       sum(1 for r in rows if r["status"] == "ok"),
+        "mismatch": sum(1 for r in rows if r["status"] == "MISMATCH"),
+        "missing":  sum(1 for r in rows if r["status"] == "missing"),
+        "error":    sum(1 for r in rows if r["status"] == "error"),
+    }
+    return {"rows": rows, "summary": summary}
+
+
+
+
 
 
 
