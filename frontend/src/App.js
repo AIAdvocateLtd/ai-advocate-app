@@ -8514,6 +8514,10 @@ function AdminSolicitorBriefCard({ lang }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
 // =============================== ADMIN — ERROR BOUNDARY ===============================
 // Wraps the owner-only admin cards so that a runtime crash in ANY one card never
 // blanks the Settings modal for the founder. Shows a small recoverable banner
@@ -8562,13 +8566,6 @@ class AdminSafeBoundary extends React.Component {
     return this.props.children;
   }
 }
-
-
-    </div>
-  );
-}
-
-
 
 
 
