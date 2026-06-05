@@ -8670,12 +8670,6 @@ function DeleteAnalyticsDataRow({ lang }) {
 }
 
 
-// =============================== ADMIN — FOUNDER SIGNATURE ===============================
-// Persists the founder's signature in app_settings so auto-Founding-Firm-Agreements
-// fire on every new firm signup (first 20 only).
-function AdminFounderSignatureCard() {
-  const [state, setState] = useState({ is_set: false, saved_at: null, data_url: "" });
-  const [loading, setLoading] = useState(true);
 // =============================== ADMIN — STRIPE PRICE AUDIT ===============================
 // Verifies every STRIPE_PRICE_* env var resolves to the right product + amount in Stripe.
 // Run after editing a price ID in .env. Returns 11 rows with ✅ ok / ⚠ mismatch / ❌ error.
@@ -8803,6 +8797,12 @@ function AdminStripePriceAuditCard() {
 }
 
 
+// =============================== ADMIN — FOUNDER SIGNATURE ===============================
+// Persists the founder's signature in app_settings so auto-Founding-Firm-Agreements
+// fire on every new firm signup (first 20 only).
+function AdminFounderSignatureCard() {
+  const [state, setState] = useState({ is_set: false, saved_at: null, data_url: "" });
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
