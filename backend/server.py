@@ -8468,6 +8468,79 @@ async def submit_feedback(data: FeedbackPayload, user: dict = Depends(get_user))
     return {"ok": True}
 
 
+# ==================== GDPR — Delete Analytics Data (PostHog + Sentry) ====================
+# Honours UK GDPR Art. 17 "Right to erasure" for product analytics / crash reports.
+# • Wipes the user's PostHog person + events (if POSTHOG_PERSONAL_API_KEY is configured).
+# • Sentry doesn't support per-user delete via API — we record the request server-side
+#   so the founder can action it via Sentry support if/when asked.
+# • Always sets server-side flag `analytics_deleted_at` so future events from this user are
+#   dropped before they reach PostHog (defense in depth).
+
+@api_router.post("/privacy/delete-analytics-data")
+async def privacy_delete_analytics(user: dict = Depends(get_user)):
+    """User-initiated GDPR delete of product-analytics data.
+    Wipes PostHog person + events for this user (server-side, best-effort).
+    Records the request locally so we keep an audit trail."""
+    user_id = user["id"]
+    now = datetime.now(timezone.utc).isoformat()
+    result = {
+        "posthog": {"attempted": False, "status": "skipped", "detail": "no personal key configured"},
+        "sentry":  {"attempted": False, "status": "logged",  "detail": "per-user delete must be requested via Sentry support"},
+        "requested_at": now,
+    }
+
+    # PostHog: requires personal API key + project id (different from the public client token).
+    ph_key  = os.environ.get("POSTHOG_PERSONAL_API_KEY", "").strip()
+    ph_proj = os.environ.get("POSTHOG_PROJECT_ID", "").strip()
+    ph_host = os.environ.get("POSTHOG_HOST", "https://eu.posthog.com").rstrip("/")
+    if ph_key and ph_proj:
+        result["posthog"]["attempted"] = True
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as cx:
+                # 1) Find person by distinct_id (we use the user's UUID as identify())
+                find_url = f"{ph_host}/api/projects/{ph_proj}/persons/?distinct_id={user_id}"
+                headers = {"Authorization": f"Bearer {ph_key}"}
+                r = await cx.get(find_url, headers=headers)
+                if r.status_code != 200:
+                    result["posthog"]["status"] = "not_found"
+                    result["posthog"]["detail"] = f"PostHog persons lookup returned {r.status_code}"
+                else:
+                    persons = (r.json() or {}).get("results", []) or []
+                    deleted = 0
+                    for p in persons:
+                        pid = p.get("id")
+                        if not pid:
+                            continue
+                        del_url = f"{ph_host}/api/projects/{ph_proj}/persons/{pid}/?delete_events=true"
+                        d = await cx.delete(del_url, headers=headers)
+                        if d.status_code in (200, 202, 204):
+                            deleted += 1
+                    result["posthog"]["status"] = "deleted" if deleted else "not_found"
+                    result["posthog"]["persons_deleted"] = deleted
+        except Exception as e:
+            logger.exception("PostHog GDPR delete failed")
+            result["posthog"]["status"] = "error"
+            result["posthog"]["detail"] = str(e)[:200]
+
+    # Stamp the user record so future event ingestion can be suppressed defense-in-depth.
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"analytics_deleted_at": now}},
+    )
+
+    # Audit trail
+    await db.privacy_analytics_deletions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "user_email": user.get("email") or "",
+        "result": result,
+        "created_at": now,
+    })
+    return result
+
+
+
+
 # ==================== Daily "Know Your Rights" Tip ====================
 # Cached per-day per-language so we don't burn LLM calls every request.
 

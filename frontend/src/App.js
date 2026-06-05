@@ -1636,7 +1636,37 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
 
   const isPro = tier === "pro" || tier === "yearly" || tier === "trial_pro";
 
-  useEffect(() => { scrollRef.current?.scrollTo({ top: 1e9, behavior: "smooth" }); }, [messages, busy]);
+  // 🪄 Smart scroll behaviour:
+  //   • new user message → scroll to bottom (so the user sees their own send)
+  //   • new lex message → scroll the TOP of the new bubble to near the top
+  //     of the chat container, ONCE. Then leave the user alone while content
+  //     streams in (so the answer reads naturally top → down without chasing).
+  //   • content streaming within an existing bubble → never auto-scroll.
+  // (Old buggy behaviour: depended on the whole `messages` array, so every
+  // streaming chunk forced a scroll-to-bottom and the answer kept fleeing up.)
+  const lastMsgCountRef = useRef(0);
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    if (messages.length > lastMsgCountRef.current) {
+      const newMsg = messages[messages.length - 1];
+      if (newMsg?.role === "user") {
+        container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+      } else if (newMsg?.role === "lex") {
+        requestAnimationFrame(() => {
+          const node = container.querySelector(`[data-msg-index="${messages.length - 1}"]`);
+          if (node) {
+            const delta = node.getBoundingClientRect().top
+                        - container.getBoundingClientRect().top - 12;
+            container.scrollBy({ top: delta, behavior: "smooth" });
+          } else {
+            container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+          }
+        });
+      }
+    }
+    lastMsgCountRef.current = messages.length;
+  }, [messages.length]);
 
   // 📜 Resume a previous session from Case Timeline.
   // When the user taps "open" on a chat row, we re-hydrate the full message history
@@ -2041,7 +2071,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
             </div>
           )}
           {messages.map((m, i) => (
-            <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start" }}>
+            <div key={i} data-msg-index={i} style={{ display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start" }}>
               {m._isCaseContext ? (
                 <div data-testid={`case-context-banner-${i}`} style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 12, width: "100%", marginTop: 4 }}>
                   <div style={{ color: "var(--gold)", fontWeight: 700, fontSize: 11.5, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>📂 Case context loaded</div>
@@ -3111,7 +3141,31 @@ function CourtroomModal({ lang, country, onClose }) {
   const [pSession, setPSession] = useState(null);
   const { recording, start, stop } = useRecorder();
   const pScroll = useRef(null);
-  useEffect(() => { pScroll.current?.scrollTo({ top: 1e9, behavior: "smooth" }); }, [pMsgs, pBusy]);
+  // 🪄 Smart scroll: scroll to bottom on user-send, top-anchor on new lex
+  // reply, no auto-scroll on streaming content updates. Match LexChat.
+  const pLastCountRef = useRef(0);
+  useEffect(() => {
+    const container = pScroll.current;
+    if (!container) return;
+    if (pMsgs.length > pLastCountRef.current) {
+      const newMsg = pMsgs[pMsgs.length - 1];
+      if (newMsg?.role === "user") {
+        container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+      } else if (newMsg?.role === "lex") {
+        requestAnimationFrame(() => {
+          const node = container.querySelector(`[data-pmsg-index="${pMsgs.length - 1}"]`);
+          if (node) {
+            const delta = node.getBoundingClientRect().top
+                        - container.getBoundingClientRect().top - 12;
+            container.scrollBy({ top: delta, behavior: "smooth" });
+          } else {
+            container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+          }
+        });
+      }
+    }
+    pLastCountRef.current = pMsgs.length;
+  }, [pMsgs.length]);
 
   const sendPractice = async (text) => {
     if (!text.trim()) return;
@@ -3470,7 +3524,7 @@ function CourtroomModal({ lang, country, onClose }) {
             )}
             <div ref={pScroll} style={{ flex: 1, overflowY: "auto", marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
               {pMsgs.map((m, i) => (
-                <div key={i} className={m.role === "user" ? "bubble-user" : "bubble-lex"}
+                <div key={i} data-pmsg-index={i} className={m.role === "user" ? "bubble-user" : "bubble-lex"}
                      style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", padding: "9px 12px", borderRadius: 14, maxWidth: "82%", whiteSpace: "pre-wrap", fontSize: 14 }}>
                   {m.content}
                 </div>
@@ -6842,6 +6896,8 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
         {user?.is_owner && <CompFirmAdminCard lang={lang} />}
         {/* 💷 OWNER ONLY — commission ledger + Stripe auto-invoicing for firms */}
         {user?.is_owner && <AdminCommissionsCard />}
+        {/* 💰 OWNER ONLY — verify every STRIPE_PRICE_* env var resolves to the right amount */}
+        {user?.is_owner && <AdminStripePriceAuditCard />}
         {/* ✍️ OWNER ONLY — default founder signature for auto-fire Founding Firm Agreements */}
         {user?.is_owner && <AdminFounderSignatureCard />}
 
@@ -6995,6 +7051,9 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
               ✓ Both off. Restart the app to apply fully (existing browser sessions stop on next page load).
             </div>
           )}
+
+          {/* 🗑 GDPR — Delete all my analytics data (PostHog + Sentry server-side wipe). */}
+          <DeleteAnalyticsDataRow lang={lang} />
         </div>
 
         {/* Legal & data section */}
@@ -8457,12 +8516,240 @@ function AdminSolicitorBriefCard({ lang }) {
 
 
 
+// =============================== PRIVACY — DELETE ANALYTICS DATA ===============================
+// UK GDPR Art. 17 "Right to erasure" applied to PostHog + Sentry data.
+// • Calls backend which wipes the user's PostHog person + events (best-effort).
+// • Client-side: resets PostHog distinct_id and flips local opt-outs to on.
+function DeleteAnalyticsDataRow({ lang }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null);
+
+  const doDelete = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post("/privacy/delete-analytics-data");
+      try { resetAnalytics(); } catch (e) { /* no-op */ }
+      try {
+        localStorage.setItem("aa_analytics_off", "1");
+        localStorage.setItem("aa_crash_off", "1");
+        window.__aa_analytics_off = true;
+      } catch (e) { /* no-op */ }
+      setDone(data);
+      setConfirming(false);
+      aaToast("Your analytics data has been deleted.", "success");
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Couldn't complete the deletion. Please try again.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div data-testid="privacy-delete-analytics-row" style={{ padding: 12, borderTop: "1px solid var(--line)" }}>
+      {!confirming && !done && (
+        <>
+          <button data-testid="privacy-delete-analytics-btn" onClick={() => setConfirming(true)}
+                  style={{ background: "transparent", border: "1px solid #fca5a5",
+                           color: "#fca5a5", padding: "8px 14px", borderRadius: 8,
+                           fontSize: 12.5, cursor: "pointer", fontWeight: 600 }}>
+            🗑 Delete all my analytics data
+          </button>
+          <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6, lineHeight: 1.5 }}>
+            Permanently removes every product-analytics event we hold for you. Stops all future tracking too.
+            Does not delete your AI Advocate account — use "Delete account" below for that.
+          </div>
+        </>
+      )}
+
+      {confirming && (
+        <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.45)",
+                      borderRadius: 10, padding: 12 }}>
+          <div style={{ color: "#fca5a5", fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
+            Permanently delete your analytics data?
+          </div>
+          <div style={{ color: "var(--text-dim)", fontSize: 12, marginBottom: 12, lineHeight: 1.5 }}>
+            We will:
+            <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
+              <li>Delete every PostHog event linked to your account.</li>
+              <li>Reset your anonymous tracking ID on this device.</li>
+              <li>Switch off analytics + crash reporting from now on.</li>
+            </ul>
+            This cannot be undone. Your account, files, chats and case notes are untouched.
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button data-testid="privacy-delete-analytics-confirm" onClick={doDelete} disabled={busy}
+                    style={{ background: "#ef4444", border: "none", color: "#fff",
+                             padding: "8px 16px", borderRadius: 8, fontSize: 12.5,
+                             fontWeight: 700, cursor: busy ? "default" : "pointer", flex: 1 }}>
+              {busy ? "Deleting…" : "Yes, delete it"}
+            </button>
+            <button data-testid="privacy-delete-analytics-cancel" onClick={() => setConfirming(false)}
+                    disabled={busy} style={{ background: "transparent", border: "1px solid var(--line)",
+                                              color: "var(--text)", padding: "8px 16px", borderRadius: 8,
+                                              fontSize: 12.5, cursor: "pointer" }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {done && (
+        <div data-testid="privacy-delete-analytics-done"
+             style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.4)",
+                      borderRadius: 10, padding: 12 }}>
+          <div style={{ color: "#86efac", fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
+            ✓ Done — your analytics data is gone.
+          </div>
+          <div style={{ color: "var(--text-dim)", fontSize: 11.5, lineHeight: 1.6 }}>
+            <div>• PostHog: <strong>{done.posthog?.status}</strong>
+              {typeof done.posthog?.persons_deleted === "number"
+                  ? ` (${done.posthog.persons_deleted} record${done.posthog.persons_deleted === 1 ? "" : "s"} removed)`
+                  : ""}
+            </div>
+            <div>• Sentry: per-user delete must be requested via Sentry support — we've logged your request and will action it within 30 days.</div>
+            <div>• Future tracking: switched off on this device.</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // =============================== ADMIN — FOUNDER SIGNATURE ===============================
 // Persists the founder's signature in app_settings so auto-Founding-Firm-Agreements
 // fire on every new firm signup (first 20 only).
 function AdminFounderSignatureCard() {
   const [state, setState] = useState({ is_set: false, saved_at: null, data_url: "" });
   const [loading, setLoading] = useState(true);
+// =============================== ADMIN — STRIPE PRICE AUDIT ===============================
+// Verifies every STRIPE_PRICE_* env var resolves to the right product + amount in Stripe.
+// Run after editing a price ID in .env. Returns 11 rows with ✅ ok / ⚠ mismatch / ❌ error.
+function AdminStripePriceAuditCard() {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState("");
+
+  const run = async () => {
+    setBusy(true); setErr("");
+    try {
+      const { data: r } = await api.get("/admin/stripe-price-audit");
+      setData(r);
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Couldn't run the audit. Check Stripe API key.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const summary = data?.summary || {};
+  const allOk = data && summary.mismatch === 0 && summary.missing === 0 && summary.error === 0;
+
+  return (
+    <div data-testid="admin-stripe-audit-card" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+      <button onClick={() => setOpen(o => !o)} data-testid="admin-stripe-audit-toggle"
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+                       background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--gold)" }}>
+        <span style={{ fontWeight: 700, fontSize: 14 }}>
+          💰 Stripe price audit
+          {data && (
+            <span style={{ marginLeft: 8, fontSize: 11, padding: "2px 8px", borderRadius: 999,
+                           background: allOk ? "rgba(34,197,94,0.18)" : "rgba(239,68,68,0.18)",
+                           color: allOk ? "#86efac" : "#fca5a5", fontWeight: 700 }}>
+              {allOk ? `✓ all ${summary.ok} prices match` : `⚠ ${summary.mismatch + summary.error + summary.missing} need attention`}
+            </span>
+          )}
+        </span>
+        <span style={{ color: "var(--text-dim)" }}>{open ? "▾" : "▸"}</span>
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 10, lineHeight: 1.55 }}>
+            Resolves every <code style={{ background: "rgba(247,201,72,0.1)", padding: "1px 5px", borderRadius: 4 }}>STRIPE_PRICE_*</code> env var
+            to the live product + amount in Stripe. Run this after editing any price ID — it's the only way to be sure customers
+            are being charged the right amount.
+          </div>
+
+          <button data-testid="admin-stripe-audit-run" onClick={run} disabled={busy}
+                  style={{ background: "var(--gold)", border: "none", color: "#1a1300",
+                           padding: "8px 16px", borderRadius: 8, fontSize: 12.5, fontWeight: 700,
+                           cursor: busy ? "default" : "pointer" }}>
+            {busy ? "Checking Stripe…" : data ? "Re-run audit" : "Run audit"}
+          </button>
+
+          {err && <div style={{ color: "#fca5a5", fontSize: 12, marginTop: 8 }}>{err}</div>}
+
+          {data && (
+            <div style={{ marginTop: 12, overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ color: "var(--gold)", fontWeight: 600, textAlign: "left",
+                               borderBottom: "1px solid var(--line)" }}>
+                    <th style={{ padding: "6px 6px" }}>Tier</th>
+                    <th style={{ padding: "6px 6px" }}>Expected</th>
+                    <th style={{ padding: "6px 6px" }}>Actual</th>
+                    <th style={{ padding: "6px 6px" }}>Product</th>
+                    <th style={{ padding: "6px 6px" }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.rows.map((r, i) => {
+                    const ok = r.status === "ok";
+                    return (
+                      <tr key={i} data-testid={`stripe-audit-row-${r.env_var}`} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                        <td style={{ padding: "6px 6px", color: "var(--text)" }}>
+                          <div style={{ fontWeight: 600 }}>{r.expected_label}</div>
+                          <div style={{ fontSize: 10, color: "var(--text-dim)" }}>{r.env_var}</div>
+                        </td>
+                        <td style={{ padding: "6px 6px", color: "var(--text-dim)" }}>
+                          £{r.expected_gbp?.toFixed(2)}<br />
+                          <span style={{ fontSize: 10 }}>{r.expected_interval}</span>
+                        </td>
+                        <td style={{ padding: "6px 6px", color: ok ? "#86efac" : "#fca5a5", fontWeight: 600 }}>
+                          {typeof r.actual_gbp === "number"
+                            ? <>£{r.actual_gbp.toFixed(2)}{r.actual_currency && r.actual_currency !== "GBP" ? ` ${r.actual_currency}` : ""}<br />
+                                <span style={{ fontSize: 10, fontWeight: 400 }}>{r.actual_interval}</span></>
+                            : <span style={{ color: "#fca5a5" }}>—</span>}
+                        </td>
+                        <td style={{ padding: "6px 6px", color: "var(--text-dim)", fontSize: 11 }}>
+                          {r.actual_product_name || "—"}
+                        </td>
+                        <td style={{ padding: "6px 6px" }}>
+                          <span style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 999, fontWeight: 700,
+                                          background: ok ? "rgba(34,197,94,0.18)"
+                                                          : r.status === "missing" ? "rgba(148,163,184,0.2)"
+                                                          : "rgba(239,68,68,0.18)",
+                                          color: ok ? "#86efac"
+                                                    : r.status === "missing" ? "#94a3b8"
+                                                    : "#fca5a5" }}>
+                            {ok ? "✓ OK" : r.status === "missing" ? "MISSING" : r.status === "error" ? "ERROR" : "MISMATCH"}
+                          </span>
+                          {r.error && <div style={{ fontSize: 10, color: "#fca5a5", marginTop: 4 }}>{r.error}</div>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+
+              <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.55 }}>
+                Summary: <strong style={{ color: "#86efac" }}>{summary.ok} OK</strong>
+                {summary.mismatch ? <> · <strong style={{ color: "#fca5a5" }}>{summary.mismatch} mismatch</strong></> : ""}
+                {summary.missing ? <> · <strong style={{ color: "#94a3b8" }}>{summary.missing} missing</strong></> : ""}
+                {summary.error ? <> · <strong style={{ color: "#fca5a5" }}>{summary.error} error</strong></> : ""}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
   const [busy, setBusy] = useState(false);
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);

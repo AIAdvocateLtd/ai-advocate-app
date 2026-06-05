@@ -1,0 +1,38 @@
+{
+  "summary": "Iter 25 - tested 3 changes: (A) Smart-scroll fix in LexChat / CourtroomModal — code-reviewed (depends on messages.length only, anchors top via data-msg-index / data-pmsg-index — implementation is correct). (B) New POST /api/privacy/delete-analytics-data — fully verified end-to-end (backend pytest + UI). (C) New GET /api/admin/stripe-price-audit + AdminStripePriceAuditCard — backend fully verified (admin/non-admin/unauth/11 rows/summary ok:11), but admin UI card couldn't be exercised through Playwright (settings modal did not open for admin user in 3 attempts — see context_for_next_testing_agent). 6/6 backend tests pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Admin Settings modal open via [data-testid=settings-btn]", "issue": "After admin login, clicking the settings gear fails to mount the Settings modal in 3 attempts (modal contents 'Privacy & analytics' not in DOM, splash screen re-appears). Same flow works perfectly for regular test@advocate.app user. Possible root cause: a downstream admin-only API call inside the Settings modal subtree throws and unmounts the dialog, OR the dashboard is still re-rendering admin-only widgets when the settings-btn handler fires. Recommend: open admin Settings manually in browser and check browser console for errors, OR wrap the admin-only cards in error boundaries so a failure in one card (e.g. AdminCommissionsCard) doesn't block the entire modal.", "affected_selectors": ["[data-testid=admin-stripe-audit-card]", "[data-testid=settings-btn]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter25_privacy_and_stripe_audit.py",
+    "/app/test_reports/pytest/iter25_results.xml"
+  ],
+  "action_items": [
+    "Manually verify the AdminStripePriceAuditCard renders inside the Settings modal for admin@aiadvocate.co.uk (preview env). The backend endpoint, the 'user.is_owner' flag from /api/auth/me, and all data-testids are confirmed correct — only the modal didn't reach DOM in automated tests for admin.",
+    "Consider adding a top-level <ErrorBoundary> around the admin-only cards in the Settings modal so a failure in one doesn't blank the modal. Even if not the cause here, it's good defense-in-depth for owner-only widgets."
+  ],
+  "critical_code_review_comments": [
+    "server.py 12,571 lines — still urgently needs splitting (recurring feedback). At this size, hot reloads + grep navigation are getting slow.",
+    "Smart-scroll fix (App.js ~1639 & ~3128) correctly depends only on messages.length (length-only useEffect dep) — the buggy old behaviour that re-scrolled on every chunk would only happen if dep was `messages` (full array). Implementation is sound.",
+    "/api/privacy/delete-analytics-data — PostHog persons lookup uses GET /persons/?distinct_id=... which is correct for PostHog's REST API. Status 'skipped' returned when POSTHOG_PERSONAL_API_KEY is absent matches the documented contract.",
+    "AdminStripePriceAuditCard fetches `/admin/stripe-price-audit` synchronously and renders 11 row testids — but if any single Stripe.Price.retrieve call hangs, the request will block all 11. Consider asyncio.gather() in admin_stripe_price_audit to parallelise the 11 Stripe calls; current code makes them sequentially which can take 10+ seconds on slow networks."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter25_privacy_and_stripe_audit.py (NEW — 6 tests)"
+  ],
+  "success_rate": {"backend": "100% (6/6 new + 40/40 prior regression untouched)", "frontend": "Regular-user privacy delete: 100%. Admin Stripe audit UI: not reached (3/3 attempts couldn't open admin Settings modal)."},
+  "test_credentials": "test@advocate.app / Test12345! and admin@aiadvocate.co.uk / AdminLex2026!",
+  "seed_data_creation": "TestPrivacyDeleteAnalytics POSTs the GDPR delete twice on test@advocate.app — leaves analytics_deleted_at flag + 2-3 audit rows in db.privacy_analytics_deletions. Confirmed via direct mongo query.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Login flow: localStorage key is 'aa_token'; backend returns { access_token, user{is_owner,email,...} } (NOT 'token'). Settings opens via [data-testid=settings-btn] (gear icon top-right of dashboard) — NOT a route. The 11 expected env vars for stripe audit: STRIPE_PRICE_PLUS, _PRO, _YEARLY_PRO, _FIRM_FEATURED, _FIRM_PREMIUM, _FIRM_PRACTICE, _TOPUP_DAY_PASS, _TOPUP_LETTER_PACK, _TOPUP_WEEKEND_PASS, _TOPUP_CRISIS_PACK, _SANITY_CHECK — all currently ok:11/mismatch:0/missing:0/error:0 (verified via authenticated curl). For UI test of admin card, recommend (1) wait_for_selector on [data-testid=tile-cases] AND a wait of 8-10s after dashboard load before clicking settings-btn, (2) if modal still doesn't open, click settings-btn twice with 500ms between, (3) check browser console for any 'is_owner' or admin-card-component crash. Smart-scroll bug fix code (App.js line 1647-1669 for LexChat, ~3150 for CourtroomModal) was code-reviewed — useEffect dep is [messages.length] not [messages], so the documented bug (auto-scroll on every streaming chunk) IS fixed by construction; no need to test streaming behaviour empirically unless main-agent wants a UI smoke test.",
+  "rca of the issue": "Backend: no bugs. All endpoints behave as documented in the review request: privacy/delete-analytics-data is auth-gated (401 unauth), returns posthog{attempted,status:'skipped',detail}/sentry{status:'logged'}/requested_at, persists analytics_deleted_at on user + inserts audit row in privacy_analytics_deletions (verified via direct mongo query: user has analytics_deleted_at='2026-06-05T08:23:29...' and 3 audit rows exist). admin/stripe-price-audit is admin-gated (403 for non-admin), returns 11 rows with summary={ok:11,mismatch:0,missing:0,error:0}. Frontend regular-user flow works perfectly. Frontend admin-user flow blocked by inability to open Settings modal for admin in 3 test attempts — RCA unclear (possible: admin-only Settings child crashes and unmounts the dialog; possible: dashboard not fully hydrated when settings-btn clicked despite waiting 6s after tile-ask_lex appears). Recommend manual verification in browser and/or add an ErrorBoundary."
+}
