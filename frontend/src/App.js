@@ -6886,20 +6886,26 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
         {/* 🚨 Emergency Contacts + Lawyer Standby + Watch SOS — life-safety section */}
         <EmergencyContactsCard lang={lang} user={user} />
 
-        {/* 🎁 OWNER ONLY — comp Pro access for family / friends / customer service */}
-        {user?.is_owner && <CompProAdminCard lang={lang} />}
-        {/* 📬 OWNER ONLY — Suggestions inbox from "Missing a legal area?" submissions */}
-        {user?.is_owner && <AdminSuggestionsCard lang={lang} />}
-        {/* 📄 OWNER ONLY — Solicitor brief download */}
-        {user?.is_owner && <AdminSolicitorBriefCard lang={lang} />}
-        {/* 🏛 OWNER ONLY — comp tier access for law firms (founding-firm cohort) */}
-        {user?.is_owner && <CompFirmAdminCard lang={lang} />}
-        {/* 💷 OWNER ONLY — commission ledger + Stripe auto-invoicing for firms */}
-        {user?.is_owner && <AdminCommissionsCard />}
-        {/* 💰 OWNER ONLY — verify every STRIPE_PRICE_* env var resolves to the right amount */}
-        {user?.is_owner && <AdminStripePriceAuditCard />}
-        {/* ✍️ OWNER ONLY — default founder signature for auto-fire Founding Firm Agreements */}
-        {user?.is_owner && <AdminFounderSignatureCard />}
+        {/* 🛡 Admin-only widgets are wrapped in an error boundary so a crash in
+            any one card cannot blank the entire Settings modal (defense-in-depth). */}
+        {user?.is_owner && (
+          <AdminSafeBoundary>
+            {/* 🎁 OWNER ONLY — comp Pro access for family / friends / customer service */}
+            <CompProAdminCard lang={lang} />
+            {/* 📬 OWNER ONLY — Suggestions inbox from "Missing a legal area?" submissions */}
+            <AdminSuggestionsCard lang={lang} />
+            {/* 📄 OWNER ONLY — Solicitor brief download */}
+            <AdminSolicitorBriefCard lang={lang} />
+            {/* 🏛 OWNER ONLY — comp tier access for law firms (founding-firm cohort) */}
+            <CompFirmAdminCard lang={lang} />
+            {/* 💷 OWNER ONLY — commission ledger + Stripe auto-invoicing for firms */}
+            <AdminCommissionsCard />
+            {/* 💰 OWNER ONLY — verify every STRIPE_PRICE_* env var resolves to the right amount */}
+            <AdminStripePriceAuditCard />
+            {/* ✍️ OWNER ONLY — default founder signature for auto-fire Founding Firm Agreements */}
+            <AdminFounderSignatureCard />
+          </AdminSafeBoundary>
+        )}
 
         {/* Auto-detect language toggle */}
         <div data-testid="settings-autodetect" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
@@ -8508,6 +8514,56 @@ function AdminSolicitorBriefCard({ lang }) {
           </div>
         )}
       </div>
+// =============================== ADMIN — ERROR BOUNDARY ===============================
+// Wraps the owner-only admin cards so that a runtime crash in ANY one card never
+// blanks the Settings modal for the founder. Shows a small recoverable banner
+// with the error message + a "Retry" button.
+class AdminSafeBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { err: null };
+  }
+  static getDerivedStateFromError(err) {
+    return { err };
+  }
+  componentDidCatch(err, info) {
+    // Surface to Sentry if it's on; safe no-op otherwise.
+    try {
+      // eslint-disable-next-line no-console
+      console.error("[AdminSafeBoundary]", err, info?.componentStack);
+    } catch (e) { /* no-op */ }
+  }
+  retry = () => this.setState({ err: null });
+  render() {
+    if (this.state.err) {
+      return (
+        <div data-testid="admin-cards-error-boundary"
+             style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.4)",
+                      borderRadius: 12, padding: 14, marginBottom: 12 }}>
+          <div style={{ color: "#fca5a5", fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
+            ⚠ Admin panel hit an unexpected error
+          </div>
+          <div style={{ color: "var(--text-dim)", fontSize: 11.5, marginBottom: 10, lineHeight: 1.5 }}>
+            One of the owner-only cards crashed — your Settings menu is still safe to use.
+            <div style={{ marginTop: 6, fontFamily: "monospace", fontSize: 10.5,
+                          color: "var(--text-muted)", wordBreak: "break-word" }}>
+              {String(this.state.err?.message || this.state.err).slice(0, 240)}
+            </div>
+          </div>
+          <button onClick={this.retry} data-testid="admin-cards-retry"
+                  style={{ background: "var(--gold)", border: "none", color: "#1a1300",
+                           padding: "6px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                           cursor: "pointer" }}>
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+
     </div>
   );
 }
