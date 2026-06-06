@@ -6658,6 +6658,60 @@ async def admin_stripe_price_audit(_: dict = Depends(_check_admin_user)):
 
 
 
+
+@api_router.get("/admin/stripe-recent-charges")
+async def admin_stripe_recent_charges(
+    limit: int = 25,
+    _: dict = Depends(_check_admin_user),
+):
+    """Lists the most recent Stripe charges + their refund status. Use this to
+    sanity-check a payment / refund flow without leaving the app."""
+    if not STRIPE_API_KEY:
+        raise HTTPException(503, "Stripe not configured")
+    try:
+        charges = stripe.Charge.list(limit=min(max(limit, 1), 100))
+    except Exception as e:
+        raise HTTPException(502, f"Stripe call failed: {e}")
+    rows = []
+    for c in charges.auto_paging_iter() if False else charges.data:
+        rfs = []
+        try:
+            if c.refunds and c.refunds.data:
+                for r in c.refunds.data:
+                    rfs.append({
+                        "id": r.id,
+                        "amount_gbp": (r.amount or 0) / 100.0,
+                        "status": r.status,
+                        "created": datetime.fromtimestamp(r.created, tz=timezone.utc).isoformat() if r.created else None,
+                        "reason": r.reason or "",
+                    })
+        except Exception:
+            pass
+        rows.append({
+            "id": c.id,
+            "amount_gbp": (c.amount or 0) / 100.0,
+            "currency": (c.currency or "").upper(),
+            "status": c.status,                           # succeeded / pending / failed
+            "paid": bool(c.paid),
+            "refunded": bool(c.refunded),
+            "amount_refunded_gbp": (c.amount_refunded or 0) / 100.0,
+            "captured": bool(c.captured),
+            "description": c.description or "",
+            "card_last4": (c.payment_method_details or {}).get("card", {}).get("last4") if isinstance(c.payment_method_details, dict)
+                          else (c.payment_method_details.card.last4 if c.payment_method_details and getattr(c.payment_method_details, "card", None) else None),
+            "card_brand": (c.payment_method_details.card.brand if c.payment_method_details and getattr(c.payment_method_details, "card", None) else None),
+            "created": datetime.fromtimestamp(c.created, tz=timezone.utc).isoformat() if c.created else None,
+            "receipt_url": c.receipt_url or "",
+            "refunds": rfs,
+            "livemode": bool(c.livemode),
+            "metadata": (dict(c.to_dict_recursive().get("metadata") or {}) if hasattr(c, "to_dict_recursive") else {}),
+        })
+    return {
+        "count": len(rows),
+        "rows": rows,
+    }
+
+
 @api_router.get("/admin/founder-signature")
 async def admin_get_founder_signature(_: dict = Depends(_check_admin_user)):
     """Returns the saved founder signature (if any) as a data: URL.
