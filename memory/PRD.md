@@ -19,6 +19,15 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 50 — Doc Pack live + weekly Stripe audit cron)
+- 💷 **£4.99 Doc Pack top-up fully wired** — Stripe product "AI Advocate — Doc Pack" created at price ID `price_1TfQqYFh8lRHrXPIT1eRk3ie`. Count-based (5 docs, 100 pages each, never expires) — stacks on top of any tier's daily quota. New TOPUP_PACKS["doc_pack"] entry with `doc_grants=5`, `doc_page_cap=100`. `_activate_topup_for_user` extended with a doc_pack branch that `$inc`s `doc_pack_remaining` on the user record (instead of setting `topup_active` like time-windowed packs). Audit summary now **12/12 OK**. Webhook already wired — same path as Day Pass etc.
+- 📎 **Polite paywall in chat** — when a Free user hits their 1-doc-per-day cap, `handleFileAttach` detects the 402 and surfaces an inline `data-testid="lex-doc-paywall"` card with two CTAs: **Buy Doc Pack £4.99** (calls `/api/topups/checkout` → redirects to Stripe Checkout) and **Upgrade to Plus £19.99/mo** (calls `/api/subscription/checkout`). Dismissable via `×`. Tested live — POST to checkout returned a real `cs_live_…` Stripe session.
+- ⏰ **Weekly Stripe price audit cron** — runs every **Monday at 09:00 UTC** (verified via new `/api/admin/scheduler-status` endpoint: `next_run_utc=2026-06-08T09:00:00Z`). If any price mismatch / error is found, emails `admin@aiadvocate.co.uk` (and any addresses in `ADMIN_EMAILS`) with a detailed HTML table. Email only fires when something is off — quiet by default.
+- 🛠 **New admin endpoints**: `GET /api/admin/scheduler-status` (lists all cron jobs + next-run timestamps); `POST /api/admin/trigger-stripe-audit-email` (manual test run — useful before waiting until Monday).
+- 🛠 **Refactor**: `_run_stripe_price_audit()` helper extracted so the manual endpoint + weekly cron + manual-trigger endpoint all share one code path.
+
+
+
 ### 2026-02 (Iter 49 — Document upload in Lex chat)
 - 📎 **Major new feature: attach documents to any Lex chat.** Paperclip button in the chat input accepts **PDF, .docx, .doc, .txt, .md, .rtf, .csv, .xlsx, .odt, .pages, and all image formats** (.jpg/.png/.heic/.webp/.gif/.bmp/.tif). Server extracts text via pypdf / docx2txt / striprtf / openpyxl / Gemini Nano Banana OCR for images. Each attached doc gets a `doc_id` and is injected as a system-context block on EVERY chat turn in that session — true ChatGPT-style whole-session memory. Up to 5 docs concurrently per session.
 - 💰 **Tier limits (server-enforced)**:

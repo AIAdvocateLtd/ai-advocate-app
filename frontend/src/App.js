@@ -1642,6 +1642,8 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
   const [attachedDocs, setAttachedDocs] = useState([]);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [docRoutingSuggestion, setDocRoutingSuggestion] = useState(null); // {doc_type, doc_id, filename}
+  const [quotaExceeded, setQuotaExceeded] = useState(null);                // { message, tier } when 402 from /lex/upload
+  const [paywallBusy, setPaywallBusy] = useState(false);
   const fileInputRef = useRef(null);
 
   // Re-load attachments if we resume an existing session
@@ -1661,6 +1663,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
   const handleFileAttach = async (file) => {
     if (!file) return;
     setUploadingDoc(true);
+    setQuotaExceeded(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -1676,10 +1679,50 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
       }
       aaToast(`📎 ${data.filename} attached — Lex can read all ${data.pages} page${data.pages === 1 ? "" : "s"}.`, "success");
     } catch (e) {
-      aaToast(e?.response?.data?.detail || "Couldn't read that file. Try a PDF, Word doc or clear photo.", "error");
+      // Paywall (402) → surface the inline upsell instead of a toast so the user
+      // can pay or upgrade with one tap without leaving the chat.
+      const status = e?.response?.status;
+      const detail = e?.response?.data?.detail || "Couldn't read that file.";
+      if (status === 402) {
+        setQuotaExceeded({ message: detail, tier });
+      } else {
+        aaToast(detail, "error");
+      }
     } finally {
       setUploadingDoc(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const buyDocPack = async () => {
+    setPaywallBusy(true);
+    try {
+      const { data } = await api.post("/topups/checkout", { pack_id: "doc_pack" });
+      if (data?.checkout_url) {
+        window.location.href = data.checkout_url;
+      } else {
+        aaToast("Couldn't start checkout. Please try again.", "error");
+      }
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Checkout failed. Please try again.", "error");
+    } finally {
+      setPaywallBusy(false);
+    }
+  };
+
+  const upgradeToPlus = async () => {
+    setPaywallBusy(true);
+    try {
+      const { data } = await api.post("/subscription/checkout", { plan: "plus" });
+      if (data?.checkout_url) {
+        window.location.href = data.checkout_url;
+      } else {
+        aaToast("Couldn't start upgrade. Please try again.", "error");
+      }
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Upgrade failed. Please try again.", "error");
+    } finally {
+      setPaywallBusy(false);
     }
   };
 
@@ -2597,6 +2640,53 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                     style={{ background: "transparent", border: "none", color: "var(--text-dim)", cursor: "pointer", padding: 4 }}>
               <X size={11} />
             </button>
+          </div>
+        )}
+
+        {/* 💷 Polite paywall — fires only when the user hit the daily Doc upload cap.
+            Two CTAs side-by-side: pay-as-you-go Doc Pack vs subscribe to Plus. */}
+        {quotaExceeded && (
+          <div data-testid="lex-doc-paywall"
+               style={{ margin: "0 16px 8px", padding: 12,
+                        background: "linear-gradient(135deg, rgba(247,201,72,0.12), rgba(247,201,72,0.04))",
+                        border: "1px solid var(--gold-deep)", borderRadius: 12 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 18 }}>📎</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 700, marginBottom: 2 }}>
+                  Daily document limit reached
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.45 }}>
+                  Free tier includes <strong>1 document/day</strong>. Add 5 more documents instantly with a Doc Pack,
+                  or upgrade to Plus for <strong>10 documents/day</strong> + 25-page support.
+                </div>
+              </div>
+              <button data-testid="lex-doc-paywall-dismiss" onClick={() => setQuotaExceeded(null)}
+                      style={{ background: "transparent", border: "none", color: "var(--text-dim)", cursor: "pointer", padding: 4 }}>
+                <X size={12} />
+              </button>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button data-testid="lex-doc-buy-doc-pack" onClick={buyDocPack} disabled={paywallBusy}
+                      style={{ flex: 1, background: "var(--gold)", color: "#1a1300", border: "none",
+                               padding: "10px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                               cursor: paywallBusy ? "wait" : "pointer", opacity: paywallBusy ? 0.6 : 1 }}>
+                Buy Doc Pack £4.99
+                <div style={{ fontSize: 9.5, fontWeight: 500, marginTop: 1, opacity: 0.85 }}>
+                  +5 docs, 100 pages each · never expires
+                </div>
+              </button>
+              <button data-testid="lex-doc-upgrade-plus" onClick={upgradeToPlus} disabled={paywallBusy}
+                      style={{ flex: 1, background: "transparent", color: "var(--gold)",
+                               border: "1px solid var(--gold-deep)", padding: "10px 12px", borderRadius: 8,
+                               fontSize: 12, fontWeight: 700, cursor: paywallBusy ? "wait" : "pointer",
+                               opacity: paywallBusy ? 0.6 : 1 }}>
+                Upgrade to Plus £19.99/mo
+                <div style={{ fontSize: 9.5, fontWeight: 500, marginTop: 1, opacity: 0.85 }}>
+                  10/day · 25-page docs · unlimited chat
+                </div>
+              </button>
+            </div>
           </div>
         )}
 
