@@ -3920,6 +3920,15 @@ TOPUP_PACKS = {
         "grants_tier": "pro",
         "tagline": "Full Pro for 24h — Hearing Recorder, Deep Think, RAG priority.",
     },
+    "doc_pack": {
+        "label": "Doc Pack",
+        "price_gbp": 4.99,
+        "duration_hours": 0,                # 0 = no time window; count-based, never expires
+        "grants_tier": None,                # doesn't change your tier
+        "doc_grants": 5,                    # adds 5 extra docs to lex_uploads quota
+        "doc_page_cap": 100,                # each doc can be up to 100 pages (Pro-tier ceiling)
+        "tagline": "5 document analyses at up to 100 pages each. Never expires.",
+    },
 }
 
 
@@ -4184,6 +4193,25 @@ async def _activate_topup_for_user(user_id: str, pack_id: str):
         logger.warning(f"Activate topup: unknown pack {pack_id}")
         return
     now = datetime.now(timezone.utc)
+
+    # 📎 Doc Pack is COUNT-based, not time-based — it adds 5 to doc_pack_remaining
+    # on the user record, which the /lex/upload endpoint reads. Stacks across
+    # multiple purchases. Never expires.
+    if pack_id == "doc_pack":
+        await db.users.update_one(
+            {"id": user_id},
+            {"$inc": {"doc_pack_remaining": int(pack.get("doc_grants", 5))},
+             "$push": {"topup_history": {
+                 "kind": "doc_pack",
+                 "activated_at": now.isoformat(),
+                 "doc_grants": int(pack.get("doc_grants", 5)),
+                 "label": pack["label"],
+                 "price_gbp": pack["price_gbp"],
+             }}},
+        )
+        logger.info(f"Activated Doc Pack for user {user_id} (+{pack.get('doc_grants', 5)} docs)")
+        return
+
     expires = now + timedelta(hours=pack["duration_hours"])
     payload = {
         "kind": pack_id,
@@ -6650,6 +6678,12 @@ async def admin_stripe_price_audit(_: dict = Depends(_check_admin_user)):
     product name + amount in Stripe. Use after editing Price IDs in .env."""
     if not STRIPE_API_KEY:
         raise HTTPException(503, "Stripe not configured")
+    return await _run_stripe_price_audit()
+
+
+async def _run_stripe_price_audit() -> dict:
+    """Pure implementation of the price audit so the weekly cron + manual
+    admin call can share the same code path."""
     targets = {
         "STRIPE_PRICE_PLUS":            ("Plus consumer",  19.99, "month"),
         "STRIPE_PRICE_PRO":             ("Pro consumer",   34.99, "month"),
@@ -6661,6 +6695,7 @@ async def admin_stripe_price_audit(_: dict = Depends(_check_admin_user)):
         "STRIPE_PRICE_TOPUP_LETTER_PACK":("Letter Pack",    9.99, "one_time"),
         "STRIPE_PRICE_TOPUP_WEEKEND_PASS":("Weekend Pass", 14.99, "one_time"),
         "STRIPE_PRICE_TOPUP_CRISIS_PACK":("Crisis Pack",   29.99, "one_time"),
+        "STRIPE_PRICE_TOPUP_DOC_PACK":  ("Doc Pack",        4.99, "one_time"),
         "STRIPE_PRICE_SANITY_CHECK":   ("Solicitor Sanity Check", 49.00, "one_time"),
     }
     rows = []
@@ -6702,6 +6737,76 @@ async def admin_stripe_price_audit(_: dict = Depends(_check_admin_user)):
         "error":    sum(1 for r in rows if r["status"] == "error"),
     }
     return {"rows": rows, "summary": summary}
+
+
+@api_router.get("/admin/scheduler-status")
+async def admin_scheduler_status(_: dict = Depends(_check_admin_user)):
+    """Lists all scheduled cron jobs + their next run time. Use to verify the
+    weekly Stripe audit + monthly billing jobs are registered after a restart."""
+    sched = getattr(app.state, "aa_scheduler", None)
+    if not sched:
+        return {"running": False, "jobs": []}
+    jobs = []
+    for j in sched.get_jobs():
+        jobs.append({
+            "id": j.id,
+            "name": getattr(j, "name", j.id),
+            "trigger": str(j.trigger),
+            "next_run_utc": j.next_run_time.isoformat() if j.next_run_time else None,
+        })
+    return {"running": True, "jobs": jobs}
+
+
+@api_router.post("/admin/trigger-stripe-audit-email")
+async def admin_trigger_stripe_audit_email(_: dict = Depends(_check_admin_user)):
+    """Manual run of the weekly Stripe audit job — useful for testing the email
+    flow without waiting until Monday 09:00 UTC. Returns the audit summary."""
+    result = await _run_stripe_price_audit()
+    summary = result.get("summary", {})
+    issues = (summary.get("mismatch", 0) or 0) + (summary.get("error", 0) or 0)
+    sent_to = []
+    if issues > 0:
+        bad_rows = [r for r in result.get("rows", []) if r.get("status") in ("MISMATCH", "error")]
+        lines_html = []
+        for r in bad_rows:
+            actual = (f"£{r.get('actual_gbp'):.2f} {r.get('actual_currency', '')} ({r.get('actual_interval', '')})"
+                      if isinstance(r.get('actual_gbp'), (int, float)) else "—")
+            err = (r.get('error') or '')[:200]
+            lines_html.append(
+                f"<tr>"
+                f"<td style='padding:4px 8px;'><strong>{r.get('expected_label')}</strong><br>"
+                f"<code style='font-size:11px;color:#666;'>{r.get('env_var')}</code></td>"
+                f"<td style='padding:4px 8px;'>£{r.get('expected_gbp', 0):.2f} / {r.get('expected_interval', '')}</td>"
+                f"<td style='padding:4px 8px;color:#c00;'>{actual}</td>"
+                f"<td style='padding:4px 8px;color:#c00;'><strong>{r.get('status')}</strong>"
+                f"{('<br><small>' + err + '</small>') if err else ''}</td>"
+                f"</tr>"
+            )
+        body_html = (
+            f"<p><strong>This is a manual test run.</strong> The weekly Stripe price audit found "
+            f"<strong>{issues} issue(s)</strong>.</p>"
+            f"<table cellpadding='0' cellspacing='0' style='border-collapse:collapse;font-family:Arial;font-size:13px;'>"
+            f"<thead><tr style='background:#f7c948;color:#1a1300;'>"
+            f"<th style='padding:6px 8px;text-align:left;'>Tier</th>"
+            f"<th style='padding:6px 8px;text-align:left;'>Expected</th>"
+            f"<th style='padding:6px 8px;text-align:left;'>Actual</th>"
+            f"<th style='padding:6px 8px;text-align:left;'>Status</th>"
+            f"</tr></thead>"
+            f"<tbody>{''.join(lines_html)}</tbody></table>"
+        )
+        try:
+            admin_emails = [e.strip() for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",") if e.strip()]
+            from email_helper import send_email
+            for ae in admin_emails:
+                await send_email(to=ae, kind="firm",
+                    subject=f"⚠️ [TEST] AI Advocate — Stripe price audit found {issues} issue(s)",
+                    body_html=body_html)
+                sent_to.append(ae)
+        except Exception as e:
+            logger.warning(f"manual Stripe audit email failed: {e}")
+    return {"summary": summary, "issues": issues, "email_sent_to": sent_to}
+
+
 
 
 
@@ -12995,9 +13100,72 @@ async def startup():
             except Exception as e:
                 logger.exception(f"[cron] autosend job failed: {e}")
 
+        async def _job_weekly_stripe_audit():
+            """Run the Stripe price audit every Monday at 09:00 UTC.
+            If any price mismatches / errors are found, email the founder so they
+            can fix it within hours rather than discover it weeks later via a
+            customer complaint."""
+            try:
+                if not STRIPE_API_KEY:
+                    logger.info("[cron] weekly Stripe audit skipped — Stripe not configured")
+                    return
+                result = await _run_stripe_price_audit()
+                summary = result.get("summary", {})
+                issues = (summary.get("mismatch", 0) or 0) + (summary.get("error", 0) or 0)
+                logger.info(f"[cron] weekly Stripe price audit: ok={summary.get('ok')} "
+                            f"mismatch={summary.get('mismatch')} missing={summary.get('missing')} "
+                            f"error={summary.get('error')}")
+                if issues == 0:
+                    logger.info("[cron] all Stripe prices in sync — no email needed")
+                    return
+                # Build the email body
+                bad_rows = [r for r in result.get("rows", []) if r.get("status") in ("MISMATCH", "error")]
+                lines_html = []
+                for r in bad_rows:
+                    actual = (f"£{r.get('actual_gbp'):.2f} {r.get('actual_currency', '')} ({r.get('actual_interval', '')})"
+                              if isinstance(r.get('actual_gbp'), (int, float)) else "—")
+                    err = (r.get('error') or '')[:200]
+                    lines_html.append(
+                        f"<tr>"
+                        f"<td style='padding:4px 8px;'><strong>{r.get('expected_label')}</strong><br>"
+                        f"<code style='font-size:11px;color:#666;'>{r.get('env_var')}</code></td>"
+                        f"<td style='padding:4px 8px;'>£{r.get('expected_gbp', 0):.2f} / {r.get('expected_interval', '')}</td>"
+                        f"<td style='padding:4px 8px;color:#c00;'>{actual}</td>"
+                        f"<td style='padding:4px 8px;color:#c00;'><strong>{r.get('status')}</strong>"
+                        f"{('<br><small>' + err + '</small>') if err else ''}</td>"
+                        f"</tr>"
+                    )
+                body_html = (
+                    f"<p>The weekly Stripe price audit found <strong>{issues} issue(s)</strong>. "
+                    f"Open Settings → 💰 Stripe price audit (admin only) to investigate.</p>"
+                    f"<table cellpadding='0' cellspacing='0' style='border-collapse:collapse;font-family:Arial;font-size:13px;'>"
+                    f"<thead><tr style='background:#f7c948;color:#1a1300;'>"
+                    f"<th style='padding:6px 8px;text-align:left;'>Tier</th>"
+                    f"<th style='padding:6px 8px;text-align:left;'>Expected</th>"
+                    f"<th style='padding:6px 8px;text-align:left;'>Actual</th>"
+                    f"<th style='padding:6px 8px;text-align:left;'>Status</th>"
+                    f"</tr></thead>"
+                    f"<tbody>{''.join(lines_html)}</tbody></table>"
+                    f"<p style='margin-top:14px;font-size:12px;color:#666;'>Sent automatically every Monday at 09:00 UTC. "
+                    f"This email only fires when something is off.</p>"
+                )
+                try:
+                    admin_emails = [e.strip() for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",") if e.strip()]
+                    from email_helper import send_email
+                    for ae in admin_emails:
+                        await send_email(to=ae, kind="firm",
+                            subject=f"⚠️ AI Advocate — Stripe price audit found {issues} issue(s)",
+                            body_html=body_html)
+                    logger.info(f"[cron] weekly Stripe audit email sent to {len(admin_emails)} admin(s)")
+                except Exception as e:
+                    logger.warning(f"[cron] weekly Stripe audit email failed: {e}")
+            except Exception as e:
+                logger.exception(f"[cron] weekly Stripe audit job failed: {e}")
+
         sched.add_job(_job_headsup,       CronTrigger(day=22, hour=9, minute=0), id="aa_headsup",  replace_existing=True)
         sched.add_job(_job_create_drafts, CronTrigger(day=1,  hour=9, minute=0), id="aa_drafts",   replace_existing=True)
         sched.add_job(_job_autosend,      CronTrigger(day=3,  hour=9, minute=0), id="aa_autosend", replace_existing=True)
+        sched.add_job(_job_weekly_stripe_audit, CronTrigger(day_of_week="mon", hour=9, minute=0), id="aa_stripe_audit", replace_existing=True)
         sched.start()
         app.state.aa_scheduler = sched
         logger.info("✅ Auto-billing scheduler started — next run: %s",
