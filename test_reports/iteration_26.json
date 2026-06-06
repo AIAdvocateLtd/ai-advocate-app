@@ -1,0 +1,30 @@
+{
+  "summary": "Iter 26 — POST /api/lex/upload + GET /api/lex/upload/{id} + doc_ids injection into /api/lex/chat. Backend: 6/6 pytest pass (free-tier 1-page contract upload returns doc_type=contract/tier_used=free/remaining_today=0; daily quota 1/day returns 402 with correct message; 6-page PDF returns 402 with '5-page limit for the free tier'; unauthenticated → 401/403; cross-user GET → 404; /lex/chat with doc_ids quotes £950 from PDF). Frontend (Ask Lex modal): paperclip [data-testid=lex-attach-doc-btn] visible, hidden file input accepts the documented MIME list, upload populates [lex-attached-docs] pill with filename+page count, green [lex-doc-routing-banner] renders for contract doc with 'Open Contract Tools' button + × dismiss. × dismisses banner WITHOUT closing the chat modal (verified). After sending 'How much rent...?' the assistant reply contains £950 (whole-session injection works). Pill persists across turn and × on pill removes it.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter26_lex_doc_upload.py",
+    "/app/test_reports/pytest/iter26_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "_classify_doc_type is fragile: requires >=2 contract_kw hits OR filename contains 'contract'/'agreement'. A user uploading 'lease.pdf' with text 'tenancy agreement' only has 1 keyword hit and would mis-classify as 'other'. The main-agent description in the review said the trigger was 'tenancy agreement + shall pay' but 'shall pay' is NOT in the keyword list — recommend adding 'shall pay', 'rent', 'lease', 'landlord', 'tenant' to contract_kw OR lowering the threshold to >=1 hit when the text has typical agreement structure.",
+    "/api/lex/upload accepts up to 20 MB but only checks page-cap AFTER extracting text — a malicious 19 MB scanned PDF would burn CPU/OCR before being rejected. Consider early page-count probe (pypdf reader) before extracting text.",
+    "server.py is now ~13,000 lines — still urgently needs splitting (recurring feedback from iter 25).",
+    "page count for non-PDF formats uses a 500-word/page heuristic which can wildly under/over-count — couldn't verify edge cases but free-tier 5-page cap could be bypassed/wrongly triggered for .docx/.txt depending on heuristic. Recommend documenting the heuristic in API response or returning content_chars instead."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter26_lex_doc_upload.py (NEW — 6 pytest cases)"
+  ],
+  "success_rate": { "backend": "100% (6/6)", "frontend": "100% (8/8 testids verified end-to-end)" },
+  "test_credentials": "test@advocate.app / Test12345! (Free tier).",
+  "seed_data_creation": "Pytest creates 1 throwaway free user (test_iter26_<rand>@advocate.app) for cross-user test. Auto-cleans test@advocate.app's lex_uploads.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Two non-obvious gotchas: (1) The frontend FILE INPUT [data-testid=lex-doc-file-input] is display:none — Playwright wait_for_selector(state=visible) will time out; use page.set_input_files() directly. (2) The 'Before you ask Lex' UPL ack modal (showUplAck state, line 1634) blocks all Ask Lex interactions on first open and is gated by localStorage 'aa_lex_upl_ack'. Set localStorage.aa_lex_upl_ack='1' BEFORE opening Ask Lex tile or your selectors will be overlay-blocked. (3) test@advocate.app is free-tier (1 doc/day) — quota will be exhausted by 1 prior upload; reset by deleting from db.lex_uploads where user_id=<test_user_id>. (4) The /api/lex/chat response key is 'response' (not 'reply'). (5) doc_type classifier requires either >=2 contract_kw hits OR filename contains 'contract'/'agreement' — use filename 'tenancy_agreement.pdf' for deterministic contract classification.",
+  "rca of the issue": "No bugs found. Initial UI run failures were environmental: (a) UPL ack modal overlay intercepted dismiss-banner/send clicks until aa_lex_upl_ack was set; (b) subsequent upload attempt was rejected by the (correctly-working) free-tier 1/day quota because the earlier successful upload consumed the slot. After resetting the user's lex_uploads collection and setting the UPL ack flag, every requested testid and behaviour passed first time."
+}

@@ -5,7 +5,7 @@ import {
   MessageCircle, Mic, Folder, FileText, Gavel, Globe, Briefcase, Home as HomeIcon,
   Stethoscope, Scale, X, Send, Upload, Languages, LogOut, Check, ArrowLeft, Square, Play,
   Camera, MapPin, Phone, ExternalLink, Settings as SettingsIcon, Star, Building2, Image as ImageIcon,
-  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint, Sparkles, Volume2, ChevronDown
+  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint, Sparkles, Volume2, ChevronDown, Paperclip, FileType
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
 import { setAppIconBadge } from "@/appBadge";
@@ -1636,6 +1636,58 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
 
   const isPro = tier === "pro" || tier === "yearly" || tier === "trial_pro";
 
+  // 📎 Attached docs — Lex remembers these for the whole session (whole-session memory).
+  // Each entry: { doc_id, filename, pages, doc_type }. Persisted in sessionStorage by
+  // sessionId so a page refresh doesn't drop the attachment.
+  const [attachedDocs, setAttachedDocs] = useState([]);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [docRoutingSuggestion, setDocRoutingSuggestion] = useState(null); // {doc_type, doc_id, filename}
+  const fileInputRef = useRef(null);
+
+  // Re-load attachments if we resume an existing session
+  useEffect(() => {
+    if (!sessionId) return;
+    try {
+      const stored = sessionStorage.getItem(`aa_docs_${sessionId}`);
+      if (stored) setAttachedDocs(JSON.parse(stored));
+    } catch (e) { /* no-op */ }
+  }, [sessionId]);
+  // Persist whenever attachedDocs change
+  useEffect(() => {
+    if (!sessionId) return;
+    try { sessionStorage.setItem(`aa_docs_${sessionId}`, JSON.stringify(attachedDocs)); } catch (e) { /* no-op */ }
+  }, [attachedDocs, sessionId]);
+
+  const handleFileAttach = async (file) => {
+    if (!file) return;
+    setUploadingDoc(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const { data } = await api.post("/lex/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const doc = {
+        doc_id: data.doc_id, filename: data.filename, pages: data.pages,
+        doc_type: data.doc_type, char_count: data.char_count, truncated: data.truncated,
+      };
+      setAttachedDocs(prev => [...prev, doc]);
+      // If the doc looks like a contract or letter, surface a one-tap "open the specialist" route.
+      if (data.doc_type === "contract" || data.doc_type === "letter") {
+        setDocRoutingSuggestion({ doc_type: data.doc_type, doc_id: data.doc_id, filename: data.filename });
+      }
+      aaToast(`📎 ${data.filename} attached — Lex can read all ${data.pages} page${data.pages === 1 ? "" : "s"}.`, "success");
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Couldn't read that file. Try a PDF, Word doc or clear photo.", "error");
+    } finally {
+      setUploadingDoc(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const removeAttachedDoc = (id) => {
+    setAttachedDocs(prev => prev.filter(d => d.doc_id !== id));
+    setDocRoutingSuggestion(s => (s && s.doc_id === id) ? null : s);
+  };
+
   // 🪄 Smart scroll behaviour:
   //   • new user message → scroll to bottom (so the user sees their own send)
   //   • new lex message → scroll the TOP of the new bubble to near the top
@@ -1778,6 +1830,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
           message: text, session_id: sessionId, language: lang, country: threadCountry, category,
           deep_think: deepThink && isPro, auto_detect: autoDetect,
           case_id: caseId || undefined,
+          doc_ids: attachedDocs.length ? attachedDocs.map(d => d.doc_id) : undefined,
         }),
       });
       if (!resp.ok || !resp.body) throw new Error(`stream ${resp.status}`);
@@ -1919,6 +1972,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
           message: text, session_id: sessionId, language: lang, country: threadCountry, category,
           deep_think: deepThink && isPro, auto_detect: autoDetect,
           case_id: caseId || undefined,
+          doc_ids: attachedDocs.length ? attachedDocs.map(d => d.doc_id) : undefined,
         });
         setSessionId(data.session_id);
         const fullText = data.response;
@@ -2465,12 +2519,28 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                    style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%", mixBlendMode: "lighten" }} />
             )}
           </button>
+          {/* 📎 Attach a document (PDF/Word/photo/RTF/Excel/CSV/etc.) — Lex remembers it for the whole session */}
+          <input ref={fileInputRef} type="file"
+                 accept=".pdf,.docx,.doc,.txt,.md,.rtf,.csv,.xlsx,.odt,.pages,image/*"
+                 onChange={(e) => handleFileAttach(e.target.files?.[0])}
+                 style={{ display: "none" }}
+                 data-testid="lex-doc-file-input" />
+          <button onClick={() => fileInputRef.current?.click()} disabled={uploadingDoc || busy}
+                  data-testid="lex-attach-doc-btn"
+                  title="Attach a document for Lex to read"
+                  style={{ background: "transparent", border: "1px solid var(--gold-deep)",
+                           color: "var(--gold)", borderRadius: 10, width: 40, height: 40, cursor: uploadingDoc ? "wait" : "pointer",
+                           display: "flex", alignItems: "center", justifyContent: "center",
+                           opacity: uploadingDoc ? 0.5 : 1 }}>
+            {uploadingDoc ? <span className="spinner" style={{ width: 14, height: 14 }} /> : <Paperclip size={16} />}
+          </button>
           <input className="input" data-testid="chat-input" placeholder={t(lang, "chatPlaceholder")} value={input} onChange={(e) => setInput(e.target.value)}
                  onKeyDown={(e) => e.key === "Enter" && send(input)} style={{ flex: 1 }} />
           <button className="btn-gold" data-testid="send-btn" onClick={() => send(input)} disabled={!input.trim() || busy} style={{ padding: "12px 16px" }}>
             <Send size={18} />
           </button>
         </div>
+
         {/* ⚖ Persistent UPL footer — required to evidence "general legal information, not advice"
             on every Lex chat surface. Apple App Review checks for this on AI legal apps. */}
         <div data-testid="lex-upl-footer" style={{
@@ -2480,6 +2550,56 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
           <ShieldCheck size={9} style={{ display: "inline", marginRight: 4, opacity: 0.6 }} />
           AI-generated legal <strong style={{ color: "var(--gold-soft)" }}>information</strong>, not legal advice. Always verify with a regulated solicitor before acting.
         </div>
+
+        {/* 📎 Attached document pills — visible while ≥1 file is attached to the session */}
+        {attachedDocs.length > 0 && (
+          <div data-testid="lex-attached-docs" style={{ margin: "0 16px 8px", display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {attachedDocs.map(d => (
+              <div key={d.doc_id} data-testid={`lex-attached-doc-${d.doc_id}`}
+                   style={{ display: "inline-flex", alignItems: "center", gap: 6,
+                            background: "rgba(247,201,72,0.1)", border: "1px solid var(--gold-deep)",
+                            borderRadius: 999, padding: "4px 8px 4px 10px", fontSize: 11, color: "var(--text)",
+                            maxWidth: "100%" }}>
+                <FileType size={11} style={{ color: "var(--gold)", flexShrink: 0 }} />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>{d.filename}</span>
+                <span style={{ color: "var(--text-muted)", fontSize: 10 }}>· {d.pages}p</span>
+                <button onClick={() => removeAttachedDoc(d.doc_id)}
+                        data-testid={`lex-remove-doc-${d.doc_id}`}
+                        title="Remove from this chat"
+                        style={{ background: "transparent", border: "none", color: "var(--text-dim)", cursor: "pointer", padding: 0, marginLeft: 2 }}>
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 🪄 Smart-route suggestion — fires when the uploaded doc looks like a contract or letter */}
+        {docRoutingSuggestion && (
+          <div data-testid="lex-doc-routing-banner"
+               style={{ margin: "0 16px 8px", padding: 10, background: "rgba(34,197,94,0.08)",
+                        border: "1px solid rgba(34,197,94,0.45)", borderRadius: 10,
+                        display: "flex", alignItems: "center", gap: 10 }}>
+            <Sparkles size={14} style={{ color: "#86efac", flexShrink: 0 }} />
+            <div style={{ flex: 1, fontSize: 11.5, color: "var(--text)", lineHeight: 1.4 }}>
+              This looks like a <strong>{docRoutingSuggestion.doc_type === "contract" ? "contract" : "solicitor / official letter"}</strong>.
+              {docRoutingSuggestion.doc_type === "contract"
+                ? <> Want a deep clause-by-clause review in <strong>Contract Tools</strong> instead, or just chat about it here?</>
+                : <> Want a threat-meter rating in <strong>Letter Reader</strong> instead, or just chat about it here?</>}
+            </div>
+            <button data-testid="lex-doc-route-open-tool"
+                    onClick={() => { setDocRoutingSuggestion(null); onClose && onClose(); }}
+                    style={{ fontSize: 10.5, padding: "5px 9px", background: "#86efac", color: "#0a3a1f",
+                             border: "none", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>
+              Open {docRoutingSuggestion.doc_type === "contract" ? "Contract Tools" : "Letter Reader"}
+            </button>
+            <button data-testid="lex-doc-route-dismiss" onClick={() => setDocRoutingSuggestion(null)}
+                    style={{ background: "transparent", border: "none", color: "var(--text-dim)", cursor: "pointer", padding: 4 }}>
+              <X size={11} />
+            </button>
+          </div>
+        )}
+
         {smartCat && (
           <div data-testid="smart-cat-banner" style={{ margin: "10px 16px 0", padding: 10, background: "rgba(247,201,72,0.12)", border: "1px solid var(--gold-deep)", borderRadius: 10, display: "flex", alignItems: "center", gap: 10 }}>
             <Scale size={16} style={{ color: "var(--gold)", flexShrink: 0 }} />

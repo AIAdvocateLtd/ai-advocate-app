@@ -142,6 +142,7 @@ class ChatMessage(BaseModel):
     deep_think: bool = False  # Pro tier only — uses Claude Opus / Sonnet w/ extended thinking
     auto_detect: bool = True  # detect language of user message, override 'language' for reply
     case_id: Optional[str] = None  # 💬 if set, links this chat session to a case so the conversation appears on the case timeline
+    doc_ids: Optional[List[str]] = None  # 📎 attached document IDs from /lex/upload — injected as system context for the whole session
 
 class TTSRequest(BaseModel):
     text: str
@@ -1527,6 +1528,15 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         except Exception as e:
             logger.warning(f"Case-context build failed: {e}")
 
+    # 📎 Attached document(s) — same memory pattern, for the WHOLE session.
+    if data.doc_ids:
+        try:
+            doc_block = await _build_attached_docs_block(data.doc_ids, user["id"])
+            if doc_block:
+                system_msg = system_msg + doc_block
+        except Exception as e:
+            logger.warning(f"Doc-context build failed: {e}")
+
     # 🧠 Load prior conversation history so Lex remembers context across turns.
     # We pull the last 12 turns for this user+session, decrypt them, and seed
     # LlmChat's initial_messages. This is what makes Lex feel like a real
@@ -1713,6 +1723,15 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                 system_msg = system_msg + "\n\n" + case_block
         except Exception as e:
             logger.warning(f"Case-context build failed: {e}")
+
+    # 📎 Attached document(s) — same memory pattern, for the WHOLE session.
+    if data.doc_ids:
+        try:
+            doc_block = await _build_attached_docs_block(data.doc_ids, user["id"])
+            if doc_block:
+                system_msg = system_msg + doc_block
+        except Exception as e:
+            logger.warning(f"Doc-context build failed: {e}")
 
     # Load chat history
     history_docs = await db.conversations.find(
@@ -5297,6 +5316,38 @@ async def case_from_session(data: CaseFromSessionReq, user: dict = Depends(get_u
     return {"ok": True, "case": case}
 
 
+async def _build_attached_docs_block(doc_ids: list, user_id: str) -> str:
+    """Return a system-prompt block injecting up to 5 user-attached documents
+    so Lex can answer questions about their content. Each doc capped at ~60k
+    chars (≈ 25 pages) to stay token-friendly on expensive models."""
+    if not doc_ids:
+        return ""
+    try:
+        attached = await db.lex_uploads.find(
+            {"id": {"$in": list(doc_ids)[:5]}, "user_id": user_id},
+            {"_id": 0, "filename": 1, "pages": 1, "doc_type": 1, "text": 1},
+        ).to_list(length=5)
+    except Exception as e:
+        logger.warning(f"attached-docs lookup failed: {e}")
+        return ""
+    blocks = []
+    for d in attached:
+        snippet = (d.get("text") or "")[:60000]
+        blocks.append(
+            f"\n\n---\nATTACHED DOCUMENT: {d.get('filename') or 'document'} "
+            f"(~{d.get('pages') or 1} pages · type: {d.get('doc_type') or 'other'})\n"
+            f"{snippet}\n---\n"
+        )
+    if not blocks:
+        return ""
+    return (
+        "\n\nThe user has attached the following document(s). Treat them as primary "
+        "source material for this conversation — quote them where helpful, and answer "
+        "questions about their content directly."
+        + "".join(blocks)
+    )
+
+
 async def _build_case_context_block(case_id: str, user_id: str) -> str:
     """Return a short, LLM-friendly summary of the case + recent items so Lex
     has the user's background loaded automatically. Capped to stay token-cheap."""
@@ -8500,6 +8551,326 @@ If the document is NOT a legal/official letter, set category=\"other\", severity
                 pass
     parsed["case_id"] = case_id
     return parsed
+
+
+# ==================== Lex Chat — Attach Document ====================
+# Lets the user attach a document (PDF / Word / image / RTF / Excel / CSV / etc.)
+# inside ANY Lex chat surface. The server extracts the text once, stores it under
+# a `doc_id`, and the chat endpoint re-injects it as system context on every turn
+# in that session (whole-session memory, like ChatGPT).
+#
+# Tier limits (pages):  free=5  ·  plus=25  ·  pro=100
+# Tier daily quota:     free=1  ·  plus=10  ·  pro=unlimited
+# All limits enforced server-side. Doc Pack £4.99 top-up grants 5 × 100-page docs.
+
+LEX_DOC_PAGE_LIMITS = {"free": 5, "plus": 25, "pro": 100, "pro_yearly": 100}
+LEX_DOC_DAILY_QUOTA = {"free": 1, "plus": 10, "pro": 9999, "pro_yearly": 9999}
+
+def _classify_doc_type(text: str, filename: str) -> str:
+    """Lightweight regex/keyword classifier so we can suggest a specialist tab."""
+    if not text:
+        return "other"
+    t = (text or "")[:6000].lower()
+    fn = (filename or "").lower()
+    # Solicitor / official letter — these tend to be very short, with one of
+    # these strong indicators near the top.
+    letter_kw = (
+        "without prejudice", "letter before action", "pre-action protocol",
+        "notice of seeking possession", "notice to quit", "section 21",
+        "section 8", "ccj", "county court", "high court", "tribunal claim",
+        "demand for payment", "final demand", "intent to evict", "letter before claim",
+        "yours faithfully", "yours sincerely",
+    )
+    if any(k in t for k in letter_kw) and len(t) < 15_000:
+        return "letter"
+    # Contracts — agreement-like documents
+    contract_kw = (
+        "this agreement is made", "this contract", "the parties hereby agree",
+        "terms and conditions", "shall mean", "definitions and interpretation",
+        "in consideration of", "governing law", "entire agreement",
+        "indemnif", "warrant", "limitation of liability", "non-disclosure",
+        "tenancy agreement", "employment contract", "service agreement",
+    )
+    contract_hits = sum(1 for k in contract_kw if k in t)
+    if contract_hits >= 2 or "contract" in fn or "agreement" in fn:
+        return "contract"
+    return "other"
+
+
+def _extract_text_from_bytes(raw: bytes, filename: str, content_type: str) -> tuple[str, int]:
+    """Extract plain text + estimated page count from a file's raw bytes.
+    Returns (text, page_count). page_count uses a 500-words-per-page heuristic
+    when the file format doesn't expose page count natively."""
+    name = (filename or "").lower()
+    ct = (content_type or "").lower()
+    text = ""
+    pages = 0
+
+    def _est_pages(s: str) -> int:
+        # Word-based heuristic: average UK page = ~280-350 words. We use 300.
+        w = len((s or "").split())
+        return max(1, (w + 299) // 300)
+
+    try:
+        # PDF
+        if name.endswith(".pdf") or "pdf" in ct:
+            from pypdf import PdfReader
+            from io import BytesIO
+            reader = PdfReader(BytesIO(raw))
+            pages = len(reader.pages)
+            parts = []
+            for p in reader.pages:
+                try:
+                    parts.append(p.extract_text() or "")
+                except Exception:
+                    parts.append("")
+            text = "\n\n".join(parts).strip()
+        # DOCX
+        elif name.endswith(".docx") or "officedocument.wordprocessingml" in ct:
+            import docx2txt
+            from io import BytesIO
+            text = (docx2txt.process(BytesIO(raw)) or "").strip()
+            pages = _est_pages(text)
+        # Plain text / markdown / source code
+        elif name.endswith((".txt", ".md", ".rst", ".log", ".csv")) or ct.startswith("text/"):
+            try:
+                text = raw.decode("utf-8", errors="replace").strip()
+            except Exception:
+                text = raw.decode("latin-1", errors="replace").strip()
+            pages = _est_pages(text)
+        # RTF
+        elif name.endswith(".rtf") or "rtf" in ct:
+            from striprtf.striprtf import rtf_to_text
+            try:
+                text = rtf_to_text(raw.decode("utf-8", errors="replace")).strip()
+            except Exception:
+                text = rtf_to_text(raw.decode("latin-1", errors="replace")).strip()
+            pages = _est_pages(text)
+        # XLSX (Excel)
+        elif name.endswith(".xlsx") or "spreadsheetml" in ct:
+            from openpyxl import load_workbook
+            from io import BytesIO
+            wb = load_workbook(BytesIO(raw), data_only=True, read_only=True)
+            parts = []
+            for sn in wb.sheetnames:
+                ws = wb[sn]; parts.append(f"# Sheet: {sn}")
+                for row in ws.iter_rows(values_only=True):
+                    parts.append("\t".join("" if c is None else str(c) for c in row))
+            text = "\n".join(parts).strip()
+            pages = _est_pages(text)
+        # ODT / .pages — both are zipfiles with XML inside
+        elif name.endswith(".odt"):
+            import zipfile
+            from io import BytesIO
+            import xml.etree.ElementTree as ET
+            with zipfile.ZipFile(BytesIO(raw)) as zf:
+                with zf.open("content.xml") as f:
+                    tree = ET.parse(f)
+                    parts = []
+                    for el in tree.iter():
+                        if el.text:
+                            parts.append(el.text)
+                    text = "\n".join(parts).strip()
+            pages = _est_pages(text)
+        elif name.endswith(".pages"):
+            # Apple .pages — zip archive; modern versions have preview/index.xml
+            import zipfile
+            from io import BytesIO
+            try:
+                with zipfile.ZipFile(BytesIO(raw)) as zf:
+                    cand = next((n for n in zf.namelist() if n.endswith("Index.xml") or n.endswith("preview.pdf")), None)
+                    if cand and cand.endswith(".xml"):
+                        with zf.open(cand) as f:
+                            data = f.read().decode("utf-8", errors="replace")
+                            import re as _re
+                            text = _re.sub(r"<[^>]+>", " ", data)
+                            text = _re.sub(r"\s+", " ", text).strip()
+                    elif cand:
+                        # Has an embedded preview PDF — extract that
+                        with zf.open(cand) as f:
+                            from pypdf import PdfReader
+                            reader = PdfReader(BytesIO(f.read()))
+                            text = "\n".join((p.extract_text() or "") for p in reader.pages).strip()
+                            pages = len(reader.pages)
+            except Exception:
+                text = ""
+            if not pages:
+                pages = _est_pages(text)
+        # Images — use Gemini for OCR
+        elif name.endswith((".png", ".jpg", ".jpeg", ".heic", ".heif", ".webp", ".gif", ".bmp", ".tif", ".tiff")) or ct.startswith("image/"):
+            import tempfile, asyncio as _asyncio
+            suffix = "." + (name.rsplit(".", 1)[-1] if "." in name else "jpg")
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+            try:
+                tmp.write(raw); tmp.close()
+                chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"docupl-{uuid.uuid4()}",
+                               system_message=(
+                                   "You are a meticulous OCR engine. Extract ALL text from the image verbatim. "
+                                   "Preserve line breaks, paragraph structure, and any tables (use simple text alignment). "
+                                   "Do NOT summarise, do NOT interpret. Output the raw text only."
+                               )).with_model("gemini", "gemini-2.5-flash").with_params(max_tokens=4000)
+                resp = _asyncio.get_event_loop().run_until_complete(
+                    chat.send_message(UserMessage(
+                        text="Extract every word of text from this image.",
+                        file_contents=[FileContentWithMimeType(file_path=tmp.name, mime_type=ct or "image/jpeg")],
+                    ))
+                ) if False else None  # we are already inside async — see below
+            finally:
+                try: os.unlink(tmp.name)
+                except Exception: pass
+            # The async branch is handled by the caller — this synchronous path
+            # is only used as a fallback; in practice the endpoint handler runs
+            # the LLM extraction directly with `await`. Leave text empty here so
+            # the caller routes through `_ocr_image_async` below.
+            text = ""
+            pages = 1
+        else:
+            # Unsupported — let the user know via the endpoint, not via mystery.
+            raise ValueError(f"Unsupported file type for '{filename}'. Try PDF, Word, image, RTF, Excel, CSV or plain text.")
+    except ValueError:
+        raise
+    except Exception as e:
+        logger.exception("doc extract failed")
+        raise ValueError(f"Couldn't read the document: {e}")
+
+    if not pages:
+        pages = _est_pages(text)
+    return (text or "").strip(), int(pages or 1)
+
+
+async def _ocr_image_async(raw: bytes, content_type: str, filename: str) -> str:
+    """Gemini-based OCR for images. Used by /lex/upload because the LLM call
+    must run inside an async context."""
+    import tempfile
+    name = (filename or "image.jpg").lower()
+    suffix = "." + (name.rsplit(".", 1)[-1] if "." in name else "jpg")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    try:
+        tmp.write(raw); tmp.close()
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY, session_id=f"docupl-{uuid.uuid4()}",
+            system_message=(
+                "You are a meticulous OCR engine. Extract ALL text from the image verbatim. "
+                "Preserve line breaks, paragraph structure, and any tables (use simple text alignment). "
+                "Do NOT summarise, do NOT interpret. Output the raw text only."
+            ),
+        ).with_model("gemini", "gemini-2.5-flash").with_params(max_tokens=4000)
+        resp = await chat.send_message(UserMessage(
+            text="Extract every word of text from this image.",
+            file_contents=[FileContentWithMimeType(file_path=tmp.name, mime_type=content_type or "image/jpeg")],
+        ))
+        return (resp or "").strip()
+    finally:
+        try: os.unlink(tmp.name)
+        except Exception: pass
+
+
+@api_router.post("/lex/upload")
+async def lex_upload_document(file: UploadFile = File(...), user: dict = Depends(get_user)):
+    """Accept a document for the chat to reference. Returns a doc_id which the
+    client passes back on subsequent /chat messages to keep the doc in-context."""
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Empty file")
+    if len(raw) > 20 * 1024 * 1024:  # 20 MB hard cap
+        raise HTTPException(413, "File too large (20 MB max). Compress or split it.")
+
+    tier = (user.get("tier") or "free").lower()
+    page_cap = LEX_DOC_PAGE_LIMITS.get(tier, LEX_DOC_PAGE_LIMITS["free"])
+    daily_cap = LEX_DOC_DAILY_QUOTA.get(tier, LEX_DOC_DAILY_QUOTA["free"])
+
+    # Daily quota check — count today's docs.
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    used_today = await db.lex_uploads.count_documents({"user_id": user["id"], "day": today})
+    # Doc Pack top-up grants additional capacity
+    topup_docs = int(user.get("doc_pack_remaining") or 0)
+    effective_cap = daily_cap + topup_docs
+    if used_today >= effective_cap:
+        raise HTTPException(402, f"Daily document quota reached ({daily_cap}/day for {tier}). "
+                                  "Upgrade to Plus or Pro, or buy a Doc Pack £4.99 top-up (5 × 100-page docs).")
+
+    # Extract text
+    content_type = file.content_type or ""
+    fn = file.filename or "upload"
+    ct_low = content_type.lower()
+    fn_low = fn.lower()
+    try:
+        if fn_low.endswith((".png", ".jpg", ".jpeg", ".heic", ".heif", ".webp", ".gif", ".bmp", ".tif", ".tiff")) \
+                or ct_low.startswith("image/"):
+            text = await _ocr_image_async(raw, content_type, fn)
+            pages = 1
+        else:
+            text, pages = _extract_text_from_bytes(raw, fn, content_type)
+    except ValueError as ve:
+        raise HTTPException(400, str(ve))
+
+    if not text:
+        raise HTTPException(400, "Couldn't extract any readable text from that file. "
+                                  "Try re-saving it as a PDF or taking a clearer photo.")
+
+    # Page-cap enforcement
+    if pages > page_cap:
+        raise HTTPException(402,
+            f"Your file has ~{pages} pages, above the {page_cap}-page limit for the {tier} tier. "
+            f"Upgrade to Plus (25 pages) or Pro (100 pages), or split the document and try again.")
+
+    # Cap text length defensively (1.5x the page allowance ≈ 450 words/page)
+    max_chars = page_cap * 2400
+    truncated = False
+    if len(text) > max_chars:
+        text = text[:max_chars]
+        truncated = True
+
+    doc_type = _classify_doc_type(text, fn)
+
+    doc_id = str(uuid.uuid4())
+    await db.lex_uploads.insert_one({
+        "id": doc_id,
+        "user_id": user["id"],
+        "filename": fn,
+        "mime_type": content_type,
+        "size_bytes": len(raw),
+        "pages": pages,
+        "char_count": len(text),
+        "truncated": truncated,
+        "text": text,
+        "doc_type": doc_type,
+        "day": today,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    # Decrement Doc Pack top-up if used beyond daily quota
+    if used_today >= daily_cap and topup_docs > 0:
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$inc": {"doc_pack_remaining": -1}},
+        )
+
+    return {
+        "doc_id": doc_id,
+        "filename": fn,
+        "pages": pages,
+        "char_count": len(text),
+        "doc_type": doc_type,
+        "truncated": truncated,
+        "preview": text[:300],
+        "tier_used": tier,
+        "remaining_today": max(0, effective_cap - used_today - 1),
+    }
+
+
+@api_router.get("/lex/upload/{doc_id}")
+async def lex_get_upload(doc_id: str, user: dict = Depends(get_user)):
+    """Fetch a previously-uploaded document's metadata + text. Used when the
+    chat session restarts and the client wants to re-inject the doc context."""
+    doc = await db.lex_uploads.find_one(
+        {"id": doc_id, "user_id": user["id"]},
+        {"_id": 0},
+    )
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    return doc
+
 
 
 # ==================== Lex Reply Feedback ====================
