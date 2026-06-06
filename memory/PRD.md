@@ -19,6 +19,23 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 49 — Document upload in Lex chat)
+- 📎 **Major new feature: attach documents to any Lex chat.** Paperclip button in the chat input accepts **PDF, .docx, .doc, .txt, .md, .rtf, .csv, .xlsx, .odt, .pages, and all image formats** (.jpg/.png/.heic/.webp/.gif/.bmp/.tif). Server extracts text via pypdf / docx2txt / striprtf / openpyxl / Gemini Nano Banana OCR for images. Each attached doc gets a `doc_id` and is injected as a system-context block on EVERY chat turn in that session — true ChatGPT-style whole-session memory. Up to 5 docs concurrently per session.
+- 💰 **Tier limits (server-enforced)**:
+  - Free: **5 pages / 1 doc per day**
+  - Plus: **25 pages / 10 per day**
+  - Pro: **100 pages / unlimited**
+  - One-off "Doc Pack £4.99" top-up adds 5 × 100-page docs (backend ready, Stripe top-up wiring left for follow-up)
+- 🪄 **Auto-routing to specialist tools**: when the uploaded doc is classified as a contract (`tenancy`, `lease`, `employment`, etc.) or a solicitor letter (`without prejudice`, `notice to quit`, `letter before action`…), a green banner suggests Contract Tools or Letter Reader as a one-tap alternative. User can still just chat about it.
+- 🆕 Endpoints: `POST /api/lex/upload`, `GET /api/lex/upload/{doc_id}`.
+- 🆕 ChatMessage payload: new optional `doc_ids: List[str]`.
+- 🆕 Testids: `lex-attach-doc-btn`, `lex-doc-file-input`, `lex-attached-docs`, `lex-attached-doc-{id}`, `lex-remove-doc-{id}`, `lex-doc-routing-banner`, `lex-doc-route-open-tool`, `lex-doc-route-dismiss`.
+- 🛡 **Defence-in-depth**: PDF page-count probed BEFORE text extraction (1ms metadata read) so oversized files are rejected without burning CPU. 20 MB hard cap. Cross-user GET → 404.
+- ✅ **Testing**: 6/6 backend pytest pass + 8/8 frontend testid flows verified end-to-end. Verified live with a 1-page tenancy PDF → "How much rent?" returned "According to the attached tenancy agreement, you must pay £950 per month rent" — proving whole-session injection works.
+- 🔧 **Code-review fixes applied**: classifier now recognises `lease`, `landlord`, `tenant`, `monthly rent`, `fixed term`, etc., and uses filename as a strong prior; PDF page-count probe added BEFORE text extraction.
+
+
+
 ### 2026-02 (Iter 48 — Emergency lawyers card fix + Stripe charges audit)
 - 🚨 **Bug fix: Emergency → "Nearest lawyers to you" no longer disappears.** Previously the box only rendered while `lawyersBusy` was true OR results existed — so when the search completed with zero nearby firms (common abroad), the entire box silently vanished mid-flow, making the user think the feature was broken. Now the box renders whenever GPS is known, with three explicit states: "Searching…", lawyer rows, or a friendly "No partner firms within 50 km — close to browse the full Lawyers directory" empty-state. New testids: `emergency-lawyers-loading`, `emergency-lawyers-empty`, `emergency-open-directory`. Verified with curl that `/api/lawfirms` returns `[]` in <100ms for remote coords.
 - 💳 **New admin endpoint `GET /api/admin/stripe-recent-charges`** — lists the N most recent Stripe charges + refund status (live or test mode). Use to verify customer payments / self-refunds without leaving the app. Used live to confirm both £14.99 (16 May) and £4.99 (25 May) charges on Mastercard ****3367 were succeeded + fully refunded.

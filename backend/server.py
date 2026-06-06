@@ -8590,9 +8590,13 @@ def _classify_doc_type(text: str, filename: str) -> str:
         "in consideration of", "governing law", "entire agreement",
         "indemnif", "warrant", "limitation of liability", "non-disclosure",
         "tenancy agreement", "employment contract", "service agreement",
+        "shall pay", "shall be entitled", "shall provide", "the tenant", "the landlord",
+        "the employee", "the employer", "lease", "monthly rent", "fixed term",
     )
     contract_hits = sum(1 for k in contract_kw if k in t)
-    if contract_hits >= 2 or "contract" in fn or "agreement" in fn:
+    # Filename gives strong prior — treat 1 keyword hit as enough when filename suggests it
+    fn_hint = any(s in fn for s in ("contract", "agreement", "lease", "tenancy", "employment", "nda"))
+    if contract_hits >= 2 or (fn_hint and contract_hits >= 1) or (fn_hint and "agree" in t):
         return "contract"
     return "other"
 
@@ -8789,11 +8793,27 @@ async def lex_upload_document(file: UploadFile = File(...), user: dict = Depends
         raise HTTPException(402, f"Daily document quota reached ({daily_cap}/day for {tier}). "
                                   "Upgrade to Plus or Pro, or buy a Doc Pack £4.99 top-up (5 × 100-page docs).")
 
-    # Extract text
+    # Early page-count probe for PDFs — reject oversized files BEFORE we burn
+    # CPU extracting text. PDF page count is metadata, costs ~1ms to read.
     content_type = file.content_type or ""
     fn = file.filename or "upload"
     ct_low = content_type.lower()
     fn_low = fn.lower()
+    if fn_low.endswith(".pdf") or "pdf" in ct_low:
+        try:
+            from pypdf import PdfReader
+            from io import BytesIO
+            probe_pages = len(PdfReader(BytesIO(raw)).pages)
+            if probe_pages > page_cap:
+                raise HTTPException(402,
+                    f"Your PDF has {probe_pages} pages, above the {page_cap}-page limit for the {tier} tier. "
+                    f"Upgrade to Plus (25 pages) or Pro (100 pages), or split the document and try again.")
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # if probe fails, fall through to the regular extract path
+
+    # Extract text
     try:
         if fn_low.endswith((".png", ".jpg", ".jpeg", ".heic", ".heif", ".webp", ".gif", ".bmp", ".tif", ".tiff")) \
                 or ct_low.startswith("image/"):
