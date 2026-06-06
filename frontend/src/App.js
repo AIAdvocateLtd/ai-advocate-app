@@ -2565,6 +2565,7 @@ function EmergencyModal({ lang, country, user, onClose, onAddContact }) {
   const [embassy, setEmbassy] = useState(null);
   const [nearbyLawyers, setNearbyLawyers] = useState([]);
   const [lawyersBusy, setLawyersBusy] = useState(false);
+  const [lawyersSearched, setLawyersSearched] = useState(false);
   const [trackSession, setTrackSession] = useState(null); // {sos_id, expires_at, window_minutes}
   const [trackRemain, setTrackRemain] = useState(0);      // seconds remaining
   const [batteryLowPrompt, setBatteryLowPrompt] = useState(null); // {level, charging}
@@ -2584,7 +2585,7 @@ function EmergencyModal({ lang, country, user, onClose, onAddContact }) {
     api.get(`/lawfirms?latitude=${coords.latitude}&longitude=${coords.longitude}&max_km=50`)
       .then(r => setNearbyLawyers((r.data || []).slice(0, 5)))
       .catch(() => setNearbyLawyers([]))
-      .finally(() => setLawyersBusy(false));
+      .finally(() => { setLawyersBusy(false); setLawyersSearched(true); });
   }, [coords]);
 
   const fetchRights = useCallback(async (n) => {
@@ -3042,11 +3043,25 @@ function EmergencyModal({ lang, country, user, onClose, onAddContact }) {
           </button>
         )}
 
-        {/* Nearest lawyer — only shows when GPS available and at least one firm in 50km */}
-        {(nearbyLawyers.length > 0 || lawyersBusy) && (
+        {/* Nearest lawyer — visible whenever GPS is known. Stays put after the
+            search completes (showing a friendly "none nearby" message if no firms
+            were within 50km) so it never appears to vanish from under the user. */}
+        {coords && (
           <div data-testid="emergency-nearby-lawyers" style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 10, padding: 10, marginBottom: 10 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: "var(--gold)", marginBottom: 6 }}>📍 NEAREST LAWYERS TO YOU</div>
-            {lawyersBusy && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Searching…</div>}
+            {lawyersBusy && <div data-testid="emergency-lawyers-loading" style={{ fontSize: 12, color: "var(--text-muted)" }}>Searching…</div>}
+            {!lawyersBusy && nearbyLawyers.length === 0 && lawyersSearched && (
+              <div data-testid="emergency-lawyers-empty" style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
+                No partner firms within 50&nbsp;km of your current location.
+                <button data-testid="emergency-open-directory"
+                        onClick={() => { onClose && onClose(); }}
+                        style={{ display: "block", marginTop: 6, background: "transparent", border: "1px solid var(--gold-deep)",
+                                  color: "var(--gold)", padding: "5px 10px", borderRadius: 6, fontSize: 11,
+                                  fontWeight: 600, cursor: "pointer" }}>
+                  Close → open the Lawyers tab to browse the full directory
+                </button>
+              </div>
+            )}
             {nearbyLawyers.slice(0, 3).map(f => (
               <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderTop: "1px solid var(--line)" }}>
                 <div style={{ minWidth: 0 }}>

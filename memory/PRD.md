@@ -19,6 +19,12 @@
 
 ## Completed Implementation (rolling)
 
+### 2026-02 (Iter 48 — Emergency lawyers card fix + Stripe charges audit)
+- 🚨 **Bug fix: Emergency → "Nearest lawyers to you" no longer disappears.** Previously the box only rendered while `lawyersBusy` was true OR results existed — so when the search completed with zero nearby firms (common abroad), the entire box silently vanished mid-flow, making the user think the feature was broken. Now the box renders whenever GPS is known, with three explicit states: "Searching…", lawyer rows, or a friendly "No partner firms within 50 km — close to browse the full Lawyers directory" empty-state. New testids: `emergency-lawyers-loading`, `emergency-lawyers-empty`, `emergency-open-directory`. Verified with curl that `/api/lawfirms` returns `[]` in <100ms for remote coords.
+- 💳 **New admin endpoint `GET /api/admin/stripe-recent-charges`** — lists the N most recent Stripe charges + refund status (live or test mode). Use to verify customer payments / self-refunds without leaving the app. Used live to confirm both £14.99 (16 May) and £4.99 (25 May) charges on Mastercard ****3367 were succeeded + fully refunded.
+
+
+
 ### 2026-02 (Iter 47 — Smart-scroll fix + GDPR analytics delete + Stripe price audit)
 - 🪄 **Smart chat-scroll fix (LexChat + Courtroom Practice)** — previously every streaming chunk re-scrolled the chat to the bottom, so the TOP of Lex's answer constantly fled off-screen. Now the `useEffect` depends only on `messages.length` (fires once per new message, not per chunk). When a new lex bubble appears, its TOP is scrolled to near the top of the chat container; while content streams in below, no auto-scroll fights the user. User-sent messages still scroll to bottom (so the user sees their own send). `data-msg-index` and `data-pmsg-index` added to bubble divs so the anchor finds the right node.
 - 🗑 **GDPR "Delete my analytics data" button** (Settings → Privacy & analytics). New endpoint `POST /api/privacy/delete-analytics-data` — wipes the user's PostHog person + events server-side via Persons API (requires `POSTHOG_PERSONAL_API_KEY` env var; gracefully returns `status: skipped` if absent). Always resets PostHog client-side identity and switches off both analytics + crash toggles locally. Audit row written to `privacy_analytics_deletions` collection. New testids: `privacy-delete-analytics-row/btn/confirm/cancel/done`. Backend pytest 6/6 PASS.
