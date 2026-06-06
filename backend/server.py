@@ -9046,6 +9046,7 @@ async def privacy_delete_analytics(user: dict = Depends(get_user)):
     if ph_key and ph_proj:
         result["posthog"]["attempted"] = True
         try:
+            import httpx
             async with httpx.AsyncClient(timeout=20.0) as cx:
                 # 1) Find person by distinct_id (we use the user's UUID as identify())
                 find_url = f"{ph_host}/api/projects/{ph_proj}/persons/?distinct_id={user_id}"
@@ -9065,8 +9066,13 @@ async def privacy_delete_analytics(user: dict = Depends(get_user)):
                         d = await cx.delete(del_url, headers=headers)
                         if d.status_code in (200, 202, 204):
                             deleted += 1
-                    result["posthog"]["status"] = "deleted" if deleted else "not_found"
+                    result["posthog"]["status"] = "deleted" if deleted else "no_record_found"
                     result["posthog"]["persons_deleted"] = deleted
+                    result["posthog"]["detail"] = (
+                        f"Deleted {deleted} PostHog person record(s) and all linked events."
+                        if deleted else
+                        "PostHog had no analytics records for this account — nothing to delete."
+                    )
         except Exception as e:
             logger.exception("PostHog GDPR delete failed")
             result["posthog"]["status"] = "error"
