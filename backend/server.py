@@ -8884,9 +8884,21 @@ async def lex_upload_document(file: UploadFile = File(...), user: dict = Depends
     if len(raw) > 20 * 1024 * 1024:  # 20 MB hard cap
         raise HTTPException(413, "File too large (20 MB max). Compress or split it.")
 
-    tier = (user.get("tier") or "free").lower()
+    # Resolve tier via user_to_public so Stripe-active subs + trials are honoured
+    # (the raw user.tier field can be stale after a subscription change).
+    pub = user_to_public(user)
+    tier = (pub.get("tier") or "free").lower()
+    # Pro yearly maps to the same caps as Pro monthly.
+    if tier in ("yearly", "pro_yearly", "trial_pro"):
+        tier = "pro"
+    elif tier in ("trial_plus",):
+        tier = "plus"
     page_cap = LEX_DOC_PAGE_LIMITS.get(tier, LEX_DOC_PAGE_LIMITS["free"])
     daily_cap = LEX_DOC_DAILY_QUOTA.get(tier, LEX_DOC_DAILY_QUOTA["free"])
+    # Owners (founder accounts) get unlimited — they need to test, demo, support customers
+    if user.get("is_owner") or user.get("is_admin"):
+        page_cap = 1000
+        daily_cap = 9999
 
     # Daily quota check — count today's docs.
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -8895,8 +8907,15 @@ async def lex_upload_document(file: UploadFile = File(...), user: dict = Depends
     topup_docs = int(user.get("doc_pack_remaining") or 0)
     effective_cap = daily_cap + topup_docs
     if used_today >= effective_cap:
-        raise HTTPException(402, f"Daily document quota reached ({daily_cap}/day for {tier}). "
-                                  "Upgrade to Plus or Pro, or buy a Doc Pack £4.99 top-up (5 × 100-page docs).")
+        if tier == "free":
+            raise HTTPException(402, "Daily document limit reached (1/day on Free). "
+                                      "Upgrade to Plus for 10/day, or buy a Doc Pack £4.99 (5 more docs, never expires).")
+        elif tier == "plus":
+            raise HTTPException(402, "Daily document limit reached (10/day on Plus). "
+                                      "Upgrade to Pro for unlimited, or buy a Doc Pack £4.99 (5 more docs, never expires).")
+        else:
+            raise HTTPException(402, f"Daily document quota reached ({daily_cap}/day). "
+                                      "Buy a Doc Pack £4.99 (5 more docs, never expires).")
 
     # Early page-count probe for PDFs — reject oversized files BEFORE we burn
     # CPU extracting text. PDF page count is metadata, costs ~1ms to read.

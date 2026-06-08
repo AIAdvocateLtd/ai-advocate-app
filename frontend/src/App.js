@@ -1660,38 +1660,53 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
     try { sessionStorage.setItem(`aa_docs_${sessionId}`, JSON.stringify(attachedDocs)); } catch (e) { /* no-op */ }
   }, [attachedDocs, sessionId]);
 
-  const handleFileAttach = async (file) => {
-    if (!file) return;
+  const handleFileAttach = async (files) => {
+    if (!files || !files.length) return;
+    const fileList = Array.from(files).slice(0, 10); // hard cap 10/attach action
     setUploadingDoc(true);
     setQuotaExceeded(null);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const { data } = await api.post("/lex/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      const doc = {
-        doc_id: data.doc_id, filename: data.filename, pages: data.pages,
-        doc_type: data.doc_type, char_count: data.char_count, truncated: data.truncated,
-      };
-      setAttachedDocs(prev => [...prev, doc]);
-      // If the doc looks like a contract or letter, surface a one-tap "open the specialist" route.
-      if (data.doc_type === "contract" || data.doc_type === "letter") {
-        setDocRoutingSuggestion({ doc_type: data.doc_type, doc_id: data.doc_id, filename: data.filename });
+    let quotaHitDetail = null;
+    let lastDocType = null;
+    let lastSuggestion = null;
+    let successCount = 0;
+    for (const file of fileList) {
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+        const { data } = await api.post("/lex/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+        const doc = {
+          doc_id: data.doc_id, filename: data.filename, pages: data.pages,
+          doc_type: data.doc_type, char_count: data.char_count, truncated: data.truncated,
+        };
+        setAttachedDocs(prev => [...prev, doc]);
+        lastDocType = data.doc_type;
+        if (data.doc_type === "contract" || data.doc_type === "letter") {
+          lastSuggestion = { doc_type: data.doc_type, doc_id: data.doc_id, filename: data.filename };
+        }
+        successCount++;
+      } catch (e) {
+        const status = e?.response?.status;
+        const detail = e?.response?.data?.detail || `Couldn't read ${file.name}.`;
+        if (status === 402) {
+          quotaHitDetail = detail;
+          break; // stop here — paywall will appear
+        } else {
+          aaToast(detail, "error");
+        }
       }
-      aaToast(`📎 ${data.filename} attached — Lex can read all ${data.pages} page${data.pages === 1 ? "" : "s"}.`, "success");
-    } catch (e) {
-      // Paywall (402) → surface the inline upsell instead of a toast so the user
-      // can pay or upgrade with one tap without leaving the chat.
-      const status = e?.response?.status;
-      const detail = e?.response?.data?.detail || "Couldn't read that file.";
-      if (status === 402) {
-        setQuotaExceeded({ message: detail, tier });
-      } else {
-        aaToast(detail, "error");
-      }
-    } finally {
-      setUploadingDoc(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     }
+    if (quotaHitDetail) setQuotaExceeded({ message: quotaHitDetail, tier });
+    if (lastSuggestion) setDocRoutingSuggestion(lastSuggestion);
+    if (successCount > 0) {
+      aaToast(
+        successCount === 1
+          ? `📎 ${fileList[0].name} attached — Lex can read it.`
+          : `📎 ${successCount} files attached — Lex can read them all.`,
+        "success"
+      );
+    }
+    setUploadingDoc(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const buyDocPack = async () => {
@@ -2562,10 +2577,11 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                    style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%", mixBlendMode: "lighten" }} />
             )}
           </button>
-          {/* 📎 Attach a document (PDF/Word/photo/RTF/Excel/CSV/etc.) — Lex remembers it for the whole session */}
-          <input ref={fileInputRef} type="file"
+          {/* 📎 Attach a document (PDF/Word/photo/RTF/Excel/CSV/etc.) — Lex remembers it for the whole session.
+              `multiple` lets users select 2-3 phone photos at once (e.g. multi-page contract). */}
+          <input ref={fileInputRef} type="file" multiple
                  accept=".pdf,.docx,.doc,.txt,.md,.rtf,.csv,.xlsx,.odt,.pages,image/*"
-                 onChange={(e) => handleFileAttach(e.target.files?.[0])}
+                 onChange={(e) => handleFileAttach(e.target.files)}
                  style={{ display: "none" }}
                  data-testid="lex-doc-file-input" />
           <button onClick={() => fileInputRef.current?.click()} disabled={uploadingDoc || busy}
@@ -11128,7 +11144,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
 
   // Tier required per tile. "free" = available to all; emergency is separate.
   const tiles = [
-    { id: "ask_lex", label: t(lang, "askLex"), sub: "Drop any document with 📎 — ask anything", Icon: AskLexIcon, cat: "ask_lex", req: "free" },
+    { id: "ask_lex", label: t(lang, "askLex"), Icon: AskLexIcon, cat: "ask_lex", req: "free" },
     { id: "courtroom", label: t(lang, "courtroomTrainer"), Icon: CourtIcon, req: "plus" },
     // Merged "Record" tile — opens RecordModal with two modes:
     // 🚔 Encounter (Plus tier, was the original "Record Legal Interaction")
@@ -11136,8 +11152,8 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     // Uses the Hearing/vintage-mic icon per user preference.
     { id: "record", label: t(lang, "recordLegal"), Icon: HearingIcon, cat: "record", req: "plus" },
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
-    { id: "letter_reader", label: t(lang, "letterReader"), sub: "Solicitor letters — threat-meter rating + drafted reply", Icon: LetterIcon, req: "free" },
-    { id: "contracts", label: t(lang, "contractTools"), sub: "Contracts only — clause-by-clause risk review", Icon: ContractIcon, req: "free" },
+    { id: "letter_reader", label: t(lang, "letterReader"), Icon: LetterIcon, req: "free" },
+    { id: "contracts", label: t(lang, "contractTools"), Icon: ContractIcon, req: "free" },
     { id: "engagements", label: t(lang, "mySolicitor"), sub: t(lang, "mySolicitorSub"), Icon: HandshakeIcon, req: "free" },
     { id: "vault", label: t(lang, "vaultTitle"), Icon: VaultIcon, req: "free" },
     { id: "outcome", label: t(lang, "predictOutcome"), Icon: OutcomeIcon, req: "pro" },
