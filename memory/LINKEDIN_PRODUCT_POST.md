@@ -5,7 +5,7 @@
 
 ---
 
-## 🎯 The Post (copy/paste exactly)
+## 🎯 The Post (copy/paste exactly — wife-safe version, no country named)
 
 > **What do you do when a letter from a solicitor lands on your doormat at 4pm on a Friday?**
 >
@@ -13,7 +13,7 @@
 >
 > Both are bad answers.
 >
-> I built AI Advocate because my wife and I lived through that feeling — repeatedly. We paid French immigration lawyers in France. We paid UK immigration lawyers in the UK. We were turned away at the French embassy in London by security guards who never let her speak to a single official. Three months. Four lawyers. Zero answers.
+> I built AI Advocate because someone close to me lived through something similar — for months. Lawyers in two different jurisdictions. Embassies. Airlines. Border control. Three months of phone calls. Four solicitors. The bill ran into thousands of pounds. The answers ran to zero.
 >
 > So I built the tool I wished we'd had: a UK legal assistant that you can actually use, today, from your sofa, in your own language.
 >
@@ -23,19 +23,28 @@
 >
 > 🎯 **It scores the threat level.** Is this a polite reminder, or are you 14 days away from a court hearing? You see the threat meter before you finish your coffee.
 >
-> 💬 **You can ask follow-ups.** "What does Section 21 mean for my deposit?" "Do I have to respond by the date they wrote?" "Can they actually evict me for this?" Lex answers in plain English, grounded in UK statute, with the exact section number cited.
+> 💬 **You can ask follow-ups.** "What does Section 21 mean for my deposit?" "Do I have to respond by the date they wrote?" Lex answers in plain English, grounded in UK statute, with the exact section number cited.
 >
 > ✍️ **You can draft a reply, three ways.** Polite. Firm. Pre-action protocol. Pick a tone, copy, send.
 >
 > 🏛 **If it's serious, we route you to a regulated solicitor** — vetted, near you, and at fixed-fee where possible.
 >
-> Free tier is genuinely useful. Plus is £19.99/month. Pro is £34.99/month. There's no consultation fee, no "first 15 minutes free then £350/hr".
+> Free tier is genuinely useful. Plus is £19.99/month. Pro is £34.99/month. There's no consultation fee, no "first 15 minutes free then £350/hour".
 >
 > If you've ever opened a letter and felt your stomach drop, this app exists for that moment.
 >
 > 👉 aiadvocate.co.uk (link in comments)
 >
 > #LegalTech #UKLaw #AccessToJustice #AIForGood #LegalAdvice
+
+---
+
+## 📥 The 4 hero screenshots — as a single PDF
+
+Tap to download (works on phone too):
+**https://ai-law-guide-1.preview.emergentagent.com/instagram-pack/linkedin-hero-pack.pdf**
+
+Once downloaded, attach each page as a separate image to your LinkedIn post (long-press the PDF → "Save pages as images" on iPhone, or screenshot each page on Android).
 
 ---
 
