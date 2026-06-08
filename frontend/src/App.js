@@ -10848,6 +10848,134 @@ function WinbackGiftBanner({ user, lang, refreshUser }) {
   );
 }
 
+// =============================== SMART DOC ROUTER ===============================
+// Hero banner on the home dashboard that asks ONE question — "what kind of document
+// do you have?" — and routes the user to the right specialist tool. Eliminates
+// the "do I use Contract Tools / Letter Reader / paperclip in chat?" paralysis.
+function DocSmartRouter({ lang, onPickContract, onPickLetter, onPickOther }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        data-testid="doc-smart-router-open"
+        onClick={() => setOpen(true)}
+        style={{
+          width: "100%",
+          margin: "0 0 14px",
+          padding: "16px 14px",
+          background: "linear-gradient(135deg, rgba(247,201,72,0.18), rgba(247,201,72,0.05))",
+          border: "1px solid var(--gold-deep)",
+          borderRadius: 14,
+          color: "var(--text)",
+          textAlign: "left",
+          cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 12,
+        }}>
+        <span style={{ fontSize: 28, lineHeight: 1 }}>📎</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: "var(--gold)", letterSpacing: "0.02em" }}>
+            I have a document — help me
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginTop: 2, lineHeight: 1.4 }}>
+            Contract, solicitor letter, or anything else — we'll point you to the right tool in one tap.
+          </div>
+        </div>
+        <span style={{ color: "var(--gold)", fontSize: 18 }}>→</span>
+      </button>
+
+      {open && (
+        <div data-testid="doc-smart-router-modal"
+             onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}
+             style={{
+               position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)",
+               display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000,
+             }}>
+          <div style={{
+            background: "var(--bg)", borderTopLeftRadius: 16, borderTopRightRadius: 16,
+            padding: 20, width: "100%", maxWidth: 480, maxHeight: "80vh", overflow: "auto",
+            border: "1px solid var(--gold-deep)", borderBottom: "none",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: "var(--gold)" }}>
+                What kind of document?
+              </div>
+              <button onClick={() => setOpen(false)} data-testid="doc-smart-router-close"
+                      style={{ background: "transparent", border: "none", color: "var(--text-dim)", cursor: "pointer" }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <button data-testid="doc-router-pick-contract"
+                    onClick={() => { setOpen(false); onPickContract(); }}
+                    style={{
+                      width: "100%", textAlign: "left",
+                      background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)",
+                      borderRadius: 12, padding: 14, marginBottom: 10, color: "var(--text)", cursor: "pointer",
+                      display: "flex", gap: 12, alignItems: "flex-start",
+                    }}>
+              <span style={{ fontSize: 26, lineHeight: 1 }}>📄</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 3, color: "var(--gold)" }}>
+                  A contract or agreement
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.45 }}>
+                  Tenancy agreement, employment contract, NDA, service terms, lease, etc.
+                  <br />→ <strong style={{ color: "var(--text)" }}>Contract Tools</strong> · clause-by-clause risk review + negotiation points
+                </div>
+              </div>
+            </button>
+
+            <button data-testid="doc-router-pick-letter"
+                    onClick={() => { setOpen(false); onPickLetter(); }}
+                    style={{
+                      width: "100%", textAlign: "left",
+                      background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)",
+                      borderRadius: 12, padding: 14, marginBottom: 10, color: "var(--text)", cursor: "pointer",
+                      display: "flex", gap: 12, alignItems: "flex-start",
+                    }}>
+              <span style={{ fontSize: 26, lineHeight: 1 }}>📬</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 3, color: "var(--gold)" }}>
+                  A solicitor or official letter
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.45 }}>
+                  Letter before action, Section 21 notice, debt demand, employment dismissal, court summons.
+                  <br />→ <strong style={{ color: "var(--text)" }}>Letter Reader</strong> · threat-meter (1–10) + reply drafted in three tones
+                </div>
+              </div>
+            </button>
+
+            <button data-testid="doc-router-pick-other"
+                    onClick={() => { setOpen(false); onPickOther(); }}
+                    style={{
+                      width: "100%", textAlign: "left",
+                      background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)",
+                      borderRadius: 12, padding: 14, marginBottom: 6, color: "var(--text)", cursor: "pointer",
+                      display: "flex", gap: 12, alignItems: "flex-start",
+                    }}>
+              <span style={{ fontSize: 26, lineHeight: 1 }}>📎</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 3, color: "var(--gold)" }}>
+                  Something else — just chat about it
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.45 }}>
+                  Court papers, conveyance report, witness statement, divorce bundle, anything.
+                  <br />→ <strong style={{ color: "var(--text)" }}>Ask Lex</strong> · attach via 📎 paperclip · ask any follow-up
+                </div>
+              </div>
+            </button>
+
+            <div style={{ fontSize: 10.5, color: "var(--text-muted)", textAlign: "center", marginTop: 10, lineHeight: 1.4 }}>
+              Not sure? Pick "Something else" — Lex will read it and recommend the right tool.
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+
 function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refreshUser }) {
   const [modal, setModal] = useState(null); // {type, title, category}
   const [showLang, setShowLang] = useState(false);
@@ -11000,7 +11128,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
 
   // Tier required per tile. "free" = available to all; emergency is separate.
   const tiles = [
-    { id: "ask_lex", label: t(lang, "askLex"), sub: t(lang, "askLexSub"), Icon: AskLexIcon, cat: "ask_lex", req: "free" },
+    { id: "ask_lex", label: t(lang, "askLex"), sub: "Drop any document with 📎 — ask anything", Icon: AskLexIcon, cat: "ask_lex", req: "free" },
     { id: "courtroom", label: t(lang, "courtroomTrainer"), Icon: CourtIcon, req: "plus" },
     // Merged "Record" tile — opens RecordModal with two modes:
     // 🚔 Encounter (Plus tier, was the original "Record Legal Interaction")
@@ -11008,8 +11136,8 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     // Uses the Hearing/vintage-mic icon per user preference.
     { id: "record", label: t(lang, "recordLegal"), Icon: HearingIcon, cat: "record", req: "plus" },
     { id: "snap", label: t(lang, "snapEvidence"), Icon: CameraIcon, req: "free" },
-    { id: "letter_reader", label: t(lang, "letterReader"), Icon: LetterIcon, req: "free" },
-    { id: "contracts", label: t(lang, "contractTools"), Icon: ContractIcon, req: "free" },
+    { id: "letter_reader", label: t(lang, "letterReader"), sub: "Solicitor letters — threat-meter rating + drafted reply", Icon: LetterIcon, req: "free" },
+    { id: "contracts", label: t(lang, "contractTools"), sub: "Contracts only — clause-by-clause risk review", Icon: ContractIcon, req: "free" },
     { id: "engagements", label: t(lang, "mySolicitor"), sub: t(lang, "mySolicitorSub"), Icon: HandshakeIcon, req: "free" },
     { id: "vault", label: t(lang, "vaultTitle"), Icon: VaultIcon, req: "free" },
     { id: "outcome", label: t(lang, "predictOutcome"), Icon: OutcomeIcon, req: "pro" },
@@ -11185,6 +11313,17 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
           </div>
         </div>
       )}
+
+      {/* 📎 Smart document router — single hero CTA that asks one question
+          ("what type of document?") and routes the user to the right specialist
+          tool. Eliminates choice-paralysis between Contract Tools, Letter Reader
+          and the in-chat paperclip uploader. */}
+      <DocSmartRouter
+        lang={lang}
+        onPickContract={() => setModal({ type: "contracts" })}
+        onPickLetter={() => setModal({ type: "letter_reader" })}
+        onPickOther={() => setModal({ type: "chat", title: t(lang, "askLex"), category: "ask_lex" })}
+      />
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, rowGap: 18 }}>
         {tiles.map(tile => {
