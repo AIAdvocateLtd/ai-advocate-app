@@ -1607,7 +1607,7 @@ function InviteWitnessFromChatPanel({ caseId, initialContext, onClose }) {
 
 
 // ---------- Lex Chat ----------
-function LexChat({ lang, country, category, title, onClose, autoMic = false, tier = "free", onSwitchCategory, initialSeed = "", resumeSessionId = null, caseId = null }) {
+function LexChat({ lang, country, category, title, onClose, autoMic = false, tier = "free", onSwitchCategory, onSwitchTool, initialSeed = "", resumeSessionId = null, caseId = null }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -2129,7 +2129,6 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         <div className="flex items-center justify-between" style={{ padding: 16, borderBottom: "1px solid var(--line)" }}>
           <div>
             <div className="brand-font gold" style={{ fontSize: 18, letterSpacing: "0.04em" }}>{title || "LEX"}</div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>AI Advocate</div>
           </div>
           <div className="flex items-center gap-2">
             {/* Deep Think toggle — Pro only with monthly counter */}
@@ -2647,7 +2646,17 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                 : <> Want a threat-meter rating in <strong>Letter Reader</strong> instead, or just chat about it here?</>}
             </div>
             <button data-testid="lex-doc-route-open-tool"
-                    onClick={() => { setDocRoutingSuggestion(null); onClose && onClose(); }}
+                    onClick={() => {
+                      const tool = docRoutingSuggestion.doc_type === "contract" ? "contracts" : "letter_reader";
+                      const docPayload = {
+                        doc_id: docRoutingSuggestion.doc_id,
+                        filename: docRoutingSuggestion.filename,
+                        doc_type: docRoutingSuggestion.doc_type,
+                      };
+                      setDocRoutingSuggestion(null);
+                      if (onSwitchTool) onSwitchTool({ tool, doc: docPayload });
+                      else if (onClose) onClose();
+                    }}
                     style={{ fontSize: 10.5, padding: "5px 9px", background: "#86efac", color: "#0a3a1f",
                              border: "none", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>
               Open {docRoutingSuggestion.doc_type === "contract" ? "Contract Tools" : "Letter Reader"}
@@ -11408,7 +11417,11 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
           else if (k === "legal_aid") setModal({ type: "legal_aid" });
         }} hasAccess={true} requireSub={() => setShowSub(true)} />
 
-      {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} initialSeed={modal._initialSeed || ""} resumeSessionId={modal._resumeSession || null} caseId={modal._caseId || null} tier={tier} onClose={() => setModal(null)} onSwitchCategory={(newCat) => {
+      {modal?.type === "chat" && <LexChat lang={lang} country={country} category={modal.category} title={modal.title} autoMic={!!modal.autoMic} initialSeed={modal._initialSeed || ""} resumeSessionId={modal._resumeSession || null} caseId={modal._caseId || null} tier={tier} onClose={() => setModal(null)} onSwitchTool={({ tool, doc }) => {
+        // 🪄 Smart-route: chat detected a letter/contract — jump to the specialist
+        // tool, preloading the same doc so the user doesn't re-upload.
+        setModal({ type: tool, _initialDoc: doc });
+      }} onSwitchCategory={(newCat) => {
         const labelByCat = { employment: t(lang, "employment"), property: t(lang, "property"), immigration: t(lang, "immigration"), medical_negligence: t(lang, "medical") };
         if (!hasTier("plus")) { setSubPreset("plus"); setShowSub(true); return; }
         setModal({ type: "chat", category: newCat, title: labelByCat[newCat] || "Lex" });
@@ -11422,8 +11435,8 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "letter" && <LegalLetterModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "record" && <RecordHub lang={lang} country={country} user={user} hasTier={hasTier} onUpsell={() => { setSubPreset("pro"); setShowSub(true); }} onClose={() => setModal(null)} />}
       {modal?.type === "snap" && <SnapEvidenceModal lang={lang} country={country} onClose={() => setModal(null)} />}
-      {modal?.type === "letter_reader" && <LetterReaderModal lang={lang} country={country} onClose={() => setModal(null)} />}
-      {modal?.type === "contracts" && <ContractsHubModal lang={lang} country={country} hasTier={hasTier} onUpsell={() => { setSubPreset("pro"); setShowSub(true); }} onClose={() => setModal(null)} />}
+      {modal?.type === "letter_reader" && <LetterReaderModal lang={lang} country={country} initialDoc={modal._initialDoc || null} onClose={() => setModal(null)} />}
+      {modal?.type === "contracts" && <ContractsHubModal lang={lang} country={country} initialDoc={modal._initialDoc || null} hasTier={hasTier} onUpsell={() => { setSubPreset("pro"); setShowSub(true); }} onClose={() => setModal(null)} />}
       {modal?.type === "vault" && <VaultModal lang={lang} hasTier={hasTier} onUpsell={() => { setSubPreset("pro"); setShowSub(true); }} onClose={() => setModal(null)} />}
       {modal?.type === "engagements" && <EngagementsModal lang={lang} country={country} user={user} onClose={() => setModal(null)} />}
       {modal?.type === "outcome" && <OutcomeModal lang={lang} country={country} onClose={() => setModal(null)} />}
@@ -14010,13 +14023,14 @@ function ContractNegotiateBody({ lang, country }) {
 }
 
 // ---------- Letter Reader (Document Auto-Responder) ----------
-function LetterReaderModal({ lang, country, onClose }) {
+function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [err, setErr] = useState("");
   const [showLadder, setShowLadder] = useState(false);
+  const [docIdLoaded, setDocIdLoaded] = useState(null); // 📎 doc_id when re-using a Lex upload
   const inputRef = useRef(null);
   const uploadRef = useRef(null);
 
@@ -14028,11 +14042,12 @@ function LetterReaderModal({ lang, country, onClose }) {
   };
 
   const analyze = async () => {
-    if (!file) return;
+    if (!file && !docIdLoaded) return;
     setBusy(true); setErr("");
     try {
       const fd = new FormData();
-      fd.append("file", file);
+      if (file) fd.append("file", file);
+      if (docIdLoaded) fd.append("doc_id", docIdLoaded);
       fd.append("language", lang);
       fd.append("country", country);
       const { data } = await api.post("/document/analyze", fd);
@@ -14041,6 +14056,20 @@ function LetterReaderModal({ lang, country, onClose }) {
       setErr(e?.response?.data?.detail || "Analysis failed");
     } finally { setBusy(false); }
   };
+
+  // 🪄 Auto-analyse when the chat smart-routed an already-uploaded doc here.
+  useEffect(() => {
+    if (initialDoc?.doc_id && !docIdLoaded && !result) {
+      setDocIdLoaded(initialDoc.doc_id);
+    }
+  }, [initialDoc, docIdLoaded, result]);
+
+  useEffect(() => {
+    if (docIdLoaded && !file && !result && !busy) {
+      analyze();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docIdLoaded]);
 
   const copyResponse = () => {
     if (!result?.suggested_response) return;
@@ -14065,23 +14094,39 @@ function LetterReaderModal({ lang, country, onClose }) {
 
         {!result && (
           <>
+            {/* 🪄 Show a "loaded from chat" pill when the doc was passed in via smart-route */}
+            {initialDoc?.filename && !file && (
+              <div data-testid="letter-reader-initial-doc"
+                   style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)",
+                            borderRadius: 10, padding: 10, marginBottom: 12,
+                            display: "flex", alignItems: "center", gap: 10 }}>
+                <FileText size={18} style={{ color: "var(--gold)" }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: "var(--text)", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{initialDoc.filename}</div>
+                  <div style={{ color: "var(--text-dim)", fontSize: 11 }}>Loaded from Lex chat — analysing now…</div>
+                </div>
+              </div>
+            )}
+
             <input ref={inputRef} type="file" accept="image/*" capture="environment"
                    onChange={choose} style={{ display: "none" }} data-testid="letter-camera-input" />
             <input ref={uploadRef} type="file" accept="image/*,application/pdf,.doc,.docx,.txt"
                    onChange={choose} style={{ display: "none" }} data-testid="letter-upload-input" />
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-              <button className="btn-gold" data-testid="letter-camera-btn" onClick={() => inputRef.current?.click()}
-                      style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: "18px 8px" }}>
-                <Camera size={22} />
-                <span style={{ fontSize: 13 }}>{t(lang, "contractTakePhoto")}</span>
-              </button>
-              <button className="btn-ghost" data-testid="letter-upload-btn" onClick={() => uploadRef.current?.click()}
-                      style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: "18px 8px", border: "1px solid var(--gold-deep)" }}>
-                <Upload size={22} />
-                <span style={{ fontSize: 13 }}>{t(lang, "contractUploadFile")}</span>
-              </button>
-            </div>
+            {!docIdLoaded && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                <button className="btn-gold" data-testid="letter-camera-btn" onClick={() => inputRef.current?.click()}
+                        style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: "18px 8px" }}>
+                  <Camera size={22} />
+                  <span style={{ fontSize: 13 }}>{t(lang, "contractTakePhoto")}</span>
+                </button>
+                <button className="btn-ghost" data-testid="letter-upload-btn" onClick={() => uploadRef.current?.click()}
+                        style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: "18px 8px", border: "1px solid var(--gold-deep)" }}>
+                  <Upload size={22} />
+                  <span style={{ fontSize: 13 }}>{t(lang, "contractUploadFile")}</span>
+                </button>
+              </div>
+            )}
 
             {file && (
               <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>

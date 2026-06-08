@@ -2171,12 +2171,18 @@ class StrategicHelperRequest(BaseModel):
 
 
 async def _last_lex_exchange(user_id: str, session_id: str) -> Optional[dict]:
-    """Return the most recent (user_message, assistant_response) for this session."""
+    """Return the most recent (user_message, assistant_response) for this session.
+    Both fields are encrypted at rest — decrypt before returning so downstream
+    LLM helpers (outcome ladder, devil-advocate) get readable text."""
     doc = await db.conversations.find_one(
         {"user_id": user_id, "session_id": session_id, "user_message": {"$ne": None}},
         sort=[("created_at", -1)],
         projection={"_id": 0, "user_message": 1, "assistant_response": 1, "category": 1},
     )
+    if not doc:
+        return None
+    doc["user_message"] = decrypt_text(doc.get("user_message")) or ""
+    doc["assistant_response"] = decrypt_text(doc.get("assistant_response")) or ""
     return doc
 
 
@@ -8575,17 +8581,94 @@ class DocAnalyzeResponse(BaseModel):
 
 @api_router.post("/document/analyze")
 async def document_analyze(
-    file: UploadFile = File(...),
+    file: Optional[UploadFile] = File(None),
     language: str = Form("en-GB"),
     country: str = Form("GB"),
     case_id: Optional[str] = Form(None),
+    doc_id: Optional[str] = Form(None),
     user: dict = Depends(get_user),
 ):
-    """Analyse a photographed/scanned letter and return category + draft response + deadlines."""
+    """Analyse a photographed/scanned letter and return category + draft response + deadlines.
+
+    Two modes:
+      • Multipart file upload — original camera/upload path used by Letter Reader tile.
+      • `doc_id` form param  — re-uses a document the user already uploaded via
+        Lex chat (`/lex/upload`). Lets the "Open Letter Reader" smart-route
+        button analyse the same file without re-uploading."""
     pub = user_to_public(user)
     ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "doc_analyze", "monthly")
     if not ok:
         raise HTTPException(429, f"Document analysis monthly limit reached ({used}/{limit}). Upgrade to Plus for unlimited.")
+
+    # -------- Mode B: re-use existing Lex upload by doc_id --------
+    if doc_id and not file:
+        existing = await db.lex_uploads.find_one(
+            {"id": doc_id, "user_id": user["id"]},
+            {"_id": 0, "text": 1, "filename": 1, "mime_type": 1},
+        )
+        if not existing:
+            raise HTTPException(404, "Document not found")
+        existing_text = (existing.get("text") or "")[:60000]
+        if not existing_text:
+            raise HTTPException(400, "Stored document has no readable text")
+        lang_name = LANG_NAMES.get(language, "English")
+        sysmsg = f"""You are AI Advocate's document-analyser. The user uploaded a letter or legal document.
+Jurisdiction: {country}. Reply in {lang_name}.
+
+Return STRICT JSON with this exact schema (no markdown, no commentary):
+{{
+  "category": "<one of: parking_ticket, council_tax, debt_collection, eviction, employment, tax, court_summons, police_letter, immigration, contract, insurance, medical, other>",
+  "summary": "<2-3 sentence plain-language explanation of what this letter says>",
+  "deadlines": [{{"label": "<what>", "date_iso": "<YYYY-MM-DD>"}}],
+  "suggested_response": "<full draft of the user's response letter — sender, date, recipient, body, sign-off — ready to send. Polite, firm, references the relevant law where applicable.>",
+  "next_steps": ["<short action 1>", "<short action 2>", "..."],
+  "severity": "<low|medium|high|urgent>"
+}}
+
+If the document is NOT a legal/official letter, set category=\"other\", severity=\"low\", and suggested_response=\"This does not appear to be a legal document.\"
+"""
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"doc-{uuid.uuid4()}", system_message=sysmsg)\
+            .with_model("gemini", "gemini-2.5-flash")
+        try:
+            resp = await chat.send_message(UserMessage(
+                text=f"Filename: {existing.get('filename','document')}\n\n----- DOCUMENT TEXT -----\n{existing_text}\n----- END -----\n\nAnalyse this document."
+            ))
+        except Exception as e:
+            logger.exception("doc analyze (doc_id) failed")
+            raise HTTPException(500, f"AI error: {e}")
+        import json as _json, re as _re
+        payload = resp.strip()
+        payload = _re.sub(r"^```(?:json)?\s*", "", payload)
+        payload = _re.sub(r"\s*```$", "", payload).strip()
+        try:
+            parsed = _json.loads(payload)
+        except Exception:
+            parsed = {"category": "other", "summary": payload[:600], "deadlines": [],
+                      "suggested_response": "", "next_steps": [], "severity": "low"}
+        if case_id:
+            await db.case_items.insert_one({
+                "id": str(uuid.uuid4()), "case_id": case_id, "user_id": user["id"],
+                "kind": "document_analysis", "title": parsed.get("category", "document"),
+                "data": parsed, "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+            for dl in parsed.get("deadlines", []) or []:
+                try:
+                    due = datetime.fromisoformat(dl["date_iso"]).replace(tzinfo=timezone.utc)
+                    await db.reminders.insert_one({
+                        "id": str(uuid.uuid4()), "user_id": user["id"], "case_id": case_id,
+                        "title": dl.get("label", "Deadline"), "description": "",
+                        "due_at": due.isoformat(), "kind": "deadline",
+                        "status": "pending", "source": "doc_auto",
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    })
+                except Exception:
+                    pass
+        parsed["case_id"] = case_id
+        return parsed
+
+    # -------- Mode A: multipart file upload (legacy path) --------
+    if not file:
+        raise HTTPException(400, "Provide either `file` or `doc_id`")
 
     raw = await file.read()
     if len(raw) > 12 * 1024 * 1024:

@@ -9,6 +9,12 @@
 - **Lawyers** working B2B2C via Firm Portal
 
 
+### 2026-02 (Iter 51 — Outcome Ladder decryption fix + smart-route preload)
+- 🪄 **Smart-route now actually opens the tool with the doc preloaded.** Previously, clicking "Open Letter Reader" in the Lex chat smart-route banner only closed the chat. Now it closes the chat AND opens the Letter Reader modal with the already-uploaded doc, which auto-analyses via `/document/analyze?doc_id=<id>` (no re-upload needed). New `onSwitchTool` prop on `LexChat` + `initialDoc` prop on `LetterReaderModal` + new `doc_id` form-param mode on `POST /api/document/analyze`.
+- 🐛 **Outcome Ladder + Devil's Advocate fixed** — `_last_lex_exchange()` was returning encrypted ciphertext to the strategist LLMs, which made them fail JSON validation and return "Lex couldn't structure the outcome ladder". Now decrypts `user_message` + `assistant_response` before returning. Verified end-to-end with curl using a real Lex conversation.
+- 🧹 **Subtitle removed** — removed the small "AI Advocate" subheading under the `LEX` header inside every chat modal, per user feedback ("looks more intelligent without it").
+
+
 ### 2026-02 (Iter 46 — Founder story + For-Firms PDF downloads + Tip-of-Day verified)
 - 📘 **For-Firms PDF download section** added to `/founding-firm-pitch.html` (route `/for-firms`). Two CTAs: Partner Introduction Pack (`/intro-pack.html`, 8pp A4) + One-page Pitch Card (`/pitch-card.html`). Plus a "copy share link" button. Lives above the trial-length pill grid. Test-ids: `firm-download-intro-pack`, `firm-download-pitch-card`, `firm-share-intro-pack`. Verified both PDFs load 200 in preview.
 - 🌟 **Day 1 Instagram launch post REWRITTEN** with the real founder story (wife's French travel document, embassies refusing her, Eurostar workaround). Professional tone. Replaces the generic ET1-helping-a-friend draft. Updated in `/app/frontend/public/instagram-pack/30-day-content-calendar.md`.
