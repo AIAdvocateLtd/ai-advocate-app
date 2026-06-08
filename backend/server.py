@@ -8579,40 +8579,13 @@ class DocAnalyzeResponse(BaseModel):
     severity: Literal["low", "medium", "high", "urgent"] = "medium"
     case_id: Optional[str] = None
 
-@api_router.post("/document/analyze")
-async def document_analyze(
-    file: Optional[UploadFile] = File(None),
-    language: str = Form("en-GB"),
-    country: str = Form("GB"),
-    case_id: Optional[str] = Form(None),
-    doc_id: Optional[str] = Form(None),
-    user: dict = Depends(get_user),
-):
-    """Analyse a photographed/scanned letter and return category + draft response + deadlines.
-
-    Two modes:
-      • Multipart file upload — original camera/upload path used by Letter Reader tile.
-      • `doc_id` form param  — re-uses a document the user already uploaded via
-        Lex chat (`/lex/upload`). Lets the "Open Letter Reader" smart-route
-        button analyse the same file without re-uploading."""
-    pub = user_to_public(user)
-    ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "doc_analyze", "monthly")
-    if not ok:
-        raise HTTPException(429, f"Document analysis monthly limit reached ({used}/{limit}). Upgrade to Plus for unlimited.")
-
-    # -------- Mode B: re-use existing Lex upload by doc_id --------
-    if doc_id and not file:
-        existing = await db.lex_uploads.find_one(
-            {"id": doc_id, "user_id": user["id"]},
-            {"_id": 0, "text": 1, "filename": 1, "mime_type": 1},
-        )
-        if not existing:
-            raise HTTPException(404, "Document not found")
-        existing_text = (existing.get("text") or "")[:60000]
-        if not existing_text:
-            raise HTTPException(400, "Stored document has no readable text")
-        lang_name = LANG_NAMES.get(language, "English")
-        sysmsg = f"""You are AI Advocate's document-analyser. The user uploaded a letter or legal document.
+async def _analyse_doc_text_letter(text: str, filename: str, language: str, country: str,
+                                   case_id: Optional[str], user_id: str) -> dict:
+    """Shared helper used by /document/analyze when the source is already-extracted
+    text (single doc_id OR a multi-page doc_ids list). Keeps the LLM prompt and
+    case/reminders persistence logic in one place."""
+    lang_name = LANG_NAMES.get(language, "English")
+    sysmsg = f"""You are AI Advocate's document-analyser. The user uploaded a letter or legal document.
 Jurisdiction: {country}. Reply in {lang_name}.
 
 Return STRICT JSON with this exact schema (no markdown, no commentary):
@@ -8627,44 +8600,109 @@ Return STRICT JSON with this exact schema (no markdown, no commentary):
 
 If the document is NOT a legal/official letter, set category=\"other\", severity=\"low\", and suggested_response=\"This does not appear to be a legal document.\"
 """
-        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"doc-{uuid.uuid4()}", system_message=sysmsg)\
-            .with_model("gemini", "gemini-2.5-flash")
-        try:
-            resp = await chat.send_message(UserMessage(
-                text=f"Filename: {existing.get('filename','document')}\n\n----- DOCUMENT TEXT -----\n{existing_text}\n----- END -----\n\nAnalyse this document."
-            ))
-        except Exception as e:
-            logger.exception("doc analyze (doc_id) failed")
-            raise HTTPException(500, f"AI error: {e}")
-        import json as _json, re as _re
-        payload = resp.strip()
-        payload = _re.sub(r"^```(?:json)?\s*", "", payload)
-        payload = _re.sub(r"\s*```$", "", payload).strip()
-        try:
-            parsed = _json.loads(payload)
-        except Exception:
-            parsed = {"category": "other", "summary": payload[:600], "deadlines": [],
-                      "suggested_response": "", "next_steps": [], "severity": "low"}
-        if case_id:
-            await db.case_items.insert_one({
-                "id": str(uuid.uuid4()), "case_id": case_id, "user_id": user["id"],
-                "kind": "document_analysis", "title": parsed.get("category", "document"),
-                "data": parsed, "created_at": datetime.now(timezone.utc).isoformat(),
-            })
-            for dl in parsed.get("deadlines", []) or []:
-                try:
-                    due = datetime.fromisoformat(dl["date_iso"]).replace(tzinfo=timezone.utc)
-                    await db.reminders.insert_one({
-                        "id": str(uuid.uuid4()), "user_id": user["id"], "case_id": case_id,
-                        "title": dl.get("label", "Deadline"), "description": "",
-                        "due_at": due.isoformat(), "kind": "deadline",
-                        "status": "pending", "source": "doc_auto",
-                        "created_at": datetime.now(timezone.utc).isoformat(),
-                    })
-                except Exception:
-                    pass
-        parsed["case_id"] = case_id
-        return parsed
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"doc-{uuid.uuid4()}", system_message=sysmsg)\
+        .with_model("gemini", "gemini-2.5-flash")
+    try:
+        resp = await chat.send_message(UserMessage(
+            text=f"Filename: {filename}\n\n----- DOCUMENT TEXT -----\n{text}\n----- END -----\n\nAnalyse this document."
+        ))
+    except Exception as e:
+        logger.exception("doc analyze (text) failed")
+        raise HTTPException(500, f"AI error: {e}")
+    import json as _json, re as _re
+    payload = resp.strip()
+    payload = _re.sub(r"^```(?:json)?\s*", "", payload)
+    payload = _re.sub(r"\s*```$", "", payload).strip()
+    try:
+        parsed = _json.loads(payload)
+    except Exception:
+        parsed = {"category": "other", "summary": payload[:600], "deadlines": [],
+                  "suggested_response": "", "next_steps": [], "severity": "low"}
+    if case_id:
+        await db.case_items.insert_one({
+            "id": str(uuid.uuid4()), "case_id": case_id, "user_id": user_id,
+            "kind": "document_analysis", "title": parsed.get("category", "document"),
+            "data": parsed, "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        for dl in parsed.get("deadlines", []) or []:
+            try:
+                due = datetime.fromisoformat(dl["date_iso"]).replace(tzinfo=timezone.utc)
+                await db.reminders.insert_one({
+                    "id": str(uuid.uuid4()), "user_id": user_id, "case_id": case_id,
+                    "title": dl.get("label", "Deadline"), "description": "",
+                    "due_at": due.isoformat(), "kind": "deadline",
+                    "status": "pending", "source": "doc_auto",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception:
+                pass
+    parsed["case_id"] = case_id
+    return parsed
+
+
+
+@api_router.post("/document/analyze")
+async def document_analyze(
+    file: Optional[UploadFile] = File(None),
+    language: str = Form("en-GB"),
+    country: str = Form("GB"),
+    case_id: Optional[str] = Form(None),
+    doc_id: Optional[str] = Form(None),
+    doc_ids: Optional[str] = Form(None),  # comma-separated list — multi-page upload via /lex/upload
+    user: dict = Depends(get_user),
+):
+    """Analyse a photographed/scanned letter and return category + draft response + deadlines.
+
+    Three modes:
+      • Multipart file upload — original camera/upload path used by Letter Reader tile.
+      • `doc_id` form param   — re-uses a single document the user already uploaded via
+        Lex chat (`/lex/upload`). Lets the "Open Letter Reader" smart-route
+        button analyse the same file without re-uploading.
+      • `doc_ids` form param  — comma-separated list of doc_ids. Used when the user
+        uploads multiple photos (e.g. several pages of one letter); we stitch the
+        extracted text together and analyse it as a single document."""
+    pub = user_to_public(user)
+    ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "doc_analyze", "monthly")
+    if not ok:
+        raise HTTPException(429, f"Document analysis monthly limit reached ({used}/{limit}). Upgrade to Plus for unlimited.")
+
+    # -------- Mode C: multi-page upload via /lex/upload doc_ids --------
+    if doc_ids and not file:
+        ids = [s.strip() for s in (doc_ids or "").split(",") if s.strip()]
+        if not ids:
+            raise HTTPException(400, "doc_ids was empty")
+        docs = await db.lex_uploads.find(
+            {"id": {"$in": ids}, "user_id": user["id"]},
+            {"_id": 0, "id": 1, "text": 1, "filename": 1},
+        ).to_list(20)
+        if not docs:
+            raise HTTPException(404, "None of the documents were found")
+        # Preserve the client's submission order so multi-page letters keep page order.
+        by_id = {d["id"]: d for d in docs}
+        combined_parts = []
+        for i, did in enumerate(ids, 1):
+            d = by_id.get(did)
+            if not d:
+                continue
+            combined_parts.append(f"----- PAGE {i} ({d.get('filename','document')}) -----\n{(d.get('text') or '')[:30000]}")
+        combined_text = "\n\n".join(combined_parts)[:80000]
+        if not combined_text.strip():
+            raise HTTPException(400, "Stored documents have no readable text")
+        first_filename = (docs[0].get("filename") or "document")
+        return await _analyse_doc_text_letter(combined_text, first_filename, language, country, case_id, user["id"])
+
+    # -------- Mode B: re-use existing Lex upload by single doc_id --------
+    if doc_id and not file:
+        existing = await db.lex_uploads.find_one(
+            {"id": doc_id, "user_id": user["id"]},
+            {"_id": 0, "text": 1, "filename": 1, "mime_type": 1},
+        )
+        if not existing:
+            raise HTTPException(404, "Document not found")
+        existing_text = (existing.get("text") or "")[:60000]
+        if not existing_text:
+            raise HTTPException(400, "Stored document has no readable text")
+        return await _analyse_doc_text_letter(existing_text, existing.get('filename','document'), language, country, case_id, user["id"])
 
     # -------- Mode A: multipart file upload (legacy path) --------
     if not file:
@@ -9260,18 +9298,128 @@ async def delete_legal_file(file_id: str, user: dict = Depends(get_user)):
 
 # ==================== Contract Reader & Drafter ====================
 
+async def _analyse_contract_text(extracted_text: str, filename: str, content_type: str,
+                                  raw_bytes: Optional[bytes], language: str, country: str,
+                                  user_id: str) -> dict:
+    """Shared Stage-2 contract analyser. Takes already-extracted text (e.g. from
+    multi-page /lex/upload doc_ids) and runs Claude clause-by-clause + persists
+    the analysis. `raw_bytes` is None for doc_ids mode (we don't keep the original
+    bytes), which simply means `file_b64` is null in the saved record."""
+    lang_name = LANG_NAMES.get(language, "English")
+    sysmsg = f"""You are AI Advocate's contract-reading expert. The user has uploaded a contract and wants you to read it like an experienced solicitor would.
+Jurisdiction: {country}. Reply in {lang_name}.
+
+Return STRICT JSON only (no markdown):
+{{
+  "contract_type": "<employment | contractor | nda | lease | sale | service | loan | partnership | shareholder | settlement | other>",
+  "plain_english_summary": "<2-3 sentence plain-language summary of what this contract does>",
+  "overall_verdict": "<green | amber | red>",
+  "verdict_one_liner": "<single sentence verdict like 'Safe to sign' / 'Negotiate these points first' / 'Do NOT sign without solicitor advice'>",
+  "clauses": [
+    {{"title": "<short label>", "plain_english": "<what this clause actually means>", "risk_level": "<low | medium | high>"}}
+  ],
+  "red_flags": ["<specific concerning thing 1>", "<thing 2>"],
+  "amber_flags": ["<negotiable thing 1>", "<negotiable thing 2>"],
+  "questions_to_ask": ["<question to raise with the other party before signing 1>", "..."],
+  "solicitor_review_recommended": <true | false>,
+  "missing_protections": ["<protection the user would normally expect that's absent>"]
+}}
+
+Be honest, plain, and protective of the user. Flag auto-renewing clauses, one-sided variation rights, broad indemnities, overlong restrictive covenants, hidden fees, foreign-jurisdiction clauses, anything below statutory minimums (e.g. UK minimum wage / holiday).
+If the document is NOT a contract, set contract_type=\"other\" and verdict_one_liner=\"This does not appear to be a contract.\"
+"""
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"contract-{uuid.uuid4()}", system_message=sysmsg)\
+        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2800)
+    try:
+        resp = await chat.send_message(UserMessage(
+            text=f"Analyse the following contract text:\n\n{extracted_text[:30000]}",
+        ))
+    except Exception as e:
+        logger.exception("contract analyze (text) failed")
+        raise HTTPException(500, f"AI error: {e}")
+
+    import json as _json, re as _re
+    payload = _re.sub(r"^```(?:json)?\s*", "", resp.strip())
+    payload = _re.sub(r"\s*```$", "", payload).strip()
+    try:
+        analysis_obj = _json.loads(payload)
+    except Exception:
+        analysis_obj = {
+            "contract_type": "other", "plain_english_summary": payload[:600],
+            "overall_verdict": "amber", "verdict_one_liner": "Could not fully parse this contract.",
+            "clauses": [], "red_flags": [], "amber_flags": [], "questions_to_ask": [],
+            "solicitor_review_recommended": True, "missing_protections": [],
+        }
+
+    try:
+        import base64 as _b64
+        file_b64 = _b64.b64encode(raw_bytes).decode("ascii") if (raw_bytes and len(raw_bytes) <= 8 * 1024 * 1024) else None
+        rec_id = str(uuid.uuid4())
+        await db.contract_analyses.insert_one({
+            "id": rec_id, "user_id": user_id,
+            "filename": filename or "contract",
+            "content_type": content_type or "application/octet-stream",
+            "file_size": (len(raw_bytes) if raw_bytes else 0),
+            "file_b64": file_b64,
+            "extracted_text": extracted_text[:60000],
+            "analysis": analysis_obj,
+            "title": (analysis_obj.get("contract_type") or "contract").replace("_", " ").title() + " — " + (filename or "Untitled"),
+            "language": language, "country": country,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        analysis_obj["saved_id"] = rec_id
+    except Exception:
+        logger.exception("Failed to persist contract analysis (non-fatal)")
+    return analysis_obj
+
+
+
+
 @api_router.post("/contract/analyze")
 async def contract_analyze(
-    file: UploadFile = File(...),
+    file: Optional[UploadFile] = File(None),
     language: str = Form("en-GB"),
     country: str = Form("GB"),
+    doc_ids: Optional[str] = Form(None),  # comma-separated /lex/upload doc_ids (multi-page)
     user: dict = Depends(get_user),
 ):
-    """Read a contract, break it down clause-by-clause, flag risks, give a verdict."""
+    """Read a contract, break it down clause-by-clause, flag risks, give a verdict.
+
+    Accepts either a single multipart `file` (original camera/upload path) OR a
+    `doc_ids` form param — a comma-separated list of /lex/upload doc_ids when the
+    user provided multiple photos of the contract (multi-page)."""
     pub = user_to_public(user)
     ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "doc_analyze", "monthly")
     if not ok:
         raise HTTPException(429, f"Document analysis monthly limit reached ({used}/{limit}). Upgrade to Plus for unlimited.")
+
+    # ---------- Mode B: multi-page from /lex/upload doc_ids ----------
+    if doc_ids and not file:
+        ids = [s.strip() for s in doc_ids.split(",") if s.strip()]
+        if not ids:
+            raise HTTPException(400, "doc_ids was empty")
+        docs = await db.lex_uploads.find(
+            {"id": {"$in": ids}, "user_id": user["id"]},
+            {"_id": 0, "id": 1, "text": 1, "filename": 1},
+        ).to_list(20)
+        if not docs:
+            raise HTTPException(404, "None of the documents were found")
+        by_id = {d["id"]: d for d in docs}
+        parts = []
+        for i, did in enumerate(ids, 1):
+            d = by_id.get(did)
+            if not d:
+                continue
+            parts.append(f"----- PAGE {i} ({d.get('filename','contract')}) -----\n{(d.get('text') or '')[:30000]}")
+        extracted_text = "\n\n".join(parts)[:80000]
+        if not extracted_text.strip() or len(extracted_text) < 30:
+            raise HTTPException(400, "Stored documents have no readable text")
+        first_filename = (docs[0].get("filename") or "contract")
+        return await _analyse_contract_text(extracted_text, first_filename,
+                                             "application/octet-stream", None, language, country, user["id"])
+
+    if not file:
+        raise HTTPException(400, "Provide either `file` or `doc_ids`")
 
     raw = await file.read()
     if len(raw) > 12 * 1024 * 1024:

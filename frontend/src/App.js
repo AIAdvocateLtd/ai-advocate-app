@@ -2164,21 +2164,6 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
           {messages.length === 0 && (
             <div style={{ textAlign: "center", color: "var(--text-muted)", marginTop: 24, padding: "0 6px" }}>
               <p style={{ marginTop: 6, marginBottom: 6 }}>{t(lang, "chatPlaceholder")}</p>
-              {!category || category === "ask_lex" ? (
-                <>
-                  <div style={{ fontSize: 11, color: "var(--gold)", marginTop: 18, marginBottom: 8, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                    {t(lang, "suggestionsTitle")}
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
-                    {["sug1", "sug2", "sug3", "sug4", "sug5", "sug6"].map(k => (
-                      <button key={k} data-testid={`suggestion-${k}`} onClick={() => send(t(lang, k))}
-                              style={{ background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)", color: "var(--gold-soft)", borderRadius: 16, padding: "7px 12px", fontSize: 12, cursor: "pointer", fontFamily: "Outfit, sans-serif" }}>
-                        {t(lang, k)}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              ) : null}
             </div>
           )}
           {messages.map((m, i) => (
@@ -13192,6 +13177,7 @@ function useRecordingConsent({ lang, country, surface, recordingTitle }) {
 // ---------- Contract Reader ----------
 function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
   const [file, setFile] = useState(null);
+  const [extraFiles, setExtraFiles] = useState([]); // 📎 additional pages
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
   const [r, setR] = useState(null);
@@ -13248,25 +13234,46 @@ function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
   };
 
   const choose = (e) => {
-    const f = e.target.files?.[0]; e.target.value = "";
-    if (!f) return;
+    const list = Array.from(e.target.files || []); e.target.value = "";
+    if (!list.length) return;
     if (preview) URL.revokeObjectURL(preview);
-    setFile(f); setPreview(URL.createObjectURL(f)); setR(null); setErr("");
+    const [first, ...rest] = list;
+    setFile(first); setPreview(URL.createObjectURL(first));
+    setExtraFiles(rest);
+    setR(null); setErr("");
   };
 
   const analyze = async () => {
     if (!file) return;
     setBusy(true); setErr("");
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("language", lang);
-      fd.append("country", country);
-      const { data } = await api.post("/contract/analyze", fd);
-      setR(data);
-      // Refresh the saved-list so the new entry shows immediately when user goes back
+      // 📎 Multi-page path: upload extra pages via /lex/upload first
+      if (extraFiles.length > 0) {
+        const all = [file, ...extraFiles];
+        const ids = [];
+        for (const f of all) {
+          const fd = new FormData();
+          fd.append("file", f);
+          const { data } = await api.post("/lex/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+          if (data?.doc_id) ids.push(data.doc_id);
+        }
+        if (!ids.length) throw new Error("Couldn't read any of those files.");
+        const fd = new FormData();
+        fd.append("doc_ids", ids.join(","));
+        fd.append("language", lang);
+        fd.append("country", country);
+        const { data } = await api.post("/contract/analyze", fd);
+        setR(data);
+      } else {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("language", lang);
+        fd.append("country", country);
+        const { data } = await api.post("/contract/analyze", fd);
+        setR(data);
+      }
       loadSaved();
-    } catch (e) { setErr(e?.response?.data?.detail || "Analysis failed"); }
+    } catch (e) { setErr(e?.response?.data?.detail || e?.message || "Analysis failed"); }
     finally { setBusy(false); }
   };
 
@@ -13290,7 +13297,7 @@ function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
           {/* Hidden inputs */}
           <input ref={cameraRef} type="file" accept="image/*" capture="environment"
                  onChange={choose} style={{ display: "none" }} data-testid="contract-camera-input" />
-          <input ref={uploadRef} type="file" accept="image/*,application/pdf,.doc,.docx,.txt"
+          <input ref={uploadRef} type="file" accept="image/*,application/pdf,.doc,.docx,.txt" multiple
                  onChange={choose} style={{ display: "none" }} data-testid="contract-upload-input" />
 
           {/* Dual choice: Camera + Upload */}
@@ -13314,10 +13321,31 @@ function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
                 <div style={{ color: "var(--text)", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</div>
                 <div style={{ color: "var(--text-dim)", fontSize: 11 }}>{(file.size / 1024).toFixed(1)} KB</div>
               </div>
-              <button onClick={() => { if (preview) URL.revokeObjectURL(preview); setFile(null); setPreview(null); }}
+              <button onClick={() => { if (preview) URL.revokeObjectURL(preview); setFile(null); setPreview(null); setExtraFiles([]); }}
                       style={{ background: "transparent", border: "none", color: "var(--text-dim)", cursor: "pointer" }}>
                 <X size={16} />
               </button>
+            </div>
+          )}
+
+          {/* 📎 Additional pages */}
+          {extraFiles.length > 0 && (
+            <div data-testid="contract-extra-files" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+              {extraFiles.map((f, i) => (
+                <div key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6,
+                                       background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)",
+                                       borderRadius: 999, padding: "4px 8px 4px 10px", fontSize: 11, color: "var(--text)",
+                                       maxWidth: "100%" }}>
+                  <FileText size={11} style={{ color: "var(--gold)", flexShrink: 0 }} />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 160 }}>
+                    Page {i + 2} · {f.name}
+                  </span>
+                  <button onClick={() => setExtraFiles(prev => prev.filter((_, j) => j !== i))}
+                          style={{ background: "transparent", border: "none", color: "var(--text-dim)", cursor: "pointer", padding: 0 }}>
+                    <X size={11} />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
 
@@ -14025,6 +14053,7 @@ function ContractNegotiateBody({ lang, country }) {
 // ---------- Letter Reader (Document Auto-Responder) ----------
 function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
   const [file, setFile] = useState(null);
+  const [extraFiles, setExtraFiles] = useState([]); // 📎 additional pages when user picks multiple files
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
@@ -14035,25 +14064,49 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
   const uploadRef = useRef(null);
 
   const choose = (e) => {
-    const f = e.target.files?.[0]; e.target.value = "";
-    if (!f) return;
+    const list = Array.from(e.target.files || []); e.target.value = "";
+    if (!list.length) return;
     if (preview) URL.revokeObjectURL(preview);
-    setFile(f); setPreview(URL.createObjectURL(f)); setResult(null); setErr("");
+    const [first, ...rest] = list;
+    setFile(first); setPreview(URL.createObjectURL(first));
+    setExtraFiles(rest);
+    setResult(null); setErr("");
   };
 
   const analyze = async () => {
     if (!file && !docIdLoaded) return;
     setBusy(true); setErr("");
     try {
-      const fd = new FormData();
-      if (file) fd.append("file", file);
-      if (docIdLoaded) fd.append("doc_id", docIdLoaded);
-      fd.append("language", lang);
-      fd.append("country", country);
-      const { data } = await api.post("/document/analyze", fd);
-      setResult(data);
+      // 📎 Multi-page path: upload every file via /lex/upload first, then call
+      // /document/analyze with the resulting comma-separated doc_ids so the
+      // server can stitch the text together and analyse as one document.
+      if (file && extraFiles.length > 0) {
+        const allFiles = [file, ...extraFiles];
+        const ids = [];
+        for (const f of allFiles) {
+          const fd = new FormData();
+          fd.append("file", f);
+          const { data } = await api.post("/lex/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+          if (data?.doc_id) ids.push(data.doc_id);
+        }
+        if (!ids.length) throw new Error("Couldn't read any of those files.");
+        const fd = new FormData();
+        fd.append("doc_ids", ids.join(","));
+        fd.append("language", lang);
+        fd.append("country", country);
+        const { data } = await api.post("/document/analyze", fd);
+        setResult(data);
+      } else {
+        const fd = new FormData();
+        if (file) fd.append("file", file);
+        if (docIdLoaded) fd.append("doc_id", docIdLoaded);
+        fd.append("language", lang);
+        fd.append("country", country);
+        const { data } = await api.post("/document/analyze", fd);
+        setResult(data);
+      }
     } catch (e) {
-      setErr(e?.response?.data?.detail || "Analysis failed");
+      setErr(e?.response?.data?.detail || e?.message || "Analysis failed");
     } finally { setBusy(false); }
   };
 
@@ -14110,7 +14163,7 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
 
             <input ref={inputRef} type="file" accept="image/*" capture="environment"
                    onChange={choose} style={{ display: "none" }} data-testid="letter-camera-input" />
-            <input ref={uploadRef} type="file" accept="image/*,application/pdf,.doc,.docx,.txt"
+            <input ref={uploadRef} type="file" accept="image/*,application/pdf,.doc,.docx,.txt" multiple
                    onChange={choose} style={{ display: "none" }} data-testid="letter-upload-input" />
 
             {!docIdLoaded && (
@@ -14135,10 +14188,31 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
                   <div style={{ color: "var(--text)", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</div>
                   <div style={{ color: "var(--text-dim)", fontSize: 11 }}>{(file.size / 1024).toFixed(1)} KB</div>
                 </div>
-                <button onClick={() => { if (preview) URL.revokeObjectURL(preview); setFile(null); setPreview(null); }}
+                <button onClick={() => { if (preview) URL.revokeObjectURL(preview); setFile(null); setPreview(null); setExtraFiles([]); }}
                         style={{ background: "transparent", border: "none", color: "var(--text-dim)", cursor: "pointer" }}>
                   <X size={16} />
                 </button>
+              </div>
+            )}
+
+            {/* 📎 Additional pages — shown as compact pills, removable individually */}
+            {extraFiles.length > 0 && (
+              <div data-testid="letter-extra-files" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+                {extraFiles.map((f, i) => (
+                  <div key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6,
+                                         background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)",
+                                         borderRadius: 999, padding: "4px 8px 4px 10px", fontSize: 11, color: "var(--text)",
+                                         maxWidth: "100%" }}>
+                    <FileText size={11} style={{ color: "var(--gold)", flexShrink: 0 }} />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 160 }}>
+                      Page {i + 2} · {f.name}
+                    </span>
+                    <button onClick={() => setExtraFiles(prev => prev.filter((_, j) => j !== i))}
+                            style={{ background: "transparent", border: "none", color: "var(--text-dim)", cursor: "pointer", padding: 0 }}>
+                      <X size={11} />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -14201,7 +14275,7 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
                 <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                   <button className="btn-gold" data-testid="letter-copy-btn" onClick={copyResponse} style={{ flex: 1, minWidth: 120 }}>Copy response</button>
                   <button className="btn-ghost" data-testid="letter-ladder-btn" onClick={() => setShowLadder(true)} style={{ flex: 1, minWidth: 120, border: "1px solid var(--gold-deep)", color: "var(--gold)" }}>
-                    🪜 Show ladder
+                    🪜 Counter letter
                   </button>
                   <button className="btn-ghost" data-testid="letter-new-btn" onClick={() => { setResult(null); setFile(null); if (preview) URL.revokeObjectURL(preview); setPreview(null); }} style={{ flex: 1, minWidth: 120 }}>Analyse another</button>
                 </div>

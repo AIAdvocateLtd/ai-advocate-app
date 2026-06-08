@@ -9,6 +9,14 @@
 - **Lawyers** working B2B2C via Firm Portal
 
 
+### 2026-06 (Iter 52 — Multi-page upload everywhere + UI polish)
+- 📎 **Multi-page upload for Letter Reader + Contract Tools.** Both modals now accept multiple photos/PDFs in one go. Frontend chains: pick N files → first one shown as main preview, rest as `extraFiles` pills → on "Analyse", each file is uploaded via `/lex/upload`, then `/document/analyze` (or `/contract/analyze`) is called with `doc_ids=<comma-separated>`. The server stitches the per-page extracted text together (in submission order) and runs one combined analysis. Lex chat's `📎` already supported multi-select.
+- 🎯 **New backend modes**: `POST /api/document/analyze` and `POST /api/contract/analyze` now accept an optional `doc_ids` form param (comma-separated /lex/upload IDs) on top of the existing `file` upload path. Single-file legacy path still works. Verified end-to-end via curl with a 2-page letter (returns `category=debt_collection, severity=high`).
+- 🧹 **"AI Advocate" subheading + "TRY ASKING LEX:" + sample-chip cluster removed** from inside every Lex chat modal so it looks like a single calm prompt box (per user feedback — "more intelligent without it").
+- 🪜 **Renamed `Show ladder` → `Counter letter`** on the Letter Reader result panel (data-testid `letter-ladder-btn` retained). Matches the underlying `CounterLadderPanel` feature.
+- 🛠 **Test reviewer account re-comped to Pro until 2053-10-08** — the original trial had expired on 2026-05-31 and was failing /lex/upload with "(1/day on Free)". Updated `/app/memory/test_credentials.md` accordingly.
+
+
 ### 2026-02 (Iter 51 — Outcome Ladder decryption fix + smart-route preload)
 - 🪄 **Smart-route now actually opens the tool with the doc preloaded.** Previously, clicking "Open Letter Reader" in the Lex chat smart-route banner only closed the chat. Now it closes the chat AND opens the Letter Reader modal with the already-uploaded doc, which auto-analyses via `/document/analyze?doc_id=<id>` (no re-upload needed). New `onSwitchTool` prop on `LexChat` + `initialDoc` prop on `LetterReaderModal` + new `doc_id` form-param mode on `POST /api/document/analyze`.
 - 🐛 **Outcome Ladder + Devil's Advocate fixed** — `_last_lex_exchange()` was returning encrypted ciphertext to the strategist LLMs, which made them fail JSON validation and return "Lex couldn't structure the outcome ladder". Now decrypts `user_message` + `assistant_response` before returning. Verified end-to-end with curl using a real Lex conversation.
