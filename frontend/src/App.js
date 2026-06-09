@@ -13180,6 +13180,7 @@ function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
   const [extraFiles, setExtraFiles] = useState([]); // 📎 additional pages
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [stage, setStage] = useState(null); // 'reading' | 'drafting' for the 2-step progress bar
   const [r, setR] = useState(null);
   const [err, setErr] = useState("");
   const cameraRef = useRef(null);
@@ -13245,7 +13246,7 @@ function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
 
   const analyze = async () => {
     if (!file) return;
-    setBusy(true); setErr("");
+    setBusy(true); setErr(""); setStage("reading");
     try {
       // 📎 Multi-page path: upload extra pages via /lex/upload first
       if (extraFiles.length > 0) {
@@ -13259,6 +13260,7 @@ function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
         }));
         const ids = uploads.filter(Boolean);
         if (!ids.length) throw new Error("Couldn't read any of those files.");
+        setStage("drafting");
         const fd = new FormData();
         fd.append("doc_ids", ids.join(","));
         fd.append("language", lang);
@@ -13266,6 +13268,7 @@ function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
         const { data } = await api.post("/contract/analyze", fd);
         setR(data);
       } else {
+        setTimeout(() => setStage("drafting"), 600);
         const fd = new FormData();
         fd.append("file", file);
         fd.append("language", lang);
@@ -13275,7 +13278,7 @@ function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
       }
       loadSaved();
     } catch (e) { setErr(e?.response?.data?.detail || e?.message || "Analysis failed"); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setStage(null); }
   };
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
@@ -13360,7 +13363,7 @@ function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
               {t(lang, "contractReaderRead")}
             </button>
           )}
-          {busy && <div style={{ textAlign: "center", padding: 16 }}><span className="spinner" /><div style={{ color: "var(--text-dim)", marginTop: 8, fontSize: 13 }}>{t(lang, "contractReaderBusy")}</div></div>}
+          {busy && <AnalysisProgress stage={stage} lang={lang} />}
           {err && <div style={{ background: "#2a0a0a", border: "1px solid #7f1d1d", color: "#fca5a5", padding: 10, borderRadius: 10, fontSize: 13 }}>{err}</div>}
 
           {/* 💾 Saved contract analyses — tap to re-open. Hidden until at least one exists. */}
@@ -14052,11 +14055,59 @@ function ContractNegotiateBody({ lang, country }) {
 }
 
 // ---------- Letter Reader (Document Auto-Responder) ----------
+// Small 2-step indicator shown during analysis. Makes the ~2-3s wait feel
+// instant by telling the user *what* is happening rather than a blank spinner.
+function AnalysisProgress({ stage, lang }) {
+  // stage: 'reading' | 'drafting' | null
+  const steps = [
+    { id: "reading", label: t(lang, "stepReadingDoc") || "Reading your document…" },
+    { id: "drafting", label: t(lang, "stepDraftingReply") || "Drafting your response…" },
+  ];
+  return (
+    <div data-testid="analysis-progress" style={{
+      background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 12,
+      padding: 14, marginBottom: 12,
+    }}>
+      {steps.map((s, idx) => {
+        const isActive = stage === s.id;
+        const isDone = (stage === "drafting" && s.id === "reading");
+        return (
+          <div key={s.id} style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "6px 0", opacity: isActive || isDone ? 1 : 0.45,
+          }}>
+            <div style={{
+              width: 22, height: 22, borderRadius: "50%",
+              border: `2px solid ${isDone ? "var(--gold)" : isActive ? "var(--gold)" : "var(--line)"}`,
+              background: isDone ? "var(--gold)" : "transparent",
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+              color: "#000", fontSize: 12, fontWeight: 800,
+            }}>
+              {isDone ? "✓" : isActive ? (
+                <div style={{
+                  width: 10, height: 10, borderRadius: "50%",
+                  border: "2px solid var(--gold)", borderTopColor: "transparent",
+                  animation: "aa-spin 0.8s linear infinite",
+                }} />
+              ) : (idx + 1)}
+            </div>
+            <div style={{ flex: 1, fontSize: 13, color: isActive ? "var(--text)" : isDone ? "var(--text-dim)" : "var(--text-muted)", fontWeight: isActive ? 600 : 500 }}>
+              {s.label}
+            </div>
+          </div>
+        );
+      })}
+      <style>{`@keyframes aa-spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
 function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
   const [file, setFile] = useState(null);
   const [extraFiles, setExtraFiles] = useState([]); // 📎 additional pages when user picks multiple files
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [stage, setStage] = useState(null); // 'reading' | 'drafting' | null — drives the 2-step progress bar
   const [result, setResult] = useState(null);
   const [err, setErr] = useState("");
   const [showLadder, setShowLadder] = useState(false);
@@ -14076,7 +14127,7 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
 
   const analyze = async () => {
     if (!file && !docIdLoaded) return;
-    setBusy(true); setErr("");
+    setBusy(true); setErr(""); setStage("reading");
     try {
       // 📎 Multi-page path: upload every file via /lex/upload first, then call
       // /document/analyze with the resulting comma-separated doc_ids so the
@@ -14092,6 +14143,7 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
         }));
         const ids = uploads.filter(Boolean);
         if (!ids.length) throw new Error("Couldn't read any of those files.");
+        setStage("drafting");
         const fd = new FormData();
         fd.append("doc_ids", ids.join(","));
         fd.append("language", lang);
@@ -14099,6 +14151,9 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
         const { data } = await api.post("/document/analyze", fd);
         setResult(data);
       } else {
+        // Single-file or doc_id path — server handles both OCR + analysis in one
+        // call, so we flip to "drafting" immediately after the request lands.
+        setTimeout(() => setStage("drafting"), 600);
         const fd = new FormData();
         if (file) fd.append("file", file);
         if (docIdLoaded) fd.append("doc_id", docIdLoaded);
@@ -14109,7 +14164,7 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
       }
     } catch (e) {
       setErr(e?.response?.data?.detail || e?.message || "Analysis failed");
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setStage(null); }
   };
 
   // 🪄 Auto-analyse when the chat smart-routed an already-uploaded doc here.
@@ -14228,7 +14283,7 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
                 Analyse with Lex
               </button>
             )}
-            {busy && <div style={{ textAlign: "center", padding: 16 }}><span className="spinner" /><div style={{ color: "var(--text-dim)", marginTop: 8, fontSize: 13 }}>Lex is reading your letter…</div></div>}
+            {busy && <AnalysisProgress stage={stage} lang={lang} />}
             {err && <div style={{ background: "#2a0a0a", border: "1px solid #7f1d1d", color: "#fca5a5", padding: 10, borderRadius: 10, fontSize: 13 }}>{err}</div>}
           </>
         )}
