@@ -212,7 +212,7 @@ def build():
         Spacer(1, 12 * mm),
     ], [
         Paragraph(
-            '<font color="#d4af37" size="10"><b>Version 1.0 · Updated for launch · Confidential</b></font>',
+            '<font color="#d4af37" size="10"><b>Version 1.1 · Refreshed June 2026 (Universal Doc Upload · Letter Reader v2 · Counter Letter · Send-by-Email · Doc Pack top-up · Weekly Stripe audit · PostHog GDPR deletion) · Confidential</b></font>',
             BODY,
         ),
     ]]
@@ -292,13 +292,13 @@ def build():
     consumer_rows = [
         ["Tier", "Price", "What's included", "AI Model"],
         ["Free", "£0 / forever",
-         "5 Lex chats/day · 1 photo evidence/month · 1 letter/month · Emergency Rights (always free) · Encrypted Vault · Read-aloud",
+         "5 Lex chats/day · 📎 5 doc-upload pages/day · 1 photo evidence/mo · 1 letter/mo · Emergency Rights (always free) · Encrypted Vault · Read-aloud",
          "Claude Haiku 4.5"],
         ["Plus", "£19.99 / mo",
-         "Unlimited Lex chats · 15 photo evidence/mo · Unlimited letters · Contract review · Court Prep mode · Voice in/out · 50 files",
+         "Unlimited Lex chats · 📎 25 doc-upload pages/day · 15 photo evidence/mo · Unlimited letters · Letter Reader (with Counter Letter + Send-by-email) · Contract review (multi-page) · Court Prep · Voice in/out · 50 files",
          "GPT-5.2"],
         ["Pro", "£34.99 / mo",
-         "Everything in Plus · Hearing recorder · Deep Think (Opus) · Priority RAG legal search · Lawyer Standby · 200 files",
+         "Everything in Plus · 📎 100 doc-upload pages/day · Hearing recorder · Deep Think (Opus) · Priority RAG legal search · Lawyer Standby · 200 files · Outcome Ladder + Devil's Advocate strategist",
          "Claude Sonnet 4.5"],
         ["Pro Yearly", "£319.99 / yr",
          "Everything in Pro · Save £100 vs monthly · Bigger Deep Think cap · 12 months locked-in",
@@ -322,6 +322,7 @@ def build():
     story.append(Paragraph("One-off top-ups (no subscription required)", H3))
     topup_rows = [
         ["Pack", "Price", "Duration", "Use case"],
+        ["Doc Pack", "£4.99", "Never expires", "5 additional document uploads (📎). Consumable. Designed to convert Free users who hit the daily page limit mid-task."],
         ["Day Pass", "£4.99", "24 hours", "User has one urgent question and wants Pro-quality answer right now"],
         ["Letter Pack", "£9.99", "30 days", "5 AI-drafted letters + 1 contract review · valid for 30 days"],
         ["Weekend Pass", "£14.99", "72 hours", "Whole-weekend coverage for a tenancy dispute, ex-partner row, etc."],
@@ -498,18 +499,19 @@ def build():
     story.append(Paragraph("Tech stack (talk-track for technical questions)", H1))
     story.append(kv_table([
         ["Frontend", "React 19 + Capacitor 7 (iOS/Android wrapper) · Tailwind · shadcn/ui · live at aiadvocate.co.uk"],
-        ["Backend", "Python 3.11 · FastAPI · SSE for streaming chat · async I/O end-to-end"],
+        ["Backend", "Python 3.11 · FastAPI · SSE for streaming chat · async I/O end-to-end · APScheduler cron (weekly Stripe-price audit)"],
         ["Database", "MongoDB (Emergent-managed cluster) · UUID-keyed documents · zero ObjectId leaks"],
-        ["AI providers", "Anthropic Claude (Haiku 4.5 / Sonnet 4.5 / Opus 4.5) + OpenAI GPT-5.2 + Gemini 2.5 Flash"],
+        ["AI providers", "Anthropic Claude (Haiku 4.5 / Sonnet 4.5 / Opus 4.5) + OpenAI GPT-5.2 + Google Gemini 2.5 Flash (incl. Nano Banana for image OCR on document uploads)"],
         ["Key routing", "Free → Haiku · Plus → GPT-5.2 · Pro → Sonnet · Pro Deep Think → Sonnet (extended tokens)"],
         ["Voice", "OpenAI Whisper (STT) + Google/Apple native TTS (free, on-device)"],
         ["Search/RAG", "Tavily API · grounded in legislation.gov.uk + BAILII + gov.uk"],
-        ["Payments", "Stripe (live mode) · subscriptions + one-time top-ups · webhooks active"],
+        ["Doc upload", "📎 Universal attachment in Lex chat (images, PDFs, DOCX, XLSX, RTF, TXT) — OCR + text extraction with strict per-tier daily caps · same pipeline powers Letter Reader + Contract Tools multi-page upload"],
+        ["Payments", "Stripe (live mode) · subscriptions + one-time top-ups · webhooks active · all 12/12 live Price IDs auto-verified weekly by AdminStripePriceAuditCard cron"],
         ["Auth", "JWT (email/password) + Apple Sign-In + Google Sign-In (Emergent OAuth)"],
         ["Email", "Resend · transactional only (waitlist, welcome, password reset, broadcasts)"],
-        ["Encryption", "AES-GCM at rest for the Lex Vault · server has zero key access (zero-knowledge)"],
+        ["Encryption", "AES-GCM at rest for the Lex Vault · server has zero key access (zero-knowledge) · chat history encrypted via Fernet envelope"],
         ["Hosting", "Kubernetes (Emergent) · auto-scale · UK preview + production environments"],
-        ["Compliance", "UK GDPR · ICO Reg ZC158457 · DPIA documented · Age 18+ gate · UPL disclaimers · DPO @ dpo@aiadvocate.co.uk"],
+        ["Compliance", "UK GDPR · ICO Reg ZC158457 · DPIA documented · Age 18+ gate · UPL disclaimers · DPO @ dpo@aiadvocate.co.uk · PostHog GDPR-deletion endpoint live (user-initiated analytics scrub via Personal API Key)"],
     ], col_widths=[35 * mm, 135 * mm]))
 
     story.append(Paragraph("Why these choices matter (sales angles)", H2))
@@ -557,7 +559,10 @@ def build():
         "Fully UK-GDPR compliant. ICO-registered (ZC158457 — verifiable). DPO is dpo@aiadvocate.co.uk. "
         "Privacy Policy v1.1.1 lives at aiadvocate.co.uk/privacy. Data minimisation by design: we only ask for "
         "what we need. The Lex Vault uses client-side AES-GCM encryption — even we can't read it. Users can "
-        "export or delete all data on demand. No selling of personal info, ever.",
+        "export or delete all data on demand <b>including third-party analytics</b>: our "
+        "<i>/auth/privacy/delete-analytics</i> endpoint forwards GDPR Article 17 deletion requests to PostHog "
+        "via Personal API Key so the user's behavioural data is purged from the analytics pipeline as well as "
+        "our own database. No selling of personal info, ever.",
         BODY,
     ))
 

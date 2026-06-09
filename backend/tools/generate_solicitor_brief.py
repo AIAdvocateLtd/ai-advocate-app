@@ -107,18 +107,45 @@ def build_pdf():
     flow.append(P("1. About AI Advocate", "h2"))
     flow.append(P(
         "AI Advocate is a consumer-facing, multilingual UK legal-information application "
-        "(&ldquo;a lawyer in your pocket&rdquo;) that combines a Claude-based AI legal assistant "
-        "(&ldquo;Lex&rdquo;), evidence analysis, encrypted document vault, deadline tracking, "
-        "emergency rights flows, and a directory of UK regulated law firms. The app is sold "
-        "as a subscription via Apple App Store, Google Play Store, and the web with Stripe, "
-        "and offers a free tier. It is intended to launch in the United Kingdom under the "
-        "domain <b>aiadvocate.co.uk</b>.",
+        "(&ldquo;a lawyer in your pocket&rdquo;) that combines a tiered-LLM AI legal assistant "
+        "(&ldquo;Lex&rdquo; &mdash; Claude Haiku on Free, GPT-5.2 on Plus, Claude Sonnet on Pro), "
+        "evidence analysis, encrypted document vault, deadline tracking, emergency rights "
+        "flows, and a directory of UK regulated law firms. The app is sold as a subscription "
+        "via Apple App Store, Google Play Store, and the web with Stripe, and offers a free "
+        "tier. It is intended to launch in the United Kingdom under the domain "
+        "<b>aiadvocate.co.uk</b>.",
         "body",
     ))
     flow.append(P(
-        "We are pre-launch and are instructing you to perform a formal legal review of "
-        "our consumer-facing documents and confirm regulatory compliance, prior to App "
-        "Store submission. Time-sensitive: targeted launch within 4&ndash;6 weeks.",
+        "Since the previous draft of this brief (May 2025) the product has expanded in three "
+        "ways that materially affect the UPL analysis below and should be specifically "
+        "endorsed in your opinion:",
+        "body",
+    ))
+    for item in [
+        "<b>Universal Document Upload (&#128206;)</b> &mdash; users may attach photographs, "
+        "PDFs, or Word documents (5 pages/day Free, 25/day Plus, 100/day Pro) to a Lex chat. "
+        "The text is extracted (OCR via Gemini Nano Banana for images, <i>pypdf</i>/<i>docx2txt</i> "
+        "for text formats) and fed into the model&rsquo;s context window. The user retains the "
+        "uploaded file in their encrypted Vault.",
+        "<b>Letter Reader / Counter Letter / &ldquo;Send by email&rdquo; flow</b> &mdash; "
+        "when a user uploads a solicitor letter, debt demand, parking ticket, eviction notice, "
+        "etc., Lex returns (i) a plain-English summary, (ii) a draft response letter, "
+        "(iii) a counter-letter outcome ladder. The user may then tap &ldquo;Send by email&rdquo;, "
+        "which opens their device&rsquo;s default mail client (<i>mailto:</i>) with the draft "
+        "pre-filled. <b>AI Advocate does not dispatch communications on the user&rsquo;s "
+        "behalf, does not retain the recipient address, and does not represent the user "
+        "in any capacity.</b>",
+        "<b>One-off Doc Pack top-up (&pound;4.99)</b> &mdash; consumable Stripe purchase "
+        "granting 5 additional document analyses; does not change the underlying UPL "
+        "posture but is a new payment surface.",
+    ]:
+        flow.append(Paragraph(f"&bull; {item}", s["list"]))
+    flow.append(P(
+        "We are pre-launch (web live; iOS/Android Capacitor builds in submission) and are "
+        "instructing you to perform a formal legal review of our consumer-facing documents "
+        "and confirm regulatory compliance. Time-sensitive: targeted App Store / Play Store "
+        "submission within 4&ndash;6 weeks.",
         "body",
     ))
 
@@ -179,7 +206,8 @@ def build_pdf():
         "First-use UPL acknowledgement modal that the user must dismiss before using Lex (per-device);",
         "Explicit statement in Terms &sect;1 and &sect;3 that AI Advocate is not a solicitor and does not establish a solicitor-client relationship;",
         "In-app referral to a directory of <b>SRA-regulated</b> UK solicitors when the user&rsquo;s matter warrants regulated advice;",
-        "Emergency SOS flow that explicitly states the app is not a replacement for 999/112/911 services.",
+        "Emergency SOS flow that explicitly states the app is not a replacement for 999/112/911 services;",
+        "<b>Document analysis &amp; drafted replies are framed as user-authored:</b> the &ldquo;Send by email&rdquo; button opens the user&rsquo;s own mail client with the draft pre-filled, requiring the user to add the recipient address and press <i>Send</i>. AI Advocate never dispatches, receives, or relays correspondence on the user&rsquo;s behalf, and has no agency or apparent authority to represent the user.",
     ]:
         flow.append(Paragraph(f"&bull; {item}", s["list"]))
 
@@ -229,12 +257,24 @@ def build_pdf():
          "Stripe (web), Apple IAP (iOS), Google Play Billing (Android). "
          "7-day free trial then &pound;19.99 / &pound;34.99 monthly or &pound;319.99 annual."),
         ("Subprocessors",
-         "Anthropic, OpenAI (whisper/TTS only), Tavily (web search RAG), Stripe, "
-         "MongoDB Atlas, Resend (if enabled), Sentry, PostHog."),
+         "Anthropic, OpenAI (whisper/TTS only), Google Gemini (image OCR via Nano Banana), "
+         "Tavily (web search RAG), Stripe, MongoDB Atlas, Resend, Sentry, PostHog "
+         "(GDPR-managed: user-initiated analytics deletion endpoint live)."),
         ("UPL safeguards",
          "(i) Persistent in-chat disclaimer; (ii) first-use modal; "
          "(iii) referral to SRA-regulated solicitors; (iv) &sect;1 &amp; &sect;3 of Terms; "
-         "(v) DPIA risk table row."),
+         "(v) DPIA risk table row; (vi) drafted replies dispatched only by the user via "
+         "their own mail client (mailto:)."),
+        ("Document upload",
+         "User-attached images / PDFs / Word files; OCR&rsquo;d and fed into the LLM "
+         "context window. Limits: 5 pages/day Free, 25/day Plus, 100/day Pro. "
+         "Files stored encrypted in user-owned Vault; can be deleted on demand. "
+         "Per-account &pound;4.99 Doc Pack top-up available (consumable)."),
+        ("Drafted communications",
+         "Lex generates a draft response letter; user reviews on-device, then "
+         "either copies the text or taps &ldquo;Send by email&rdquo; which opens "
+         "<i>their own</i> mail client pre-filled. AI Advocate does not transmit "
+         "or store outbound correspondence."),
     ]
     facts_data = [[P("Topic", "cell_head"), P("Detail", "cell_head")]]
     for topic, detail in facts_rows:
