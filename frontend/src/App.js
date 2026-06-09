@@ -13250,13 +13250,14 @@ function ContractReaderBody({ lang, country, onSwitchToNegotiate }) {
       // 📎 Multi-page path: upload extra pages via /lex/upload first
       if (extraFiles.length > 0) {
         const all = [file, ...extraFiles];
-        const ids = [];
-        for (const f of all) {
+        // ⚡ Parallel OCR uploads for ~Nx faster multi-page analysis.
+        const uploads = await Promise.all(all.map(f => {
           const fd = new FormData();
           fd.append("file", f);
-          const { data } = await api.post("/lex/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
-          if (data?.doc_id) ids.push(data.doc_id);
-        }
+          return api.post("/lex/upload", fd, { headers: { "Content-Type": "multipart/form-data" } })
+                    .then(({ data }) => data?.doc_id).catch(() => null);
+        }));
+        const ids = uploads.filter(Boolean);
         if (!ids.length) throw new Error("Couldn't read any of those files.");
         const fd = new FormData();
         fd.append("doc_ids", ids.join(","));
@@ -14082,13 +14083,14 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
       // server can stitch the text together and analyse as one document.
       if (file && extraFiles.length > 0) {
         const allFiles = [file, ...extraFiles];
-        const ids = [];
-        for (const f of allFiles) {
+        // ⚡ Parallel uploads — OCR each page concurrently for ~Nx speed-up.
+        const uploads = await Promise.all(allFiles.map(f => {
           const fd = new FormData();
           fd.append("file", f);
-          const { data } = await api.post("/lex/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
-          if (data?.doc_id) ids.push(data.doc_id);
-        }
+          return api.post("/lex/upload", fd, { headers: { "Content-Type": "multipart/form-data" } })
+                    .then(({ data }) => data?.doc_id).catch(() => null);
+        }));
+        const ids = uploads.filter(Boolean);
         if (!ids.length) throw new Error("Couldn't read any of those files.");
         const fd = new FormData();
         fd.append("doc_ids", ids.join(","));

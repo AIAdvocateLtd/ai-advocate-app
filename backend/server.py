@@ -8601,7 +8601,8 @@ Return STRICT JSON with this exact schema (no markdown, no commentary):
 If the document is NOT a legal/official letter, set category=\"other\", severity=\"low\", and suggested_response=\"This does not appear to be a legal document.\"
 """
     chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"doc-{uuid.uuid4()}", system_message=sysmsg)\
-        .with_model("gemini", "gemini-2.5-flash")
+        .with_model("gemini", "gemini-2.5-flash")\
+        .with_params(max_tokens=1500)  # ⚡ Cap output — letter-analysis JSON rarely needs more.
     try:
         resp = await chat.send_message(UserMessage(
             text=f"Filename: {filename}\n\n----- DOCUMENT TEXT -----\n{text}\n----- END -----\n\nAnalyse this document."
