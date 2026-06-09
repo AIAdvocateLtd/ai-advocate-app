@@ -14331,6 +14331,20 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
                   style={{ fontSize: 13, lineHeight: 1.5, fontFamily: "inherit" }} />
                 <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                   <button className="btn-gold" data-testid="letter-copy-btn" onClick={copyResponse} style={{ flex: 1, minWidth: 120 }}>Copy response</button>
+                  <button className="btn-ghost" data-testid="letter-email-btn"
+                          onClick={() => {
+                            // 📧 Pre-fill the user's default mail client with the drafted reply.
+                            // We deliberately leave To: blank — the recipient address depends on
+                            // the actual letter and the user knows it best.
+                            const catLabel = (result.category || "your letter").replace(/_/g, " ");
+                            const subject = `Response: ${catLabel}`;
+                            const body = result.suggested_response || "";
+                            const url = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                            window.location.href = url;
+                          }}
+                          style={{ flex: 1, minWidth: 120, border: "1px solid var(--gold-deep)", color: "var(--gold)" }}>
+                    ✉ Send by email
+                  </button>
                   <button className="btn-ghost" data-testid="letter-ladder-btn" onClick={() => setShowLadder(true)} style={{ flex: 1, minWidth: 120, border: "1px solid var(--gold-deep)", color: "var(--gold)" }}>
                     🪜 Counter letter
                   </button>
