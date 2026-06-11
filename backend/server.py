@@ -2305,6 +2305,196 @@ Now produce the Outcome Ladder JSON for this situation."""
     return {"session_id": data.session_id, "ladder": ladder}
 
 
+# ----------------- "What happens if I do nothing?" simulator -----------------
+# Powerful loss-aversion lever shown beside a drafted reply in Letter Reader.
+# Takes a doc_id (from /lex/upload) and returns the realistic chain of
+# consequences IF the user ignores the letter. Free for all tiers — it's
+# protective, not premium.
+
+class DoNothingRequest(BaseModel):
+    doc_id: Optional[str] = None
+    text: Optional[str] = None
+    language: str = "en"
+    country: str = "GB"
+
+
+@api_router.post("/lex/do-nothing-sim")
+async def lex_do_nothing_sim(data: DoNothingRequest, user: dict = Depends(get_user)):
+    """Simulates the chain of consequences if the user ignores the letter.
+    Loss-aversion-aligned protective feature — surfaces credit, court and
+    cost outcomes the user might not have realised."""
+    source_text = (data.text or "").strip()
+    if not source_text and data.doc_id:
+        existing = await db.lex_uploads.find_one(
+            {"id": data.doc_id, "user_id": user["id"]},
+            {"_id": 0, "text": 1, "filename": 1},
+        )
+        if not existing:
+            raise HTTPException(404, "Document not found")
+        source_text = (existing.get("text") or "")[:30000]
+    if not source_text:
+        raise HTTPException(400, "Provide either `doc_id` or `text`")
+
+    lang_name = LANG_NAMES.get(data.language, "English")
+    system = f"""You are Lex, the AI Advocate strategist. The user uploaded a legal letter and is considering ignoring it.
+
+Jurisdiction: {data.country}. Reply in {lang_name}.
+
+Your job: simulate the realistic chain of consequences if the user does NOTHING. Loss-aversion is one of the strongest psychological levers in legal — but DO NOT exaggerate or scare-monger. Be honest, specific, sober.
+
+Return STRICT JSON only (no markdown, no commentary):
+{{
+  "headline": "<one-line summary of the worst realistic trajectory if they ignore this, max 14 words>",
+  "consequences": [
+    {{"when": "<e.g. 'In 14 days'>", "what": "<specific concrete consequence>", "severity": "<low|medium|high|urgent>"}},
+    {{"when": "<e.g. 'In 28 days'>", "what": "<...>", "severity": "<...>"}},
+    {{"when": "<e.g. 'In 6 months'>", "what": "<...>", "severity": "<...>"}}
+  ],
+  "financial_impact_gbp": "<one-line estimate of the total potential cost, e.g. '£900–£2,400 in court costs, CCJ for 6 years'>",
+  "credit_impact": "<one-line on credit file impact, or 'None' if not applicable>",
+  "court_impact":  "<one-line on court / enforcement impact, or 'None' if not applicable>",
+  "reversibility": "<one-line on whether this becomes harder to fix the longer the user waits>",
+  "best_action_now": "<the single most valuable thing the user should do in the next 7 days, imperative voice, max 16 words>"
+}}
+
+Base your simulation on UK law where {data.country}=GB. If the letter is non-legal or low-stakes, say so honestly in headline.
+"""
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"donothing-{uuid.uuid4()}", system_message=system)\
+        .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=1100)
+    try:
+        resp = await chat.send_message(UserMessage(text=f"----- LETTER TEXT -----\n{source_text[:20000]}\n----- END -----"))
+    except Exception as e:
+        logger.exception("do-nothing-sim failed")
+        raise HTTPException(500, f"AI error: {e}")
+
+    sim = _extract_json_object(resp)
+    if not sim:
+        raise HTTPException(502, "Lex couldn't structure the simulation. Try again in a moment.")
+    return {"doc_id": data.doc_id, "simulation": sim}
+
+
+# ----------------- Multi-document Case Bundle (solicitor handoff) -----------------
+@api_router.post("/cases/{case_id}/bundle")
+async def case_bundle(case_id: str, user: dict = Depends(get_user)):
+    """Aggregate every item in a case (uploads, document analyses, letters,
+    notes, reminders) into one consolidated 'solicitor handoff' document.
+    Decrypts encrypted texts. Used by users walking into a firm prepared."""
+    case = await db.cases.find_one({"id": case_id, "user_id": user["id"]})
+    if not case:
+        raise HTTPException(404, "Case not found")
+
+    items = await db.case_items.find({"case_id": case_id, "user_id": user["id"]},
+                                      {"_id": 0}).sort("created_at", 1).to_list(200)
+    reminders = await db.reminders.find({"case_id": case_id, "user_id": user["id"]},
+                                          {"_id": 0}).sort("due_at", 1).to_list(100)
+    uploads = await db.lex_uploads.find({"user_id": user["id"], "case_id": case_id},
+                                          {"_id": 0, "filename": 1, "text": 1, "created_at": 1, "id": 1}).to_list(100)
+
+    sections = []
+    sections.append(f"# Case Bundle — {case.get('title', 'Untitled case')}")
+    sections.append(f"_Generated by AI Advocate · {datetime.now(timezone.utc).strftime('%-d %B %Y')}_")
+    sections.append("")
+    sections.append("This bundle was prepared by the user for a solicitor handoff. "
+                    "All content was generated by AI Advocate as general legal information, "
+                    "not advice. The solicitor instructed on this matter should treat this "
+                    "as a preliminary case summary and verify all facts independently.")
+    sections.append("")
+    sections.append(f"**Case summary:** {case.get('description') or '_no description_'}")
+    sections.append(f"**Jurisdiction:** {case.get('country', 'GB')}")
+    sections.append(f"**Opened:** {case.get('created_at','')[:10]}")
+    sections.append("")
+
+    if reminders:
+        sections.append("## Key Deadlines")
+        for r in reminders:
+            due = (r.get("due_at") or "")[:10]
+            sections.append(f"- **{due}** — {r.get('title','(deadline)')}")
+        sections.append("")
+
+    if uploads:
+        sections.append("## Documents on file")
+        for u in uploads:
+            txt = (u.get("text") or "")[:1200]
+            sections.append(f"### 📎 {u.get('filename','document')}  _({(u.get('created_at') or '')[:10]})_")
+            sections.append(txt + (" …[truncated]" if len(u.get("text") or "") > 1200 else ""))
+            sections.append("")
+
+    if items:
+        sections.append("## Lex analysis history")
+        for it in items:
+            data_blob = it.get("data") or {}
+            kind = it.get("kind", "item")
+            sections.append(f"### {kind.replace('_',' ').title()} — _{it.get('created_at','')[:10]}_")
+            if kind == "document_analysis":
+                sections.append(f"**Category:** {data_blob.get('category','?')}  ·  **Severity:** {data_blob.get('severity','?')}")
+                sections.append(f"**Summary:** {data_blob.get('summary','')}")
+                resp = (data_blob.get("suggested_response") or "")[:2000]
+                if resp:
+                    sections.append("**Suggested response (drafted by user):**")
+                    sections.append("```")
+                    sections.append(resp)
+                    sections.append("```")
+            else:
+                sections.append("```json")
+                sections.append(__import__("json").dumps(data_blob, indent=2)[:1500])
+                sections.append("```")
+            sections.append("")
+
+    sections.append("---")
+    sections.append("_End of bundle. Generated automatically by aiadvocate.co.uk for personal use._")
+    bundle_text = "\n".join(sections)
+    return {
+        "case_id": case_id,
+        "title": case.get("title", "Untitled case"),
+        "bundle_md": bundle_text,
+        "items": len(items), "uploads": len(uploads), "reminders": len(reminders),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ----------------- Anonymous Community Insights -----------------
+@api_router.get("/community/insights")
+async def community_insights(country: str = "GB"):
+    """Aggregated, fully anonymised stats over the last 30 days. Builds trust
+    ('you're not alone') and gentle social proof. Public — no auth required."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    pipeline = [
+        {"$match": {"kind": "document_analysis", "created_at": {"$gte": cutoff}}},
+        {"$group": {
+            "_id": "$data.category",
+            "count": {"$sum": 1},
+        }},
+        {"$sort": {"count": -1}},
+        {"$limit": 6},
+    ]
+    rows = await db.case_items.aggregate(pipeline).to_list(10)
+    total = sum(r["count"] for r in rows) or 0
+    categories = [{
+        "category": (r["_id"] or "other").replace("_", " ").title(),
+        "count": r["count"],
+        "pct": round(100 * r["count"] / total, 1) if total else 0.0,
+    } for r in rows if r["_id"]]
+
+    # 30-day rollup counters
+    lex_chats_30d = await db.conversations.count_documents({"created_at": {"$gte": cutoff}})
+    letters_30d = await db.case_items.count_documents({"kind": "document_analysis", "created_at": {"$gte": cutoff}})
+    contracts_30d = await db.contract_analyses.count_documents({"created_at": {"$gte": cutoff}})
+
+    return {
+        "country": country,
+        "window_days": 30,
+        "top_categories": categories,
+        "totals": {
+            "lex_chats": lex_chats_30d,
+            "letters_analysed": letters_30d,
+            "contracts_reviewed": contracts_30d,
+        },
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+
 @api_router.post("/lex/devil-advocate")
 async def lex_devil_advocate(data: StrategicHelperRequest, user: dict = Depends(get_user)):
     """Returns a 'what would the other side argue' breakdown for the user's

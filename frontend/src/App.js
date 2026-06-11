@@ -991,9 +991,75 @@ function renderWithCitationPills(text, citations, msgIdx) {
         );
       }
     }
-    return <React.Fragment key={idx}>{part}</React.Fragment>;
+    return <React.Fragment key={idx}>{linkifyStatutes(part, `${msgIdx}-${idx}`)}</React.Fragment>;
   });
 }
+
+// ---------- Citation Tooltips (auto-detect UK statute references) ----------
+// Converts inline references like "s.213 Housing Act 2004", "section 21 HA 1988",
+// or "Housing Act 2004" into clickable gold chips that open legislation.gov.uk
+// in the in-app browser. Pure trust-builder — users can verify Lex's sources
+// without leaving the conversation.
+//
+// Conservative regex: matches "[s.NUM | section NUM] [Act-name] [year]" or just
+// "[Capitalised Act Name] [4-digit year]". Anchored to "Act" to keep false
+// positives low — we don't want to underline every random number.
+const STATUTE_PATTERN = /\b(?:(?:s\.?|section)\s*(\d+[A-Za-z]*)\s+)?((?:[A-Z][A-Za-z]+\s+){1,5})(Act|Regulations?|Order)\s+(\d{4})\b/g;
+
+function linkifyStatutes(text, keyPrefix = "stat") {
+  if (typeof text !== "string" || !text) return text;
+  const out = [];
+  let lastIdx = 0;
+  let m;
+  let idx = 0;
+  STATUTE_PATTERN.lastIndex = 0;
+  while ((m = STATUTE_PATTERN.exec(text)) !== null) {
+    if (m.index > lastIdx) out.push(text.slice(lastIdx, m.index));
+    const sectionNum = m[1];
+    const actName = (m[2] || "").trim();
+    const actType = m[3];
+    const year = m[4];
+    const label = `${actName} ${actType} ${year}`;
+    const fullMatch = m[0];
+    const query = encodeURIComponent(label + (sectionNum ? ` section ${sectionNum}` : ""));
+    const url = `https://www.legislation.gov.uk/search?text=${query}`;
+    out.push(
+      <a
+        key={`${keyPrefix}-${idx++}`}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`Open ${label}${sectionNum ? ` (section ${sectionNum})` : ""} on legislation.gov.uk`}
+        data-testid={`statute-chip-${idx}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (typeof isNative === "function" && isNative()) {
+            e.preventDefault();
+            nativeOpenExternal(url);
+          }
+        }}
+        style={{
+          display: "inline",
+          background: "rgba(247,201,72,0.12)",
+          color: "var(--gold)",
+          borderBottom: "1px dashed var(--gold-deep)",
+          textDecoration: "none",
+          padding: "0 2px",
+          borderRadius: 3,
+          fontWeight: 600,
+          cursor: "pointer",
+        }}
+      >
+        {fullMatch}
+      </a>
+    );
+    lastIdx = m.index + fullMatch.length;
+  }
+  if (lastIdx < text.length) out.push(text.slice(lastIdx));
+  return out.length ? out : text;
+}
+
+
 
 // ---------- Voice Recording Hook ----------
 const useRecorder = () => {
@@ -2244,7 +2310,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                              style={{ padding: "10px 14px", borderRadius: 14, maxWidth: "82%", whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 }}>
                           {m.role === "lex" && Array.isArray(m.citations) && m.citations.length > 0
                             ? renderWithCitationPills(meta.body, m.citations, i)
-                            : meta.body}
+                            : (m.role === "lex" ? linkifyStatutes(meta.body, `m${i}`) : meta.body)}
                         </div>
                         {/* RAG citations list — appears under the bubble when Tavily returned sources */}
                         {m.role === "lex" && Array.isArray(m.citations) && m.citations.length > 0 && (
@@ -5970,6 +6036,22 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
     } catch (e) { alert(e?.response?.data?.detail || "Failed to create share link"); }
   };
 
+  // 📦 Bundle — generates a single "solicitor handoff" markdown document containing
+  // every upload, every Lex analysis, every deadline. Copies to clipboard AND offers
+  // a .md download so the user can email it to their solicitor in one step.
+  const bundleCase = async () => {
+    try {
+      const { data } = await api.post(`/cases/${open.id}/bundle`);
+      const blob = new Blob([data.bundle_md], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${(data.title || "case").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-bundle.md`;
+      a.click();
+      await navigator.clipboard.writeText(data.bundle_md).catch(() => {});
+      alert(`Bundle ready — ${data.items} analyses · ${data.uploads} documents · ${data.reminders} deadlines.\n\n• Downloaded as .md\n• Copied to clipboard\n\nPaste it into an email to your solicitor.`);
+    } catch (e) { alert(e?.response?.data?.detail || "Couldn't build the bundle"); }
+  };
+
   return (
     <div className="modal-bg" data-testid="cases-modal">
       <div className="modal-card" style={{ padding: 20 }}>
@@ -6019,10 +6101,15 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 14 }}>
               {t(lang, "timestamp")}: {new Date(open.created_at).toLocaleString()}
             </div>
-            <div className="flex gap-2" style={{ marginBottom: 14 }}>
+            <div className="flex gap-2" style={{ marginBottom: 14, flexWrap: "wrap" }}>
               <button className="btn-ghost" onClick={rename} data-testid="rename-case-btn" style={{ flex: 1, fontSize: 12 }}>{t(lang, "renameCase")}</button>
               <button className="btn-ghost" onClick={exportPdf} data-testid="export-case-btn" style={{ flex: 1, fontSize: 12 }}>{t(lang, "exportCasePdf")}</button>
               <button className="btn-ghost" onClick={shareCase} data-testid="share-case-btn" style={{ flex: 1, fontSize: 12 }}>Share</button>
+              <button className="btn-ghost" onClick={bundleCase} data-testid="bundle-case-btn"
+                      style={{ flex: 1, fontSize: 12, color: "var(--gold)", border: "1px solid var(--gold-deep)" }}
+                      title="Generate a solicitor handoff document containing every upload, analysis and deadline">
+                📦 Solicitor bundle
+              </button>
               <button className="btn-ghost" onClick={(e) => { e.stopPropagation(); remove(); }} data-testid="delete-case-btn" aria-label="Delete this case" style={{ flex: 0.7, fontSize: 12, color: "#fca5a5", minHeight: 44 }}><Trash2 size={14} /></button>
             </div>
 
@@ -11033,6 +11120,64 @@ function WinbackGiftBanner({ user, lang, refreshUser }) {
 // Hero banner on the home dashboard that asks ONE question — "what kind of document
 // do you have?" — and routes the user to the right specialist tool. Eliminates
 // the "do I use Contract Tools / Letter Reader / paperclip in chat?" paralysis.
+
+// ---------- Anonymous Community Insights Card ----------
+// Aggregated 30-day stats fetched from /community/insights. Lightweight
+// social-proof / "you're not alone" trust builder. Hidden if the API
+// returns no meaningful data (e.g. first day of launch).
+function CommunityInsightsCard({ country = "GB" }) {
+  const [data, setData] = useState(null);
+  const [hidden, setHidden] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { data: r } = await api.get(`/community/insights?country=${encodeURIComponent(country)}`);
+        if (!alive) return;
+        const top = r?.top_categories?.[0];
+        const lex = r?.totals?.lex_chats || 0;
+        // Show only when there's *some* aggregate to share — keeps the UI calm at zero traffic
+        if (lex < 25 && !top) setHidden(true);
+        else setData(r);
+      } catch (e) { setHidden(true); }
+    })();
+    return () => { alive = false; };
+  }, [country]);
+
+  if (hidden || !data) return null;
+
+  const lex = data.totals?.lex_chats || 0;
+  const letters = data.totals?.letters_analysed || 0;
+  const contracts = data.totals?.contracts_reviewed || 0;
+  const top = data.top_categories?.[0];
+
+  return (
+    <div data-testid="community-insights-card" style={{
+      background: "linear-gradient(135deg, rgba(247,201,72,0.06), rgba(247,201,72,0.01))",
+      border: "1px solid var(--gold-deep)", borderRadius: 12,
+      padding: "12px 14px", marginBottom: 14,
+      display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+    }}>
+      <div style={{ fontSize: 22 }}>👥</div>
+      <div style={{ flex: 1, minWidth: 180, fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.5 }}>
+        <div style={{ color: "var(--gold-soft)", fontWeight: 700, marginBottom: 2, fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+          You're not alone — last 30 days
+        </div>
+        <div style={{ color: "var(--text)" }}>
+          {lex.toLocaleString()} Lex chats · {letters.toLocaleString()} letters analysed · {contracts.toLocaleString()} contracts reviewed
+        </div>
+        {top && (
+          <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--text-dim)" }}>
+            Most common: <b style={{ color: "var(--gold-soft)" }}>{top.category}</b> ({top.pct}% of cases)
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 function DocSmartRouter({ lang, onPickContract, onPickLetter, onPickOther }) {
   const [open, setOpen] = useState(false);
   return (
@@ -11530,6 +11675,11 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
           );
         })}
       </div>
+
+      {/* 👥 Anonymous community insights — "you're not alone" social proof.
+          Lives below the tile grid so it acts as a calm footer trust-builder
+          rather than competing with the action CTAs above the fold. */}
+      <CommunityInsightsCard country={country} />
 
       {/* StatsWall hidden until we have real user counts post-launch */}
       {/* <StatsWall lang={lang} /> */}
@@ -14283,6 +14433,10 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
   const [err, setErr] = useState("");
   const [showLadder, setShowLadder] = useState(false);
   const [docIdLoaded, setDocIdLoaded] = useState(null); // 📎 doc_id when re-using a Lex upload
+  // "What happens if I do nothing?" simulator state
+  const [nothingSim, setNothingSim] = useState(null);
+  const [nothingBusy, setNothingBusy] = useState(false);
+  const [nothingErr, setNothingErr] = useState("");
   const inputRef = useRef(null);
   const uploadRef = useRef(null);
 
@@ -14356,6 +14510,21 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
     if (!result?.suggested_response) return;
     navigator.clipboard.writeText(result.suggested_response);
     alert("Response copied to clipboard");
+  };
+
+  // 🪞 "What happens if I do nothing?" — sober loss-aversion simulator
+  const runDoNothing = async () => {
+    if (nothingBusy) return;
+    setNothingBusy(true); setNothingErr("");
+    try {
+      const payload = docIdLoaded
+        ? { doc_id: docIdLoaded, language: lang, country }
+        : { text: (result?.summary || "") + "\n\n" + (result?.suggested_response || ""), language: lang, country };
+      const { data } = await api.post("/lex/do-nothing-sim", payload);
+      setNothingSim(data.simulation || null);
+    } catch (e) {
+      setNothingErr(e?.response?.data?.detail || "Couldn't run the simulation");
+    } finally { setNothingBusy(false); }
   };
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
@@ -14521,6 +14690,87 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
                   </button>
                   <button className="btn-ghost" data-testid="letter-new-btn" onClick={() => { setResult(null); setFile(null); if (preview) URL.revokeObjectURL(preview); setPreview(null); }} style={{ flex: 1, minWidth: 120 }}>Analyse another</button>
                 </div>
+
+                {/* 👩‍⚖ £49 Solicitor Sanity Check — inline upsell, shown at the exact moment users are most anxious about pressing Send. */}
+                <div data-testid="letter-sanity-upsell" style={{
+                  marginTop: 12, padding: "12px 14px",
+                  background: "linear-gradient(135deg, rgba(247,201,72,0.10), rgba(247,201,72,0.02))",
+                  border: "1.5px solid var(--gold)", borderRadius: 12,
+                  display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+                }}>
+                  <div style={{ fontSize: 24 }}>👩‍⚖</div>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <div style={{ color: "var(--gold)", fontWeight: 700, fontSize: 13.5 }}>
+                      Want a real solicitor to check this reply first?
+                    </div>
+                    <div style={{ color: "var(--text-dim)", fontSize: 12, marginTop: 3, lineHeight: 1.45 }}>
+                      An SRA-regulated UK solicitor reviews Lex's draft within 24 hours.
+                      You can edit before sending. <b style={{ color: "var(--gold-soft)" }}>£49 · one-off · no subscription</b>
+                    </div>
+                  </div>
+                  <button data-testid="letter-sanity-check-cta"
+                          onClick={() => {
+                            // Open the existing Solicitor Sanity Check flow with this draft pre-filled
+                            window.dispatchEvent(new CustomEvent("open-sanity-check", {
+                              detail: { draft: result.suggested_response, category: result.category, doc_id: docIdLoaded }
+                            }));
+                          }}
+                          style={{ background: "var(--gold)", border: "none", color: "#1a1300",
+                                   padding: "8px 16px", borderRadius: 8, fontWeight: 800, fontSize: 13, cursor: "pointer",
+                                   whiteSpace: "nowrap" }}>
+                    Get £49 review →
+                  </button>
+                </div>
+
+                {/* ⚠ "What happens if I do nothing?" — protective loss-aversion simulator */}
+                {!nothingSim && (
+                  <button data-testid="letter-do-nothing-btn"
+                          onClick={runDoNothing} disabled={nothingBusy}
+                          style={{ marginTop: 10, width: "100%", background: "transparent",
+                                   border: "1px dashed #ef4444", color: "#fca5a5",
+                                   padding: "10px 14px", borderRadius: 10, fontSize: 13, fontWeight: 600,
+                                   cursor: nothingBusy ? "default" : "pointer" }}>
+                    {nothingBusy ? "Simulating consequences…" : "⚠ What happens if I do nothing?"}
+                  </button>
+                )}
+                {nothingErr && <div style={{ color: "#fca5a5", fontSize: 12, marginTop: 6 }}>{nothingErr}</div>}
+                {nothingSim && (
+                  <div data-testid="letter-do-nothing-result" style={{
+                    marginTop: 10, padding: "12px 14px",
+                    background: "rgba(127,29,29,0.12)", border: "1px solid #b91c1c", borderRadius: 12,
+                  }}>
+                    <div style={{ color: "#fca5a5", fontWeight: 800, fontSize: 14, marginBottom: 8 }}>
+                      ⚠ If you ignore this letter
+                    </div>
+                    <div style={{ color: "var(--text)", fontSize: 13.5, lineHeight: 1.55, marginBottom: 10 }}>
+                      {nothingSim.headline}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {(nothingSim.consequences || []).map((c, i) => (
+                        <div key={i} style={{ display: "flex", gap: 10, padding: "6px 0", borderTop: i === 0 ? "none" : "1px solid rgba(127,29,29,0.3)" }}>
+                          <div style={{ minWidth: 80, fontSize: 11.5, color: "var(--text-dim)", fontWeight: 600 }}>
+                            {c.when}
+                          </div>
+                          <div style={{ flex: 1, fontSize: 12.5, color: "var(--text)", lineHeight: 1.45 }}>
+                            {c.what}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {(nothingSim.financial_impact_gbp || nothingSim.credit_impact) && (
+                      <div style={{ marginTop: 10, padding: 10, background: "rgba(0,0,0,0.25)", borderRadius: 8, fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
+                        {nothingSim.financial_impact_gbp && <div>💷 <b style={{ color: "var(--text)" }}>{nothingSim.financial_impact_gbp}</b></div>}
+                        {nothingSim.credit_impact && nothingSim.credit_impact !== "None" && <div>📉 {nothingSim.credit_impact}</div>}
+                        {nothingSim.court_impact && nothingSim.court_impact !== "None" && <div>⚖ {nothingSim.court_impact}</div>}
+                      </div>
+                    )}
+                    {nothingSim.best_action_now && (
+                      <div style={{ marginTop: 10, padding: 10, background: "rgba(34,197,94,0.10)", border: "1px solid #22c55e", borderRadius: 8, fontSize: 12.5, color: "#bbf7d0" }}>
+                        ✅ <b>Best action now:</b> {nothingSim.best_action_now}
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             )}
 
