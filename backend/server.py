@@ -10804,6 +10804,155 @@ async def admin_stats(_: dict = Depends(require_admin)):
     }
 
 
+# Per-operation cost estimates in GBP. Derived from public-rate pricing for
+# Claude/GPT/Gemini at typical AI Advocate prompt sizes — refresh quarterly.
+LLM_COST_GBP = {
+    "lex_chat_free": 0.0008,   # Haiku — short answer
+    "lex_chat_plus": 0.022,    # GPT-5.2
+    "lex_chat_pro":  0.030,    # Sonnet
+    "lex_chat_yearly": 0.030,
+    "lex_chat_deep": 0.090,    # Sonnet extended-token / Opus deep-think
+    "doc_upload":    0.013,    # Gemini Nano Banana OCR + extraction
+    "document_analyze": 0.040, # Gemini Flash, letter analysis JSON
+    "contract_analyze": 0.110, # Sonnet, clause-by-clause
+    "outcome_ladder":  0.050,  # Sonnet
+    "devil_advocate":  0.050,  # Sonnet
+    "predict_outcome": 0.038,  # Sonnet
+}
+
+TIER_PRICE_GBP = {"plus": 19.99, "pro": 34.99, "yearly": 26.66}  # yearly £319.99 / 12
+
+@api_router.get("/admin/founder-finance")
+async def admin_founder_finance(_: dict = Depends(require_admin)):
+    """Founder cost dashboard — aggregated, admin-only. Shows tier mix, MRR,
+    estimated LLM burn, Stripe fees and per-tier net margin for the last 30
+    days. No individual user spending habits exposed; all metrics are roll-ups."""
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=30)).isoformat()
+
+    counts = {}
+    for tier in ("free", "plus", "pro", "yearly", "trial_pro", "trial_plus"):
+        if tier in ("plus", "pro", "yearly"):
+            counts[tier] = await db.users.count_documents({"tier": tier, "subscription_status": "active"})
+        elif tier == "free":
+            counts[tier] = await db.users.count_documents({"$or": [
+                {"tier": "free"}, {"tier": {"$exists": False}}, {"tier": None},
+            ]})
+        else:
+            counts[tier] = await db.users.count_documents({"tier": tier})
+    total_users = await db.users.count_documents({})
+
+    mrr_total = (
+        counts.get("plus", 0) * TIER_PRICE_GBP["plus"] +
+        counts.get("pro", 0) * TIER_PRICE_GBP["pro"] +
+        counts.get("yearly", 0) * TIER_PRICE_GBP["yearly"]
+    )
+
+    sanity_paid_30d = await db.sanity_checks.count_documents({
+        "payment_status": "paid",
+        "created_at": {"$gte": cutoff},
+    })
+    sanity_revenue_30d = sanity_paid_30d * 49.00
+
+    docpack_30d = await db.users.aggregate([
+        {"$unwind": {"path": "$doc_pack_purchases", "preserveNullAndEmptyArrays": False}},
+        {"$match": {"doc_pack_purchases.created_at": {"$gte": cutoff}}},
+        {"$count": "n"},
+    ]).to_list(1)
+    docpack_count_30d = (docpack_30d[0]["n"] if docpack_30d else 0)
+    docpack_revenue_30d = docpack_count_30d * 4.99
+
+    counts_30d = {
+        "lex_chats":      await db.conversations.count_documents({"created_at": {"$gte": cutoff}}),
+        "doc_uploads":    await db.lex_uploads.count_documents({"created_at": {"$gte": cutoff}}),
+        "contract_analyses": await db.contract_analyses.count_documents({"created_at": {"$gte": cutoff}}),
+        "letter_analyses": await db.case_items.count_documents({
+            "kind": "document_analysis", "created_at": {"$gte": cutoff},
+        }),
+    }
+
+    paying_active = counts.get("plus", 0) + counts.get("pro", 0) + counts.get("yearly", 0)
+    denom = max(1, paying_active + counts.get("free", 1))
+    plus_share = counts.get("plus", 0) / denom
+    pro_share = (counts.get("pro", 0) + counts.get("yearly", 0)) / denom
+    free_share = max(0.0, 1.0 - plus_share - pro_share)
+    avg_chat_cost = (
+        free_share * LLM_COST_GBP["lex_chat_free"] +
+        plus_share * LLM_COST_GBP["lex_chat_plus"] +
+        pro_share  * LLM_COST_GBP["lex_chat_pro"]
+    )
+
+    llm_costs = {
+        "Lex chats":         round(counts_30d["lex_chats"] * avg_chat_cost, 2),
+        "Doc uploads (OCR)": round(counts_30d["doc_uploads"] * LLM_COST_GBP["doc_upload"], 2),
+        "Letter Reader":     round(counts_30d["letter_analyses"] * LLM_COST_GBP["document_analyze"], 2),
+        "Contract Tools":    round(counts_30d["contract_analyses"] * LLM_COST_GBP["contract_analyze"], 2),
+    }
+    llm_total = round(sum(llm_costs.values()), 2)
+
+    sub_fees = mrr_total * 0.015 + paying_active * 0.20
+    oneoff_fees = (sanity_revenue_30d + docpack_revenue_30d) * 0.015 + (sanity_paid_30d + docpack_count_30d) * 0.20
+    stripe_fees = round(sub_fees + oneoff_fees, 2)
+    hosting_estimate = 10.0
+
+    gross_revenue_30d = round(mrr_total + sanity_revenue_30d + docpack_revenue_30d, 2)
+    net_30d = round(gross_revenue_30d - stripe_fees - llm_total - hosting_estimate, 2)
+    net_margin_pct = round(100.0 * net_30d / gross_revenue_30d, 1) if gross_revenue_30d > 0 else 0.0
+
+    cost_keys = {
+        "Lex chats": "lex_chat_pro",
+        "Doc uploads (OCR)": "doc_upload",
+        "Letter Reader": "document_analyze",
+        "Contract Tools": "contract_analyze",
+    }
+    top_costly = sorted(
+        [{
+            "feature": k,
+            "calls_30d": int(round(v / max(0.001, LLM_COST_GBP[cost_keys[k]]))),
+            "est_cost_gbp": v,
+        } for k, v in llm_costs.items()],
+        key=lambda x: x["est_cost_gbp"], reverse=True,
+    )
+
+    return {
+        "tiers": [
+            {"tier": "free",       "count": counts.get("free", 0),       "mrr": 0.0},
+            {"tier": "plus",       "count": counts.get("plus", 0),       "mrr": round(counts.get("plus", 0) * TIER_PRICE_GBP["plus"], 2)},
+            {"tier": "pro",        "count": counts.get("pro", 0),        "mrr": round(counts.get("pro", 0) * TIER_PRICE_GBP["pro"], 2)},
+            {"tier": "pro_yearly", "count": counts.get("yearly", 0),     "mrr": round(counts.get("yearly", 0) * TIER_PRICE_GBP["yearly"], 2)},
+            {"tier": "trial_plus", "count": counts.get("trial_plus", 0), "mrr": 0.0},
+            {"tier": "trial_pro",  "count": counts.get("trial_pro", 0),  "mrr": 0.0},
+        ],
+        "users_total": total_users,
+        "mrr_total": round(mrr_total, 2),
+        "oneoff_30d": {
+            "sanity_checks":  {"count": sanity_paid_30d,   "revenue_gbp": round(sanity_revenue_30d, 2)},
+            "doc_packs":      {"count": docpack_count_30d, "revenue_gbp": round(docpack_revenue_30d, 2)},
+        },
+        "llm_costs_30d": llm_costs,
+        "llm_total_30d": llm_total,
+        "top_costly_features": top_costly,
+        "stripe": {
+            "gross_30d": gross_revenue_30d,
+            "fees_30d": stripe_fees,
+            "net_30d_after_stripe": round(gross_revenue_30d - stripe_fees, 2),
+        },
+        "margin": {
+            "gross_30d": gross_revenue_30d,
+            "stripe_fees": stripe_fees,
+            "llm_cost":   llm_total,
+            "hosting":    hosting_estimate,
+            "net_30d":    net_30d,
+            "net_margin_pct": net_margin_pct,
+        },
+        "computed_at": now.isoformat(),
+        "disclaimer": "LLM costs are estimates based on public per-token rates; refresh quarterly. Stripe fees assume 1.5% + 20p UK rate. App Store / Play cuts are NOT modelled — apply 15-30% reduction on mobile-store-purchased subs if relevant.",
+    }
+
+
+
+
+
 @api_router.get("/admin/rag-usage")
 async def admin_rag_usage(_: dict = Depends(require_admin)):
     """Tavily usage this month — used / cap / remaining. Lets the owner see whether

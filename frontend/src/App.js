@@ -7137,6 +7137,8 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             <AdminCommissionsCard />
             {/* 💰 OWNER ONLY — verify every STRIPE_PRICE_* env var resolves to the right amount */}
             <AdminStripePriceAuditCard />
+            {/* 💷 OWNER ONLY — founder cost dashboard: MRR, Stripe fees, LLM burn, net margin */}
+            <AdminFounderFinanceCard />
             {/* ✍️ OWNER ONLY — default founder signature for auto-fire Founding Firm Agreements */}
             <AdminFounderSignatureCard />
           </AdminSafeBoundary>
@@ -8903,6 +8905,175 @@ function DeleteAnalyticsDataRow({ lang }) {
     </div>
   );
 }
+
+
+
+// =============================== ADMIN — FOUNDER COST DASHBOARD ===============================
+// Admin-only. Aggregated, never per-user. Shows MRR by tier, 30-day Stripe gross/net,
+// estimated LLM burn, per-feature cost, and net margin %. Refresh on demand.
+function AdminFounderFinanceCard() {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState("");
+
+  const load = async () => {
+    setBusy(true); setErr("");
+    try {
+      const { data: r } = await api.get("/admin/founder-finance");
+      setData(r);
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Couldn't load founder finance");
+    } finally { setBusy(false); }
+  };
+
+  const fmt = n => `£${Number(n || 0).toFixed(2)}`;
+  const m = data?.margin || {};
+  const marginGreen = (m.net_margin_pct || 0) >= 70;
+
+  return (
+    <div data-testid="admin-founder-finance-card" style={{
+      background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12,
+    }}>
+      <button onClick={() => { setOpen(o => !o); if (!data) load(); }} data-testid="admin-founder-finance-toggle"
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+                       background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--gold)" }}>
+        <span style={{ fontWeight: 700, fontSize: 14 }}>
+          💷 Founder cost dashboard
+          {data && (
+            <span style={{ marginLeft: 8, fontSize: 11, padding: "2px 8px", borderRadius: 999,
+                           background: marginGreen ? "rgba(34,197,94,0.18)" : "rgba(239,68,68,0.18)",
+                           color: marginGreen ? "#86efac" : "#fca5a5", fontWeight: 700 }}>
+              {fmt(m.net_30d)} net · {m.net_margin_pct}% margin (30d)
+            </span>
+          )}
+        </span>
+        <span style={{ color: "var(--text-dim)" }}>{open ? "▾" : "▸"}</span>
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 10, lineHeight: 1.55 }}>
+            Aggregated only — no per-user spending shown. LLM costs are estimates;
+            real spend visible in your <b>Emergent Universal Key</b> balance.
+          </div>
+
+          <button onClick={load} disabled={busy} data-testid="admin-founder-finance-refresh"
+                  style={{ background: "var(--gold)", border: "none", color: "#1a1300",
+                           padding: "7px 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 700,
+                           cursor: busy ? "default" : "pointer", marginBottom: 12 }}>
+            {busy ? "Refreshing…" : data ? "Refresh" : "Load"}
+          </button>
+
+          {err && <div style={{ color: "#fca5a5", fontSize: 12, marginBottom: 8 }}>{err}</div>}
+
+          {data && (
+            <>
+              {/* HERO — net margin */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                <KPIBox label="Gross revenue (30d)" value={fmt(m.gross_30d)} />
+                <KPIBox label="Net (30d)" value={fmt(m.net_30d)} accent={marginGreen ? "green" : "red"} />
+                <KPIBox label="MRR" value={fmt(data.mrr_total)} />
+                <KPIBox label="Net margin" value={`${m.net_margin_pct}%`} accent={marginGreen ? "green" : "red"} />
+              </div>
+
+              {/* TIER MIX */}
+              <div style={{ fontSize: 11, color: "var(--gold)", letterSpacing: "0.08em", textTransform: "uppercase", marginTop: 6, marginBottom: 6 }}>Tier mix · {data.users_total} users</div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 14 }}>
+                <thead>
+                  <tr style={{ color: "var(--text-dim)" }}>
+                    <th style={{ textAlign: "left", padding: "4px 6px" }}>Tier</th>
+                    <th style={{ textAlign: "right", padding: "4px 6px" }}>Users</th>
+                    <th style={{ textAlign: "right", padding: "4px 6px" }}>MRR</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.tiers.map(t => (
+                    <tr key={t.tier} style={{ borderTop: "1px solid var(--line)" }}>
+                      <td style={{ padding: "4px 6px", color: "var(--text)" }}>{t.tier}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text)" }}>{t.count}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text)" }}>{fmt(t.mrr)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* COST BREAKDOWN */}
+              <div style={{ fontSize: 11, color: "var(--gold)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>30-day cost breakdown</div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 14 }}>
+                <tbody>
+                  <tr style={{ borderTop: "1px solid var(--line)" }}>
+                    <td style={{ padding: "4px 6px", color: "var(--text-dim)" }}>Stripe fees (1.5% + 20p)</td>
+                    <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text)" }}>– {fmt(m.stripe_fees)}</td>
+                  </tr>
+                  <tr style={{ borderTop: "1px solid var(--line)" }}>
+                    <td style={{ padding: "4px 6px", color: "var(--text-dim)" }}>LLM (Emergent Universal Key)</td>
+                    <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text)" }}>– {fmt(m.llm_cost)}</td>
+                  </tr>
+                  <tr style={{ borderTop: "1px solid var(--line)" }}>
+                    <td style={{ padding: "4px 6px", color: "var(--text-dim)" }}>Hosting (Emergent flat)</td>
+                    <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text)" }}>– {fmt(m.hosting)}</td>
+                  </tr>
+                  <tr style={{ borderTop: "1px solid var(--gold-deep)", background: "rgba(247,201,72,0.04)" }}>
+                    <td style={{ padding: "6px 6px", color: "var(--gold)", fontWeight: 700 }}>Net (30d)</td>
+                    <td style={{ padding: "6px 6px", textAlign: "right", color: "var(--gold)", fontWeight: 700 }}>{fmt(m.net_30d)}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              {/* TOP COSTLY FEATURES */}
+              <div style={{ fontSize: 11, color: "var(--gold)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Top LLM-burn features (30d)</div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 8 }}>
+                <thead>
+                  <tr style={{ color: "var(--text-dim)" }}>
+                    <th style={{ textAlign: "left", padding: "4px 6px" }}>Feature</th>
+                    <th style={{ textAlign: "right", padding: "4px 6px" }}>Calls</th>
+                    <th style={{ textAlign: "right", padding: "4px 6px" }}>Est. cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.top_costly_features.map(f => (
+                    <tr key={f.feature} style={{ borderTop: "1px solid var(--line)" }}>
+                      <td style={{ padding: "4px 6px", color: "var(--text)" }}>{f.feature}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text)" }}>{f.calls_30d}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text)" }}>{fmt(f.est_cost_gbp)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* ONE-OFF REVENUE */}
+              {(data.oneoff_30d.sanity_checks.count + data.oneoff_30d.doc_packs.count) > 0 && (
+                <>
+                  <div style={{ fontSize: 11, color: "var(--gold)", letterSpacing: "0.08em", textTransform: "uppercase", marginTop: 10, marginBottom: 6 }}>One-off purchases (30d)</div>
+                  <div style={{ fontSize: 12, color: "var(--text)" }}>
+                    <div>👩‍⚖ Solicitor Sanity Check (£49): <b>{data.oneoff_30d.sanity_checks.count}</b> · {fmt(data.oneoff_30d.sanity_checks.revenue_gbp)}</div>
+                    <div>📎 Doc Pack (£4.99): <b>{data.oneoff_30d.doc_packs.count}</b> · {fmt(data.oneoff_30d.doc_packs.revenue_gbp)}</div>
+                  </div>
+                </>
+              )}
+
+              <div style={{ marginTop: 14, padding: 10, background: "rgba(247,201,72,0.04)", border: "1px solid var(--gold-deep)", borderRadius: 8, fontSize: 10.5, color: "var(--text-dim)", lineHeight: 1.5 }}>
+                {data.disclaimer}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KPIBox({ label, value, accent }) {
+  const color = accent === "green" ? "#86efac" : accent === "red" ? "#fca5a5" : "var(--gold)";
+  return (
+    <div style={{ background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }}>
+      <div style={{ fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.04em", textTransform: "uppercase" }}>{label}</div>
+      <div style={{ fontSize: 18, color, fontWeight: 800, marginTop: 2 }}>{value}</div>
+    </div>
+  );
+}
+
 
 
 // =============================== ADMIN — STRIPE PRICE AUDIT ===============================
