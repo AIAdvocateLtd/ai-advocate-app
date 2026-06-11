@@ -11121,62 +11121,6 @@ function WinbackGiftBanner({ user, lang, refreshUser }) {
 // do you have?" — and routes the user to the right specialist tool. Eliminates
 // the "do I use Contract Tools / Letter Reader / paperclip in chat?" paralysis.
 
-// ---------- Anonymous Community Insights Card ----------
-// Aggregated 30-day stats fetched from /community/insights. Lightweight
-// social-proof / "you're not alone" trust builder. Hidden if the API
-// returns no meaningful data (e.g. first day of launch).
-function CommunityInsightsCard({ country = "GB" }) {
-  const [data, setData] = useState(null);
-  const [hidden, setHidden] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const { data: r } = await api.get(`/community/insights?country=${encodeURIComponent(country)}`);
-        if (!alive) return;
-        const top = r?.top_categories?.[0];
-        const lex = r?.totals?.lex_chats || 0;
-        // Show only when there's *some* aggregate to share — keeps the UI calm at zero traffic
-        if (lex < 25 && !top) setHidden(true);
-        else setData(r);
-      } catch (e) { setHidden(true); }
-    })();
-    return () => { alive = false; };
-  }, [country]);
-
-  if (hidden || !data) return null;
-
-  const lex = data.totals?.lex_chats || 0;
-  const letters = data.totals?.letters_analysed || 0;
-  const contracts = data.totals?.contracts_reviewed || 0;
-  const top = data.top_categories?.[0];
-
-  return (
-    <div data-testid="community-insights-card" style={{
-      background: "linear-gradient(135deg, rgba(247,201,72,0.06), rgba(247,201,72,0.01))",
-      border: "1px solid var(--gold-deep)", borderRadius: 12,
-      padding: "12px 14px", marginBottom: 14,
-      display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-    }}>
-      <div style={{ fontSize: 22 }}>👥</div>
-      <div style={{ flex: 1, minWidth: 180, fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.5 }}>
-        <div style={{ color: "var(--gold-soft)", fontWeight: 700, marginBottom: 2, fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-          You're not alone — last 30 days
-        </div>
-        <div style={{ color: "var(--text)" }}>
-          {lex.toLocaleString()} Lex chats · {letters.toLocaleString()} letters analysed · {contracts.toLocaleString()} contracts reviewed
-        </div>
-        {top && (
-          <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--text-dim)" }}>
-            Most common: <b style={{ color: "var(--gold-soft)" }}>{top.category}</b> ({top.pct}% of cases)
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 
 function DocSmartRouter({ lang, onPickContract, onPickLetter, onPickOther }) {
   const [open, setOpen] = useState(false);
@@ -11675,11 +11619,6 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
           );
         })}
       </div>
-
-      {/* 👥 Anonymous community insights — "you're not alone" social proof.
-          Lives below the tile grid so it acts as a calm footer trust-builder
-          rather than competing with the action CTAs above the fold. */}
-      <CommunityInsightsCard country={country} />
 
       {/* StatsWall hidden until we have real user counts post-launch */}
       {/* <StatsWall lang={lang} /> */}
