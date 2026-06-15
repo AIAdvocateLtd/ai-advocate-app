@@ -155,13 +155,16 @@ def build_pdf():
         "<b>One-off Doc Pack top-up (&pound;4.99)</b> &mdash; consumable Stripe purchase "
         "granting 5 additional document analyses; does not change the underlying UPL "
         "posture but is a new payment surface.",
-        "<b>Charity partnership model (in active outreach: Citizens Advice, Shelter, "
-        "StepChange, AdviceUK, Turn2us)</b> &mdash; AI Advocate routes signposted users via "
-        "co-branded landing pages and donates 10% of net subscription revenue from "
+        "<b>Charity partnership model (in design — no agreements signed)</b> &mdash; "
+        "AI Advocate intends to route signposted users from advice-sector charities via "
+        "co-branded landing pages and donate 10% of net subscription revenue from "
         "referred users back to the originating charity as unrestricted income. This "
         "model is contractual (per-charity MoU) and does not change the user&rsquo;s "
-        "relationship with AI Advocate; it is a B2B revenue-share, not an "
-        "advice-provision arrangement.",
+        "relationship with AI Advocate; it would be a B2B revenue-share, not an "
+        "advice-provision arrangement. We highlight this here because if any such "
+        "partnerships go live during the period of your engagement, we may want a "
+        "short supplementary note in your opinion confirming the model is "
+        "UPL-compliant.",
     ]:
         flow.append(Paragraph(f"&bull; {item}", s["list"]))
     flow.append(P(
@@ -311,12 +314,13 @@ def build_pdf():
          "Predict Outcome, Devil&rsquo;s Advocate, and &ldquo;What happens if I do nothing?&rdquo; "
          "simulator. All framed as general legal information modelled against "
          "published UK precedent; never as advice or representation."),
-        ("Charity partnerships",
-         "Active outreach to Citizens Advice, Shelter, StepChange, AdviceUK, "
-         "Turn2us. Per-charity MoU includes co-branded landing pages, free "
-         "7-day Pro trials for referred users, and 10% of net subscription "
+        ("Charity partnerships (model only)",
+         "AI Advocate intends to establish referral partnerships with major UK "
+         "advice-sector charities under a standard MoU: co-branded landing pages, "
+         "free 7-day Pro trials for referred users, and 10% of net subscription "
          "revenue from converting referrals donated back as unrestricted "
-         "charitable income. No data exchange; B2B revenue-share only."),
+         "charitable income. No data exchange; B2B revenue-share only. "
+         "<b>No partnerships are currently live or contractually agreed.</b>"),
     ]
     facts_data = [[P("Topic", "cell_head"), P("Detail", "cell_head")]]
     for topic, detail in facts_rows:

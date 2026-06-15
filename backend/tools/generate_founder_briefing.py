@@ -212,7 +212,7 @@ def build():
         Spacer(1, 12 * mm),
     ], [
         Paragraph(
-            '<font color="#d4af37" size="10"><b>Version 1.2 · Refreshed June 2026 (£49 Solicitor Sanity Check · Predict Outcome · Devil&rsquo;s Advocate · Do-Nothing Simulator · Sector Partnership Programme · Citation Tooltips) · Confidential</b></font>',
+            '<font color="#d4af37" size="10"><b>Version 1.2.1 · Refreshed June 2026 (£49 Solicitor Sanity Check · Predict Outcome · Devil&rsquo;s Advocate · Do-Nothing Simulator · Sector Partnership Pipeline · Citation Tooltips) · Confidential</b></font>',
             BODY,
         ),
     ]]
@@ -682,21 +682,25 @@ def build():
     for m in moats:
         story.append(Paragraph(f"▸ {m}", BULLET))
 
-    story.append(Paragraph("Sector partnership programme (active outreach)", H2))
+    story.append(Paragraph("Sector partnership pipeline (prospective)", H2))
     story.append(Paragraph(
-        "We are running coordinated outreach to the five largest UK advice-sector "
-        "organisations to position AI Advocate as a free pre-triage layer that "
-        "deflects first-pass questions from their queues, returns warm leads to us, "
-        "and donates revenue back to them. Each partnership is structured identically: "
-        "co-branded landing page → 7-day free Pro trial for referred users (no card "
-        "required) → standard subscription pricing thereafter → <b>10% of net "
-        "subscription revenue from converting referrals donated back as unrestricted "
-        "charitable income</b>, in perpetuity.",
+        "<b>Status: no partnerships are currently signed or live.</b> The table below "
+        "is our prospective outreach pipeline, not a list of active partners. We are "
+        "preparing coordinated cold-outreach to the five largest UK advice-sector "
+        "organisations. Each pitch positions AI Advocate as a free pre-triage layer "
+        "that deflects first-pass questions from their queues, returns warm leads "
+        "to us, and donates revenue back to them. The proposed structure for each "
+        "is identical: co-branded landing page → 7-day free Pro trial for referred "
+        "users (no card required) → standard subscription pricing thereafter → "
+        "<b>10% of net subscription revenue from converting referrals donated back "
+        "as unrestricted charitable income</b>, in perpetuity. Each partnership "
+        "would be contractually documented (per-charity MoU); we have not made "
+        "first contact at the time of writing.",
         BODY,
     ))
     partner_rows = [
-        ["Organisation", "Annual reach", "Why they say yes"],
-        ["Citizens Advice", "2.5M cases/yr · ~28k staff", "Queue at 3-week wait. Free triage tool + £150k+/yr charitable income at scale."],
+        ["Target organisation", "Annual reach", "Why we expect them to engage"],
+        ["Citizens Advice", "2.5M cases/yr · ~28k staff", "Queue at 3-week wait. Free triage tool + £150k+/yr potential charitable income at scale."],
         ["Shelter", "1M enquiries/yr", "Housing law is Lex's sweet spot — Letter Reader was built for section 21s, possession claims, deposit disputes."],
         ["StepChange", "600k callers/yr", "'What happens if I do nothing?' simulator is uniquely valuable for debt callers (CCJ, bailiff, charging-orders)."],
         ["AdviceUK", "700 member centres · 2.5M cases/yr collectively", "Highest leverage — one yes opens 700 doors. Small central team = faster decision."],
