@@ -212,7 +212,7 @@ def build():
         Spacer(1, 12 * mm),
     ], [
         Paragraph(
-            '<font color="#d4af37" size="10"><b>Version 1.1 · Refreshed June 2026 (Universal Doc Upload · Letter Reader v2 · Counter Letter · Send-by-Email · Doc Pack top-up · Weekly Stripe audit · PostHog GDPR deletion) · Confidential</b></font>',
+            '<font color="#d4af37" size="10"><b>Version 1.2 · Refreshed June 2026 (£49 Solicitor Sanity Check · Predict Outcome · Devil&rsquo;s Advocate · Do-Nothing Simulator · Sector Partnership Programme · Citation Tooltips) · Confidential</b></font>',
             BODY,
         ),
     ]]
@@ -322,6 +322,7 @@ def build():
     story.append(Paragraph("One-off top-ups (no subscription required)", H3))
     topup_rows = [
         ["Pack", "Price", "Duration", "Use case"],
+        ["Solicitor Sanity Check", "£49", "One-off · per review", "Real SRA-regulated UK solicitor reviews Lex's drafted response within 24 hours · accepts professional accountability for the reviewed output · the strongest UPL safeguard in the product · key revenue line + brand trust"],
         ["Doc Pack", "£4.99", "Never expires", "5 additional document uploads (📎). Consumable. Designed to convert Free users who hit the daily page limit mid-task."],
         ["Day Pass", "£4.99", "24 hours", "User has one urgent question and wants Pro-quality answer right now"],
         ["Letter Pack", "£9.99", "30 days", "5 AI-drafted letters + 1 contract review · valid for 30 days"],
@@ -674,17 +675,54 @@ def build():
         "<b>Firm-referral pipeline</b> — once we have a stable directory of regulated firms, network effects kick in (more firms = better matching = more users = more firms).",
         "<b>Voice + 11 languages</b> — uniquely accessible to digitally-marginalised UK adults. Hard to replicate without ground-up multi-language design.",
         "<b>Emergency mode</b> — only legal app on the market with one-tap SOS + live location + family alerts. Differentiator + viral story-hook.",
+        "<b>£49 Solicitor Sanity Check</b> — human-in-the-loop SRA-regulated review on demand. The only consumer legal app that puts a real solicitor in the loop for under £50. This is our single strongest differentiator against US chatbots and the strongest UPL defence.",
+        "<b>Predict Outcome + Devil's Advocate</b> — case-strength estimation against UK precedent + opposing-counsel simulation. Categorically beyond ChatGPT/Claude consumer responses.",
         "<b>ICO + insurance + signed disclaimers</b> — high compliance bar deters fast-followers without legal expertise.",
     ]
     for m in moats:
         story.append(Paragraph(f"▸ {m}", BULLET))
+
+    story.append(Paragraph("Sector partnership programme (active outreach)", H2))
+    story.append(Paragraph(
+        "We are running coordinated outreach to the five largest UK advice-sector "
+        "organisations to position AI Advocate as a free pre-triage layer that "
+        "deflects first-pass questions from their queues, returns warm leads to us, "
+        "and donates revenue back to them. Each partnership is structured identically: "
+        "co-branded landing page → 7-day free Pro trial for referred users (no card "
+        "required) → standard subscription pricing thereafter → <b>10% of net "
+        "subscription revenue from converting referrals donated back as unrestricted "
+        "charitable income</b>, in perpetuity.",
+        BODY,
+    ))
+    partner_rows = [
+        ["Organisation", "Annual reach", "Why they say yes"],
+        ["Citizens Advice", "2.5M cases/yr · ~28k staff", "Queue at 3-week wait. Free triage tool + £150k+/yr charitable income at scale."],
+        ["Shelter", "1M enquiries/yr", "Housing law is Lex's sweet spot — Letter Reader was built for section 21s, possession claims, deposit disputes."],
+        ["StepChange", "600k callers/yr", "'What happens if I do nothing?' simulator is uniquely valuable for debt callers (CCJ, bailiff, charging-orders)."],
+        ["AdviceUK", "700 member centres · 2.5M cases/yr collectively", "Highest leverage — one yes opens 700 doors. Small central team = faster decision."],
+        ["Turn2us", "1.5M users/yr", "Free tier + 11 languages aligned with their vulnerable demographic. Specific fit for DWP appeals / mandatory reconsiderations."],
+    ]
+    partner_table = Table(_wrap_rows(partner_rows), colWidths=[35 * mm, 50 * mm, 85 * mm], repeatRows=1)
+    partner_table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+        ("BACKGROUND", (0, 0), (-1, 0), DARK),
+        ("TEXTCOLOR", (0, 0), (-1, 0), GOLD),
+        ("BACKGROUND", (0, 1), (-1, -1), HexColor("#ffffff")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOX", (0, 0), (-1, -1), 0.4, LINE),
+        ("INNERGRID", (0, 0), (-1, -1), 0.3, LINE),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(partner_table)
 
     story.append(PageBreak())
 
     # ───── KEY CONTACTS ─────────────────────────────────────────────────
     story.append(Paragraph("Key contacts & links", H1))
     story.append(kv_table([
-        ["Founder", "Samuel Malick · firms@aiadvocate.co.uk"],
+        ["Founder", "Samuel Malick · samuel.malick@aiadvocate.co.uk"],
         ["Web app (live)", "https://aiadvocate.co.uk"],
         ["Firm sign-up page", "https://aiadvocate.co.uk/for-firms"],
         ["Privacy Policy", "https://aiadvocate.co.uk/privacy.html"],

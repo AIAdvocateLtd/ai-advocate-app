@@ -117,7 +117,7 @@ def build_pdf():
         "body",
     ))
     flow.append(P(
-        "Since the previous draft of this brief (May 2025) the product has expanded in three "
+        "Since the previous draft of this brief (May 2025) the product has expanded in five "
         "ways that materially affect the UPL analysis below and should be specifically "
         "endorsed in your opinion:",
         "body",
@@ -136,9 +136,32 @@ def build_pdf():
         "pre-filled. <b>AI Advocate does not dispatch communications on the user&rsquo;s "
         "behalf, does not retain the recipient address, and does not represent the user "
         "in any capacity.</b>",
+        "<b>Predict Outcome / Devil&rsquo;s Advocate / &ldquo;What happens if I do nothing?&rdquo;</b> "
+        "&mdash; three predictive features that model the user&rsquo;s case against UK precedents, "
+        "simulate opposing counsel&rsquo;s arguments, and project the consequences of inaction. "
+        "All outputs are framed as <i>general legal information modelled against published "
+        "precedent</i>, never as advice or representation, and every output carries the standard "
+        "footer disclaimer.",
+        "<b>&pound;49 Solicitor Sanity Check (human-in-the-loop)</b> &mdash; the most "
+        "material UPL-safeguard mechanism in the product. For &pound;49 the user can request "
+        "that an <b>SRA-regulated UK solicitor</b> reviews Lex&rsquo;s drafted response or "
+        "case analysis within 24 hours. The reviewing solicitor (a) confirms accuracy, "
+        "(b) edits where needed, (c) accepts professional accountability for the reviewed "
+        "output. This is a one-off purchase (not a subscription tier) accessible from "
+        "Letter Reader, Case Files, and the Lex chat interface. <b>This mechanism converts "
+        "AI Advocate from a pure AI-information product into a hybrid AI-triage / "
+        "human-counsel product on demand, and we would specifically like your opinion "
+        "endorsing it as a UPL-compliant escalation path.</b>",
         "<b>One-off Doc Pack top-up (&pound;4.99)</b> &mdash; consumable Stripe purchase "
         "granting 5 additional document analyses; does not change the underlying UPL "
         "posture but is a new payment surface.",
+        "<b>Charity partnership model (in active outreach: Citizens Advice, Shelter, "
+        "StepChange, AdviceUK, Turn2us)</b> &mdash; AI Advocate routes signposted users via "
+        "co-branded landing pages and donates 10% of net subscription revenue from "
+        "referred users back to the originating charity as unrestricted income. This "
+        "model is contractual (per-charity MoU) and does not change the user&rsquo;s "
+        "relationship with AI Advocate; it is a B2B revenue-share, not an "
+        "advice-provision arrangement.",
     ]:
         flow.append(Paragraph(f"&bull; {item}", s["list"]))
     flow.append(P(
@@ -206,6 +229,10 @@ def build_pdf():
         "First-use UPL acknowledgement modal that the user must dismiss before using Lex (per-device);",
         "Explicit statement in Terms &sect;1 and &sect;3 that AI Advocate is not a solicitor and does not establish a solicitor-client relationship;",
         "In-app referral to a directory of <b>SRA-regulated</b> UK solicitors when the user&rsquo;s matter warrants regulated advice;",
+        "<b>&pound;49 Solicitor Sanity Check escalation</b> &mdash; on-demand human-in-the-loop "
+        "review by an SRA-regulated UK solicitor for any Lex-drafted response. The reviewing "
+        "solicitor accepts professional accountability for the reviewed output. We consider "
+        "this the strongest single UPL safeguard in the product.",
         "Emergency SOS flow that explicitly states the app is not a replacement for 999/112/911 services;",
         "<b>Document analysis &amp; drafted replies are framed as user-authored:</b> the &ldquo;Send by email&rdquo; button opens the user&rsquo;s own mail client with the draft pre-filled, requiring the user to add the recipient address and press <i>Send</i>. AI Advocate never dispatches, receives, or relays correspondence on the user&rsquo;s behalf, and has no agency or apparent authority to represent the user.",
     ]:
@@ -275,6 +302,21 @@ def build_pdf():
          "either copies the text or taps &ldquo;Send by email&rdquo; which opens "
          "<i>their own</i> mail client pre-filled. AI Advocate does not transmit "
          "or store outbound correspondence."),
+        ("Solicitor Sanity Check",
+         "Optional &pound;49 on-demand human review by an SRA-regulated UK solicitor "
+         "of any Lex-drafted response. Reviewing solicitor accepts professional "
+         "accountability for the output. <b>Please specifically endorse this "
+         "mechanism in your opinion as a UPL-compliant escalation path.</b>"),
+        ("Predictive features",
+         "Predict Outcome, Devil&rsquo;s Advocate, and &ldquo;What happens if I do nothing?&rdquo; "
+         "simulator. All framed as general legal information modelled against "
+         "published UK precedent; never as advice or representation."),
+        ("Charity partnerships",
+         "Active outreach to Citizens Advice, Shelter, StepChange, AdviceUK, "
+         "Turn2us. Per-charity MoU includes co-branded landing pages, free "
+         "7-day Pro trials for referred users, and 10% of net subscription "
+         "revenue from converting referrals donated back as unrestricted "
+         "charitable income. No data exchange; B2B revenue-share only."),
     ]
     facts_data = [[P("Topic", "cell_head"), P("Detail", "cell_head")]]
     for topic, detail in facts_rows:
