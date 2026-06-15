@@ -726,16 +726,14 @@ def build():
     # ───── KEY CONTACTS ─────────────────────────────────────────────────
     story.append(Paragraph("Key contacts & links", H1))
     story.append(kv_table([
-        ["Founder", "Samuel Malick · samuel.malick@aiadvocate.co.uk"],
+        ["Founder / Partnerships", "samuel.malick@aiadvocate.co.uk"],
         ["Web app (live)", "https://aiadvocate.co.uk"],
         ["Firm sign-up page", "https://aiadvocate.co.uk/for-firms"],
         ["Privacy Policy", "https://aiadvocate.co.uk/privacy.html"],
         ["Terms of Service", "https://aiadvocate.co.uk/terms.html"],
-        ["Firm partnerships inbox", "firms@aiadvocate.co.uk"],
         ["Data Protection Officer", "dpo@aiadvocate.co.uk"],
         ["General support", "support@aiadvocate.co.uk"],
         ["Press enquiries", "press@aiadvocate.co.uk"],
-        ["Discovery-call booking", "https://calendly.com/firms-aiadvocate/30min"],
         ["Company", "AI Advocate Ltd. (UK)"],
         ["ICO Registration", "ZC158457 (ico.org.uk/ESDWebPages/Search)"],
     ], col_widths=[42 * mm, 128 * mm]))

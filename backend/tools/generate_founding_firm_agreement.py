@@ -200,7 +200,7 @@ def build(firm_name="[FIRM NAME]",
     story.append(Paragraph(
         "3.1 <b>Self-reporting</b> — the Firm shall log all closed engagements arising from AI Advocate referrals via the AI Advocate Firm Portal, recording at minimum: client identifier, matter type, total fee charged to the client (exclusive of VAT and disbursements), and date of closure. The Firm shall log each closed engagement within <b>10 working days</b> of completion.<br/><br/>"
         "3.2 <b>Automated invoicing</b> — AI Advocate will use <b>commercially reasonable efforts</b> to: (a) email the Firm a heads-up summary approximately seven (7) days before each monthly invoicing date setting out the projected commission for that month; (b) generate a draft Stripe invoice on or around the 1st of each calendar month for the preceding month's logged engagements; and (c) dispatch the finalised Stripe invoice to the Firm within a 48-hour review window. The Firm acknowledges that automated processes may occasionally be delayed, postponed or interrupted (including but not limited to scheduled maintenance, third-party service outages, or anomaly-detection holds requiring manual review) and that any such delay shall not constitute a breach of this Agreement.<br/><br/>"
-        "3.3 <b>Firm's verification obligation</b> — the Firm is responsible for reviewing each invoice for accuracy. Any discrepancy (including but not limited to incorrectly logged fees, duplicated engagements, or wrongly attributed referrals) must be notified to firms@aiadvocate.co.uk in writing within <b>14 days</b> of invoice issuance. Failure to do so within that period shall constitute the Firm's acceptance of the invoice as accurate. AI Advocate will issue credits or corrected invoices for verified discrepancies notified within the 14-day window.<br/><br/>"
+        "3.3 <b>Firm's verification obligation</b> — the Firm is responsible for reviewing each invoice for accuracy. Any discrepancy (including but not limited to incorrectly logged fees, duplicated engagements, or wrongly attributed referrals) must be notified to samuel.malick@aiadvocate.co.uk in writing within <b>14 days</b> of invoice issuance. Failure to do so within that period shall constitute the Firm's acceptance of the invoice as accurate. AI Advocate will issue credits or corrected invoices for verified discrepancies notified within the 14-day window.<br/><br/>"
         "3.4 <b>Payment terms</b> — invoices are payable within <b>14 days</b> of issuance via Stripe. Late payments accrue interest at the statutory rate under the Late Payment of Commercial Debts (Interest) Act 1998.<br/><br/>"
         "3.5 <b>Manual fallback</b> — if automated invoicing is unavailable for any reason, AI Advocate retains the right to issue commission invoices manually for the relevant period, in which case the same terms (14-day verification window, 14-day payment terms) apply from the date of manual issuance.",
         BODY,
@@ -294,7 +294,7 @@ def build(firm_name="[FIRM NAME]",
     story.append(Spacer(1, 12))
     story.append(Paragraph(
         '<font color="#666">AI Advocate Ltd. · ICO Registration ZC158457 · '
-        'firms@aiadvocate.co.uk · aiadvocate.co.uk<br/>'
+        'samuel.malick@aiadvocate.co.uk · aiadvocate.co.uk<br/>'
         'This agreement supersedes any prior verbal or written commitments. Governed by the laws of England &amp; Wales. '
         'Disputes subject to the exclusive jurisdiction of the courts of England &amp; Wales.</font>',
         SMALL,
