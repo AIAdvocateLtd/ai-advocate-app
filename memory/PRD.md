@@ -545,3 +545,27 @@
 - **Onboarding tour**: shows once per browser based on localStorage `aa_welcomed`. Auto-opens TasterLex after tour completes (high-conversion pattern).
 - **Emergent badge stripped** from `index.html` — DO NOT restore.
 - **i18n auto-translation**: only English keys added in Session 1 for new flows. Other 10 languages will fall back to English keys until translated (intentional — auto-translate is the project's pattern).
+
+## 🆕 2026-02 — Find a Lawyer: Google Places integration (P0 SHIPPED)
+- Replaced the 12-firm seed-only directory with real-time Google Places API (New v1).
+- New backend endpoint: `GET /api/lawfirms/nearby?lat&lng&radius_km` (or `?postcode=...`).
+  - Calls `places:searchNearby` (includedTypes=lawyer) with 20km default radius, top 20 results.
+  - Sponsored / claimed firms from `db.law_firms` are merged at the top (dedupe by normalised name).
+  - 24h in-process cache keyed on a ~1.1km lat/lng grid + radius bucket.
+  - Postcode fallback uses `places:searchText` (Geocoding API is not enabled on the user's GCP project).
+- Frontend (`LawyersModal` in `App.js`):
+  - On the Nearby tab the modal requests browser geolocation; if denied/unsupported, a postcode input appears.
+  - Each card shows distance + Google star rating (count) + an "Open now" pill if available.
+  - Google Places firms show a "via Google" badge and an "Open in Maps" CTA (no inquiry form — disclaimer instead).
+  - Sponsored firms keep the inquiry form (firm leads continue to flow into the existing pipeline).
+  - Radius selector (5 / 10 / 20 / 50 km) re-fetches results.
+- Tested 2026-02 — `testing_agent_v3_fork iteration_27`: backend 6/6 pytest passed (sponsored-first ordering, postcode geocoding, 400 on missing params, dedupe, fast cache repeat, /api/lawfirms regression). Frontend playwright verified postcode fallback, sponsored-first card, "via Google" badges, Open-in-Maps link, inquiry form gated correctly.
+- Env: `GOOGLE_PLACES_API_KEY` is live in `/app/backend/.env`.
+
+## P1 / P2 Backlog (rolled forward)
+- P1 — Personalised success toasts using user's first name ("Nice work, Samuel — case saved").
+- P2 — "Why I built this" founder story page in Settings → About.
+- P2 — Live e-signature on drafted letters (browser canvas).
+- P2 — Push notifications for legal deadlines (blocked on APNs/FCM keys).
+- P3 — Native iOS/Android Capacitor builds + store submissions.
+- P4 — Refactor App.js / server.py (DEFERRED — launch first).
