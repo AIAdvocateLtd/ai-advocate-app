@@ -5144,6 +5144,179 @@ async def list_lawfirms(country: Optional[str] = None, specialty: Optional[str] 
         firms.sort(key=lambda f: (0 if f.get("sponsored") else 1, -f.get("rating", 0)))
     return firms
 
+# ----- Google Places (Nearby Search) — real-time lawyer directory -----
+GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "").strip()
+_PLACES_CACHE: dict = {}  # key: (lat_bucket, lng_bucket, radius) -> {"at": ts, "data": [...]}
+_PLACES_CACHE_TTL_S = 24 * 60 * 60  # 24h
+_PLACES_GRID_DEG = 0.01  # ~1.1km buckets
+
+def _places_cache_key(lat: float, lng: float, radius_m: int) -> tuple:
+    return (round(lat / _PLACES_GRID_DEG) * _PLACES_GRID_DEG,
+            round(lng / _PLACES_GRID_DEG) * _PLACES_GRID_DEG,
+            radius_m)
+
+async def _google_places_nearby(lat: float, lng: float, radius_m: int = 20000, max_results: int = 20):
+    """Call Google Places API v1 searchNearby for lawyer/legal services."""
+    if not GOOGLE_PLACES_API_KEY:
+        return []
+    ck = _places_cache_key(lat, lng, radius_m)
+    now = datetime.now(timezone.utc).timestamp()
+    cached = _PLACES_CACHE.get(ck)
+    if cached and (now - cached["at"]) < _PLACES_CACHE_TTL_S:
+        return cached["data"]
+    url = "https://places.googleapis.com/v1/places:searchNearby"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
+        "X-Goog-FieldMask": ",".join([
+            "places.id", "places.displayName", "places.formattedAddress",
+            "places.location", "places.rating", "places.userRatingCount",
+            "places.nationalPhoneNumber", "places.internationalPhoneNumber",
+            "places.websiteUri", "places.googleMapsUri", "places.businessStatus",
+            "places.regularOpeningHours.openNow", "places.primaryType",
+        ]),
+    }
+    body = {
+        "includedTypes": ["lawyer"],
+        "maxResultCount": min(max(int(max_results), 1), 20),
+        "locationRestriction": {
+            "circle": {
+                "center": {"latitude": lat, "longitude": lng},
+                "radius": float(min(max(int(radius_m), 500), 50000)),
+            }
+        },
+        "rankPreference": "DISTANCE",
+    }
+    try:
+        import httpx as _httpx
+        async with _httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(url, headers=headers, json=body)
+            if r.status_code != 200:
+                logging.warning(f"Google Places API error {r.status_code}: {r.text[:200]}")
+                return []
+            data = r.json()
+    except Exception as e:
+        logging.warning(f"Google Places call failed: {e}")
+        return []
+    out = []
+    for p in data.get("places", []):
+        loc = p.get("location") or {}
+        plat = loc.get("latitude"); plng = loc.get("longitude")
+        dist_km = None
+        if plat is not None and plng is not None:
+            dist_km = round(haversine_km(lat, lng, plat, plng), 2)
+        out.append({
+            "id": f"gplace:{p.get('id')}",
+            "google_place_id": p.get("id"),
+            "name": (p.get("displayName") or {}).get("text") or "",
+            "address": p.get("formattedAddress") or "",
+            "phone": p.get("nationalPhoneNumber") or p.get("internationalPhoneNumber") or "",
+            "website": p.get("websiteUri") or "",
+            "google_maps_url": p.get("googleMapsUri") or "",
+            "rating": p.get("rating"),
+            "rating_count": p.get("userRatingCount"),
+            "lat": plat, "lng": plng,
+            "distance_km": dist_km,
+            "open_now": ((p.get("regularOpeningHours") or {}).get("openNow")),
+            "business_status": p.get("businessStatus"),
+            "specialties": [],
+            "sponsored": False,
+            "source": "google_places",
+        })
+    _PLACES_CACHE[ck] = {"at": now, "data": out}
+    return out
+
+async def _geocode_query(query: str) -> Optional[dict]:
+    """Geocode a postcode/city using Places API (New) Text Search — reuses the same key/API."""
+    if not GOOGLE_PLACES_API_KEY or not query.strip():
+        return None
+    try:
+        import httpx as _httpx
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
+            "X-Goog-FieldMask": "places.location,places.formattedAddress,places.displayName",
+        }
+        body = {"textQuery": query, "maxResultCount": 1}
+        async with _httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.post(
+                "https://places.googleapis.com/v1/places:searchText",
+                headers=headers, json=body,
+            )
+            if r.status_code != 200:
+                logging.warning(f"Geocode (Places) error {r.status_code}: {r.text[:200]}")
+                return None
+            data = r.json()
+            results = data.get("places") or []
+            if not results:
+                return None
+            loc = results[0].get("location") or {}
+            if "latitude" not in loc or "longitude" not in loc:
+                return None
+            return {"lat": loc["latitude"], "lng": loc["longitude"],
+                    "formatted_address": results[0].get("formattedAddress")}
+    except Exception as e:
+        logging.warning(f"Geocode failed: {e}")
+        return None
+
+@api_router.get("/lawfirms/nearby")
+async def lawfirms_nearby(
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    postcode: Optional[str] = None,
+    radius_km: float = 20,
+    specialty: Optional[str] = None,
+):
+    """Real-time lawyer directory: Google Places + sponsored firms overlay."""
+    # Resolve location via postcode if lat/lng not provided
+    resolved_addr = None
+    if (lat is None or lng is None) and postcode:
+        geo = await _geocode_query(postcode)
+        if geo:
+            lat = geo["lat"]; lng = geo["lng"]
+            resolved_addr = geo.get("formatted_address")
+    if lat is None or lng is None:
+        raise HTTPException(400, "Provide lat/lng or postcode")
+
+    radius_m = int(max(min(radius_km, 50), 1) * 1000)
+
+    # 1) Sponsored / claimed firms from MongoDB
+    q = {"verified": True}
+    if specialty:
+        q["specialties"] = specialty
+    sponsored_firms = await db.law_firms.find(q, {"_id": 0}).to_list(500)
+    enriched_sponsored = []
+    for f in sponsored_firms:
+        if f.get("lat") is not None and f.get("lng") is not None:
+            d = haversine_km(lat, lng, f["lat"], f["lng"])
+            if d <= radius_km:
+                f["distance_km"] = round(d, 2)
+                f["source"] = "sponsored"
+                enriched_sponsored.append(f)
+
+    # 2) Google Places results
+    places = await _google_places_nearby(lat, lng, radius_m=radius_m, max_results=20)
+
+    # 3) Dedupe: drop google results whose name+address closely matches a sponsored firm
+    def _norm(s: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+    sponsored_keys = {_norm(f.get("name", "")) for f in enriched_sponsored if f.get("name")}
+    deduped_places = [p for p in places if _norm(p.get("name", "")) not in sponsored_keys]
+
+    # 4) Sort sponsored by distance, then attach Google results sorted by distance
+    enriched_sponsored.sort(key=lambda f: f.get("distance_km", 1e9))
+    results = enriched_sponsored + deduped_places
+
+    return {
+        "lat": lat, "lng": lng,
+        "radius_km": radius_km,
+        "resolved_address": resolved_addr,
+        "count": len(results),
+        "sponsored_count": len(enriched_sponsored),
+        "google_count": len(deduped_places),
+        "results": results,
+    }
+
 @api_router.post("/lawfirms/inquiry")
 async def create_inquiry(data: LawFirmInquiry, user: dict = Depends(get_user)):
     firm = await db.law_firms.find_one({"id": data.firm_id}, {"_id": 0})

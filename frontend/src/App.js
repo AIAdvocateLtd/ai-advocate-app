@@ -6820,21 +6820,73 @@ function LawyersModal({ lang, country, user, onClose, openAdvertise }) {
   const [selected, setSelected] = useState(null);
   const [inquiry, setInquiry] = useState({ name: user.full_name || "", email: user.email, phone: "", message: "" });
   const [sent, setSent] = useState(false);
+  const [coords, setCoords] = useState(null); // { lat, lng, address? }
+  const [postcode, setPostcode] = useState("");
+  const [geoState, setGeoState] = useState("idle"); // idle | requesting | denied | ok | unsupported
+  const [radiusKm, setRadiusKm] = useState(20);
+
+  const requestGeo = useCallback(() => {
+    if (!navigator.geolocation) { setGeoState("unsupported"); return; }
+    setGeoState("requesting");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setGeoState("ok");
+      },
+      () => setGeoState("denied"),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 5 * 60 * 1000 }
+    );
+  }, []);
+
+  const lookupPostcode = useCallback(async () => {
+    const pc = postcode.trim();
+    if (!pc) return;
+    setBusy(true);
+    try {
+      const { data } = await api.get("/lawfirms/nearby", { params: { postcode: pc, radius_km: radiusKm } });
+      setFirms(data.results || []);
+      setCoords({ lat: data.lat, lng: data.lng, address: data.resolved_address });
+      setGeoState("ok");
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Couldn't find that location", "error");
+    } finally { setBusy(false); }
+  }, [postcode, radiusKm]);
 
   const load = useCallback(async () => {
     setBusy(true);
     try {
-      const params = {};
-      if (tab === "nearby" && user.location_enabled && user.latitude && user.longitude) {
-        params.latitude = user.latitude; params.longitude = user.longitude;
-      } else if (tab === "nearby" && country) {
-        params.country = country;
+      if (tab === "all") {
+        const params = {};
+        if (country) params.country = country;
+        const { data } = await api.get("/lawfirms", { params });
+        setFirms(data);
+        return;
       }
-      const { data } = await api.get("/lawfirms", { params });
-      setFirms(data);
+      // nearby tab: use real-time Google Places via /lawfirms/nearby
+      if (coords?.lat && coords?.lng) {
+        const { data } = await api.get("/lawfirms/nearby", {
+          params: { lat: coords.lat, lng: coords.lng, radius_km: radiusKm },
+        });
+        setFirms(data.results || []);
+      } else {
+        setFirms([]);
+      }
     } catch (e) { /* ignore */ }
     finally { setBusy(false); }
-  }, [tab, user.latitude, user.longitude, user.location_enabled, country]);
+  }, [tab, coords?.lat, coords?.lng, country, radiusKm]);
+
+  // Auto-request geolocation when switching to nearby tab
+  useEffect(() => {
+    if (tab === "nearby" && geoState === "idle" && !coords) {
+      // Try device geolocation OR fall back to any cached user location
+      if (user.location_enabled && user.latitude && user.longitude) {
+        setCoords({ lat: user.latitude, lng: user.longitude });
+        setGeoState("ok");
+      } else {
+        requestGeo();
+      }
+    }
+  }, [tab, geoState, coords, user.location_enabled, user.latitude, user.longitude, requestGeo]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -6871,10 +6923,56 @@ function LawyersModal({ lang, country, user, onClose, openAdvertise }) {
               </button>
             </div>
 
-            {tab === "nearby" && !user.location_enabled && (
-              <div className="trial-banner" style={{ marginBottom: 12, fontSize: 13 }}>
-                {t(lang, "enableLocation")}
-              </div>
+            {tab === "nearby" && (
+              <>
+                {geoState === "requesting" && (
+                  <div className="trial-banner" style={{ marginBottom: 12, fontSize: 13, textAlign: "center" }}>
+                    <span className="spinner" style={{ marginRight: 6 }} /> Getting your location…
+                  </div>
+                )}
+                {(geoState === "denied" || geoState === "unsupported") && !coords && (
+                  <div style={{ marginBottom: 12, padding: 12, borderRadius: 10, background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)" }}>
+                    <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
+                      Location {geoState === "denied" ? "blocked" : "unavailable"}. Enter a UK postcode or city to find nearby lawyers:
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input
+                        className="input"
+                        data-testid="lawyers-postcode-input"
+                        placeholder="e.g. SW1A 1AA or Manchester"
+                        value={postcode}
+                        onChange={(e) => setPostcode(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") lookupPostcode(); }}
+                        style={{ flex: 1 }}
+                      />
+                      <button className="btn-gold" data-testid="lawyers-postcode-go" onClick={lookupPostcode} disabled={!postcode.trim() || busy} style={{ padding: "8px 14px" }}>
+                        Search
+                      </button>
+                    </div>
+                    <button className="btn-ghost" onClick={requestGeo} style={{ marginTop: 8, fontSize: 12, padding: "6px 10px" }}>
+                      Try device location again
+                    </button>
+                  </div>
+                )}
+                {coords && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, fontSize: 12, color: "var(--text-muted)" }}>
+                    <span><MapPin size={12} style={{ display: "inline", marginRight: 4 }} />
+                      {coords.address || `${coords.lat.toFixed(3)}, ${coords.lng.toFixed(3)}`}
+                    </span>
+                    <select
+                      data-testid="lawyers-radius-select"
+                      value={radiusKm}
+                      onChange={(e) => setRadiusKm(Number(e.target.value))}
+                      style={{ background: "var(--bg-card)", color: "var(--text)", border: "1px solid var(--gold-deep)", borderRadius: 8, padding: "4px 8px", fontSize: 12 }}
+                    >
+                      <option value={5}>5 km</option>
+                      <option value={10}>10 km</option>
+                      <option value={20}>20 km</option>
+                      <option value={50}>50 km</option>
+                    </select>
+                  </div>
+                )}
+              </>
             )}
 
             <div style={{ overflowY: "auto", flex: 1 }}>
@@ -6888,17 +6986,34 @@ function LawyersModal({ lang, country, user, onClose, openAdvertise }) {
                       {t(lang, "sponsored")}
                     </span>
                   )}
+                  {f.open_now === true && (
+                    <span style={{ position: "absolute", top: -8, left: 12, background: "#10b981", color: "white", fontSize: 10, padding: "2px 8px", borderRadius: 6, fontWeight: 600 }}>
+                      Open now
+                    </span>
+                  )}
                   <div style={{ color: "var(--gold)", fontWeight: 600, fontSize: 15 }}>{f.name}</div>
                   <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
                     <MapPin size={12} style={{ display: "inline", marginRight: 4 }} />
-                    {f.city}, {f.country}{f.distance_km != null ? ` · ${t(lang, "distanceAway", { n: f.distance_km })}` : ""}
+                    {f.address || `${f.city || ""}${f.city && f.country ? ", " : ""}${f.country || ""}`}
+                    {f.distance_km != null ? ` · ${t(lang, "distanceAway", { n: f.distance_km })}` : ""}
                   </div>
-                  <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 6 }}>
-                    {(f.specialties || []).slice(0, 3).join(" · ")}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 6 }}>
-                    <Star size={12} style={{ color: "var(--gold)" }} fill="currentColor" />
-                    <span style={{ fontSize: 12, color: "var(--gold-soft)" }}>{f.rating?.toFixed(1) || "—"}</span>
+                  {(f.specialties || []).length > 0 && (
+                    <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 6 }}>
+                      {(f.specialties || []).slice(0, 3).join(" · ")}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                    {f.rating != null && (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <Star size={12} style={{ color: "var(--gold)" }} fill="currentColor" />
+                        <span style={{ fontSize: 12, color: "var(--gold-soft)" }}>
+                          {Number(f.rating).toFixed(1)}{f.rating_count ? ` (${f.rating_count})` : ""}
+                        </span>
+                      </span>
+                    )}
+                    {f.source === "google_places" && (
+                      <span style={{ fontSize: 10, color: "var(--text-muted)", padding: "1px 6px", borderRadius: 4, border: "1px solid var(--line)" }}>via Google</span>
+                    )}
                   </div>
                 </button>
               ))}
@@ -6923,28 +7038,62 @@ function LawyersModal({ lang, country, user, onClose, openAdvertise }) {
             </button>
             <h3 style={{ color: "var(--gold)" }}>{selected.name}</h3>
             <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 8 }}>{selected.address}</div>
-            <p style={{ color: "var(--text-dim)", fontSize: 14 }}>{selected.description}</p>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-              {(selected.specialties || []).map(s => (
-                <span key={s} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 12, background: "rgba(247,201,72,0.1)", color: "var(--gold)", border: "1px solid var(--gold-deep)" }}>{s}</span>
-              ))}
+            {selected.description && <p style={{ color: "var(--text-dim)", fontSize: 14 }}>{selected.description}</p>}
+            {(selected.specialties || []).length > 0 && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                {(selected.specialties || []).map(s => (
+                  <span key={s} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 12, background: "rgba(247,201,72,0.1)", color: "var(--gold)", border: "1px solid var(--gold-deep)" }}>{s}</span>
+                ))}
+              </div>
+            )}
+            {selected.rating != null && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, fontSize: 13 }}>
+                <Star size={14} style={{ color: "var(--gold)" }} fill="currentColor" />
+                <span style={{ color: "var(--gold-soft)" }}>
+                  {Number(selected.rating).toFixed(1)}
+                  {selected.rating_count ? ` · ${selected.rating_count} reviews on Google` : ""}
+                </span>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+              {selected.phone && (
+                <a href={`tel:${selected.phone}`} className="btn-ghost" style={{ flex: "1 1 30%", textAlign: "center", textDecoration: "none", padding: "10px 12px" }}>
+                  <Phone size={14} style={{ display: "inline", marginRight: 4 }} />{t(lang, "call")}
+                </a>
+              )}
+              {selected.website && (
+                <a href={selected.website} target="_blank" rel="noreferrer" className="btn-ghost" style={{ flex: "1 1 30%", textAlign: "center", textDecoration: "none", padding: "10px 12px" }}>
+                  <ExternalLink size={14} style={{ display: "inline", marginRight: 4 }} />{t(lang, "visit")}
+                </a>
+              )}
+              {(selected.google_maps_url || (selected.lat && selected.lng)) && (
+                <a
+                  href={selected.google_maps_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selected.name)}&query_place_id=${selected.google_place_id || ""}`}
+                  target="_blank" rel="noreferrer"
+                  data-testid="open-in-maps"
+                  className="btn-ghost"
+                  style={{ flex: "1 1 30%", textAlign: "center", textDecoration: "none", padding: "10px 12px" }}
+                >
+                  <MapPin size={14} style={{ display: "inline", marginRight: 4 }} />Open in Maps
+                </a>
+              )}
             </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-              <a href={`tel:${selected.phone}`} className="btn-ghost" style={{ flex: 1, textAlign: "center", textDecoration: "none", padding: "10px 12px" }}>
-                <Phone size={14} style={{ display: "inline", marginRight: 4 }} />{t(lang, "call")}
-              </a>
-              <a href={selected.website} target="_blank" rel="noreferrer" className="btn-ghost" style={{ flex: 1, textAlign: "center", textDecoration: "none", padding: "10px 12px" }}>
-                <ExternalLink size={14} style={{ display: "inline", marginRight: 4 }} />{t(lang, "visit")}
-              </a>
-            </div>
-            <h4 style={{ color: "var(--gold)", marginTop: 18 }}>{t(lang, "inquireTitle")}</h4>
-            <input className="input" data-testid="inq-name" value={inquiry.name} onChange={(e) => setInquiry({ ...inquiry, name: e.target.value })} placeholder={t(lang, "name")} style={{ marginBottom: 8 }} />
-            <input className="input" data-testid="inq-email" value={inquiry.email} onChange={(e) => setInquiry({ ...inquiry, email: e.target.value })} placeholder={t(lang, "email")} style={{ marginBottom: 8 }} />
-            <input className="input" data-testid="inq-phone" value={inquiry.phone} onChange={(e) => setInquiry({ ...inquiry, phone: e.target.value })} placeholder={t(lang, "phoneOptional")} style={{ marginBottom: 8 }} />
-            <textarea className="input" data-testid="inq-message" rows={3} value={inquiry.message} onChange={(e) => setInquiry({ ...inquiry, message: e.target.value })} placeholder={t(lang, "yourMessage")} />
-            <button className="btn-gold w-full" data-testid="send-inquiry-btn" onClick={sendInquiry} disabled={!inquiry.name || !inquiry.email || !inquiry.message} style={{ marginTop: 10 }}>
-              {t(lang, "sendInquiry")}
-            </button>
+            {selected.source === "google_places" ? (
+              <div style={{ marginTop: 18, padding: 12, borderRadius: 10, background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)", fontSize: 13, color: "var(--text-dim)" }}>
+                Listed via Google Maps. Contact the firm directly using the buttons above. AI Advocate does not endorse third-party firms.
+              </div>
+            ) : (
+              <>
+                <h4 style={{ color: "var(--gold)", marginTop: 18 }}>{t(lang, "inquireTitle")}</h4>
+                <input className="input" data-testid="inq-name" value={inquiry.name} onChange={(e) => setInquiry({ ...inquiry, name: e.target.value })} placeholder={t(lang, "name")} style={{ marginBottom: 8 }} />
+                <input className="input" data-testid="inq-email" value={inquiry.email} onChange={(e) => setInquiry({ ...inquiry, email: e.target.value })} placeholder={t(lang, "email")} style={{ marginBottom: 8 }} />
+                <input className="input" data-testid="inq-phone" value={inquiry.phone} onChange={(e) => setInquiry({ ...inquiry, phone: e.target.value })} placeholder={t(lang, "phoneOptional")} style={{ marginBottom: 8 }} />
+                <textarea className="input" data-testid="inq-message" rows={3} value={inquiry.message} onChange={(e) => setInquiry({ ...inquiry, message: e.target.value })} placeholder={t(lang, "yourMessage")} />
+                <button className="btn-gold w-full" data-testid="send-inquiry-btn" onClick={sendInquiry} disabled={!inquiry.name || !inquiry.email || !inquiry.message} style={{ marginTop: 10 }}>
+                  {t(lang, "sendInquiry")}
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>

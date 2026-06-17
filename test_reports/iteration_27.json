@@ -1,0 +1,34 @@
+{
+  "summary": "Tested the new Google Places-backed Find-a-Lawyer feature. Backend (6/6 pytest passed) and Frontend (all critical flows verified: postcode fallback, sponsored-first, via-Google badges, Google-result detail with Open-in-Maps + no inquiry form + disclaimer, sponsored-result detail with inquiry form + successful submission).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_lawfirms_nearby.py",
+    "/app/test_reports/pytest/lawfirms_nearby.xml"
+  ],
+  "tests_executed": {
+    "backend_pytest": "6/6 passed — sponsored+google merge, postcode resolved_address, 400 on missing params, dedupe (no double Crown & Bench), 24h cache fast on repeat (<800ms), legacy /api/lawfirms regression OK",
+    "frontend_playwright": "Verified: sign-in -> dashboard -> tile-lawyers opens lawyers-modal, geolocation denied -> postcode fallback (SW1A 1AA), 21 cards rendered (1 sponsored + 20 google), Crown & Bench Solicitors top with Sponsored pill + distance '2.69 km away', 20 'via Google' badges, Google-result detail has data-testid='open-in-maps' (href contains 'google'), inq-name absent, 'Listed via Google Maps' disclaimer visible. Sponsored detail has inq-name + send-inquiry-btn; submitting inquiry returned 'Message sent — Crown & Bench Solicitors will get back to you soon.'"
+  },
+  "not_fully_tested_due_to_script_state": [
+    "Radius selector re-fetch and 'All firms' tab click after inquiry success — script tried while modal was still on the 'Message sent' confirmation. Code review confirms tabs render when !selected and All-tab fetches legacy /api/lawfirms which already passed backend regression. Low risk."
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "/app/frontend/src/App.js is ~16k lines — strongly recommend splitting LawyersModal and other large components into separate files (file-size rule >700 lines).",
+    "_PLACES_CACHE is an in-process dict — fine for a single-pod deployment, but if backend scales horizontally each pod will hit Google independently. Consider Redis or sharing via Mongo with TTL for production scale.",
+    "Cache key buckets to ~1.1km grid but radius is part of key — two callers with radius_km=10 vs 20 at the same bucket re-hit Google. Acceptable given 24h TTL, but consider keeping the largest radius response and filtering client-side.",
+    "Dedupe matches only by normalised name; two firms with the same name in different cities could be merged incorrectly. Consider name+postcode hash for stronger dedupe."
+  ],
+  "updated_files": ["/app/backend/tests/test_lawfirms_nearby.py"],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "~95% (all critical assertions passed; tab-all + radius re-test skipped due to script state)"},
+  "test_credentials": "test@advocate.app / Test12345! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None — all test data ephemeral",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "GOOGLE_PLACES_API_KEY is live in /app/backend/.env and Places API (New) v1 endpoints (searchNearby + searchText) are working against the user's GCP project. Quick smoke: curl 'http://localhost:8001/api/lawfirms/nearby?lat=51.5074&lng=-0.1278&radius_km=10' should return ~21 results with Crown & Bench Solicitors first."
+}
