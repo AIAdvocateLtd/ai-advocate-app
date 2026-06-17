@@ -556,7 +556,7 @@ function AuthScreen({ lang, country, onAuth }) {
   };
 
   const googleReal = () => {
-    if (!window.google?.accounts?.oauth2) { alert(t(lang, "googleNotLoaded")); return; }
+    if (!window.google?.accounts?.oauth2) { aaToast(t(lang, "googleNotLoaded"), "error"); return; }
     try {
       const client = window.google.accounts.oauth2.initTokenClient({
         client_id: providers.google_client_id,
@@ -590,7 +590,7 @@ function AuthScreen({ lang, country, onAuth }) {
   };
 
   const appleSignIn = async () => {
-    if (!window.AppleID?.auth) { alert(t(lang, "appleNotLoaded")); return; }
+    if (!window.AppleID?.auth) { aaToast(t(lang, "appleNotLoaded"), "error"); return; }
     setBusy(true); setErr("");
     try {
       const r = await window.AppleID.auth.signIn();
@@ -1138,7 +1138,7 @@ const useRecorder = () => {
       recorder.start();
       mr.current = { recorder, stream };
       setRecording(true);
-    } catch (e) { alert(t(lang, "micAccessDenied")); }
+    } catch (e) { aaToast(t(lang, "micAccessDenied"), "error"); }
   };
   const stop = () => new Promise((resolve) => {
     if (!mr.current) return resolve(null);
@@ -2192,7 +2192,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         return { ...m, deadlines: newDls };
       }));
     } catch (e) {
-      alert(e?.response?.data?.detail || t(lang, "failed"));
+      aaToast(e?.response?.data?.detail || t(lang, "failed"), "error");
     }
   };
 
@@ -2206,7 +2206,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         const { data } = await api.post("/voice/transcribe", fd);
         if (data.text) await send(data.text);
         else setBusy(false);
-      } catch (e) { setBusy(false); alert(e?.response?.data?.detail || "Transcribe failed"); }
+      } catch (e) { setBusy(false); aaToast(e?.response?.data?.detail || "Transcribe failed", "error"); }
     } else { start(); }
   };
 
@@ -2256,7 +2256,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
             {/* Deep Think toggle — Pro only with monthly counter */}
             <button data-testid="deep-think-toggle"
               onClick={() => {
-                if (!isPro) { alert(t(lang, "deepThinkProOnly")); return; }
+                if (!isPro) { aaToast(t(lang, "deepThinkProOnly"), "error"); return; }
                 setDeepThink(v => !v);
               }}
               title={t(lang, "deepThink") + (dtUsed && dtUsed.limit != null ? ` — ${dtUsed.used}/${dtUsed.limit}` : "")}
@@ -3107,7 +3107,7 @@ function EmergencyModal({ lang, country, user, onClose, onAddContact }) {
     try {
       const { data } = await api.post(`/emergency/track/${trackSession.sos_id}/extend`);
       if (data.already_at_max) {
-        alert("Your SOS is already at the maximum tracking window.");
+        aaToast("Your SOS is already at the maximum tracking window.", "success");
       } else if (data.expires_at) {
         // Update local countdown
         setTrackSession(s => ({ ...s, expires_at: data.expires_at, window_minutes: data.max_window_minutes }));
@@ -3121,7 +3121,7 @@ function EmergencyModal({ lang, country, user, onClose, onAddContact }) {
       }
       setBatteryLowPrompt(null);
     } catch (e) {
-      alert(e?.response?.data?.detail || "Could not extend.");
+      aaToast(e?.response?.data?.detail || "Could not extend.", "error");
       setBatteryLowPrompt(null);
     }
   };
@@ -3153,7 +3153,7 @@ function EmergencyModal({ lang, country, user, onClose, onAddContact }) {
   const requestLocationNow = async () => {
     const c = await fetchFreshCoords();
     if (c) setCoords(c);
-    else alert("Location permission denied. Open your device settings to enable GPS for AI Advocate, then try again.");
+    else aaToast("Location permission denied. Open your device settings to enable GPS for AI Advocate, then try again.", "error");
   };
 
   const callEmbassy = () => {
@@ -3295,7 +3295,7 @@ function EmergencyModal({ lang, country, user, onClose, onAddContact }) {
             </button>
             <button data-testid="sos-email-family" onClick={() => {
               const s = window.__aaLastSos; if (s?.emails?.length) openNativeEmail(s.emails, s.body);
-              else alert("No email addresses on your SOS contacts. Add one in Settings → Emergency Contacts.");
+              else aaToast("No email addresses on your SOS contacts. Add one in Settings → Emergency Contacts.", "error");
             }} style={{ flex: 1, padding: "8px 10px", background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)", borderRadius: 10, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
               ✉ Email family
             </button>
@@ -3629,7 +3629,7 @@ function CourtroomModal({ lang, country, onClose }) {
 
   const startLive = async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
-      alert("Microphone not supported in this browser. Use Chrome, Safari, or Edge.");
+      aaToast("Microphone not supported in this browser. Use Chrome, Safari, or Edge.", "info");
       return;
     }
     try {
@@ -3646,7 +3646,7 @@ function CourtroomModal({ lang, country, onClose }) {
       // Rotate every 8 seconds → balance latency vs Whisper accuracy
       lChunkLoopRef.current = setInterval(() => rotateRecorder(), 8000);
     } catch (e) {
-      alert("Microphone permission denied. Open Settings → Microphone access to grant it.");
+      aaToast("Microphone permission denied. Open Settings → Microphone access to grant it.", "error");
     }
   };
 
@@ -3776,7 +3776,7 @@ function CourtroomModal({ lang, country, onClose }) {
   };
 
   const startTranslation = async () => {
-    if (!navigator.mediaDevices?.getUserMedia) { alert("Microphone not supported."); return; }
+    if (!navigator.mediaDevices?.getUserMedia) { aaToast("Microphone not supported.", "info"); return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -3787,7 +3787,7 @@ function CourtroomModal({ lang, country, onClose }) {
       rotateTransRecorder();
       tChunkLoopRef.current = setInterval(() => rotateTransRecorder(), 6000);
     } catch (e) {
-      alert("Microphone permission denied. Go to Settings → Microphone access to grant it.");
+      aaToast("Microphone permission denied. Go to Settings → Microphone access to grant it.", "error");
     }
   };
 
@@ -3827,7 +3827,7 @@ function CourtroomModal({ lang, country, onClose }) {
       // Speak the translation aloud for the OTHER party
       await playTTS(data.translation, tTheirLang);
     } catch (e) {
-      alert("Translation failed. Try again.");
+      aaToast("Translation failed. Try again.", "error");
     } finally {
       setTReplyBusy(false);
     }
@@ -4022,7 +4022,7 @@ function CourtroomModal({ lang, country, onClose }) {
                         a.href = url; a.download = `ai-advocate-session-${lSessionRef.current.slice(0,8)}.pdf`;
                         document.body.appendChild(a); a.click(); a.remove();
                         URL.revokeObjectURL(url);
-                      } catch (e) { alert("Export failed"); }
+                      } catch (e) { aaToast("Export failed", "error"); }
                     }} className="btn-ghost w-full" style={{ marginTop: 8, fontSize: 13 }}>
                       <Download size={14} style={{ display: "inline", marginRight: 6 }} />
                       Export timestamped notes (PDF)
@@ -4054,7 +4054,7 @@ function CourtroomModal({ lang, country, onClose }) {
                         }));
                         onClose();
                       } catch (e) {
-                        alert("Couldn't hand off to Lex. Please try again.");
+                        aaToast("Couldn't hand off to Lex. Please try again.", "error");
                       } finally {
                         setReviewBusy(false);
                       }
@@ -4436,7 +4436,7 @@ function TransReplyBar({ lang, myLang, disabled, onSend }) {
         if (heard) setVal(v => (v ? v + " " : "") + heard);
       } catch {}
     } else {
-      try { await start(); } catch { alert("Microphone needed for voice reply."); }
+      try { await start(); } catch { aaToast("Microphone needed for voice reply.", "info"); }
     }
   };
   const submit = () => {
@@ -4483,7 +4483,7 @@ function LetterLibraryModal({ lang, country, onClose }) {
     try {
       const { data } = await api.post("/letters/generate", { template_id: sel.id, language: lang, country, ...form });
       setLetter(data.letter); setLetterId(data.id);
-    } catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+    } catch (e) { aaToast(e?.response?.data?.detail || "Failed", "error"); }
     finally { setBusy(false); }
   };
 
@@ -4566,7 +4566,7 @@ function ContractUploader({ lang, country, onClose }) {
     try {
       const { data } = await api.post("/contracts/analyze", fd);
       setResult(data);
-    } catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+    } catch (e) { aaToast(e?.response?.data?.detail || "Failed", "error"); }
     finally { setBusy(false); }
   };
 
@@ -4621,7 +4621,7 @@ function LegalLetterModal({ lang, country, onClose }) {
     try {
       const { data } = await api.post("/legal-letter", { ...form, language: lang });
       setLetter(data.letter);
-    } catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+    } catch (e) { aaToast(e?.response?.data?.detail || "Failed", "error"); }
     finally { setBusy(false); }
   };
 
@@ -4814,7 +4814,7 @@ function RecordModal({ lang, country, onClose }) {
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         });
       } catch (e) {
-        alert(e?.response?.data?.detail || "Failed");
+        aaToast(e?.response?.data?.detail || "Failed", "error");
       } finally {
         setBusy(false);
         startedAtRef.current = null;
@@ -5999,7 +5999,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
     try {
       const r = await api.post("/cases", { name: newName.trim() || "Untitled case" });
       setNewName(""); setCreating(false); await load(); openCase(r.data);
-    } catch (e) { alert(e?.response?.data?.detail || t(lang, "failed")); }
+    } catch (e) { aaToast(e?.response?.data?.detail || t(lang, "failed"), "error"); }
     finally { setBusy(false); }
   };
 
@@ -6041,7 +6041,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
     const f = e.target.files?.[0];
     e.target.value = "";
     if (!f) return;
-    if (f.size > 50 * 1024 * 1024) { alert("File too large (50MB max)."); return; }
+    if (f.size > 50 * 1024 * 1024) { aaToast("File too large (50MB max).", "error"); return; }
     setBusy(true);
     try {
       const fd = new FormData();
@@ -6050,7 +6050,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
       await api.post(`/cases/${open.id}/upload-file`, fd);
       const r = await api.get(`/cases/${open.id}`);
       setOpen(r.data);
-    } catch (err) { alert(err?.response?.data?.detail || "Upload failed"); }
+    } catch (err) { aaToast(err?.response?.data?.detail || "Upload failed", "error"); }
     finally { setBusy(false); }
   };
 
@@ -6085,7 +6085,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
       label: it.title || it.filename || "Case item",
       preview: it.preview || it.title || "",
     }}));
-    alert("Open the Vault to confirm encrypting and saving this item.");
+    aaToast("Open the Vault to confirm encrypting and saving this item.", "error");
   };
 
   const exportPdf = async () => {
@@ -6093,12 +6093,12 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
       const r = await api.get(`/cases/${open.id}/export-pdf`, { responseType: "blob" });
       const url = URL.createObjectURL(r.data);
       const a = document.createElement("a"); a.href = url; a.download = `case-${open.id.slice(0,8)}.pdf`; a.click();
-    } catch (e) { alert(e?.response?.data?.detail || t(lang, "failed")); }
+    } catch (e) { aaToast(e?.response?.data?.detail || t(lang, "failed"), "error"); }
   };
 
-  // 🔗 Share link modal — replaces the old alert()+clipboard approach which
+  // 🔗 Share link modal — replaces the old aaToast(, "error")+clipboard approach which
   // silently fails on iOS Safari/Brave (clipboard.writeText only works inside a
-  // synchronous user-gesture context, and alert() is often blocked). New flow:
+  // synchronous user-gesture context, and aaToast(, "error") is often blocked). New flow:
   // generate the link, store it in state, render a modal with a copy button.
   const [shareUrl, setShareUrl] = useState("");
   const shareCase = async () => {
@@ -6122,8 +6122,8 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
       a.href = url; a.download = `${(data.title || "case").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-bundle.md`;
       a.click();
       await navigator.clipboard.writeText(data.bundle_md).catch(() => {});
-      alert(`Bundle ready — ${data.items} analyses · ${data.uploads} documents · ${data.reminders} deadlines.\n\n• Downloaded as .md\n• Copied to clipboard\n\nPaste it into an email to your solicitor.`);
-    } catch (e) { alert(e?.response?.data?.detail || "Couldn't build the bundle"); }
+      aaToast(`Bundle ready — ${data.items} analyses · ${data.uploads} documents · ${data.reminders} deadlines.\n\n• Downloaded as .md\n• Copied to clipboard\n\nPaste it into an email to your solicitor.`, "success");
+    } catch (e) { aaToast(e?.response?.data?.detail || "Couldn't build the bundle", "error"); }
   };
 
   return (
@@ -6480,7 +6480,7 @@ function RemindersModal({ lang, onClose }) {
       const dueIso = new Date(form.due_at).toISOString();
       await api.post("/reminders", { title: form.title, description: form.description, due_at: dueIso });
       setForm({ title: "", description: "", due_at: "" }); setAdding(false); load();
-    } catch (e) { alert(e?.response?.data?.detail || t(lang, "failed")); }
+    } catch (e) { aaToast(e?.response?.data?.detail || t(lang, "failed"), "error"); }
     finally { setBusy(false); }
   };
 
@@ -6628,7 +6628,7 @@ function SnapEvidenceModal({ lang, country, onClose }) {
       const { data } = await api.post("/video/analyze", fd);
       setVideoResult(data);
     } catch (e) {
-      alert(e?.response?.data?.detail || e.message || "Analysis failed");
+      aaToast(e?.response?.data?.detail || e.message || "Analysis failed", "error");
     } finally {
       setBusy(false);
     }
@@ -6842,7 +6842,7 @@ function LawyersModal({ lang, country, user, onClose, openAdvertise }) {
     try {
       await api.post("/lawfirms/inquiry", { firm_id: selected.id, ...inquiry });
       setSent(true);
-    } catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+    } catch (e) { aaToast(e?.response?.data?.detail || "Failed", "error"); }
   };
 
   return (
@@ -6961,7 +6961,7 @@ function AdvertiseModal({ lang, onClose }) {
     try {
       await api.post("/lawfirms/advertise", { ...form, specialties: form.specialties.split(",").map(s => s.trim()).filter(Boolean) });
       setDone(true);
-    } catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+    } catch (e) { aaToast(e?.response?.data?.detail || "Failed", "error"); }
     finally { setBusy(false); }
   };
   return (
@@ -7216,7 +7216,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             )}
             {user.stripe_customer_id && !IS_NATIVE && (
               <button className="btn-ghost" data-testid="settings-portal-btn"
-                onClick={async () => { try { const { data } = await api.post("/subscription/portal"); window.location.href = data.portal_url; } catch (e) { alert(e?.response?.data?.detail || t(lang, "failed")); } }}
+                onClick={async () => { try { const { data } = await api.post("/subscription/portal"); window.location.href = data.portal_url; } catch (e) { aaToast(e?.response?.data?.detail || t(lang, "failed"), "error"); } }}
                 style={{ flex: 1, padding: "8px 12px", fontSize: 13 }}>
                 {t(lang, "manageBilling")}
               </button>
@@ -7277,7 +7277,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
                       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                       stream.getTracks().forEach(tr => tr.stop());
                     } catch (err) {
-                      alert(t(lang, "micPermDenied"));
+                      aaToast(t(lang, "micPermDenied"), "error");
                       return;
                     }
                   }
@@ -7413,7 +7413,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
                 const a = document.createElement("a"); a.href = url; a.download = `ai-advocate-backup-${Date.now()}.json`; a.click();
                 URL.revokeObjectURL(url);
               } catch (e) {
-                alert(e?.response?.data?.detail || t(lang, "failed"));
+                aaToast(e?.response?.data?.detail || t(lang, "failed"), "error");
               }
             }}>
             📥 {t(lang, "downloadBackup")}
@@ -7576,16 +7576,16 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
         return;
       }
       window.location.href = data.checkout_url;
-    } catch (e) { alert(e?.response?.data?.detail || "Failed"); setBusy(false); }
+    } catch (e) { aaToast(e?.response?.data?.detail || "Failed", "error"); setBusy(false); }
   };
   const openPortal = async () => {
     setBusy(true);
     try { const { data } = await api.post("/subscription/portal"); window.location.href = data.portal_url; }
-    catch (e) { alert(e?.response?.data?.detail || "Failed"); setBusy(false); }
+    catch (e) { aaToast(e?.response?.data?.detail || "Failed", "error"); setBusy(false); }
   };
   const buyTopup = async (pack) => {
     if (!pack.configured) {
-      alert("This top-up is coming soon — Stripe price not yet configured.");
+      aaToast("This top-up is coming soon — Stripe price not yet configured.", "error");
       return;
     }
     setBuyingPack(pack.id);
@@ -7594,7 +7594,7 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
       track("topup_checkout_started", { pack: pack.id, price_gbp: pack.price_gbp });
       window.location.href = data.checkout_url;
     } catch (e) {
-      alert(e?.response?.data?.detail || "Could not start checkout. Please try again.");
+      aaToast(e?.response?.data?.detail || "Could not start checkout. Please try again.", "error");
       setBuyingPack(null);
     }
   };
@@ -10129,7 +10129,13 @@ function CompProAdminCard({ lang }) {
   };
 
   const cancelPending = async (email) => {
-    if (!window.confirm(`Cancel pending comp for ${email}?`)) return;
+    if (!await aaConfirm({
+      title: "Cancel pending comp?",
+      message: `Cancel pending comp for ${email}?`,
+      danger: true,
+      confirmLabel: "Cancel comp",
+      cancelLabel: "Keep",
+    })) return;
     setActionBusy(true);
     try {
       await api.post("/admin/users/comp-cancel-pending", { email });
@@ -11184,7 +11190,7 @@ function WinbackGiftBanner({ user, lang, refreshUser }) {
       setDismissed(true);
       try { refreshUser && refreshUser(); } catch {}
     } catch (e) {
-      alert(e?.response?.data?.detail || "Could not claim the gift. Please try again.");
+      aaToast(e?.response?.data?.detail || "Could not claim the gift. Please try again.", "error");
     } finally { setClaiming(false); }
   };
 
@@ -11934,7 +11940,7 @@ function CostEstimateModal({ lang, country, onClose }) {
   const run = async () => {
     setBusy(true);
     try { const { data } = await api.post("/cost/estimate", { case_summary: summary, category, country, language: lang, postcode: postcode.toUpperCase().trim() || null }); setR(data); }
-    catch (e) { alert(e?.response?.data?.detail || "Failed"); }
+    catch (e) { aaToast(e?.response?.data?.detail || "Failed", "error"); }
     finally { setBusy(false); }
   };
   const Option = ({ k }) => {
@@ -12756,7 +12762,7 @@ function HearingRecorderModal({ lang, country, onClose }) {
       setRecording(true); setElapsed(0);
       timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
     } catch (e) {
-      alert(e?.message || "Microphone access denied");
+      aaToast(e?.message || "Microphone access denied", "error");
     }
   };
 
@@ -12783,7 +12789,7 @@ function HearingRecorderModal({ lang, country, onClose }) {
       fd.append("audio", file); fd.append("language", lang); fd.append("country", country);
       const { data } = await api.post("/hearing/transcribe", fd);
       setR(data);
-    } catch (e) { alert(e?.response?.data?.detail || "Transcription failed"); }
+    } catch (e) { aaToast(e?.response?.data?.detail || "Transcription failed", "error"); }
     finally { setBusy(false); }
   };
 
@@ -12977,18 +12983,23 @@ function VaultModal({ lang, hasTier, onUpsell, onClose }) {
   };
 
   const doEnableBiometric = async () => {
-    if (!pin) { alert("PIN unavailable — please re-unlock and try again."); return; }
+    if (!pin) { aaToast("PIN unavailable — please re-unlock and try again.", "info"); return; }
     setBioBusy(true);
     try {
       await BIO.enableBiometric(pin);
       setBioEnabled(true);
     } catch (e) {
-      alert(e?.message || "Could not enable biometric");
+      aaToast(e?.message || "Could not enable biometric", "error");
     } finally { setBioBusy(false); }
   };
 
-  const doDisableBiometric = () => {
-    if (!confirm("Disable biometric unlock? You'll need your PIN next time.")) return;
+  const doDisableBiometric = async () => {
+    if (!await aaConfirm({
+      title: "Disable biometric unlock?",
+      message: "You'll need your PIN next time.",
+      confirmLabel: "Disable",
+      cancelLabel: "Keep enabled",
+    })) return;
     BIO.disableBiometric();
     setBioEnabled(false);
   };
@@ -13030,7 +13041,7 @@ function VaultModal({ lang, hasTier, onUpsell, onClose }) {
   const handleFile = (e) => {
     const f = e.target.files?.[0]; e.target.value = "";
     if (!f) return;
-    if (f.size > 12 * 1024 * 1024) { alert("Max file size is 12MB."); return; }
+    if (f.size > 12 * 1024 * 1024) { aaToast("Max file size is 12MB.", "info"); return; }
     setNewFile(f);
     if (!newTitle) setNewTitle(f.name.replace(/\.[^.]+$/, ""));
   };
@@ -13068,7 +13079,7 @@ function VaultModal({ lang, hasTier, onUpsell, onClose }) {
       a.href = url; a.download = data.file_name || it.title || "vault-item";
       document.body.appendChild(a); a.click();
       setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
-    } catch (e) { alert("Could not decrypt file. Wrong PIN?"); }
+    } catch (e) { aaToast("Could not decrypt file. Wrong PIN?", "error"); }
   };
 
   const decryptAndShowNote = async (it) => {
@@ -13082,7 +13093,12 @@ function VaultModal({ lang, hasTier, onUpsell, onClose }) {
   };
 
   const removeItem = async (it) => {
-    if (!confirm(`Delete "${it.title}"? This cannot be undone.`)) return;
+    if (!await aaConfirm({
+      title: `Delete "${it.title}"?`,
+      message: "This cannot be undone.",
+      danger: true,
+      confirmLabel: "Delete",
+    })) return;
     await api.delete(`/vault/items/${it.id}`);
     await refreshItems();
   };
@@ -13529,10 +13545,16 @@ function useRecordingConsent({ lang, country, surface, recordingTitle }) {
   const { containsCourtKeyword } = require("./recordingLaw");
 
   // Wrap a fn so that the gate fires first.
-  const ensureConsent = (fn) => () => {
+  const ensureConsent = (fn) => async () => {
     // Keyword-based block
     if (recordingTitle && containsCourtKeyword(recordingTitle)) {
-      if (!confirm("This recording title mentions a court. Recording in court is a criminal offence (Contempt of Court Act 1981 s.9 in the UK). Are you SURE this is not from a courtroom?")) {
+      if (!await aaConfirm({
+        title: "⚠ Are you in a courtroom?",
+        message: "This recording title mentions a court. Recording in court is a criminal offence (Contempt of Court Act 1981 s.9 in the UK). Are you SURE this is not from a courtroom?",
+        danger: true,
+        confirmLabel: "I am NOT in court — proceed",
+        cancelLabel: "Cancel",
+      })) {
         return;
       }
     }
@@ -13912,14 +13934,14 @@ function ContractDrafterBody({ lang, country }) {
         terms, additional_notes: notes, language: lang, country,
       });
       setR(data); setStep(5);
-    } catch (e) { alert(e?.response?.data?.detail || "Generation failed"); }
+    } catch (e) { aaToast(e?.response?.data?.detail || "Generation failed", "error"); }
     finally { setBusy(false); }
   };
 
   const copyText = () => {
     if (!r?.full_contract_text) return;
     navigator.clipboard.writeText(r.full_contract_text);
-    alert(t(lang, "copiedToClipboard"));
+    aaToast(t(lang, "copiedToClipboard"), "success");
   };
 
   const StepHeader = () => (
@@ -14156,7 +14178,7 @@ function ContractNegotiateBody({ lang, country }) {
   const copyEmail = () => {
     if (!r?.ready_to_send_email) return;
     navigator.clipboard.writeText(r.ready_to_send_email);
-    alert(t(lang, "copiedToClipboard"));
+    aaToast(t(lang, "copiedToClipboard"), "success");
   };
 
   // Parse "Subject: ..." from the first line and return { subject, body }
@@ -14567,7 +14589,7 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
   const copyResponse = () => {
     if (!result?.suggested_response) return;
     navigator.clipboard.writeText(result.suggested_response);
-    alert("Response copied to clipboard");
+    aaToast("Response copied to clipboard", "success");
   };
 
   // 🪞 "What happens if I do nothing?" — sober loss-aversion simulator
@@ -15259,7 +15281,7 @@ function ManageDataModal({ lang, onClose, onAccountDeleted }) {
       a.href = url; a.download = `ai-advocate-export-${new Date().toISOString().slice(0,10)}.json`;
       document.body.appendChild(a); a.click();
       setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
-    } catch (e) { alert("Export failed. Try again later."); }
+    } catch (e) { aaToast("Export failed. Try again later.", "error"); }
     finally { setBusy(false); }
   };
 
@@ -15270,7 +15292,7 @@ function ManageDataModal({ lang, onClose, onAccountDeleted }) {
       await api.delete("/users/me");
       localStorage.removeItem("aa_token");
       onAccountDeleted && onAccountDeleted();
-    } catch (e) { alert("Could not delete account. Email support@aiadvocate.co.uk"); }
+    } catch (e) { aaToast("Could not delete account. Email support@aiadvocate.co.uk", "error"); }
     finally { setBusy(false); }
   };
 
@@ -15661,7 +15683,7 @@ function EngagementThread({ lang, engagement, onBack, onClose }) {
     try {
       await api.post(`/engagements/${eid}/messages`, { body: draft.trim() });
       setDraft(""); setLexOut(""); await load();
-    } catch (e) { alert(e?.response?.data?.detail || "Failed to send."); }
+    } catch (e) { aaToast(e?.response?.data?.detail || "Failed to send.", "error"); }
     finally { setBusy(false); }
   };
 
@@ -15671,7 +15693,7 @@ function EngagementThread({ lang, engagement, onBack, onClose }) {
       const { data } = await api.post(`/engagements/${eid}/lex-assist`, { kind });
       setLexOut(data.output || "");
       if (kind === "draft_reply") setDraft(data.output || "");
-    } catch (e) { alert("Lex temporarily unavailable. Try again."); }
+    } catch (e) { aaToast("Lex temporarily unavailable. Try again.", "error"); }
     finally { setBusy(false); }
   };
 
@@ -15729,7 +15751,7 @@ function EngagementThread({ lang, engagement, onBack, onClose }) {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a"); a.href = url; a.download = f.title; document.body.appendChild(a); a.click();
                     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
-                  } catch (e) { alert("Failed to download."); }
+                  } catch (e) { aaToast("Failed to download.", "error"); }
                 }} style={{ background: "transparent", border: "none", color: "var(--gold)", cursor: "pointer", fontSize: 11 }}>
                   <Download size={12} /> Download
                 </button>
@@ -15792,7 +15814,7 @@ function EngagementFileShare({ lang, eid, onClose, onUploaded }) {
 
   const upload = async () => {
     if (!file) return;
-    if (file.size > 12 * 1024 * 1024) { alert("Max 12MB per file."); return; }
+    if (file.size > 12 * 1024 * 1024) { aaToast("Max 12MB per file.", "error"); return; }
     setBusy(true);
     try {
       const b64 = await new Promise((res, rej) => {
@@ -15802,7 +15824,7 @@ function EngagementFileShare({ lang, eid, onClose, onUploaded }) {
       });
       await api.post(`/engagements/${eid}/files`, { title: file.name, mime_type: file.type || "application/octet-stream", file_b64: b64, note });
       onUploaded();
-    } catch (e) { alert(e?.response?.data?.detail || "Upload failed."); }
+    } catch (e) { aaToast(e?.response?.data?.detail || "Upload failed.", "error"); }
     finally { setBusy(false); }
   };
 
