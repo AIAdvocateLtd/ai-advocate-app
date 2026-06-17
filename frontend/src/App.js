@@ -94,10 +94,17 @@ api.interceptors.response.use(
 // Why: native window.confirm() is suppressed in some mobile browsers (Brave/iOS,
 // preview iframes) so users tap delete and nothing seems to happen. These render
 // our own gold-themed dialog/toast that always shows, regardless of browser.
-const __aaUI = { confirm: null, toast: null };
+const __aaUI = { confirm: null, toast: null, prompt: null };
 const aaConfirm = (opts) => new Promise((resolve) => {
   if (!__aaUI.confirm) { resolve(window.confirm(typeof opts === "string" ? opts : (opts?.message || ""))); return; }
   __aaUI.confirm(typeof opts === "string" ? { message: opts } : opts, resolve);
+});
+// iOS Safari / Brave silently block window.prompt() in many contexts. This is a
+// gold-themed in-app replacement that always works. `opts` can be { title, message,
+// placeholder, defaultValue, confirmLabel, cancelLabel }.
+const aaPrompt = (opts) => new Promise((resolve) => {
+  if (!__aaUI.prompt) { resolve(window.prompt(typeof opts === "string" ? opts : (opts?.message || ""), (opts?.defaultValue || ""))); return; }
+  __aaUI.prompt(typeof opts === "string" ? { message: opts } : opts, resolve);
 });
 const aaToast = (msg, type = "success") => {
   if (!__aaUI.toast) { try { console.log(`[toast/${type}]`, msg); } catch (e) {} return; }
@@ -106,17 +113,21 @@ const aaToast = (msg, type = "success") => {
 
 function AAConfirmHost() {
   const [c, setC] = useState(null);   // { message, title, danger, confirmLabel, cancelLabel, resolve }
+  const [p, setP] = useState(null);   // { message, title, defaultValue, placeholder, confirmLabel, cancelLabel, resolve }
+  const [pVal, setPVal] = useState("");
   const [toasts, setToasts] = useState([]);
   useEffect(() => {
     __aaUI.confirm = (opts, resolve) => setC({ ...opts, resolve });
+    __aaUI.prompt = (opts, resolve) => { setPVal(opts.defaultValue || ""); setP({ ...opts, resolve }); };
     __aaUI.toast = (msg, type) => {
       const id = Date.now() + Math.random();
       setToasts(ts => [...ts, { id, msg, type }]);
       setTimeout(() => setToasts(ts => ts.filter(t => t.id !== id)), type === "error" ? 5000 : 3000);
     };
-    return () => { __aaUI.confirm = null; __aaUI.toast = null; };
+    return () => { __aaUI.confirm = null; __aaUI.prompt = null; __aaUI.toast = null; };
   }, []);
   const close = (ok) => { if (c) { c.resolve(ok); setC(null); } };
+  const closeP = (val) => { if (p) { p.resolve(val); setP(null); setPVal(""); } };
   return (
     <>
       {c && (
@@ -145,6 +156,51 @@ function AAConfirmHost() {
                   border: c.danger ? "1px solid #b91c1c" : "1px solid var(--gold-deep)",
                 }}>
                 {c.confirmLabel || (c.danger ? "Delete" : "Confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {p && (
+        <div data-testid="aa-prompt" style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 100000,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+        }} onClick={() => closeP(null)}>
+          <div onClick={(e) => e.stopPropagation()} style={{
+            background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14,
+            padding: 22, maxWidth: 380, width: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+          }}>
+            {p.title && <div style={{ color: "var(--gold)", fontWeight: 700, fontSize: 15, marginBottom: 8 }}>{p.title}</div>}
+            {p.message && (
+              <div style={{ color: "var(--text)", fontSize: 13.5, lineHeight: 1.55, marginBottom: 12, whiteSpace: "pre-wrap" }}>
+                {p.message}
+              </div>
+            )}
+            <input data-testid="aa-prompt-input" autoFocus
+              value={pVal} onChange={(e) => setPVal(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") closeP(pVal); if (e.key === "Escape") closeP(null); }}
+              placeholder={p.placeholder || ""}
+              style={{
+                width: "100%", padding: "10px 12px", fontSize: 14, borderRadius: 10,
+                background: "var(--bg-2)", border: "1px solid var(--gold-deep)", color: "var(--text)",
+                marginBottom: 16, boxSizing: "border-box",
+              }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button data-testid="aa-prompt-cancel" onClick={() => closeP(null)} className="btn-ghost"
+                style={{ flex: 1, padding: "10px 14px", fontSize: 13 }}>
+                {p.cancelLabel || "Cancel"}
+              </button>
+              <button data-testid="aa-prompt-ok" onClick={() => closeP(pVal)}
+                disabled={!pVal.trim()}
+                style={{
+                  flex: 1, padding: "10px 14px", fontSize: 13, fontWeight: 700, borderRadius: 10,
+                  cursor: pVal.trim() ? "pointer" : "not-allowed",
+                  background: pVal.trim() ? "var(--gold)" : "var(--bg-2)",
+                  color: pVal.trim() ? "#0a0a0a" : "var(--text-dim)",
+                  border: "1px solid var(--gold-deep)",
+                  opacity: pVal.trim() ? 1 : 0.6,
+                }}>
+                {p.confirmLabel || "Save"}
               </button>
             </div>
           </div>
@@ -5948,10 +6004,22 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
   };
 
   const rename = async () => {
-    const v = prompt(t(lang, "renameCase"), open.name);
+    const v = await aaPrompt({
+      title: t(lang, "renameCase"),
+      message: "Give this case a new name:",
+      defaultValue: open.name || "",
+      placeholder: "e.g. Section 21 eviction — 14 Park Lane",
+      confirmLabel: "Save",
+    });
     if (!v || !v.trim()) return;
-    const r = await api.patch(`/cases/${open.id}`, { name: v.trim() });
-    setOpen({ ...open, name: r.data.name }); load();
+    try {
+      const r = await api.patch(`/cases/${open.id}`, { name: v.trim() });
+      setOpen({ ...open, name: r.data.name });
+      aaToast("Case renamed", "success");
+      load();
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Couldn't rename the case", "error");
+    }
   };
 
   const remove = async () => {
@@ -6028,12 +6096,18 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
     } catch (e) { alert(e?.response?.data?.detail || t(lang, "failed")); }
   };
 
+  // 🔗 Share link modal — replaces the old alert()+clipboard approach which
+  // silently fails on iOS Safari/Brave (clipboard.writeText only works inside a
+  // synchronous user-gesture context, and alert() is often blocked). New flow:
+  // generate the link, store it in state, render a modal with a copy button.
+  const [shareUrl, setShareUrl] = useState("");
   const shareCase = async () => {
     try {
       const { data } = await api.post(`/cases/${open.id}/share`);
-      await navigator.clipboard.writeText(data.url).catch(() => {});
-      alert(`Read-only share link copied to clipboard:\n\n${data.url}\n\nExpires in 30 days.`);
-    } catch (e) { alert(e?.response?.data?.detail || "Failed to create share link"); }
+      setShareUrl(data.url);
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Failed to create share link", "error");
+    }
   };
 
   // 📦 Bundle — generates a single "solicitor handoff" markdown document containing
@@ -6112,6 +6186,51 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
               </button>
               <button className="btn-ghost" onClick={(e) => { e.stopPropagation(); remove(); }} data-testid="delete-case-btn" aria-label="Delete this case" style={{ flex: 0.7, fontSize: 12, color: "#fca5a5", minHeight: 44 }}><Trash2 size={14} /></button>
             </div>
+
+            {/* 🔗 Share-link modal — shown after shareCase() succeeds. Uses a synchronous
+                onClick → writeText to satisfy iOS Safari/Brave's user-gesture requirement. */}
+            {shareUrl && (
+              <div data-testid="aa-share-modal" onClick={() => setShareUrl("")}
+                   style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 100000,
+                            display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+                <div onClick={(e) => e.stopPropagation()} style={{
+                  background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14,
+                  padding: 22, maxWidth: 420, width: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+                }}>
+                  <div style={{ color: "var(--gold)", fontWeight: 700, fontSize: 15, marginBottom: 10 }}>
+                    🔗 Read-only share link
+                  </div>
+                  <div style={{ color: "var(--text)", fontSize: 13, lineHeight: 1.5, marginBottom: 12 }}>
+                    Anyone with this link can view a read-only snapshot of this case. <b>Expires in 30 days.</b>
+                  </div>
+                  <input data-testid="aa-share-url" readOnly value={shareUrl} onFocus={(e) => e.target.select()}
+                         style={{ width: "100%", padding: "10px 12px", fontSize: 12.5, borderRadius: 10,
+                                  background: "var(--bg-2)", border: "1px solid var(--gold-deep)",
+                                  color: "var(--text)", marginBottom: 12, boxSizing: "border-box", fontFamily: "monospace" }} />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button data-testid="aa-share-close" onClick={() => setShareUrl("")} className="btn-ghost"
+                            style={{ flex: 1, padding: "10px 14px", fontSize: 13 }}>Close</button>
+                    <button data-testid="aa-share-copy"
+                            onClick={() => {
+                              // Synchronous clipboard call inside the click handler — required for iOS.
+                              try {
+                                navigator.clipboard.writeText(shareUrl);
+                                aaToast("Link copied to clipboard", "success");
+                              } catch (e) {
+                                // Fallback: select + execCommand for old iOS
+                                const inp = document.querySelector('[data-testid="aa-share-url"]');
+                                if (inp) { inp.select(); try { document.execCommand("copy"); aaToast("Link copied", "success"); } catch (er) { aaToast("Couldn't copy — long-press the link instead", "info"); } }
+                              }
+                              setShareUrl("");
+                            }}
+                            style={{ flex: 1, padding: "10px 14px", fontSize: 13, fontWeight: 700, borderRadius: 10,
+                                     background: "var(--gold)", color: "#0a0a0a", border: "1px solid var(--gold-deep)", cursor: "pointer" }}>
+                      Copy link
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* 💬 CONTINUE WITH LEX — resumes the most recent linked session if one
                 exists, otherwise opens a fresh chat with this case prefilled so all
