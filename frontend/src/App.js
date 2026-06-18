@@ -440,6 +440,15 @@ function AuthScreen({ lang, country, onAuth }) {
   const [err, setErr] = useState("");
   const [providers, setProviders] = useState({ google_enabled: false, apple_enabled: false });
 
+  // 🛡 Cloudflare Turnstile (bot-shield on signup). The widget renders only if
+  // REACT_APP_TURNSTILE_SITE_KEY is set — otherwise the env-var is empty and we
+  // skip rendering. Backend skips verification too if its secret isn't set, so
+  // dev/preview continues to work end-to-end without keys.
+  const TURNSTILE_SITE_KEY = process.env.REACT_APP_TURNSTILE_SITE_KEY || "";
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileRef = useRef(null);
+  const turnstileWidgetId = useRef(null);
+
   // First-run experience: show onboarding tour then taster Lex on initial visit
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem("aa_welcomed"));
   const [showTaster, setShowTaster] = useState(false);
@@ -476,6 +485,42 @@ function AuthScreen({ lang, country, onAuth }) {
     document.body.appendChild(s);
   }, [providers]);
 
+  // 🛡 Inject Cloudflare Turnstile widget when site key is configured AND we're
+  // in signup mode (no point bot-shielding the sign-in form — they already have an account).
+  useEffect(() => {
+    if (!TURNSTILE_SITE_KEY || mode !== "signup") return;
+    const loadScript = () => new Promise((resolve) => {
+      if (window.turnstile) return resolve();
+      const existing = document.getElementById("cf-turnstile-script");
+      if (existing) { existing.addEventListener("load", () => resolve()); return; }
+      const s = document.createElement("script");
+      s.id = "cf-turnstile-script";
+      s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      s.async = true; s.defer = true;
+      s.onload = () => resolve();
+      document.body.appendChild(s);
+    });
+    let cancelled = false;
+    loadScript().then(() => {
+      if (cancelled || !turnstileRef.current || !window.turnstile) return;
+      try {
+        if (turnstileWidgetId.current) {
+          try { window.turnstile.remove(turnstileWidgetId.current); } catch {}
+          turnstileWidgetId.current = null;
+        }
+        turnstileWidgetId.current = window.turnstile.render(turnstileRef.current, {
+          sitekey: TURNSTILE_SITE_KEY,
+          theme: "dark",
+          size: "flexible",
+          callback: (tok) => setTurnstileToken(tok),
+          "error-callback": () => setTurnstileToken(""),
+          "expired-callback": () => setTurnstileToken(""),
+        });
+      } catch { /* render failed — backend will still allow signup if secret not set */ }
+    });
+    return () => { cancelled = true; };
+  }, [TURNSTILE_SITE_KEY, mode]);
+
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr("");
     try {
@@ -491,7 +536,7 @@ function AuthScreen({ lang, country, onAuth }) {
         }
       } catch { /* localStorage blocked — pass empty, backend is permissive */ }
       const body = mode === "signup"
-        ? { email, password, full_name: name, language: lang, country, device_id: deviceId }
+        ? { email, password, full_name: name, language: lang, country, device_id: deviceId, turnstile_token: turnstileToken }
         : { email, password };
       const { data } = await api.post(path, body);
       // 🔐 2FA gate — if the account has TOTP enabled, the backend returns
@@ -695,8 +740,11 @@ function AuthScreen({ lang, country, onAuth }) {
         )}
         <input className="input" type="email" data-testid="email-input" placeholder={t(lang, "email")} value={email} onChange={(e) => setEmail(e.target.value)} required style={{ marginBottom: 10 }} />
         <input className="input" type="password" data-testid="password-input" placeholder={t(lang, "password")} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} style={{ marginBottom: 10 }} />
+        {mode === "signup" && TURNSTILE_SITE_KEY && (
+          <div ref={turnstileRef} data-testid="turnstile-widget" style={{ marginBottom: 10, display: "flex", justifyContent: "center" }} />
+        )}
         {err && <div style={{ color: "var(--danger)", fontSize: 13, marginBottom: 8 }}>{err}</div>}
-        <button className="btn-gold w-full" data-testid="auth-submit-btn" type="submit" disabled={busy}>
+        <button className="btn-gold w-full" data-testid="auth-submit-btn" type="submit" disabled={busy || (mode === "signup" && TURNSTILE_SITE_KEY && !turnstileToken)}>
           {busy ? <span className="spinner" /> : (mode === "signup" ? t(lang, "signUp") : t(lang, "signIn"))}
         </button>
         {mode === "signin" && (
@@ -9324,6 +9372,9 @@ function AdminFounderFinanceCard() {
 
           {data && (
             <>
+              {/* 💷 LIVE 24h LLM SPEND — auto-refreshes; red banner if over budget */}
+              <LiveLLMSpendStrip />
+
               {/* HERO — net margin */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
                 <KPIBox label="Gross revenue (30d)" value={fmt(m.gross_30d)} />
@@ -9429,6 +9480,60 @@ function KPIBox({ label, value, accent }) {
   );
 }
 
+
+// =============================== ADMIN — LIVE 24h LLM SPEND STRIP ===============================
+// Polls /api/admin/llm-spend?hours=24 every 60s. Shows a green strip when under
+// budget and a red banner with the top spender when over. The £30 default budget
+// is configurable via backend env var `AA_DAILY_LLM_BUDGET_GBP`.
+function LiveLLMSpendStrip() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const { data: r } = await api.get("/admin/llm-spend", { params: { hours: 24 } });
+        if (!cancelled) setData(r);
+      } catch { /* fail silently — strip just doesn't render */ }
+    };
+    load();
+    const id = setInterval(load, 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+  if (!data) return null;
+  const over = data.over_threshold;
+  const topSpender = (data.top_users || [])[0];
+  const fmt = n => `£${Number(n || 0).toFixed(2)}`;
+  const pct = Math.min(100, Math.round((data.total_gbp / Math.max(data.threshold_gbp, 0.01)) * 100));
+  return (
+    <div data-testid="admin-llm-spend-strip" style={{
+      marginBottom: 12, padding: "10px 12px", borderRadius: 10,
+      background: over ? "rgba(239,68,68,0.08)" : "rgba(34,197,94,0.06)",
+      border: `1px solid ${over ? "#ef4444" : "rgba(34,197,94,0.45)"}`,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontSize: 12, color: over ? "#fca5a5" : "#86efac", fontWeight: 700 }}>
+          {over ? "⚠ Over budget" : "✓ Within budget"} · last 24h
+        </div>
+        <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 700 }}>
+          {fmt(data.total_gbp)} / {fmt(data.threshold_gbp)}
+          <span style={{ color: "var(--text-dim)", fontWeight: 400, marginLeft: 8, fontSize: 11 }}>
+            ({data.calls} calls · {pct}%)
+          </span>
+        </div>
+      </div>
+      <div style={{ marginTop: 6, height: 4, background: "var(--bg-2)", borderRadius: 2, overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%",
+                      background: over ? "#ef4444" : "#22c55e",
+                      transition: "width 0.5s ease" }} />
+      </div>
+      {over && topSpender && (
+        <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-dim)" }}>
+          Top spender: <b style={{ color: "var(--text)" }}>{topSpender.email}</b> ({topSpender.tier}) — {fmt(topSpender.spend)} across {topSpender.calls} calls
+        </div>
+      )}
+    </div>
+  );
+}
 
 
 // =============================== ADMIN — STRIPE PRICE AUDIT ===============================

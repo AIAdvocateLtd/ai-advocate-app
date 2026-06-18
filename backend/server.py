@@ -110,6 +110,7 @@ class UserSignup(BaseModel):
     language: str = "en-GB"
     country: str = "GB"
     device_id: Optional[str] = None  # client-side UUID for abuse fingerprinting
+    turnstile_token: Optional[str] = None  # Cloudflare Turnstile token (bot-shield)
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -1023,6 +1024,109 @@ async def _enforce_device_signup_limit(device_id: Optional[str], request: Reques
         raise HTTPException(429, "Too many signups from this device. Please try again tomorrow or use a different device.")
 
 
+# ==================== Cloudflare Turnstile (bot-shield on signup) ====================
+# When TURNSTILE_SECRET_KEY is set, the client must POST a `turnstile_token`
+# obtained from the Cloudflare widget. We verify it server-side with
+# https://challenges.cloudflare.com/turnstile/v0/siteverify before allowing
+# account creation. If keys aren't configured, verification is skipped silently
+# (so dev/preview keeps working before the user adds their Cloudflare keys).
+TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "").strip()
+TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
+async def verify_turnstile(token: Optional[str], request: Optional[Request] = None) -> None:
+    """Raise HTTPException(400) if the Turnstile token is missing/invalid.
+    No-op if TURNSTILE_SECRET_KEY isn't configured — allows the protection to
+    be enabled with a single env-var flip."""
+    if not TURNSTILE_SECRET_KEY:
+        return
+    if not token:
+        raise HTTPException(400, "Bot-check failed. Please refresh and try again.")
+    payload = {"secret": TURNSTILE_SECRET_KEY, "response": token}
+    if request is not None and request.client is not None:
+        payload["remoteip"] = request.client.host
+    try:
+        import httpx as _httpx
+        async with _httpx.AsyncClient(timeout=6.0) as client_:
+            r = await client_.post(TURNSTILE_VERIFY_URL, data=payload)
+            data = r.json()
+    except Exception as e:
+        logger.warning(f"Turnstile verify network error: {e} — failing open")
+        return  # fail-open on network errors (rare, but better than locking out real users)
+    if not data.get("success"):
+        codes = ",".join(data.get("error-codes") or [])
+        logger.warning(f"Turnstile verify failed: {codes}")
+        raise HTTPException(400, "Bot-check failed. Please refresh the page and try again.")
+
+
+# ==================== LLM cost tracking + spend alert ====================
+# Approximate cost (in £) per 1M tokens for each model we currently route to.
+# These are conservative estimates based on published rates as at Feb 2026 and
+# include a small buffer (USD→GBP at 1.25, then +10%). When the EMERGENT_LLM_KEY
+# pricing changes, just update the dict.
+LLM_RATES_GBP_PER_1M = {
+    # (provider, model_id) → (input_£_per_1M, output_£_per_1M)
+    ("anthropic", "claude-haiku-4-5-20251001"): (0.90, 4.40),
+    ("anthropic", "claude-sonnet-4-5-20251001"): (2.65, 13.20),
+    ("openai", "gpt-5.2"): (2.65, 13.20),
+    ("openai", "gpt-5-2"): (2.65, 13.20),
+    ("openai", "gpt-5"): (2.65, 13.20),
+    ("openai", "gpt-4o"): (2.20, 8.80),
+    ("openai", "gpt-4o-mini"): (0.13, 0.53),
+    ("google", "gemini-3-pro"): (1.10, 4.40),
+    ("google", "gemini-3-flash"): (0.27, 1.10),
+    ("google", "gemini-2.5-flash"): (0.27, 1.10),
+    # Image generation (Gemini Nano Banana / GPT-Image-1) — flat per image
+    ("google", "nano-banana"): None,    # tracked separately as per-image cost
+    ("openai", "gpt-image-1"): None,
+}
+LLM_IMAGE_COST_GBP = 0.04  # rough per-image cost across providers
+
+def _estimate_tokens(text: Optional[str]) -> int:
+    """Rough token estimate: ~4 chars per token. Cheap, no tokenizer dependency."""
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
+
+def _estimate_llm_cost_gbp(provider: str, model_id: str,
+                            input_chars: int, output_chars: int) -> float:
+    """Estimate the £ cost of a single LLM call from raw input/output sizes.
+    Falls back to a conservative mid-rate if the model isn't in the table."""
+    rate = LLM_RATES_GBP_PER_1M.get((provider, model_id))
+    if rate is None:
+        rate = (2.50, 12.00)  # mid-tier default
+    in_tok = max(1, input_chars // 4)
+    out_tok = max(1, output_chars // 4)
+    return (in_tok * rate[0] + out_tok * rate[1]) / 1_000_000
+
+async def _record_llm_call(
+    user_id: Optional[str], tier: Optional[str],
+    provider: str, model_id: str,
+    input_text: Optional[str], output_text: Optional[str],
+    feature: str = "lex_chat",
+) -> float:
+    """Insert a usage row in db.llm_usage. Returns the estimated cost (£).
+    Wrapped in try/except so a tracking failure NEVER breaks a user request."""
+    try:
+        in_chars = len(input_text or "")
+        out_chars = len(output_text or "")
+        cost = _estimate_llm_cost_gbp(provider, model_id, in_chars, out_chars)
+        await db.llm_usage.insert_one({
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "user_id": user_id,
+            "tier": tier,
+            "provider": provider,
+            "model": model_id,
+            "feature": feature,
+            "input_chars": in_chars,
+            "output_chars": out_chars,
+            "cost_gbp": round(cost, 6),
+        })
+        return cost
+    except Exception as e:
+        logger.warning(f"LLM usage tracking failed (non-fatal): {e}")
+        return 0.0
+
+
 # ==================== Pre-launch Waitlist ====================
 # Captures emails from the marketing landing page (`aiadvocate.co.uk/`) before
 # the app is publicly available. Stored separately from `users` because these
@@ -1109,6 +1213,8 @@ async def admin_waitlist_csv(user: dict = Depends(get_user)):
 # ==================== Auth Routes ====================
 @api_router.post("/auth/signup", response_model=TokenResp)
 async def signup(data: UserSignup, request: Request):
+    # 🛡 Cloudflare Turnstile bot-shield (no-op if keys not configured)
+    await verify_turnstile(data.turnstile_token, request)
     if _is_disposable_email(data.email):
         raise HTTPException(400, "Please use a real email address — disposable / temporary email providers are not accepted.")
     if await db.users.find_one({"email": data.email}):
@@ -1599,6 +1705,15 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
+    # 💷 Track approximate LLM cost for the daily spend alert
+    await _record_llm_call(
+        user_id=user["id"], tier=tier,
+        provider=provider, model_id=model_id,
+        input_text=(system_msg + "\n" + data.message),
+        output_text=response,
+        feature="lex_chat",
+    )
+
     # 🔗 Resolve cross-session link: if Lex tagged the answer with [CONNECTED_TO: #N ...],
     # look up that session_id so the frontend can render the chip as a clickable jump.
     connected_session_id = None
@@ -1896,6 +2011,14 @@ async def lex_taster(req: Request, data: TasterMessage):
     now_iso = datetime.now(timezone.utc).isoformat()
     await db.taster_usage.insert_one({"key": fp_ip, "at": now_iso})
     await db.taster_usage.insert_one({"key": fp_dev, "at": now_iso})
+
+    # 💷 Track approximate LLM cost for the daily spend alert
+    await _record_llm_call(
+        user_id=None, tier="taster",
+        provider="anthropic", model_id="claude-haiku-4-5-20251001",
+        input_text=text, output_text=response,
+        feature="lex_taster",
+    )
 
     return {"response": response, "model": "claude-haiku-4-5"}
 
@@ -7106,6 +7229,53 @@ async def _run_stripe_price_audit() -> dict:
         "error":    sum(1 for r in rows if r["status"] == "error"),
     }
     return {"rows": rows, "summary": summary}
+
+
+@api_router.get("/admin/llm-spend")
+async def admin_llm_spend(_: dict = Depends(_check_admin_user), hours: int = 24):
+    """Returns total estimated LLM spend (£) over the last N hours, plus the
+    top 5 spending users. Used by the founder dashboard + spend-alert preview."""
+    hours = max(1, min(int(hours), 24 * 30))
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    agg = await db.llm_usage.aggregate([
+        {"$match": {"ts": {"$gte": cutoff}}},
+        {"$group": {"_id": None, "total": {"$sum": "$cost_gbp"}, "calls": {"$sum": 1}}},
+    ]).to_list(1)
+    total_gbp = round(((agg[0]["total"] if agg else 0) or 0), 2)
+    calls = (agg[0]["calls"] if agg else 0) or 0
+    threshold = float(os.environ.get("AA_DAILY_LLM_BUDGET_GBP") or 30)
+    by_model = await db.llm_usage.aggregate([
+        {"$match": {"ts": {"$gte": cutoff}}},
+        {"$group": {"_id": {"provider": "$provider", "model": "$model"},
+                    "spend": {"$sum": "$cost_gbp"}, "calls": {"$sum": 1}}},
+        {"$sort": {"spend": -1}},
+    ]).to_list(20)
+    by_user = await db.llm_usage.aggregate([
+        {"$match": {"ts": {"$gte": cutoff}}},
+        {"$group": {"_id": "$user_id",
+                    "spend": {"$sum": "$cost_gbp"}, "calls": {"$sum": 1}}},
+        {"$sort": {"spend": -1}},
+        {"$limit": 5},
+    ]).to_list(5)
+    for row in by_user:
+        uid = row.get("_id")
+        if not uid:
+            row["email"] = "(anonymous taster)"; row["tier"] = "—"
+            continue
+        u = await db.users.find_one({"id": uid}, {"email": 1, "tier": 1, "_id": 0})
+        row["email"] = (u or {}).get("email") or uid
+        row["tier"] = (u or {}).get("tier") or "—"
+        row["spend"] = round(row["spend"], 2)
+    return {
+        "hours": hours,
+        "total_gbp": total_gbp,
+        "calls": calls,
+        "threshold_gbp": threshold,
+        "over_threshold": total_gbp >= threshold,
+        "by_model": [{"provider": r["_id"]["provider"], "model": r["_id"]["model"],
+                      "spend": round(r["spend"], 2), "calls": r["calls"]} for r in by_model],
+        "top_users": by_user,
+    }
 
 
 @api_router.get("/admin/scheduler-status")
@@ -13935,6 +14105,90 @@ async def startup():
         sched.add_job(_job_create_drafts, CronTrigger(day=1,  hour=9, minute=0), id="aa_drafts",   replace_existing=True)
         sched.add_job(_job_autosend,      CronTrigger(day=3,  hour=9, minute=0), id="aa_autosend", replace_existing=True)
         sched.add_job(_job_weekly_stripe_audit, CronTrigger(day_of_week="mon", hour=9, minute=0), id="aa_stripe_audit", replace_existing=True)
+
+        # 💷 Hourly LLM-spend watchdog — emails the founder if last 24h cost
+        # exceeds AA_DAILY_LLM_BUDGET_GBP (default £30). Only fires once per
+        # 24h window so we don't spam.
+        async def _job_llm_spend_alert():
+            try:
+                threshold = float(os.environ.get("AA_DAILY_LLM_BUDGET_GBP") or 30)
+                cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+                pipeline = [
+                    {"$match": {"ts": {"$gte": cutoff}}},
+                    {"$group": {"_id": None, "total": {"$sum": "$cost_gbp"},
+                                "calls": {"$sum": 1}}},
+                ]
+                agg = await db.llm_usage.aggregate(pipeline).to_list(1)
+                total_gbp = round((agg[0]["total"] if agg else 0) or 0, 2)
+                calls = (agg[0]["calls"] if agg else 0) or 0
+                logger.info(f"[cron] LLM spend last 24h: £{total_gbp} across {calls} calls (threshold £{threshold})")
+                if total_gbp < threshold:
+                    return
+                # Has an alert already fired in the last 24h?
+                last_alert = await db.system_alerts.find_one(
+                    {"type": "llm_spend_alert"}, sort=[("ts", -1)]
+                )
+                if last_alert:
+                    last_ts = last_alert.get("ts", "")
+                    if last_ts >= cutoff:
+                        logger.info("[cron] LLM spend alert already fired within last 24h — skipping")
+                        return
+                # Build top-spender breakdown
+                by_user = await db.llm_usage.aggregate([
+                    {"$match": {"ts": {"$gte": cutoff}}},
+                    {"$group": {"_id": "$user_id",
+                                "spend": {"$sum": "$cost_gbp"},
+                                "calls": {"$sum": 1}}},
+                    {"$sort": {"spend": -1}},
+                    {"$limit": 5},
+                ]).to_list(5)
+                rows_html = []
+                for row in by_user:
+                    uid = row.get("_id") or "(anonymous taster)"
+                    email = "anonymous"
+                    if uid and uid != "(anonymous taster)":
+                        u = await db.users.find_one({"id": uid}, {"email": 1, "tier": 1, "_id": 0})
+                        if u:
+                            email = f"{u.get('email','?')} ({u.get('tier','?')})"
+                    rows_html.append(
+                        f"<tr><td style='padding:4px 8px;'>{email}</td>"
+                        f"<td style='padding:4px 8px;text-align:right;'>£{row['spend']:.2f}</td>"
+                        f"<td style='padding:4px 8px;text-align:right;'>{row['calls']}</td></tr>"
+                    )
+                body_html = (
+                    f"<p>⚠️ <strong>LLM spend alert:</strong> last 24h cost is <strong>£{total_gbp:.2f}</strong> "
+                    f"across <strong>{calls}</strong> calls — exceeds your daily budget of £{threshold:.2f}.</p>"
+                    f"<p>Top spenders in the last 24h:</p>"
+                    f"<table cellpadding='0' cellspacing='0' style='border-collapse:collapse;font-family:Arial;font-size:13px;'>"
+                    f"<thead><tr style='background:#f7c948;color:#1a1300;'>"
+                    f"<th style='padding:6px 8px;text-align:left;'>User</th>"
+                    f"<th style='padding:6px 8px;text-align:right;'>Spend</th>"
+                    f"<th style='padding:6px 8px;text-align:right;'>Calls</th>"
+                    f"</tr></thead><tbody>{''.join(rows_html) or '<tr><td colspan=3>No detail</td></tr>'}</tbody></table>"
+                    f"<p style='margin-top:12px;font-size:12px;color:#666;'>"
+                    f"If this looks like abuse, you can disable an account in Admin → Users. "
+                    f"To raise the threshold, update <code>AA_DAILY_LLM_BUDGET_GBP</code> in backend/.env. "
+                    f"This alert only fires once per 24h.</p>"
+                )
+                try:
+                    admin_emails = [e.strip() for e in (os.environ.get("ADMIN_EMAILS") or "samuel.malick@aiadvocate.co.uk").split(",") if e.strip()]
+                    from email_helper import send_email
+                    for ae in admin_emails:
+                        await send_email(to=ae, kind="firm",
+                            subject=f"⚠️ AI Advocate — LLM spend £{total_gbp:.2f} in last 24h",
+                            body_html=body_html)
+                    await db.system_alerts.insert_one({
+                        "type": "llm_spend_alert",
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "total_gbp": total_gbp, "calls": calls, "threshold": threshold,
+                    })
+                    logger.info(f"[cron] LLM spend alert email sent: £{total_gbp:.2f}")
+                except Exception as e:
+                    logger.warning(f"[cron] LLM spend alert email failed: {e}")
+            except Exception as e:
+                logger.exception(f"[cron] LLM spend alert job failed: {e}")
+
+        sched.add_job(_job_llm_spend_alert, CronTrigger(minute=0), id="aa_llm_spend", replace_existing=True)
         sched.start()
         app.state.aa_scheduler = sched
         logger.info("✅ Auto-billing scheduler started — next run: %s",

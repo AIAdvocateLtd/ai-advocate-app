@@ -569,3 +569,19 @@
 - P2 — Push notifications for legal deadlines (blocked on APNs/FCM keys).
 - P3 — Native iOS/Android Capacitor builds + store submissions.
 - P4 — Refactor App.js / server.py (DEFERRED — launch first).
+
+## 🆕 2026-02 — Cost-Spike Protection (3-feature shield, SHIPPED)
+1. **Cloudflare Turnstile bot-shield on signup** — `/auth/signup` now calls `verify_turnstile(token, request)` against Cloudflare's `siteverify` endpoint. Frontend `AuthScreen` injects the explicit-render Turnstile widget when `REACT_APP_TURNSTILE_SITE_KEY` is set. Both backend and frontend skip gracefully when keys aren't configured (dev/preview still works). Submit button is disabled until token is captured. ENV VARS NEEDED FROM USER: `TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY` (Cloudflare → Turnstile → "Add site").
+2. **Daily free-tier message cap** — already enforced at 5/day via existing `check_quota_and_increment("lex_chat", "daily")` (line 684 of server.py). Taster endpoint already locked at 1 free question per IP+device per 7 days. ✅ verified live.
+3. **LLM spend watchdog** — new `_record_llm_call()` helper writes every chat/taster turn to `db.llm_usage` with estimated £ cost (uses `LLM_RATES_GBP_PER_1M` rate table). New scheduled job `_job_llm_spend_alert` runs hourly: if last-24h spend exceeds `AA_DAILY_LLM_BUDGET_GBP` (default £30), founder gets an email with top spenders. Alert is rate-limited to once per 24h via `db.system_alerts`. New admin endpoint `GET /api/admin/llm-spend?hours=24` returns live breakdown for the dashboard.
+
+ENV VARS ADDED:
+- backend/.env: `TURNSTILE_SITE_KEY=""`, `TURNSTILE_SECRET_KEY=""`, `AA_DAILY_LLM_BUDGET_GBP="30"`
+- frontend/.env: `REACT_APP_TURNSTILE_SITE_KEY=""`
+
+Tested 2026-02:
+- ✅ Backend boots clean after restart
+- ✅ `/auth/signup` still accepts requests with no Turnstile token when keys are empty (graceful skip)
+- ✅ `db.llm_usage` aggregation pipeline works (verified with synthetic data)
+- ✅ `GET /api/admin/llm-spend` returns correct totals + top spenders
+- ✅ `yarn build` passes — no syntax errors
