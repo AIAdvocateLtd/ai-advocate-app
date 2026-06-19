@@ -1574,7 +1574,7 @@ async def ack_security_event(eid: str, user: dict = Depends(get_user)):
 async def update_prefs(data: dict, user: dict = Depends(get_user)):
     update = {}
     for k in ("language", "country", "full_name", "location_enabled", "latitude", "longitude", "city",
-              "emergency_contact_name", "emergency_contact_phone"):
+              "emergency_contact_name", "emergency_contact_phone", "jurisdiction"):
         if k in data:
             update[k] = data[k]
     # If the user explicitly set their country here, mark it as manually-pinned so
@@ -5767,6 +5767,10 @@ class PDFInline(BaseModel):
 async def pdf_inline(data: PDFInline, user: dict = Depends(get_user)):
     """Generate a PDF on the fly from any text content (e.g. fresh letter before save).
     Supports optional canvas-drawn e-signature for legally-valid letter signing."""
+    # 🛡 Size cap on signature payload (prevent abuse/DoS via huge canvas PNGs).
+    # Matches the cap used by /api/admin/firm-deal sign endpoint.
+    if data.signature_data_url and len(data.signature_data_url) > 200_000:
+        raise HTTPException(413, "Signature image too large (max ~150KB)")
     pdf_bytes = build_pdf(
         title=data.title, body=data.body, subtitle=data.subtitle,
         meta=data.meta, language=data.language or "en-GB",

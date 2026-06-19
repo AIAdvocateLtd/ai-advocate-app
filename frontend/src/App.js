@@ -4522,6 +4522,9 @@ function LetterLibraryModal({ lang, country, onClose }) {
   const [letter, setLetter] = useState("");
   const [letterId, setLetterId] = useState(null);
   const [search, setSearch] = useState("");
+  // 🖊 In-document e-signature (optional, free, legally valid under ECA 2000)
+  const [showSignPad, setShowSignPad] = useState(false);
+  const [signatureData, setSignatureData] = useState("");
 
   useEffect(() => { api.get("/letters/templates").then(r => setTpls(r.data)).catch(() => {}); }, []);
 
@@ -4591,13 +4594,43 @@ function LetterLibraryModal({ lang, country, onClose }) {
           <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
             <div data-testid="letter-output" style={{ whiteSpace: "pre-wrap", fontSize: 13.5, color: "var(--text-dim)", lineHeight: 1.6,
                           background: "#0a0a0a", border: "1px solid var(--line)", borderRadius: 10, padding: 14 }}>{letter}</div>
+
+            {/* 🖊 Optional canvas e-signature — drawn, embedded in PDF, legally valid under ECA 2000 */}
+            <div data-testid="letter-sign-card" style={{ marginTop: 12, padding: 12, borderRadius: 12, background: "var(--bg-card)", border: "1px solid var(--gold-deep)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--gold)" }}>
+                    {signatureData ? "✓ Signature applied" : "Sign this letter (optional)"}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                    {signatureData ? "Your signature will appear at the bottom of the PDF." : "Draw with finger or mouse — embedded into the PDF. Free, legally valid under ECA 2000."}
+                  </div>
+                </div>
+                <button type="button" className="btn-ghost" data-testid="toggle-signature-btn"
+                  onClick={() => setShowSignPad(v => !v)} style={{ padding: "6px 14px", fontSize: 12 }}>
+                  {showSignPad ? "Hide pad" : (signatureData ? "Re-sign" : "Sign letter")}
+                </button>
+              </div>
+              {showSignPad && (
+                <SignaturePad value={signatureData} onChange={setSignatureData} height={150} />
+              )}
+            </div>
+
             <div className="flex gap-2" style={{ marginTop: 12 }}>
               <button className="btn-gold" data-testid="letter-pdf"
-                onClick={() => pdfInline({ title: sel.title, subtitle: form.recipient, body: letter, filename: `${sel.id}.pdf` })}
+                onClick={() => pdfInline({
+                  title: sel.title,
+                  subtitle: form.recipient,
+                  body: letter,
+                  filename: `${sel.id}${signatureData ? "_SIGNED" : ""}.pdf`,
+                  signature_data_url: signatureData || undefined,
+                  signer_name: signatureData ? (form.your_name || undefined) : undefined,
+                  signer_date: signatureData ? new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : undefined,
+                })}
                 style={{ flex: 1 }}>
                 <Download size={14} style={{ display: "inline", marginRight: 6 }} />Download PDF
               </button>
-              <button className="btn-ghost" onClick={() => { setLetter(""); setLetterId(null); }} style={{ flex: 1 }}>{t(lang, "letterRedo")}</button>
+              <button className="btn-ghost" onClick={() => { setLetter(""); setLetterId(null); setSignatureData(""); setShowSignPad(false); }} style={{ flex: 1 }}>{t(lang, "letterRedo")}</button>
             </div>
           </div>
         )}
@@ -7487,6 +7520,12 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
     setCountry(c);
     try { const { data } = await api.patch("/auth/preferences", { country: c }); onUpdate(data); }
     catch {}
+    // 🧹 Clear UK-internal jurisdiction when switching away from GB so Lex
+    // doesn't keep applying Scots/Welsh law to a US/EU user who once lived there.
+    if (c !== "GB" && user.jurisdiction) {
+      try { await api.patch("/auth/preferences", { jurisdiction: null }); } catch {}
+      onUpdate({ ...user, jurisdiction: null });
+    }
   };
 
   return (

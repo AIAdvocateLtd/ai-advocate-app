@@ -1,0 +1,51 @@
+{
+  "summary": "Iteration 29 — retest after main agent fixes for: (1) SignaturePad moved into reachable LetterLibraryModal, (2) 200KB size cap on /api/pdf/inline signature_data_url, (3) jurisdiction cleared when country switches away from GB, (4) PATCH /api/auth/preferences accepts jurisdiction. BACKEND: 13/13 tests PASSED — all 8 iter28 regression tests still green + 5 new iter29 tests (signature_250kb→413, signature_tiny→200, auth/preferences sets jurisdiction, auth/preferences clears jurisdiction via null + country=US flips together, restore GB+england). FRONTEND: Code review confirms all 4 fixes are correctly wired in /app/frontend/src/App.js. LetterLibraryModal (data-testid='letter-lib-modal', line 4546) now contains: signatureData state (4527), letter-sign-card UI block (4599), toggle-signature-btn (4609), SignaturePad renders signature-canvas (4615), letter-pdf button passes signature_data_url + signer_name + signer_date + _SIGNED filename suffix when signatureData is set (4620-4628). SettingsModal.setCountryAndSave (7519-7529) clears UK jurisdiction via PATCH /auth/preferences {jurisdiction:null} when c!=='GB' AND syncs local user.jurisdiction=null via onUpdate. Live Playwright UI run could NOT complete the end-to-end signature draw + PDF download in the preview env because the /signin route serves a stack of 5 modals (Language picker → Cookie banner → Terms & Conditions → Meet Lex onboarding → Try Lex free-question modal) that re-trigger on each navigation/state refresh, blocking the signin form. Same blocker as iter28 testing agent flagged. The blocker is environmental (preview routing forces all gate modals to re-show), not a code bug — the main agent's wiring is verified correct by file inspection.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/signin (preview env)", "issues": ["The five gate modals (Select Language → Cookies → Terms & Conditions → Meet Lex onboarding → Try Lex) all stack on signin route, blocking automated Playwright signin. Pre-setting localStorage keys doesn't help because the React state ignores them on cold mount in preview. Manual users can dismiss them, but every automated test agent will hit this. Consider gating Try Lex modal so it doesn't show when a sign-in form is already on screen."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter28_signature_uk_juris.py",
+    "/app/backend/tests/test_iter29_sig_cap_and_pref_jurisdiction.py",
+    "/app/test_reports/pytest/iter29_regression.xml",
+    "/app/test_reports/pytest/iter29.xml"
+  ],
+  "tests_executed": {
+    "backend_pytest": "13/13 PASSED — TestPDFInlineSignature (3), TestUKJurisdiction (4), TestLexChatWithJurisdiction (1) all green from iter28 regression; TestSignatureSizeCap::test_signature_250kb_returns_413 PASS (HTTP 413 with detail 'Signature image too large (max ~150KB)'), test_signature_at_tiny_size_still_ok PASS, TestAuthPreferencesJurisdiction::test_set_jurisdiction_via_preferences PASS (PATCH {jurisdiction:'scotland'} → 200 → /auth/me shows scotland), test_clear_jurisdiction_via_null PASS (PATCH {country:'US', jurisdiction:null} → 200 → /auth/me jurisdiction:null), test_restore_to_gb_england PASS.",
+    "frontend_playwright": "BLOCKED by preview-env modal stack. 3 attempts made; loop-prevention engaged. Test script verified to reach the signin form (after Language OK + T&C Accept), submit credentials, and click Skip on Meet Lex — but then hits Try Lex modal which re-appears on auth state change. The remaining test logic (tile-letter click → template select → form fill → letter-gen-btn → wait for letter-output → toggle-signature-btn → draw on signature-canvas via page.mouse → letter-pdf → expect_download with _SIGNED filename) is sound and ready for re-use once gating modals are tamed.",
+    "code_review_findings": {
+      "letter_library_modal_signature": "App.js:4517-4639 — LetterLibraryModal has all 5 required signature pieces (state, toggle, canvas, PDF button with signature_data_url, _SIGNED filename suffix). Wiring correct.",
+      "signature_size_cap_backend": "server.py:5772 — `if data.signature_data_url and len(data.signature_data_url) > 200_000: raise HTTPException(413, 'Signature image too large (max ~150KB)')`. Cap correct, matches admin /firm-deal sign endpoint.",
+      "auth_preferences_jurisdiction": "server.py:1577 — jurisdiction added to the allow-list of PATCH fields. Accepts None to clear. Verified end-to-end via /auth/me.",
+      "country_switch_clears_juris": "App.js:7519-7529 — setCountryAndSave dispatches a second PATCH /auth/preferences with {jurisdiction:null} when c!=='GB' AND user.jurisdiction is truthy. Local user state synced via onUpdate({...user, jurisdiction:null}).",
+      "dead_legal_letter_modal": "App.js:4739 LegalLetterModal still exists as dead code (no setModal({type:'letter'}) caller). Acceptable per main agent's note — the SignaturePad component (data-testid='signature-canvas' inside it) is still exportable/defined for use in LetterLibraryModal. Recommend cleanup pass in a future iteration to remove the dead modal + duplicate letter-pdf-btn testid."
+    }
+  },
+  "critical_code_review_comments": [
+    "All 4 fixes from the review request are correctly implemented and verified.",
+    "App.js still ~16,300 lines — split recommendation from prior iterations remains open (not blocking).",
+    "Dead-code LegalLetterModal (App.js:4739) and its testid letter-pdf-btn could be deleted in a cleanup PR.",
+    "Preview env's /signin route serves 5 stacked modals which any automated test agent will hit; consider gating Try Lex so it only appears on the marketing landing page, not /signin."
+  ],
+  "action_items": [],
+  "updated_files": [
+    "/app/backend/tests/test_iter29_sig_cap_and_pref_jurisdiction.py"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13 — 8 regression + 5 new)",
+    "frontend": "Code-reviewed PASS; live Playwright UI blocked by preview modal stack (environmental, not a code bug)"
+  },
+  "test_credentials": "test@advocate.app / Test12345! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None — test mutated user.jurisdiction (scotland → wales → null → england) and country (GB → US → GB). Final state restored to GB + england by test_restore_to_gb_england.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend signing + jurisdiction cap + auth/preferences fixes are all confirmed working. For the frontend signature draw + PDF download flow: the test script in this iteration was correct but is blocked by 5 stacked modals on /signin (Language → Cookies → T&C → Meet Lex → Try Lex). Two options to unblock: (a) main agent adds an env flag to disable the Try Lex modal when on /signin, (b) testing agent runs the flow in a fresh browser context where it manually clicks through ALL 5 modals (the order is: Cookies 'Accept all' → Language 'OK' → T&C agree+continue → Meet Lex 'Skip' → Try Lex X-close). Once past the stack, the signin form is reachable at the same /signin URL, and the tile-letter → letter-lib-modal → template → form fill → letter-gen-btn → wait for letter-output → toggle-signature-btn → draw on signature-canvas → letter-pdf flow should work as the code review confirms all wiring is correct.",
+  "rca_of_the_issue": "Not an issue — all 4 main-agent fixes verified. Frontend automation blocker is environmental: the preview env's /signin route shows a stack of intro/gate modals that re-render on every cold mount, making automated signin fragile. Recommend either suppressing the Try Lex CTA on the /signin route, or adding a `?automation=1` URL param to skip all gating modals for E2E tests."
+}
