@@ -609,3 +609,42 @@ Tested 2026-02:
 ### Known cleanup
 - `LegalLetterModal` (App.js:4739) is now dead code (no callers). Acceptable for now; cleanup PR can delete it + the duplicate `letter-pdf-btn` testid.
 - App.js still ~16,300 lines — deferred refactor.
+
+## 🆕 2026-02 — Partner Programme + Founder Single Pane of Glass (SHIPPED)
+
+### Partner Programme (B2B referral attribution + commission ledger)
+- New module: `/app/backend/partner_module.py` — fully encapsulated.
+- New collection `partners` (directory) + `partner_commissions` (ledger) with unique index `(partner_id, user_id, period_key)` for idempotency.
+- Commission model: **10% of monthly subscription revenue · capped at £40 per user lifetime · 12-month attribution window from signup**.
+- Monthly accrual job (cron: 1st of month at 02:00 UTC) walks every paying user with `partner_code` and credits the partner. Idempotent — safe to re-run.
+- New endpoints (all owner-only via `_check_admin_user`):
+  - `GET /api/admin/partners` — list partners with lifetime owed/paid
+  - `POST /api/admin/partners` — create partner
+  - `PATCH /api/admin/partners/{id}` — edit (status, bank details, etc.)
+  - `GET /api/admin/partners/{id}/ledger` — full ledger
+  - `POST /api/admin/partners/{id}/mark-paid` — bulk-mark periods as paid
+  - `GET /api/admin/partners/{id}/statement.csv` — BACS-ready CSV export
+  - `GET /api/admin/partners/_summary` — dashboard summary
+  - `POST /api/admin/partners/_accrue-now` — manual trigger (testing)
+- Frontend: signup endpoint accepts `partner_code` (auto-captured from `?ref=CODE` URL param and persisted in localStorage until first signup).
+- Tested manually: idempotency confirmed (duplicate detection works), cap enforcement confirmed (skipped_capped after £40 reached).
+
+### Founder Single Pane of Glass (`/founder`)
+- New backend endpoint `GET /api/founder/overview` — gated to `FOUNDER_EMAIL` env (default `samuel.malick@aiadvocate.co.uk`). 403 for any other admin.
+- Returns: money KPIs (paying users, total users, new 24h, LLM cost 24h, partner $ owed, active partners), business relationships, critical deadlines, vault docs, owner's diary, runbook.
+- New collections: `business_relationships`, `founder_deadlines`, `founder_diary`.
+- Seeded: 14 business relationships (Stripe, Emergent, Cloudflare, Resend, Tavily, PostHog, Sentry, Anthropic/OpenAI/Google, Google Places, Apple Dev, Google Play, Companies House, ICO, JMG Insurance) + 6 critical deadlines (CH confirmation statement, accounts due, ICO renewal, Apple Dev renewal, CFC insurance review, Stripe price audit).
+- Endpoints to manage all three: POST/DELETE for relationships, POST/POST-done/DELETE for deadlines, POST for diary entries.
+- Frontend: `FounderPage` component (~250 lines) rendered when sessionStorage `aa_view === 'founder'`. Triggered by visiting `/founder`. Includes all 7 sections (Money, Deadlines, Relationships, Vault, Diary, Runbook).
+
+### B2B Landing Page (`/partners`)
+- New static page: `/app/frontend/public/for-organisations.html`.
+- Routes: `/partners`, `/for-organisations`, `/for-councils`, `/for-charities` all redirect to it.
+- Content: hero, key stats (£42 CAB referral cost, ~40% reduction, 11 languages), feature grid, 3-tier pricing (Pilot £99 / Council £499 / Enterprise £1,500+), partner revenue-share callout, target audience list, CTA strip linking to mailto.
+- Linked from `welcome.html` nav and footer.
+
+### Cold-outreach emails (drafts in markdown)
+- `/app/memory/partner_outreach_emails.md` — 4 polished cold emails (councils, CABs, housing assocs, debt charities) with updated capped 10% terms. Ready for Samuel to copy-paste into Gmail and personalise.
+
+### Critical operational rule
+Before sending anything that creates a financial commitment, paste it for review.

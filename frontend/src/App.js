@@ -453,6 +453,21 @@ function AuthScreen({ lang, country, onAuth }) {
   const turnstileRef = useRef(null);
   const turnstileWidgetId = useRef(null);
 
+  // 🤝 Partner referral attribution — captures ?ref=CODE from the URL on the
+  // FIRST visit and persists it through to signup (even if the user closes the
+  // tab and comes back later). Cleared only after a successful signup.
+  const [partnerCode, setPartnerCode] = useState(() => {
+    try {
+      const url = new URL(window.location.href);
+      const fromUrl = (url.searchParams.get("ref") || "").trim().toUpperCase();
+      if (fromUrl) {
+        localStorage.setItem("aa_partner_code", fromUrl);
+        return fromUrl;
+      }
+      return localStorage.getItem("aa_partner_code") || "";
+    } catch { return ""; }
+  });
+
   // First-run experience: show onboarding tour then taster Lex on initial visit
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem("aa_welcomed"));
   const [showTaster, setShowTaster] = useState(false);
@@ -540,7 +555,7 @@ function AuthScreen({ lang, country, onAuth }) {
         }
       } catch { /* localStorage blocked — pass empty, backend is permissive */ }
       const body = mode === "signup"
-        ? { email, password, full_name: name, language: lang, country, device_id: deviceId, turnstile_token: turnstileToken }
+        ? { email, password, full_name: name, language: lang, country, device_id: deviceId, turnstile_token: turnstileToken, partner_code: partnerCode || undefined }
         : { email, password };
       const { data } = await api.post(path, body);
       // 🔐 2FA gate — if the account has TOTP enabled, the backend returns
@@ -550,6 +565,11 @@ function AuthScreen({ lang, country, onAuth }) {
         return;
       }
       onAuth(data);
+      // 🤝 Clear stored partner code after successful signup so we don't re-attribute
+      // a returning user later. (Only on signup — sign-in leaves it alone.)
+      if (mode === "signup") {
+        try { localStorage.removeItem("aa_partner_code"); } catch {}
+      }
     } catch (e) {
       const detail = e?.response?.data?.detail || "Auth failed";
       // 🔁 Duplicate-email signup: backend now returns 409 + a friendly message.
@@ -744,6 +764,15 @@ function AuthScreen({ lang, country, onAuth }) {
         )}
         <input className="input" type="email" data-testid="email-input" placeholder={t(lang, "email")} value={email} onChange={(e) => setEmail(e.target.value)} required style={{ marginBottom: 10 }} />
         <input className="input" type="password" data-testid="password-input" placeholder={t(lang, "password")} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} style={{ marginBottom: 10 }} />
+        {mode === "signup" && partnerCode && (
+          <div data-testid="partner-code-banner" style={{
+            marginBottom: 10, padding: "8px 12px", borderRadius: 8,
+            background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)",
+            fontSize: 12, color: "var(--text)", textAlign: "center",
+          }}>
+            🤝 Referred by <strong style={{ color: "var(--gold)" }}>{partnerCode}</strong>
+          </div>
+        )}
         {mode === "signup" && TURNSTILE_SITE_KEY && (
           <div ref={turnstileRef} data-testid="turnstile-widget" style={{ marginBottom: 10, display: "flex", justifyContent: "center" }} />
         )}
@@ -15790,6 +15819,241 @@ function ManageDataModal({ lang, onClose, onAccountDeleted }) {
 
 // ---------- Demo banner removed — see top of file note re: demo deletion ----------
 
+// ============================================================================
+// 👁 FOUNDER — Single Pane of Glass
+// ============================================================================
+// Solo-founder operations dashboard. Auth-gated to FOUNDER_EMAIL only on the
+// backend (samuel.malick@aiadvocate.co.uk). Pulls live money/users/LLM spend,
+// business relationships, critical deadlines, and a personal owner diary.
+// Loaded when window.location.pathname === '/founder' AND user is signed in.
+function FounderPage({ user, onClose }) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(true);
+  const [err, setErr] = useState("");
+  const [diaryNote, setDiaryNote] = useState("");
+
+  const load = useCallback(async () => {
+    setBusy(true); setErr("");
+    try {
+      const { data } = await api.get("/founder/overview");
+      setData(data);
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Access denied — founder email only.");
+    } finally { setBusy(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const fmtGbp = (n) => `£${Number(n || 0).toFixed(2)}`;
+  const daysUntil = (iso) => {
+    if (!iso) return null;
+    const ms = new Date(iso).getTime() - Date.now();
+    return Math.ceil(ms / (1000 * 60 * 60 * 24));
+  };
+
+  const addDiary = async () => {
+    if (!diaryNote.trim()) return;
+    try {
+      await api.post("/founder/diary", { note: diaryNote });
+      setDiaryNote("");
+      load();
+    } catch {}
+  };
+  const markDone = async (id) => {
+    try { await api.post(`/founder/deadlines/${id}/done`); load(); } catch {}
+  };
+
+  if (busy && !data) return (
+    <div style={{ padding: 40, textAlign: "center", color: "var(--text)" }}>
+      <span className="spinner" /> Loading founder dashboard…
+    </div>
+  );
+  if (err) return (
+    <div style={{ maxWidth: 600, margin: "80px auto", padding: 32, background: "var(--bg-card)", borderRadius: 14, border: "1px solid var(--line)", textAlign: "center" }}>
+      <h2 style={{ color: "var(--gold)", marginBottom: 12 }}>Founder access only</h2>
+      <p style={{ color: "var(--text-muted)" }}>{err}</p>
+      <button className="btn-ghost" onClick={onClose} style={{ marginTop: 18 }}>Back to app</button>
+    </div>
+  );
+
+  const m = data?.money || {};
+
+  return (
+    <div data-testid="founder-page" style={{ background: "var(--bg)", minHeight: "100vh", color: "var(--text)" }}>
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 24px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+          <div>
+            <h1 className="brand-font gold" style={{ fontSize: 32 }}>Founder dashboard</h1>
+            <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
+              Welcome back, {user.full_name || user.email}. Everything you need to run the business.
+            </p>
+          </div>
+          <button className="btn-ghost" data-testid="founder-back-btn" onClick={onClose}>← App</button>
+        </div>
+
+        {/* MONEY TODAY */}
+        <Section title="💰 Money today">
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
+            <Kpi label="Paying users" value={m.paying_users} />
+            <Kpi label="Total users" value={m.total_users} />
+            <Kpi label="New users (24h)" value={m.new_24h_users} accent={m.new_24h_users > 0 ? "good" : "neutral"} />
+            <Kpi label="LLM cost (24h)" value={fmtGbp(m.llm_24h_cost_gbp)} />
+            <Kpi label="LLM calls (24h)" value={m.llm_24h_calls} />
+            <Kpi label="Partner $ owed" value={fmtGbp(m.partner_commissions_owed_gbp)} accent={m.partner_commissions_owed_gbp > 0 ? "warn" : "neutral"} />
+            <Kpi label="Active partners" value={m.active_partners} />
+          </div>
+        </Section>
+
+        {/* DEADLINES */}
+        <Section title="📅 Critical deadlines">
+          {(data?.deadlines || []).length === 0 ? (
+            <Empty>No upcoming deadlines</Empty>
+          ) : (
+            <ul style={{ listStyle: "none", padding: 0 }}>
+              {data.deadlines.map(d => {
+                const days = daysUntil(d.due_date);
+                const colour = days != null && days < 14 ? "var(--danger)" : days < 60 ? "var(--gold)" : "var(--text-muted)";
+                return (
+                  <li key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line)" }}>
+                    <div>
+                      <div style={{ color: "var(--text)", fontWeight: 600 }}>{d.title}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                        Due {d.due_date}{d.amount_gbp ? ` · ${fmtGbp(d.amount_gbp)}` : ""}
+                        {d.action ? ` · ${d.action}` : ""}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {days != null && <span style={{ color: colour, fontSize: 12, fontWeight: 700 }}>{days}d</span>}
+                      <button className="btn-ghost" data-testid={`deadline-done-${d.id}`} onClick={() => markDone(d.id)} style={{ padding: "4px 10px", fontSize: 11 }}>Done</button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Section>
+
+        {/* BUSINESS RELATIONSHIPS */}
+        <Section title="🤝 Business relationships">
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "var(--bg-card)", color: "var(--gold)" }}>
+                  <th style={{ padding: "8px 10px", textAlign: "left" }}>Service</th>
+                  <th style={{ padding: "8px 10px", textAlign: "left" }}>Category</th>
+                  <th style={{ padding: "8px 10px", textAlign: "right" }}>Monthly £</th>
+                  <th style={{ padding: "8px 10px", textAlign: "left" }}>Renewal</th>
+                  <th style={{ padding: "8px 10px", textAlign: "left" }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.business_relationships || []).map(r => (
+                  <tr key={r.id} style={{ borderBottom: "1px solid var(--line)" }}>
+                    <td style={{ padding: "8px 10px" }}>
+                      {r.login_url
+                        ? <a href={r.login_url} target="_blank" rel="noreferrer" style={{ color: "var(--gold)" }}>{r.name}</a>
+                        : r.name}
+                    </td>
+                    <td style={{ padding: "8px 10px", color: "var(--text-muted)" }}>{r.category}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", color: "var(--text)" }}>{r.monthly_cost_gbp != null ? fmtGbp(r.monthly_cost_gbp) : "—"}</td>
+                    <td style={{ padding: "8px 10px", color: "var(--text-muted)" }}>{r.renewal_date || "—"}</td>
+                    <td style={{ padding: "8px 10px" }}>
+                      <span style={{ padding: "2px 8px", borderRadius: 999, fontSize: 11,
+                                     background: r.status === "active" ? "rgba(34,197,94,0.12)" : "rgba(247,201,72,0.12)",
+                                     color: r.status === "active" ? "#86efac" : "var(--gold)" }}>
+                        {r.status || "—"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+
+        {/* VAULT */}
+        <Section title="📁 Vault">
+          <ul style={{ listStyle: "none", padding: 0 }}>
+            {(data?.vault_docs || []).map(d => (
+              <li key={d.url} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+                <a href={d.url} target="_blank" rel="noreferrer" style={{ color: "var(--gold)" }}>
+                  📄 {d.name}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </Section>
+
+        {/* DIARY */}
+        <Section title="📓 Owner's diary">
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <input
+              className="input"
+              data-testid="diary-input"
+              placeholder="Log a decision, deal, or note…"
+              value={diaryNote}
+              onChange={(e) => setDiaryNote(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") addDiary(); }}
+              style={{ flex: 1 }}
+            />
+            <button className="btn-gold" data-testid="diary-add-btn" onClick={addDiary} disabled={!diaryNote.trim()}>Add</button>
+          </div>
+          {(data?.diary || []).length === 0 ? (
+            <Empty>No diary entries yet. Use this as your founder's decision log.</Empty>
+          ) : (
+            <ul style={{ listStyle: "none", padding: 0 }}>
+              {data.diary.map(e => (
+                <li key={e.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{(e.ts || "").slice(0, 16).replace("T", " ")}</div>
+                  <div style={{ color: "var(--text)" }}>{e.note}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+
+        {/* RUNBOOK */}
+        <Section title="🆘 Bus-factor runbook">
+          <div style={{ background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)", padding: 14, borderRadius: 10, fontSize: 13, color: "var(--text-dim)", lineHeight: 1.7 }}>
+            <strong style={{ color: "var(--gold)" }}>If something happens to me, anyone reading this needs:</strong>
+            <ul style={{ paddingLeft: 20, marginTop: 8 }}>
+              <li>Companies House: log in with credentials in 1Password → Company 16612244</li>
+              <li>Domain (aiadvocate.co.uk): Cloudflare account — registrar TBC, see Cloudflare dashboard</li>
+              <li>Production code: Emergent — log in as samuel.malick@aiadvocate.co.uk</li>
+              <li>Stripe: dashboard.stripe.com — pause subscriptions to avoid further billing</li>
+              <li>Customer notifications: send via Resend with template "service-paused"</li>
+              <li>Accountant contact: [add contact details]</li>
+              <li>ICO contact: 0303 123 1113 if a data breach must be reported within 72h</li>
+            </ul>
+          </div>
+        </Section>
+      </div>
+    </div>
+  );
+}
+
+// Tiny helper components for FounderPage
+function Section({ title, children }) {
+  return (
+    <div style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 18, marginBottom: 16 }}>
+      <h2 style={{ color: "var(--gold)", fontSize: 16, marginBottom: 12 }}>{title}</h2>
+      {children}
+    </div>
+  );
+}
+function Kpi({ label, value, accent }) {
+  const colour = accent === "good" ? "#86efac" : accent === "warn" ? "#fbbf24" : "var(--text)";
+  return (
+    <div style={{ background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, padding: 12 }}>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+      <div style={{ fontSize: 22, color: colour, fontWeight: 800, marginTop: 4 }}>{value}</div>
+    </div>
+  );
+}
+function Empty({ children }) {
+  return <div style={{ color: "var(--text-muted)", fontSize: 13, padding: 12, textAlign: "center" }}>{children}</div>;
+}
+
+
 function App() {
   // Public magic-link pages — bypass auth/marketing entirely. Captured BEFORE
   // hooks but rendered AFTER all hooks to respect rules-of-hooks.
@@ -15818,6 +16082,15 @@ function App() {
     if (p.startsWith("/witness/") || p.startsWith("/evidence/")) return; // public magic-link pages
     if (p === "/welcome") { window.location.replace("/welcome.html"); return; }
     if (p === "/for-firms" || p === "/for-law-firms") { window.location.replace("/founding-firm-pitch.html"); return; }
+    // 🤝 B2B partner programme landing — councils, CABs, charities, housing assocs
+    if (p === "/partners" || p === "/for-organisations" || p === "/for-councils" || p === "/for-charities") {
+      window.location.replace("/for-organisations.html"); return;
+    }
+    // 👁 Founder Single Pane of Glass — handled inside the React app (auth-gated)
+    if (p === "/founder") {
+      sessionStorage.setItem("aa_skip_marketing", "1");
+      sessionStorage.setItem("aa_view", "founder");
+    }
     // Signal-clear: if user explicitly navigated to /app or /signin, mark a
     // session flag so they never get bounced back to marketing on subsequent
     // re-renders (e.g. after a login redirect).
@@ -15931,7 +16204,11 @@ function App() {
       {step === "lang" && <LanguagePicker lang={lang} initial={lang} onConfirm={(l) => { setLang(l); setStep("terms"); }} />}
       {step === "terms" && <TermsScreen lang={lang} onAccept={() => { localStorage.setItem("aa_terms", "1"); setStep("auth"); }} onDecline={() => setStep("lang")} onChangeLang={() => setStep("lang")} />}
       {step === "auth" && <AuthScreen lang={lang} country={country} onAuth={onAuth} />}
-      {step === "app" && user && !showSplash && (
+      {/* 👁 Founder dashboard — auth-gated to founder email, accessed via /founder */}
+      {step === "app" && user && sessionStorage.getItem("aa_view") === "founder" && (
+        <FounderPage user={user} onClose={() => { sessionStorage.removeItem("aa_view"); window.location.replace("/app"); }} />
+      )}
+      {step === "app" && user && !showSplash && sessionStorage.getItem("aa_view") !== "founder" && (
         <>
           {jurisdictionPrompt && (() => {
             const detectedName = COUNTRIES.find(c => c.code === jurisdictionPrompt.detected_country)?.name || jurisdictionPrompt.detected_country;

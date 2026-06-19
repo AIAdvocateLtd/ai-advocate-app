@@ -112,6 +112,7 @@ class UserSignup(BaseModel):
     jurisdiction: str = "england"  # england | wales | scotland | northern_ireland
     device_id: Optional[str] = None  # client-side UUID for abuse fingerprinting
     turnstile_token: Optional[str] = None  # Cloudflare Turnstile token (bot-shield)
+    partner_code: Optional[str] = None  # B2B referral attribution (?ref=LAMBETH-CAB)
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -1316,6 +1317,7 @@ async def signup(data: UserSignup, request: Request):
         "language": data.language,
         "country": data.country,
         "jurisdiction": (data.jurisdiction or "england").lower(),  # legal-system context for Lex (england/wales/scotland/northern_ireland)
+        "partner_code": (data.partner_code or "").strip().upper() or None,  # B2B referral attribution — stays with the user for commission accrual
         "auth_provider": "email",
         "created_at": now.isoformat(),
         "trial_start_date": now.isoformat(),
@@ -7264,6 +7266,136 @@ async def auth_2fa_login(req: TOTPLoginReq):
     token = make_token(user["id"], user["email"])
     user.pop("password_hash", None)
     return {"token": token, "access_token": token, "user": user}
+
+
+# ==================== FOUNDER OPERATIONS DASHBOARD ====================
+# Single Pane of Glass for the sole director. Available at /api/founder/* and
+# protected by the same admin-email check (extra strict: must be the founder
+# email exactly — not just "any admin"). Frontend route is /founder.
+async def _check_founder_only(user: dict = Depends(get_user)):
+    founder_email = (os.environ.get("FOUNDER_EMAIL") or "samuel.malick@aiadvocate.co.uk").lower()
+    if (user.get("email") or "").lower() != founder_email:
+        raise HTTPException(403, "Founder access only.")
+    return user
+
+@api_router.get("/founder/overview")
+async def founder_overview(_: dict = Depends(_check_founder_only)):
+    """Single Pane of Glass — pulls every critical operations stat in one call."""
+    now = datetime.now(timezone.utc)
+    iso_24h = (now - timedelta(hours=24)).isoformat()
+    iso_30d = (now - timedelta(days=30)).isoformat()
+
+    # 💰 Money — pull from existing collections (no new ones needed)
+    paying_users = await db.users.count_documents({
+        "tier": {"$in": ["plus", "pro", "yearly", "trial_pro"]},
+        "subscription_status": {"$in": ["active", "trialing", "past_due", None]},
+    })
+    total_users = await db.users.count_documents({})
+    new_24h_users = await db.users.count_documents({"created_at": {"$gte": iso_24h}})
+
+    # 💷 LLM spend last 24h
+    llm_24h = await db.llm_usage.aggregate([
+        {"$match": {"ts": {"$gte": iso_24h}}},
+        {"$group": {"_id": None, "total": {"$sum": "$cost_gbp"}, "calls": {"$sum": 1}}},
+    ]).to_list(1)
+    llm_24h_total = round(((llm_24h[0]["total"] if llm_24h else 0) or 0), 2)
+    llm_24h_calls = (llm_24h[0]["calls"] if llm_24h else 0) or 0
+
+    # 🤝 Partner commissions owed
+    pc = await db.partner_commissions.aggregate([
+        {"$match": {"paid": False}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount_gbp"}}},
+    ]).to_list(1)
+    partner_owed = round(((pc[0]["total"] if pc else 0) or 0), 2)
+    partner_count = await db.partners.count_documents({"status": {"$ne": "terminated"}})
+
+    # 🏢 Business relationships (manually curated by founder)
+    relationships = await db.business_relationships.find({}, {"_id": 0}).sort("name", 1).to_list(200)
+
+    # 📅 Critical deadlines (manually curated)
+    deadlines = await db.founder_deadlines.find({"done": {"$ne": True}}, {"_id": 0}).sort("due_date", 1).to_list(100)
+
+    # 📓 Owner's diary (latest 20 entries)
+    diary = await db.founder_diary.find({}, {"_id": 0}).sort("ts", -1).to_list(20)
+
+    return {
+        "as_of": now.isoformat(),
+        "money": {
+            "paying_users": paying_users,
+            "total_users": total_users,
+            "new_24h_users": new_24h_users,
+            "llm_24h_cost_gbp": llm_24h_total,
+            "llm_24h_calls": llm_24h_calls,
+            "partner_commissions_owed_gbp": partner_owed,
+            "active_partners": partner_count,
+        },
+        "business_relationships": relationships,
+        "deadlines": deadlines,
+        "diary": diary,
+        "vault_docs": [
+            {"name": "AI Advocate Founder Briefing", "url": "/AI_Advocate_Founder_Briefing.pdf"},
+            {"name": "AI Advocate Solicitor Brief", "url": "/AI_Advocate_Solicitor_Brief.pdf"},
+            {"name": "Privacy Policy (live)", "url": "/privacy.html"},
+            {"name": "Terms of Service (live)", "url": "/terms.html"},
+        ],
+    }
+
+class BusinessRelationship(BaseModel):
+    name: str
+    category: str             # llm | payment | email | hosting | analytics | insurance | app_store | other
+    login_url: Optional[str] = None
+    account_email: Optional[str] = None
+    monthly_cost_gbp: Optional[float] = None
+    status: Optional[str] = "active"   # active | trial | cancelled | unpaid
+    renewal_date: Optional[str] = None  # YYYY-MM-DD
+    notes: Optional[str] = None
+
+@api_router.post("/founder/relationships")
+async def add_relationship(data: BusinessRelationship, _: dict = Depends(_check_founder_only)):
+    rec = {**data.dict(), "id": str(uuid.uuid4()), "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.business_relationships.insert_one(rec)
+    rec.pop("_id", None)
+    return rec
+
+@api_router.delete("/founder/relationships/{rid}")
+async def delete_relationship(rid: str, _: dict = Depends(_check_founder_only)):
+    r = await db.business_relationships.delete_one({"id": rid})
+    return {"deleted": r.deleted_count}
+
+class FounderDeadline(BaseModel):
+    title: str
+    due_date: str             # YYYY-MM-DD
+    amount_gbp: Optional[float] = None
+    action: Optional[str] = None
+    category: Optional[str] = "other"  # filing | renewal | tax | regulatory | other
+
+@api_router.post("/founder/deadlines")
+async def add_deadline(data: FounderDeadline, _: dict = Depends(_check_founder_only)):
+    rec = {**data.dict(), "id": str(uuid.uuid4()), "done": False,
+           "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.founder_deadlines.insert_one(rec)
+    rec.pop("_id", None)
+    return rec
+
+@api_router.post("/founder/deadlines/{did}/done")
+async def mark_deadline_done(did: str, _: dict = Depends(_check_founder_only)):
+    r = await db.founder_deadlines.update_one({"id": did}, {"$set": {"done": True, "done_at": datetime.now(timezone.utc).isoformat()}})
+    return {"updated": r.modified_count}
+
+@api_router.delete("/founder/deadlines/{did}")
+async def delete_deadline(did: str, _: dict = Depends(_check_founder_only)):
+    r = await db.founder_deadlines.delete_one({"id": did})
+    return {"deleted": r.deleted_count}
+
+class FounderDiaryEntry(BaseModel):
+    note: str
+
+@api_router.post("/founder/diary")
+async def add_diary(data: FounderDiaryEntry, _: dict = Depends(_check_founder_only)):
+    rec = {"id": str(uuid.uuid4()), "note": data.note,
+           "ts": datetime.now(timezone.utc).isoformat()}
+    await db.founder_diary.insert_one(rec)
+    return rec
 
 
 # ==================== LAW FIRM PORTAL ====================
@@ -14072,6 +14204,25 @@ async def evidence_invite_close(case_id: str, invite_id: str, user: dict = Depen
 
 
 app.include_router(api_router)
+
+# 🤝 Partner Programme — referral attribution + monthly commission ledger.
+# Keeps the B2B partner code separated from the consumer code path.
+try:
+    from partner_module import build_partner_router, accrue_partner_commissions  # noqa: E402
+    _partner_router = build_partner_router(db, _check_admin_user)
+    app.include_router(_partner_router, prefix="/api")
+
+    async def _job_partner_commissions_monthly():
+        try:
+            res = await accrue_partner_commissions(db)
+            logger.info(f"[cron] monthly partner accrual completed: {res}")
+        except Exception as e:
+            logger.exception(f"[cron] partner accrual failed: {e}")
+except Exception as _e:
+    logger.exception(f"Partner module mount failed: {_e}")
+    async def _job_partner_commissions_monthly():
+        logger.warning("[cron] partner accrual skipped — module not loaded")
+
 app.add_middleware(
     CORSMiddleware, allow_credentials=True,
     allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
@@ -14313,6 +14464,18 @@ async def startup():
                 logger.exception(f"[cron] LLM spend alert job failed: {e}")
 
         sched.add_job(_job_llm_spend_alert, CronTrigger(minute=0), id="aa_llm_spend", replace_existing=True)
+
+        # 💷 Monthly partner-commission accrual — runs on the 1st of each month at 02:00.
+        # Walks every active paying user with a partner_code, credits 10% of their monthly
+        # subscription fee to that partner's ledger, enforcing the £40 lifetime cap per user
+        # and the 12-month window from each user's signup date.
+        sched.add_job(
+            _job_partner_commissions_monthly,
+            CronTrigger(day=1, hour=2, minute=0),
+            id="aa_partner_commissions",
+            replace_existing=True,
+        )
+
         sched.start()
         app.state.aa_scheduler = sched
         logger.info("✅ Auto-billing scheduler started — next run: %s",

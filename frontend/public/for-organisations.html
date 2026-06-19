@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Advocate for Councils & Charities — Partner Programme</title>
+<meta name="description" content="Cut Citizens Advice referral costs by 40%. AI-powered legal help in 11 languages, 24/7. £99-£4,000/month tiered plans for UK councils, housing associations and advice charities.">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    color: #1a1a1a; background: #fff; line-height: 1.55; font-size: 16px;
+  }
+  .hero {
+    background: linear-gradient(135deg, #0a0a0a 0%, #1a1300 100%);
+    color: #f7c948; padding: 80px 24px 60px; text-align: center;
+  }
+  .hero-inner { max-width: 920px; margin: 0 auto; }
+  .hero .eyebrow {
+    display: inline-block; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: #d4af37; padding: 6px 14px; border: 1px solid #d4af37; border-radius: 999px; margin-bottom: 18px;
+  }
+  .hero h1 {
+    font-family: "Cinzel", "Times New Roman", serif; font-size: 48px; font-weight: 700;
+    letter-spacing: 0.02em; color: #f7c948; margin-bottom: 16px; line-height: 1.1;
+  }
+  .hero p.tagline { color: #fff; font-size: 20px; max-width: 720px; margin: 0 auto 24px; line-height: 1.5; }
+  .hero .cta-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 28px; }
+  .btn-gold {
+    background: #f7c948; color: #1a1300; padding: 14px 28px; border-radius: 10px;
+    font-weight: 700; font-size: 16px; text-decoration: none; border: none; cursor: pointer;
+    display: inline-block; transition: transform 0.15s ease;
+  }
+  .btn-gold:hover { transform: translateY(-1px); }
+  .btn-ghost {
+    background: transparent; color: #f7c948; padding: 14px 28px; border-radius: 10px;
+    font-weight: 600; font-size: 16px; text-decoration: none; border: 1px solid #d4af37;
+    display: inline-block;
+  }
+  section { padding: 64px 24px; }
+  .container { max-width: 1100px; margin: 0 auto; }
+  h2 { font-family: "Cinzel", "Times New Roman", serif; font-size: 32px; color: #0a0a0a; margin-bottom: 12px; }
+  h2 .accent { color: #d4af37; }
+  .lead { font-size: 18px; color: #4b5563; max-width: 720px; margin-bottom: 36px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+  .card {
+    background: #fdfaf0; border: 1px solid #f7c948; border-radius: 14px; padding: 24px;
+  }
+  .card h3 { font-size: 18px; color: #1a1300; margin-bottom: 10px; }
+  .card p { color: #4b5563; font-size: 15px; }
+  .stat { color: #d4af37; font-family: "Cinzel", serif; font-size: 36px; font-weight: 700; margin-bottom: 4px; }
+  .pricing {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px; margin-top: 24px;
+  }
+  .price-card {
+    background: #fff; border: 2px solid #e5e7eb; border-radius: 14px; padding: 28px 24px;
+    transition: border-color 0.2s ease;
+  }
+  .price-card.featured { border-color: #f7c948; box-shadow: 0 6px 24px rgba(247,201,72,0.18); position: relative; }
+  .price-card.featured::before {
+    content: "MOST POPULAR"; position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+    background: #f7c948; color: #1a1300; padding: 4px 14px; border-radius: 999px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  }
+  .price-card .tier { font-size: 14px; letter-spacing: 0.1em; text-transform: uppercase; color: #6b7280; }
+  .price-card .price { font-family: "Cinzel", serif; font-size: 36px; color: #0a0a0a; margin: 6px 0 2px; }
+  .price-card .price small { font-size: 14px; color: #6b7280; }
+  .price-card .desc { font-size: 13px; color: #6b7280; margin-bottom: 16px; }
+  .price-card ul { list-style: none; padding: 0; }
+  .price-card li {
+    font-size: 14px; color: #1a1a1a; padding: 6px 0 6px 22px; position: relative;
+  }
+  .price-card li::before {
+    content: "✓"; position: absolute; left: 0; color: #d4af37; font-weight: 700;
+  }
+  .targets { background: #fdfaf0; }
+  .target-row { display: flex; align-items: center; gap: 14px; padding: 14px 0; border-bottom: 1px solid #f1e9c2; }
+  .target-row:last-child { border-bottom: none; }
+  .target-row .icon {
+    width: 44px; height: 44px; background: #f7c948; color: #1a1300; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0;
+  }
+  .target-row .body strong { display: block; color: #1a1300; margin-bottom: 2px; }
+  .target-row .body span { color: #6b7280; font-size: 14px; }
+  .cta-strip {
+    background: #0a0a0a; color: #f7c948; padding: 56px 24px; text-align: center;
+  }
+  .cta-strip h2 { color: #f7c948; }
+  .cta-strip p { color: #fff; font-size: 18px; max-width: 680px; margin: 12px auto 28px; }
+  footer { padding: 32px 24px; text-align: center; color: #6b7280; font-size: 13px; }
+  footer a { color: #d4af37; text-decoration: none; }
+  @media (max-width: 600px) {
+    .hero { padding: 56px 20px 44px; }
+    .hero h1 { font-size: 34px; }
+    .hero p.tagline { font-size: 17px; }
+    h2 { font-size: 26px; }
+    section { padding: 44px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <span class="eyebrow">For councils · charities · housing associations</span>
+    <h1>Triple the legal help. Half the referral cost.</h1>
+    <p class="tagline">
+      AI Advocate gives your residents and clients 24/7 access to legal information in 11 languages —
+      so your advisers spend their time on the cases that really need a human, not the same five questions every day.
+    </p>
+    <div class="cta-row">
+      <a class="btn-gold" href="mailto:samuel.malick@aiadvocate.co.uk?subject=AI%20Advocate%20Partner%20Programme%20enquiry">Book a 15-minute call</a>
+      <a class="btn-ghost" href="#pricing">See pricing</a>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="container">
+    <h2>The numbers behind the <span class="accent">case</span></h2>
+    <p class="lead">UK councils spend an average of <strong>£42 per Citizens Advice referral</strong> — and 65% of those referrals are first-line questions that AI Advocate can resolve in under 4 minutes.</p>
+    <div class="grid-3">
+      <div class="card">
+        <div class="stat">£42</div>
+        <h3>Avg. CAB referral cost</h3>
+        <p>UK local-authority benchmark for a single resolved referral (Cabinet Office, 2024).</p>
+      </div>
+      <div class="card">
+        <div class="stat">~40%</div>
+        <h3>Referral reduction</h3>
+        <p>Typical drop in first-line CAB referrals when residents have self-serve legal info, based on UK CAB pilot data.</p>
+      </div>
+      <div class="card">
+        <div class="stat">11 langs</div>
+        <h3>Built-in multilingual</h3>
+        <p>English, Welsh, Polish, Urdu, Arabic, Bengali, Romanian, Spanish, French, Mandarin, Portuguese.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="background:#fff;">
+  <div class="container">
+    <h2>What your <span class="accent">residents</span> get</h2>
+    <p class="lead">A pocket lawyer that's free to use, 24/7, and explicitly directs users back to human advisers for anything serious.</p>
+    <div class="grid-3">
+      <div class="card">
+        <h3>📜 Ask Lex chat</h3>
+        <p>Plain-English legal answers, with citations to UK statutes (Renting Homes (Wales) Act, Housing Act, Equality Act, etc.) and jurisdiction-aware overlays for Scotland, Wales and Northern Ireland.</p>
+      </div>
+      <div class="card">
+        <h3>📂 Case Files</h3>
+        <p>Auto-built case timeline, evidence locker, witness statement generator, ET1 form auto-fill, solicitor bundle PDF generator.</p>
+      </div>
+      <div class="card">
+        <h3>✉️ Letter Writer</h3>
+        <p>Drafts tenancy, debt, employment and complaint letters in seconds — with optional canvas e-signature embedded in the PDF.</p>
+      </div>
+      <div class="card">
+        <h3>🤝 Lawyer Directory</h3>
+        <p>Real-time Google-powered directory of local solicitors, with distance, ratings and reviews. Sponsored UK firms surface at the top.</p>
+      </div>
+      <div class="card">
+        <h3>🔐 Lex Vault</h3>
+        <p>Encrypted document storage for tenancy agreements, payslips, evidence photos and IDs — never shared, never used to train AI.</p>
+      </div>
+      <div class="card">
+        <h3>🎖 £49 Sanity Check</h3>
+        <p>One-off solicitor review of any letter or case file — for users who need a human eye on something specific.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing" class="targets">
+  <div class="container">
+    <h2>Partner <span class="accent">pricing</span></h2>
+    <p class="lead">Three tiers designed for the scale of your operation. All include training, branded onboarding emails to your residents/clients, and a monthly usage report.</p>
+    <div class="pricing">
+      <div class="price-card">
+        <div class="tier">Pilot</div>
+        <div class="price">£99<small>/month</small></div>
+        <p class="desc">Single team or local CAB bureau. 30-day cancel any time.</p>
+        <ul>
+          <li>100 staff seats</li>
+          <li>Full feature access</li>
+          <li>Branded login page (your logo on signup)</li>
+          <li>Monthly usage CSV report</li>
+          <li>Email support</li>
+        </ul>
+      </div>
+      <div class="price-card featured">
+        <div class="tier">Council</div>
+        <div class="price">£499<small>/month</small></div>
+        <p class="desc">Local authority dept or regional charity HQ.</p>
+        <ul>
+          <li>1,000 resident codes/month</li>
+          <li>White-labelled signup page</li>
+          <li>Monthly analytics with top topics, languages, conversion</li>
+          <li>Dedicated 1-hr onboarding call</li>
+          <li>Priority support &lt; 1 business day</li>
+          <li>Quarterly steering call</li>
+        </ul>
+      </div>
+      <div class="price-card">
+        <div class="tier">Enterprise</div>
+        <div class="price">From £1,500<small>/month</small></div>
+        <p class="desc">National charities, housing associations 10k+ tenants.</p>
+        <ul>
+          <li>Unlimited residents/users</li>
+          <li>Custom branding (logo, colours, domain)</li>
+          <li>API access for your CRM integration</li>
+          <li>Named account manager</li>
+          <li>Monthly steering call</li>
+          <li>Custom contract terms</li>
+        </ul>
+      </div>
+    </div>
+
+    <div style="margin-top:32px; padding:20px; background:#fff; border-radius:12px; border:1px solid #e5e7eb;">
+      <h3 style="margin-bottom:8px; color:#1a1300;">🤝 Referral revenue share — for advice charities</h3>
+      <p style="font-size:14px; color:#4b5563;">
+        Charities and not-for-profits that send users to AI Advocate (e.g. via a callback link or QR code in a leaflet)
+        earn <strong>10% of Year 1 subscription revenue, capped at £40 per converted user</strong>, paid quarterly via BACS.
+        Each partner gets a unique referral code and a real-time conversion dashboard. No setup cost.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <h2>Who <span class="accent">we're</span> for</h2>
+    <p class="lead">If you signpost residents or clients to Citizens Advice — we want to talk.</p>
+    <div class="target-row">
+      <div class="icon">🏛</div>
+      <div class="body"><strong>Local Councils</strong><span>Welfare reform, customer services, housing, council tax/benefits, ASC.</span></div>
+    </div>
+    <div class="target-row">
+      <div class="icon">📞</div>
+      <div class="body"><strong>Citizens Advice (local bureaus)</strong><span>Give callers between-appointment access to a Pro version of what advisers do.</span></div>
+    </div>
+    <div class="target-row">
+      <div class="icon">🏘</div>
+      <div class="body"><strong>Housing Associations</strong><span>Peabody, Clarion, L&Q, NHG-scale tenant numbers. Reduce s.21 / disrepair escalations.</span></div>
+    </div>
+    <div class="target-row">
+      <div class="icon">🛡</div>
+      <div class="body"><strong>Domestic Abuse Charities</strong><span>Refuge, Women's Aid, Solace. Multilingual rights guide for non-mol / occupation / child arrangement orders.</span></div>
+    </div>
+    <div class="target-row">
+      <div class="icon">💷</div>
+      <div class="body"><strong>Debt &amp; Money Charities</strong><span>StepChange, Turn2us, CAP. Plug-in for callers to draft creditor letters between adviser sessions.</span></div>
+    </div>
+    <div class="target-row">
+      <div class="icon">🎓</div>
+      <div class="body"><strong>Universities &amp; Refugee Services</strong><span>International student advice services, refugee/asylum legal info, MP constituency offices.</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="cta-strip">
+  <h2>Let's run a 30-day pilot.</h2>
+  <p>
+    No setup cost. No long-term commitment. We'll plug your organisation into AI Advocate within 5 working days
+    and show you the numbers at day 30. If it's not pulling its weight, you walk away — no question.
+  </p>
+  <a class="btn-gold" href="mailto:samuel.malick@aiadvocate.co.uk?subject=AI%20Advocate%20Partner%20Programme%20-%20Pilot%20enquiry&body=Hi%20Samuel%2C%0A%0AOur%20organisation%20is%20interested%20in%20running%20a%2030-day%20pilot%20of%20AI%20Advocate.%0A%0AOrganisation%20name%3A%0AYour%20role%3A%0AApprox.%20residents%2Fclients%20served%20annually%3A%0ATop%203%20legal%20topics%20you%20signpost%20to%20CAB%3A%0A%0AThanks%2C%0A">Book a call with Samuel →</a>
+</section>
+
+<footer>
+  <p>
+    AI Advocate Ltd · Company No. 16612244 · ICO ZC158457 ·
+    <a href="/terms.html">Terms</a> ·
+    <a href="/privacy.html">Privacy</a> ·
+    <a href="/">Consumer site</a>
+  </p>
+  <p style="margin-top:8px;">Get in touch: <a href="mailto:samuel.malick@aiadvocate.co.uk">samuel.malick@aiadvocate.co.uk</a></p>
+</footer>
+
+</body>
+</html>
