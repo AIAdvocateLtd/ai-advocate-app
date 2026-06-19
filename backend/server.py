@@ -1112,7 +1112,7 @@ async def verify_turnstile(token: Optional[str], request: Optional[Request] = No
     if not TURNSTILE_SECRET_KEY:
         return
     if not token:
-        raise HTTPException(400, "Bot-check failed. Please refresh and try again.")
+        raise HTTPException(400, "Bot-check didn't load. If you're using Brave or a privacy browser, disable Shields for this site and refresh — or try Safari/Chrome.")
     payload = {"secret": TURNSTILE_SECRET_KEY, "response": token}
     if request is not None and request.client is not None:
         payload["remoteip"] = request.client.host
@@ -1127,7 +1127,7 @@ async def verify_turnstile(token: Optional[str], request: Optional[Request] = No
     if not data.get("success"):
         codes = ",".join(data.get("error-codes") or [])
         logger.warning(f"Turnstile verify failed: {codes}")
-        raise HTTPException(400, "Bot-check failed. Please refresh the page and try again.")
+        raise HTTPException(400, "Bot-check failed. If you're using Brave or a privacy browser, disable Shields for this site and refresh — or try Safari/Chrome.")
 
 
 # ==================== LLM cost tracking + spend alert ====================
@@ -1285,8 +1285,13 @@ async def admin_waitlist_csv(user: dict = Depends(get_user)):
 # ==================== Auth Routes ====================
 @api_router.post("/auth/signup", response_model=TokenResp)
 async def signup(data: UserSignup, request: Request):
-    # 🛡 Cloudflare Turnstile bot-shield (no-op if keys not configured)
-    await verify_turnstile(data.turnstile_token, request)
+    # 🛡 Cloudflare Turnstile bot-shield (no-op if keys not configured).
+    # SAFETY HATCH: skip Turnstile for the founder email — Brave/Tor users can
+    # have legitimate Turnstile failures, and the founder needs guaranteed access.
+    # There can only be one founder, so this isn't a meaningful attack surface.
+    founder_email = (os.environ.get("FOUNDER_EMAIL") or "samuel.malick@aiadvocate.co.uk").lower()
+    if (data.email or "").lower() != founder_email:
+        await verify_turnstile(data.turnstile_token, request)
     if _is_disposable_email(data.email):
         raise HTTPException(400, "Please use a real email address — disposable / temporary email providers are not accepted.")
     if await db.users.find_one({"email": data.email}):
