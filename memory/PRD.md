@@ -648,3 +648,39 @@ Tested 2026-02:
 
 ### Critical operational rule
 Before sending anything that creates a financial commitment, paste it for review.
+
+## 🆕 2026-02 — Founder Dashboard v2 (5 new features SHIPPED)
+
+### Bug fix: Money KPIs now show REAL paying users
+- `paying_users` now requires `stripe_subscription_id != null` AND status in (active/trialing/past_due) — dev/seed users no longer counted.
+- `total_users` excludes admin/test emails (`admin@aiadvocate.co.uk`, `test@advocate.app`, founder).
+- Added **MRR** + **ARR (projected)** KPI cards — calculated from active Stripe subs × tier price.
+
+### #1 — Quick user lookup
+- `GET /api/founder/user-lookup?q=email-substring` — case-insensitive, returns up to 20 matches with conversation_count + case_count enriched.
+- UI: search box at top of dashboard, instant results.
+
+### #2 — At-risk subscriptions
+- `GET /api/founder/at-risk` — captures: past_due, trial ending in ≤3d, cancel_at_period_end, renewing in ≤7d.
+- UI: 4 KPI cards + collapsible lists of failing payments + cancellations.
+
+### #3 — Recent activity feed
+- `GET /api/founder/activity` — last 15 signups, 10 active-paying, 10 cancellations (excludes test emails).
+- UI: two-column "Recent signups" + "Active paying" grid.
+
+### #4 — VAT threshold tracker
+- `GET /api/founder/vat-tracker` — rolling-12m revenue estimate (active subs × tier × months-since-signup) vs £90k UK VAT threshold.
+- UI: prominent progress bar + colour-coded advice block (green <80%, gold 80-100%, red ≥100%).
+- Cron job will fire alert when crossing 80% (TODO).
+
+### #6 — Weekly CEO Monday Briefing email
+- New scheduler job `aa_founder_weekly` — fires every Monday at 09:00 UTC.
+- Sends single HTML email to `FOUNDER_EMAIL` (default samuel.malick@aiadvocate.co.uk) via Resend.
+- Includes: MRR, paying users, new signups (7d), new paying (7d), LLM spend (7d), partner commissions owed, past_due count, cancelling count, deadlines next 14 days.
+
+### Tests
+- Backend smoke tests confirm all 5 endpoints return valid data (preview env: 15 signups, 10 paying, £1,829 rolling-12 VAT, 0 at-risk).
+- Cron jobs registered: `aa_founder_weekly` + `aa_partner_commissions` + `aa_llm_spend` + existing tips/headsup/drafts/autosend/stripe_audit.
+
+### Deployment note
+Production redeploy required to push all of these to aiadvocate.co.uk. ENV vars unchanged.

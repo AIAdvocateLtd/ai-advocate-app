@@ -7436,6 +7436,270 @@ async def add_diary(data: FounderDiaryEntry, _: dict = Depends(_check_founder_on
     return rec
 
 
+# 🔎 #1 — Quick user lookup. Search by exact email OR partial substring (case-insensitive).
+@api_router.get("/founder/user-lookup")
+async def founder_user_lookup(q: str = "", _: dict = Depends(_check_founder_only)):
+    """Find a user by email (exact or substring). Returns full record + activity counts."""
+    q = (q or "").strip()
+    if len(q) < 3:
+        raise HTTPException(400, "Query too short (≥3 chars)")
+    rows = await db.users.find(
+        {"email": {"$regex": q, "$options": "i"}},
+        {"_id": 0, "password_hash": 0},
+    ).limit(20).to_list(20)
+    enriched = []
+    for u in rows:
+        conv_count = await db.conversations.count_documents({"user_id": u["id"]})
+        case_count = await db.case_items.count_documents({"user_id": u["id"]})
+        enriched.append({**u, "conversation_count": conv_count, "case_count": case_count})
+    return {"count": len(enriched), "users": enriched}
+
+
+# ⚠️ #2 — At-risk subscriptions. Captures churn signals before they happen.
+@api_router.get("/founder/at-risk")
+async def founder_at_risk(_: dict = Depends(_check_founder_only)):
+    now = datetime.now(timezone.utc)
+    in_3_days = (now + timedelta(days=3)).isoformat()
+    in_7_days = (now + timedelta(days=7)).isoformat()
+    fields = {"_id": 0, "email": 1, "tier": 1, "subscription_status": 1,
+              "trial_end": 1, "cancel_at_period_end": 1, "subscription_current_period_end": 1,
+              "subscription_id": 1, "stripe_subscription_id": 1, "created_at": 1}
+
+    # 🚨 Failed/past_due payments — highest priority
+    failed = await db.users.find({"subscription_status": "past_due"}, fields).limit(50).to_list(50)
+    # ⏳ Trials ending in ≤3 days
+    trial_ending = await db.users.find({
+        "tier": "trial_pro",
+        "trial_end": {"$lte": in_3_days, "$gte": now.isoformat()},
+    }, fields).limit(50).to_list(50)
+    # 🛑 Cancelling at period end
+    cancelling = await db.users.find({"cancel_at_period_end": True,
+                                       "subscription_status": "active"}, fields).limit(50).to_list(50)
+    # 📅 Renewing in ≤7 days (helpful awareness)
+    renewing_soon = await db.users.find({
+        "subscription_status": "active",
+        "cancel_at_period_end": {"$ne": True},
+        "subscription_current_period_end": {"$lte": in_7_days, "$gte": now.isoformat()},
+    }, fields).limit(50).to_list(50)
+    return {
+        "failed_payments": failed,
+        "trial_ending_3d": trial_ending,
+        "cancelling_at_period_end": cancelling,
+        "renewing_7d": renewing_soon,
+        "counts": {
+            "failed_payments": len(failed),
+            "trial_ending_3d": len(trial_ending),
+            "cancelling": len(cancelling),
+            "renewing_7d": len(renewing_soon),
+        },
+    }
+
+
+# 📰 #3 — Recent activity feed: signups + payment events + cancellations in one stream.
+@api_router.get("/founder/activity")
+async def founder_activity(_: dict = Depends(_check_founder_only)):
+    EXCLUDE = ["admin@aiadvocate.co.uk", "test@advocate.app", "samuel.malick@aiadvocate.co.uk"]
+    # Recent signups
+    signups = await db.users.find(
+        {"email": {"$nin": EXCLUDE}},
+        {"_id": 0, "email": 1, "tier": 1, "country": 1, "partner_code": 1, "created_at": 1},
+    ).sort("created_at", -1).limit(15).to_list(15)
+    # Recent tier upgrades / status changes
+    upgrades = await db.users.find(
+        {
+            "email": {"$nin": EXCLUDE},
+            "subscription_status": {"$in": ["active", "trialing"]},
+            "stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+        },
+        {"_id": 0, "email": 1, "tier": 1, "subscription_status": 1,
+         "subscription_current_period_end": 1, "stripe_subscription_id": 1, "created_at": 1},
+    ).sort("created_at", -1).limit(10).to_list(10)
+    # Recent cancellations
+    cancelled = await db.users.find(
+        {
+            "email": {"$nin": EXCLUDE},
+            "$or": [
+                {"subscription_status": "canceled"},
+                {"cancel_at_period_end": True},
+            ],
+        },
+        {"_id": 0, "email": 1, "tier": 1, "subscription_status": 1, "cancel_at_period_end": 1},
+    ).sort("created_at", -1).limit(10).to_list(10)
+    return {"recent_signups": signups, "recent_paying": upgrades, "recent_cancellations": cancelled}
+
+
+# 💷 #4 — VAT threshold tracker. UK VAT registration kicks in at £90k rolling-12m revenue.
+@api_router.get("/founder/vat-tracker")
+async def founder_vat(_: dict = Depends(_check_founder_only)):
+    """Estimate rolling-12-month revenue from active subs + report VAT registration headroom.
+    The estimate is conservative — uses *current* active subs as a proxy. Replace with
+    real Stripe charge sums once we have a payments collection."""
+    threshold_gbp = 90_000.0  # 2026 UK VAT threshold
+
+    # Sum tier prices for currently-active subs × 12 (conservative rolling-12 estimate)
+    stripe_users = await db.users.find(
+        {
+            "stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+            "subscription_status": {"$in": ["active", "trialing"]},
+        },
+        {"_id": 0, "tier": 1, "created_at": 1},
+    ).to_list(2000)
+    _TIER_MONTHLY = {"plus": 19.99, "pro": 34.99, "yearly": 26.66, "trial_pro": 0.0}
+
+    # Rough rolling-12 estimate: each active sub × £tier × min(months_since_signup, 12)
+    rolling_12_gbp = 0.0
+    now = datetime.now(timezone.utc)
+    for u in stripe_users:
+        signed = u.get("created_at")
+        months = 12.0
+        if signed:
+            try:
+                signed_dt = datetime.fromisoformat(signed.replace("Z", "+00:00"))
+                months = min(12.0, max(0.5, (now - signed_dt).days / 30.4))
+            except Exception:
+                pass
+        rolling_12_gbp += _TIER_MONTHLY.get(u.get("tier", ""), 0) * months
+    rolling_12_gbp = round(rolling_12_gbp, 2)
+
+    headroom = round(threshold_gbp - rolling_12_gbp, 2)
+    pct = round((rolling_12_gbp / threshold_gbp) * 100, 1) if threshold_gbp else 0
+    must_register = rolling_12_gbp >= threshold_gbp
+    warn = rolling_12_gbp >= threshold_gbp * 0.80   # 80% triggers a heads-up
+
+    return {
+        "rolling_12_month_revenue_gbp": rolling_12_gbp,
+        "vat_threshold_gbp": threshold_gbp,
+        "headroom_gbp": headroom,
+        "percent_of_threshold": pct,
+        "warn": warn,
+        "must_register_now": must_register,
+        "advice": (
+            "📛 You are at or over the VAT threshold. You MUST register for VAT within 30 days — "
+            "log into HMRC Online and complete the registration. Failure incurs penalties of up to 100% of VAT due."
+            if must_register else
+            "⚠️ You're approaching the VAT registration threshold (80%+ of £90,000). "
+            "Speak to your accountant about voluntary VAT registration timing — it can be advantageous."
+            if warn else
+            "✅ Well below the VAT registration threshold. No action needed; we'll alert you at 80% (~£72,000)."
+        ),
+    }
+
+
+# 📧 #6 — Weekly digest email (Monday 9am UTC). Compiled from the same endpoints above.
+async def _job_founder_weekly_digest():
+    """Sends a single 'CEO Monday Briefing' email to FOUNDER_EMAIL with the
+    week's metrics, at-risk subs, upcoming deadlines, and partner status."""
+    try:
+        founder_email = (os.environ.get("FOUNDER_EMAIL") or "samuel.malick@aiadvocate.co.uk").lower()
+        now = datetime.now(timezone.utc)
+        week_ago = (now - timedelta(days=7)).isoformat()
+        in_14_days = (now + timedelta(days=14)).isoformat()
+
+        EXCLUDE = ["admin@aiadvocate.co.uk", "test@advocate.app", "samuel.malick@aiadvocate.co.uk"]
+        new_signups = await db.users.count_documents({
+            "email": {"$nin": EXCLUDE}, "created_at": {"$gte": week_ago},
+        })
+        new_paying = await db.users.count_documents({
+            "email": {"$nin": EXCLUDE},
+            "stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+            "subscription_status": {"$in": ["active", "trialing"]},
+            "created_at": {"$gte": week_ago},
+        })
+
+        paying_users_now = await db.users.count_documents({
+            "stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+            "subscription_status": {"$in": ["active", "trialing"]},
+        })
+
+        # MRR
+        stripe_users = await db.users.find(
+            {"stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+             "subscription_status": {"$in": ["active", "trialing"]}},
+            {"_id": 0, "tier": 1},
+        ).to_list(2000)
+        _TIER = {"plus": 19.99, "pro": 34.99, "yearly": 26.66, "trial_pro": 0.0}
+        mrr = round(sum(_TIER.get(u.get("tier", ""), 0) for u in stripe_users), 2)
+
+        # At-risk
+        past_due = await db.users.count_documents({"subscription_status": "past_due"})
+        cancelling = await db.users.count_documents({
+            "cancel_at_period_end": True, "subscription_status": "active",
+        })
+
+        # Deadlines in next 14d
+        deadlines = await db.founder_deadlines.find(
+            {"done": {"$ne": True}, "due_date": {"$lte": in_14_days[:10]}},
+            {"_id": 0, "title": 1, "due_date": 1, "amount_gbp": 1, "action": 1},
+        ).sort("due_date", 1).to_list(20)
+
+        # Partner commissions owed
+        agg = await db.partner_commissions.aggregate([
+            {"$match": {"paid": False}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount_gbp"}}},
+        ]).to_list(1)
+        partner_owed = round(((agg[0]["total"] if agg else 0) or 0), 2)
+
+        # LLM spend last 7d
+        llm = await db.llm_usage.aggregate([
+            {"$match": {"ts": {"$gte": week_ago}}},
+            {"$group": {"_id": None, "total": {"$sum": "$cost_gbp"}, "calls": {"$sum": 1}}},
+        ]).to_list(1)
+        llm_total = round(((llm[0]["total"] if llm else 0) or 0), 2)
+        llm_calls = (llm[0]["calls"] if llm else 0) or 0
+
+        def _fmt_dl(d):
+            parts = [f"<b>{d['title']}</b> — due <b>{d['due_date']}</b>"]
+            amt = d.get("amount_gbp")
+            if amt:
+                parts.append(f" · £{amt:.2f}")
+            act = d.get("action")
+            if act:
+                parts.append(f" · {act}")
+            return "<li>" + "".join(parts) + "</li>"
+        deadlines_html = "".join(_fmt_dl(d) for d in deadlines) or "<li>No deadlines in next 14 days. Nice.</li>"
+
+        body_html = f"""
+        <div style="font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;line-height:1.55;max-width:600px;">
+          <h2 style="color:#1a1300;border-bottom:2px solid #f7c948;padding-bottom:8px;">
+            ☕ CEO Monday Briefing — {now.strftime('%d %B %Y')}
+          </h2>
+          <h3 style="color:#1a1300;margin-top:24px;">💰 The numbers</h3>
+          <table cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:14px;width:100%;">
+            <tr style="background:#fdfaf0;"><td>MRR</td><td style="text-align:right;"><b>£{mrr:.2f}</b></td></tr>
+            <tr><td>Paying users</td><td style="text-align:right;"><b>{paying_users_now}</b></td></tr>
+            <tr style="background:#fdfaf0;"><td>New signups (last 7d)</td><td style="text-align:right;"><b>{new_signups}</b></td></tr>
+            <tr><td>New paying (last 7d)</td><td style="text-align:right;"><b>{new_paying}</b></td></tr>
+            <tr style="background:#fdfaf0;"><td>LLM cost (last 7d)</td><td style="text-align:right;"><b>£{llm_total:.2f}</b> ({llm_calls} calls)</td></tr>
+            <tr><td>Partner commissions owed</td><td style="text-align:right;"><b>£{partner_owed:.2f}</b></td></tr>
+          </table>
+
+          <h3 style="color:#1a1300;margin-top:24px;">⚠️ Watch list</h3>
+          <ul style="font-size:14px;">
+            <li>Past-due payments: <b style="color:{'#dc2626' if past_due else '#16a34a'}">{past_due}</b></li>
+            <li>Subscriptions cancelling: <b style="color:{'#dc2626' if cancelling else '#16a34a'}">{cancelling}</b></li>
+          </ul>
+
+          <h3 style="color:#1a1300;margin-top:24px;">📅 Deadlines next 14 days</h3>
+          <ul style="font-size:14px;">{deadlines_html}</ul>
+
+          <p style="margin-top:32px;font-size:13px;color:#6b7280;">
+            Open the dashboard: <a href="https://aiadvocate.co.uk/founder" style="color:#d4af37;">aiadvocate.co.uk/founder</a><br>
+            <small>This email is auto-sent every Monday at 09:00 UTC. To stop, comment out <code>_job_founder_weekly_digest</code> in server.py.</small>
+          </p>
+        </div>
+        """
+
+        from email_helper import send_email
+        await send_email(
+            to=founder_email, kind="firm",
+            subject=f"☕ CEO Monday Briefing — {now.strftime('%d %b')}: MRR £{mrr:.2f}, {new_signups} new signups",
+            body_html=body_html,
+        )
+        logger.info(f"[cron] founder weekly digest sent to {founder_email}")
+    except Exception as e:
+        logger.exception(f"[cron] founder weekly digest failed: {e}")
+
+
 # ==================== LAW FIRM PORTAL ====================
 # NB: founder-signature + commissions admin endpoints below use _check_admin_user
 # (defined inline) because the canonical require_admin Depends is declared
@@ -14511,6 +14775,15 @@ async def startup():
             _job_partner_commissions_monthly,
             CronTrigger(day=1, hour=2, minute=0),
             id="aa_partner_commissions",
+            replace_existing=True,
+        )
+
+        # ☕ CEO Monday Briefing — auto-emails the founder every Monday 09:00 UTC
+        # with the week's metrics, churn signals, deadlines, and partner status.
+        sched.add_job(
+            _job_founder_weekly_digest,
+            CronTrigger(day_of_week="mon", hour=9, minute=0),
+            id="aa_founder_weekly",
             replace_existing=True,
         )
 

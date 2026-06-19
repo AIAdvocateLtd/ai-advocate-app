@@ -15831,17 +15831,46 @@ function FounderPage({ user, onClose }) {
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState("");
   const [diaryNote, setDiaryNote] = useState("");
+  // 🔎 #1 — User lookup
+  const [lookupQ, setLookupQ] = useState("");
+  const [lookupRes, setLookupRes] = useState(null);
+  const [lookupBusy, setLookupBusy] = useState(false);
+  // ⚠️ #2 — At-risk subs
+  const [atRisk, setAtRisk] = useState(null);
+  // 📰 #3 — Recent activity feed
+  const [activity, setActivity] = useState(null);
+  // 💷 #4 — VAT tracker
+  const [vat, setVat] = useState(null);
 
   const load = useCallback(async () => {
     setBusy(true); setErr("");
     try {
-      const { data } = await api.get("/founder/overview");
-      setData(data);
+      const [overview, ar, act, v] = await Promise.all([
+        api.get("/founder/overview"),
+        api.get("/founder/at-risk").catch(() => ({ data: null })),
+        api.get("/founder/activity").catch(() => ({ data: null })),
+        api.get("/founder/vat-tracker").catch(() => ({ data: null })),
+      ]);
+      setData(overview.data);
+      setAtRisk(ar.data);
+      setActivity(act.data);
+      setVat(v.data);
     } catch (e) {
       setErr(e?.response?.data?.detail || "Access denied — founder email only.");
     } finally { setBusy(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  const runLookup = async () => {
+    if (!lookupQ.trim() || lookupQ.trim().length < 3) return;
+    setLookupBusy(true);
+    try {
+      const { data } = await api.get("/founder/user-lookup", { params: { q: lookupQ.trim() } });
+      setLookupRes(data);
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Lookup failed", "error");
+    } finally { setLookupBusy(false); }
+  };
 
   const fmtGbp = (n) => `£${Number(n || 0).toFixed(2)}`;
   const daysUntil = (iso) => {
@@ -15904,6 +15933,142 @@ function FounderPage({ user, onClose }) {
             <Kpi label="Active partners" value={m.active_partners} />
           </div>
         </Section>
+
+        {/* 💷 #4 VAT THRESHOLD TRACKER */}
+        {vat && (
+          <Section title="💷 VAT threshold tracker">
+            <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Rolling 12-month revenue</div>
+                <div style={{ fontFamily: "Cinzel, serif", fontSize: 28, color: vat.must_register_now ? "var(--danger)" : vat.warn ? "var(--gold)" : "#86efac", fontWeight: 700 }}>
+                  {fmtGbp(vat.rolling_12_month_revenue_gbp)} <span style={{ fontSize: 14, color: "var(--text-muted)", fontWeight: 400 }}>/ {fmtGbp(vat.vat_threshold_gbp)}</span>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  {vat.percent_of_threshold}% of UK VAT threshold · headroom {fmtGbp(vat.headroom_gbp)}
+                </div>
+              </div>
+            </div>
+            <div style={{ marginTop: 10, height: 8, background: "var(--bg)", borderRadius: 4, overflow: "hidden" }}>
+              <div style={{ width: `${Math.min(100, vat.percent_of_threshold)}%`, height: "100%", background: vat.must_register_now ? "var(--danger)" : vat.warn ? "var(--gold)" : "#22c55e", transition: "width 0.5s" }} />
+            </div>
+            <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: vat.must_register_now ? "rgba(220,38,38,0.1)" : vat.warn ? "rgba(247,201,72,0.08)" : "rgba(34,197,94,0.06)", border: `1px solid ${vat.must_register_now ? "var(--danger)" : vat.warn ? "var(--gold-deep)" : "rgba(34,197,94,0.3)"}`, fontSize: 13, color: "var(--text)" }}>
+              {vat.advice}
+            </div>
+          </Section>
+        )}
+
+        {/* ⚠️ #2 AT-RISK SUBSCRIPTIONS */}
+        {atRisk && (
+          <Section title="⚠️ At-risk subscriptions">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 12 }}>
+              <Kpi label="Failed payments" value={atRisk.counts.failed_payments} accent={atRisk.counts.failed_payments > 0 ? "warn" : "neutral"} />
+              <Kpi label="Trial ending 3d" value={atRisk.counts.trial_ending_3d} accent={atRisk.counts.trial_ending_3d > 0 ? "warn" : "neutral"} />
+              <Kpi label="Cancelling" value={atRisk.counts.cancelling} accent={atRisk.counts.cancelling > 0 ? "warn" : "neutral"} />
+              <Kpi label="Renewing 7d" value={atRisk.counts.renewing_7d} />
+            </div>
+            {atRisk.failed_payments.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 12, color: "var(--danger)", fontWeight: 700, marginBottom: 6 }}>🚨 Failed payments — action needed</div>
+                {atRisk.failed_payments.slice(0, 5).map(u => (
+                  <div key={u.email} style={{ padding: "6px 0", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                    <span style={{ color: "var(--text)" }}>{u.email}</span>
+                    <span style={{ color: "var(--text-muted)" }}>{u.tier}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {atRisk.cancelling_at_period_end.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 12, color: "var(--gold)", fontWeight: 700, marginBottom: 6 }}>🛑 Cancelling at period end</div>
+                {atRisk.cancelling_at_period_end.slice(0, 5).map(u => (
+                  <div key={u.email} style={{ padding: "6px 0", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                    <span style={{ color: "var(--text)" }}>{u.email}</span>
+                    <span style={{ color: "var(--text-muted)" }}>{u.tier} · renews {(u.subscription_current_period_end || "").slice(0, 10)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {(atRisk.counts.failed_payments + atRisk.counts.cancelling + atRisk.counts.trial_ending_3d === 0) && (
+              <Empty>No churn signals this week. ✨</Empty>
+            )}
+          </Section>
+        )}
+
+        {/* 🔎 #1 USER LOOKUP */}
+        <Section title="🔎 User lookup">
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <input
+              className="input"
+              data-testid="founder-lookup-input"
+              placeholder="Search email (≥ 3 chars)…"
+              value={lookupQ}
+              onChange={(e) => setLookupQ(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") runLookup(); }}
+              style={{ flex: 1 }}
+            />
+            <button className="btn-gold" data-testid="founder-lookup-btn" onClick={runLookup} disabled={lookupBusy || lookupQ.trim().length < 3}>
+              {lookupBusy ? <span className="spinner" /> : "Find"}
+            </button>
+          </div>
+          {lookupRes && (
+            lookupRes.count === 0 ? (
+              <Empty>No users matching "{lookupQ}"</Empty>
+            ) : (
+              <div>
+                {lookupRes.users.map(u => (
+                  <div key={u.id} style={{ padding: 10, background: "var(--bg)", borderRadius: 8, marginBottom: 8, fontSize: 13 }}>
+                    <div style={{ color: "var(--gold)", fontWeight: 700 }}>{u.email}</div>
+                    <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 2 }}>
+                      <b>{u.tier || "—"}</b> · {u.subscription_status || "no sub"} · {u.country || "—"}/{u.jurisdiction || "—"} ·
+                      {u.partner_code ? <span style={{ color: "var(--gold)" }}> 🤝 {u.partner_code}</span> : ""}
+                      &nbsp;· joined {(u.created_at || "").slice(0, 10)}
+                    </div>
+                    <div style={{ color: "var(--text-dim)", fontSize: 12, marginTop: 2 }}>
+                      {u.conversation_count} chats · {u.case_count} case files
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
+        </Section>
+
+        {/* 📰 #3 RECENT ACTIVITY FEED */}
+        {activity && (
+          <Section title="📰 Recent activity (last 24h, excludes test accounts)">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 16 }}>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--gold)", marginBottom: 6 }}>✨ Recent signups</div>
+                {activity.recent_signups.length === 0
+                  ? <Empty>No new signups recently.</Empty>
+                  : activity.recent_signups.slice(0, 8).map(s => (
+                    <div key={s.email + s.created_at} style={{ padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 12 }}>
+                      <div style={{ color: "var(--text)" }}>{s.email}</div>
+                      <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                        {s.tier || "free"} · {s.country || "?"} · {(s.created_at || "").slice(0, 16).replace("T", " ")}
+                        {s.partner_code ? <span style={{ color: "var(--gold)" }}> · 🤝 {s.partner_code}</span> : ""}
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--gold)", marginBottom: 6 }}>💰 Active paying</div>
+                {activity.recent_paying.length === 0
+                  ? <Empty>No paying users yet — keep going.</Empty>
+                  : activity.recent_paying.slice(0, 8).map(p => (
+                    <div key={p.email + p.tier} style={{ padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 12 }}>
+                      <div style={{ color: "var(--text)" }}>{p.email}</div>
+                      <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                        {p.tier} · {p.subscription_status}
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+          </Section>
+        )}
 
         {/* DEADLINES */}
         <Section title="📅 Critical deadlines">
