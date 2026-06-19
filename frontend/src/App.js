@@ -279,8 +279,12 @@ const downloadBlob = (blob, filename) => {
   a.click(); a.remove(); URL.revokeObjectURL(url);
 };
 
-const pdfInline = async ({ title, body, subtitle, meta, filename }) => {
-  const r = await api.post("/pdf/inline", { title, body, subtitle, meta, filename }, { responseType: "blob" });
+const pdfInline = async ({ title, body, subtitle, meta, filename, signature_data_url, signer_name, signer_date }) => {
+  const payload = { title, body, subtitle, meta, filename };
+  if (signature_data_url) payload.signature_data_url = signature_data_url;
+  if (signer_name) payload.signer_name = signer_name;
+  if (signer_date) payload.signer_date = signer_date;
+  const r = await api.post("/pdf/inline", payload, { responseType: "blob" });
   downloadBlob(r.data, filename || "ai_advocate.pdf");
 };
 
@@ -4652,9 +4656,92 @@ function ContractUploader({ lang, country, onClose }) {
 }
 
 // ---------- Legal Letter ----------
+// ---------- Legal Letter Modal ----------
+//
+// 🖊 SignaturePad — drawable HTML5 canvas the user signs with finger or mouse.
+// Returns base64 PNG via onChange. Strokes are crisp on Retina (devicePixelRatio aware).
+// Used in LegalLetterModal so users can sign drafted letters before downloading the PDF.
+function SignaturePad({ value, onChange, height = 140 }) {
+  const canvasRef = useRef(null);
+  const drawing = useRef(false);
+  const last = useRef({ x: 0, y: 0 });
+  const isEmpty = useRef(true);
+
+  const fit = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(dpr, dpr);
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#1a1300";
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, rect.width, rect.height);
+  }, []);
+
+  useEffect(() => { fit(); window.addEventListener("resize", fit); return () => window.removeEventListener("resize", fit); }, [fit]);
+
+  const pos = (e) => {
+    const r = canvasRef.current.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+    return { x: t.clientX - r.left, y: t.clientY - r.top };
+  };
+  const start = (e) => { e.preventDefault(); drawing.current = true; last.current = pos(e); };
+  const move = (e) => {
+    if (!drawing.current) return;
+    e.preventDefault();
+    const p = pos(e);
+    const ctx = canvasRef.current.getContext("2d");
+    ctx.beginPath();
+    ctx.moveTo(last.current.x, last.current.y);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    last.current = p;
+    isEmpty.current = false;
+  };
+  const end = () => {
+    if (!drawing.current) return;
+    drawing.current = false;
+    if (!isEmpty.current) onChange(canvasRef.current.toDataURL("image/png"));
+  };
+  const clear = () => {
+    fit();
+    isEmpty.current = true;
+    onChange("");
+  };
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <canvas
+        ref={canvasRef}
+        data-testid="signature-canvas"
+        style={{ width: "100%", height, background: "#fff", borderRadius: 8, border: "1px solid var(--gold-deep)", touchAction: "none", cursor: "crosshair" }}
+        onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
+        onTouchStart={start} onTouchMove={move} onTouchEnd={end}
+      />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          Sign with your finger (mobile) or mouse (desktop). Legally valid for most letters under the Electronic Communications Act 2000.
+        </span>
+        <button type="button" className="btn-ghost" data-testid="signature-clear-btn" onClick={clear} style={{ padding: "4px 12px", fontSize: 12 }}>
+          Clear
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function LegalLetterModal({ lang, country, onClose }) {
   const [form, setForm] = useState({ letter_type: "", recipient: "", your_name: "", details: "", tone: "firm" });
   const [letter, setLetter] = useState(""); const [busy, setBusy] = useState(false);
+  // 🖊 Optional e-signature state. signatureData is a base64 PNG produced by SignaturePad.
+  const [showSignPad, setShowSignPad] = useState(false);
+  const [signatureData, setSignatureData] = useState("");
 
   const TONE_INFO = {
     polite:     { label: "Polite",     hint: "Goodwill, reasonable request. NO threats. First-contact tone.", pos: 0 },
@@ -4731,17 +4818,43 @@ function LegalLetterModal({ lang, country, onClose }) {
               <span style={{ fontSize: 11, fontWeight: 700, color: "var(--gold)" }}>{TONE_INFO[form.tone].label}</span>
             </div>
             <pre style={{ background: "#0a0a0a", padding: 16, borderRadius: 12, whiteSpace: "pre-wrap", color: "var(--text-dim)", fontSize: 13.5, fontFamily: "Outfit, sans-serif" }}>{letter}</pre>
+
+            {/* 🖊 In-document e-signature (optional) */}
+            <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: "var(--bg-card)", border: "1px solid var(--gold-deep)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--gold)" }}>
+                    {signatureData ? "✓ Signature applied" : "Sign this letter"}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                    {signatureData ? "Your signature will appear at the bottom of the PDF." : "Optional. Draw with finger or mouse — legally valid under Electronic Communications Act 2000."}
+                  </div>
+                </div>
+                <button type="button" className="btn-ghost" data-testid="toggle-signature-btn"
+                  onClick={() => setShowSignPad(v => !v)}
+                  style={{ padding: "6px 14px", fontSize: 12 }}>
+                  {showSignPad ? "Hide pad" : (signatureData ? "Re-sign" : "Sign letter")}
+                </button>
+              </div>
+              {showSignPad && (
+                <SignaturePad value={signatureData} onChange={setSignatureData} height={150} />
+              )}
+            </div>
+
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               <button className="btn-gold" data-testid="letter-pdf-btn" onClick={() => pdfInline({
                 title: form.letter_type || "Legal Letter",
                 subtitle: `From: ${form.your_name} · To: ${form.recipient}`,
                 body: letter,
                 meta: { Date: new Date().toLocaleDateString(), Tone: TONE_INFO[form.tone].label },
-                filename: `${(form.letter_type || "letter").replace(/[^A-Za-z0-9]/g, "_")}.pdf`
+                filename: `${(form.letter_type || "letter").replace(/[^A-Za-z0-9]/g, "_")}${signatureData ? "_SIGNED" : ""}.pdf`,
+                signature_data_url: signatureData || undefined,
+                signer_name: signatureData ? (form.your_name || undefined) : undefined,
+                signer_date: signatureData ? new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : undefined,
               })} style={{ flex: 1 }}>
                 <Download size={16} style={{ display: "inline", marginRight: 6 }} />Download PDF
               </button>
-              <button className="btn-ghost" onClick={() => setLetter("")} style={{ flex: 1 }}>{t(lang, "letterNewLetter")}</button>
+              <button className="btn-ghost" onClick={() => { setLetter(""); setSignatureData(""); setShowSignPad(false); }} style={{ flex: 1 }}>{t(lang, "letterNewLetter")}</button>
             </div>
           </div>
         )}
@@ -7456,6 +7569,44 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             {t(lang, "countryLawApplied")}
           </div>
         </div>
+
+        {/* 🏴 UK-INTERNAL JURISDICTION — only shown when country = GB.
+            Distinct legal systems within the UK diverge sharply for housing, family,
+            and civil court matters. This pin tells Lex which statutes/courts/terminology
+            to use. Persists via POST /api/profile/uk-jurisdiction. */}
+        {country === "GB" && (
+          <div data-testid="settings-uk-jurisdiction" style={{
+            background: "var(--bg-card)", border: "1px solid var(--line)",
+            borderRadius: 14, padding: 16, marginBottom: 12
+          }}>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6 }}>
+              UK legal system
+            </div>
+            <select
+              className="input"
+              data-testid="settings-uk-jurisdiction-select"
+              value={user.jurisdiction || "england"}
+              onChange={async (e) => {
+                const j = e.target.value;
+                try {
+                  await api.post("/profile/uk-jurisdiction", { jurisdiction: j });
+                  onUpdate({ ...user, jurisdiction: j });
+                  aaToast(`Lex will now apply ${j.replace("_", " ")} law`, "success");
+                } catch (err) {
+                  aaToast(err?.response?.data?.detail || "Couldn't save", "error");
+                }
+              }}
+            >
+              <option value="england">🏴󠁧󠁢󠁥󠁮󠁧󠁿 England (Housing Act, England & Wales courts)</option>
+              <option value="wales">🏴󠁧󠁢󠁷󠁬󠁳󠁿 Wales (Renting Homes (Wales) Act 2016)</option>
+              <option value="scotland">🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland (Sheriff Court, PRT, Scots law)</option>
+              <option value="northern_ireland">🇮🇪 Northern Ireland (NI statutes, NICTS)</option>
+            </select>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>
+              Lex will cite the correct statutes and courts for your home nation. Scots law in particular is a separate legal system.
+            </div>
+          </div>
+        )}
 
         {/* "Hey Lex" wake word toggle — hidden pre-launch.
             Re-enable when SiriKit Shortcuts arrive in the Capacitor iOS wrap. */}

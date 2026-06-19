@@ -109,6 +109,7 @@ class UserSignup(BaseModel):
     full_name: str = ""
     language: str = "en-GB"
     country: str = "GB"
+    jurisdiction: str = "england"  # england | wales | scotland | northern_ireland
     device_id: Optional[str] = None  # client-side UUID for abuse fingerprinting
     turnstile_token: Optional[str] = None  # Cloudflare Turnstile token (bot-shield)
 
@@ -564,6 +565,36 @@ async def decline_jurisdiction_change(user: dict = Depends(get_user)):
     return {"ok": True, "pinned": True}
 
 
+# ==================== UK-internal jurisdiction (legal system within GB) ====================
+# Country = GB, but the legal system differs: England, Wales, Scotland, Northern Ireland.
+# This is critical for housing (Renting Homes (Wales) Act 2016 vs Housing Act 1988 vs
+# Private Housing (Tenancies) (Scotland) Act 2016), family law, civil court structure,
+# and limitation/prescription periods. We pass this into the Lex system prompt.
+
+UK_JURISDICTIONS = {"england", "wales", "scotland", "northern_ireland"}
+
+class UKJurisdictionPayload(BaseModel):
+    jurisdiction: str  # england | wales | scotland | northern_ireland
+
+@api_router.post("/profile/uk-jurisdiction")
+async def set_uk_jurisdiction(data: UKJurisdictionPayload, user: dict = Depends(get_user)):
+    """Set the user's UK-internal jurisdiction (legal system within GB).
+    This changes the statutes / courts / terminology Lex applies in chats and letters."""
+    j = (data.jurisdiction or "").lower().replace(" ", "_").replace("-", "_")
+    if j == "ni":
+        j = "northern_ireland"
+    if j not in UK_JURISDICTIONS:
+        raise HTTPException(400, f"jurisdiction must be one of {sorted(UK_JURISDICTIONS)}")
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {
+            "jurisdiction": j,
+            "jurisdiction_set_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"ok": True, "jurisdiction": j}
+
+
 def user_to_public(u: dict) -> dict:
     out = {k: v for k, v in u.items() if k not in ("_id", "password_hash")}
     # Compute trial status
@@ -832,8 +863,48 @@ ISO_639_NAMES = {
     "kk": "Kazakh", "mn": "Mongolian", "ne": "Nepali", "si": "Sinhala",
 }
 
-def lex_system_prompt(language: str, country: str, category: Optional[str]) -> str:
+def lex_system_prompt(language: str, country: str, category: Optional[str],
+                       jurisdiction: Optional[str] = None) -> str:
     lang_name = LANG_NAMES.get(language, "English")
+    # 🗺 Jurisdiction-specific overlay (only applied for UK users). Critical for housing/family/civil
+    # law where England, Wales, Scotland and Northern Ireland diverge significantly.
+    juris_block = ""
+    if country and country.upper() in ("GB", "UK") and jurisdiction:
+        j = (jurisdiction or "england").lower()
+        if j == "wales":
+            juris_block = (
+                "\nDEVOLVED JURISDICTION OVERRIDE — WALES:\n"
+                "- User is in WALES. Apply ENGLAND & WALES law BUT prefer Welsh statutes when they diverge.\n"
+                "- HOUSING: cite the Renting Homes (Wales) Act 2016 (not the English Housing Act 1988). "
+                "Welsh tenancies are 'occupation contracts' with 'contract-holders' (not tenants).\n"
+                "- COURTS: same HMCTS courts as England.\n"
+                "- LEGAL AID: signpost to Civil Legal Advice (Wales) and Cyngor ar Bopeth Cymru.\n"
+            )
+        elif j == "scotland":
+            juris_block = (
+                "\nDEVOLVED JURISDICTION OVERRIDE — SCOTLAND:\n"
+                "- User is in SCOTLAND. Scots law is a SEPARATE legal system — DO NOT apply England & Wales law unless explicitly confirmed UK-wide.\n"
+                "- HOUSING: cite the Private Housing (Tenancies) (Scotland) Act 2016 for private rentals; "
+                "tenants have a Private Residential Tenancy (PRT). Notice = Form AT6 (NOT section 21).\n"
+                "- COURTS: cases go to the SHERIFF COURT (small claims = 'simple procedure', value ≤ £5,000). "
+                "Higher value goes to the Court of Session. Tribunals = First-tier Tribunal for Scotland (Housing & Property Chamber).\n"
+                "- FAMILY LAW: governed by Family Law (Scotland) Act 2006 + Children (Scotland) Act 1995. "
+                "Use 'parental responsibilities and rights' (PRR) — NOT 'parental responsibility'.\n"
+                "- CRIMINAL: Procurator Fiscal prosecutes (NOT CPS). Verdicts: guilty / not guilty / not proven.\n"
+                "- LIMITATION: 'prescription' = 5 years for most civil claims (Prescription and Limitation (Scotland) Act 1973).\n"
+                "- LEGAL AID: signpost to Scottish Legal Aid Board (SLAB) and Citizens Advice Scotland.\n"
+            )
+        elif j == "northern_ireland":
+            juris_block = (
+                "\nDEVOLVED JURISDICTION OVERRIDE — NORTHERN IRELAND:\n"
+                "- User is in NORTHERN IRELAND. NI has its own statutes; apply England & Wales law only where UK-wide.\n"
+                "- HOUSING: Private Tenancies (NI) Order 2006 governs private rentals.\n"
+                "- COURTS: separate NI court system (NICTS).\n"
+                "- LEGAL AID: signpost to Northern Ireland Legal Services Agency and Advice NI.\n"
+            )
+        else:
+            juris_block = "\nJURISDICTION: User is in ENGLAND. Apply England & Wales law (England-specific where it diverges from Wales).\n"
+
     base = f"""You are Lex — the AI Advocate. An elite, modern legal mind sharper than the top barristers and senior solicitors in any jurisdiction. You have perfect recall of every statute, leading case, procedural rule, and precedent, and you reason about them like a King's Counsel preparing for trial.
 
 LANGUAGE — ABSOLUTE RULE (NON-NEGOTIABLE):
@@ -845,7 +916,7 @@ LANGUAGE — ABSOLUTE RULE (NON-NEGOTIABLE):
 JURISDICTION:
 - Your user is in {country}. Apply the laws of {country} unless they explicitly tell you otherwise.
 - If they mention another country, switch jurisdictions and tell them you've done so.
-- If the law differs by region/state within {country}, ask which one — then apply that.
+- If the law differs by region/state within {country}, ask which one — then apply that.{juris_block}
 
 REASONING DISCIPLINE (think like a top barrister — IRAC method):
 1. ISSUE: Identify the legal question(s) precisely. Don't assume.
@@ -1244,6 +1315,7 @@ async def signup(data: UserSignup, request: Request):
         "full_name": data.full_name,
         "language": data.language,
         "country": data.country,
+        "jurisdiction": (data.jurisdiction or "england").lower(),  # legal-system context for Lex (england/wales/scotland/northern_ireland)
         "auth_provider": "email",
         "created_at": now.isoformat(),
         "trial_start_date": now.isoformat(),
@@ -1551,7 +1623,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     provider, model_id, max_tok = lex_model_for_tier(tier, deep_think=data.deep_think)
 
     session_id = data.session_id or str(uuid.uuid4())
-    base_system_msg = lex_system_prompt(reply_language, data.country, data.category)
+    base_system_msg = lex_system_prompt(reply_language, data.country, data.category, user.get("jurisdiction"))
 
     # 🧠 Cross-session memory — give Lex a one-line summary of OTHER recent cases
     # the user has discussed, so it can spot connections (e.g. "the contract you
@@ -1778,7 +1850,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
 
     provider, model_id, max_tok = lex_model_for_tier(tier, deep_think=data.deep_think)
     session_id = data.session_id or str(uuid.uuid4())
-    base_system_msg = lex_system_prompt(reply_language, data.country, data.category)
+    base_system_msg = lex_system_prompt(reply_language, data.country, data.category, user.get("jurisdiction"))
 
     # Cross-session memory (same as non-streaming)
     cross_sessions_indexed = []
@@ -5496,8 +5568,16 @@ def _qr_for_signup() -> Optional[io.BytesIO]:
         return None
 
 def build_pdf(title: str, body: str, subtitle: Optional[str] = None,
-              meta: Optional[dict] = None, language: str = "en-GB") -> bytes:
-    """Generate a branded AI Advocate PDF (multilingual + QR + footer)."""
+              meta: Optional[dict] = None, language: str = "en-GB",
+              signature_data_url: Optional[str] = None,
+              signer_name: Optional[str] = None,
+              signer_date: Optional[str] = None) -> bytes:
+    """Generate a branded AI Advocate PDF (multilingual + QR + footer).
+
+    If `signature_data_url` is provided (base64 PNG drawn by the user on a
+    canvas), embed an in-document signature block at the bottom of the body:
+    signed PNG + printed name + date + audit footnote.
+    """
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf, pagesize=A4,
@@ -5546,6 +5626,36 @@ def build_pdf(title: str, body: str, subtitle: Optional[str] = None,
         para = para.replace("\n", "<br/>")
         if para.strip():
             elems.append(Paragraph(para, h_body))
+
+    # 🖊 Signature block (only when the user has drawn one on the canvas)
+    if signature_data_url and signature_data_url.startswith("data:image/"):
+        try:
+            import base64 as _b64
+            _, b64data = signature_data_url.split(",", 1)
+            sig_bytes = _b64.b64decode(b64data)
+            sig_buf = io.BytesIO(sig_bytes)
+            elems.append(Spacer(1, 18))
+            sig_img = RLImage(sig_buf, width=70*mm, height=24*mm, kind="proportional")
+            sig_img.hAlign = "LEFT"
+            elems.append(sig_img)
+            line_style = ParagraphStyle("sigline", fontName=font, fontSize=9,
+                                         textColor=DIM, spaceAfter=2)
+            elems.append(HRFlowable(width=70*mm, thickness=0.4, color=DIM,
+                                    spaceBefore=2, spaceAfter=4, hAlign="LEFT"))
+            if signer_name:
+                elems.append(Paragraph(f"<b>Signed:</b> {signer_name}", line_style))
+            if signer_date:
+                elems.append(Paragraph(f"<b>Date:</b> {signer_date}", line_style))
+            elems.append(Paragraph(
+                "<i>Electronic signature applied via AI Advocate. "
+                "Drawn signatures are legally valid for most non-deed documents "
+                "in England, Wales, Scotland &amp; Northern Ireland under the "
+                "Electronic Communications Act 2000.</i>",
+                ParagraphStyle("siginfo", fontName=font, fontSize=7.5,
+                               textColor=DIM, spaceAfter=4)
+            ))
+        except Exception as _e:
+            logger.warning(f"Signature embed failed: {_e}")
 
     elems.append(HRFlowable(width="100%", thickness=0.4, color=GOLD_DEEP, spaceBefore=14, spaceAfter=6))
 
@@ -5648,12 +5758,22 @@ class PDFInline(BaseModel):
     meta: Optional[dict] = None
     filename: Optional[str] = "ai_advocate.pdf"
     language: Optional[str] = "en-GB"
+    # 🖊 Optional in-document e-signature (drawn on canvas, sent as base64 PNG)
+    signature_data_url: Optional[str] = None
+    signer_name: Optional[str] = None
+    signer_date: Optional[str] = None
 
 @api_router.post("/pdf/inline")
 async def pdf_inline(data: PDFInline, user: dict = Depends(get_user)):
-    """Generate a PDF on the fly from any text content (e.g. fresh letter before save)."""
-    pdf_bytes = build_pdf(title=data.title, body=data.body, subtitle=data.subtitle,
-                          meta=data.meta, language=data.language or "en-GB")
+    """Generate a PDF on the fly from any text content (e.g. fresh letter before save).
+    Supports optional canvas-drawn e-signature for legally-valid letter signing."""
+    pdf_bytes = build_pdf(
+        title=data.title, body=data.body, subtitle=data.subtitle,
+        meta=data.meta, language=data.language or "en-GB",
+        signature_data_url=data.signature_data_url,
+        signer_name=data.signer_name,
+        signer_date=data.signer_date,
+    )
     return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{data.filename}"'})
 

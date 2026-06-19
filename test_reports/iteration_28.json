@@ -1,0 +1,66 @@
+{
+  "summary": "Backend: 8/8 pytest passed for the two new features (canvas e-signature in /api/pdf/inline + UK-internal jurisdiction). PDF inline with signature returns a valid larger PDF; unsigned regression intact. UK jurisdiction endpoint accepts england/wales/scotland/northern_ireland, normalises 'ni' → 'northern_ireland', rejects 'mars' with 400, and persists to user doc (verified via /api/auth/me). Lex chat works after jurisdiction change. Frontend: Settings UK-jurisdiction selector verified visible only when country=GB (code review + DOM script reachable). CRITICAL frontend issue: the new LegalLetterModal (data-testid='letter-modal') containing the signature toggle + canvas + PDF download is NEVER opened — no setModal({type:'letter'}) call exists anywhere in /app/frontend/src/App.js. The tile-letter opens LetterLibraryModal (data-testid='letter-lib-modal') instead, which has no signature option. The new signing feature is therefore unreachable through the UI. Playwright login could not complete reliably (language picker + cookie consent re-appeared after route change on the preview URL within session timeout) — but the frontend regression is provable from code grep.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "LegalLetterModal",
+        "issue": "Modal is rendered conditionally at line 12210 ({modal?.type === 'letter' && <LegalLetterModal ... />}) but no setModal({type:'letter'}) call exists anywhere in App.js. Therefore the signature toggle (data-testid='toggle-signature-btn'), canvas (data-testid='signature-canvas'), and PDF download (data-testid='letter-pdf-btn') are UNREACHABLE from the UI. The 'tile-letter' on the dashboard opens LetterLibraryModal (letter-lib-modal), which has no signature feature — only the 'letter-pdf' button which calls pdfInline WITHOUT signature fields.",
+        "selector": "[data-testid=\"letter-modal\"]",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "LetterLibraryModal",
+        "issue": "Existing letter-lib-modal Download PDF button (data-testid='letter-pdf', line 4595) calls pdfInline WITHOUT signature fields — so even users who reach the accessible letter flow cannot sign their letter. Feature parity gap with the unreachable LegalLetterModal.",
+        "selector": "[data-testid=\"letter-pdf\"]",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter28_signature_uk_juris.py",
+    "/app/test_reports/pytest/iter28.xml"
+  ],
+  "tests_executed": {
+    "backend_pytest": "8/8 PASSED — TestPDFInlineSignature::test_pdf_inline_with_signature, test_pdf_inline_without_signature_regression, test_pdf_size_difference_signed_vs_unsigned (signed > unsigned bytes). TestUKJurisdiction::test_set_scotland_and_verify_persistence (GET /api/auth/me confirms), test_invalid_jurisdiction_returns_400 (mars → 400 with detail listing valid options), test_ni_shorthand_normalises ('ni' → 'northern_ireland'), test_set_england_then_wales. TestLexChatWithJurisdiction::test_lex_chat_works_after_scotland_set (200 with non-empty reply).",
+    "frontend_playwright": "PARTIAL — the preview app's language picker + cookie consent re-renders after /signin route change, blocking automated form fill within timeout window. Verified directly via code review: (a) settings-uk-jurisdiction card is gated on `country === 'GB'` at App.js:7577 so it disappears for US/other countries; (b) settings-uk-jurisdiction-select onChange posts /api/profile/uk-jurisdiction + aaToast 'Lex will now apply <j> law' (App.js:7589-7598); (c) onUpdate({...user, jurisdiction: j}) keeps the select in sync without reload."
+  },
+  "code_review_findings": {
+    "missing_entry_point_for_LegalLetterModal": "grep 'setModal' in App.js shows 61 calls — NONE use type:'letter'. Line 12210 will never fire. Recommend either: (1) wire `tile.id === 'letter'` → setModal({type:'letter'}) and route legacy library entry elsewhere, or (2) add the signature SignaturePad block into LetterLibraryModal (around line 4590-4602) so existing users get the feature, or (3) add a dedicated tile/button (e.g. tile.id='writer') that maps to setModal({type:'letter'}).",
+    "duplicate_pdf_button_testid": "Both LetterLibraryModal (data-testid='letter-pdf', line 4595) and LegalLetterModal (data-testid='letter-pdf-btn', line 4845) exist. Confusing — consider unifying.",
+    "frontend_file_size": "/app/frontend/src/App.js is ~16,259 lines — same pattern flagged in iteration 27. Strongly recommend splitting LegalLetterModal, LetterLibraryModal, SettingsModal into their own files.",
+    "signature_data_url_size_limit": "Backend build_pdf decodes base64 PNG with no size cap on /api/pdf/inline (the admin endpoint at line 11836 caps at 200_000 bytes — apply same cap on /pdf/inline to prevent abuse/DoS).",
+    "jurisdiction_country_coupling": "Settings UK jurisdiction is only shown when country='GB'. If a user has jurisdiction='scotland' but later changes country to US, the jurisdiction value still persists on the user doc and would still be applied in Lex prompt (juris_block at server.py:871-906 runs regardless of country). Consider clearing jurisdiction when country changes away from GB."
+  },
+  "action_items": [
+    "HIGH: Wire setModal({type:'letter'}) to a UI entry point — either change tile-letter (currently opens letter_lib) or add a dedicated 'Write a letter' tile/button. Without this the new signature feature is unreachable.",
+    "HIGH: OR move the SignaturePad block into LetterLibraryModal so the accessible Letter Library flow gets signing too.",
+    "MED: Add max size cap (e.g. 200_000 bytes) to signature_data_url in PDFInline payload validation.",
+    "LOW: De-duplicate testids letter-pdf vs letter-pdf-btn and remove dead modal type='letter' route if not wired.",
+    "LOW: Clear user.jurisdiction when country changes away from GB so Lex prompt doesn't apply Scots-law to a US user who used to live in Scotland."
+  ],
+  "critical_code_review_comments": [
+    "LegalLetterModal entry point missing — feature is dead code as shipped.",
+    "Backend /api/pdf/inline has no size guard on signature_data_url (admin /firm-deal sign endpoint does cap it).",
+    "App.js > 16k lines — needs split.",
+    "Jurisdiction value persists after country change away from GB."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter28_signature_uk_juris.py"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8)",
+    "frontend": "Code-reviewed; Settings UK jurisdiction wiring correct. Letter-modal/signature entry point: BROKEN (unreachable)."
+  },
+  "test_credentials": "test@advocate.app / Test12345! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None — all test data ephemeral. The test user's user.jurisdiction was set to scotland → northern_ireland → england → wales → scotland during the run.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend endpoints POST /api/profile/uk-jurisdiction + POST /api/pdf/inline (with signature_data_url) are confirmed working. The dead-code LegalLetterModal route at App.js:12210 is the blocker for frontend signature testing — once main agent wires it (or migrates the SignaturePad into LetterLibraryModal), run a Playwright test that logs in, opens the letter writer, types a small details prompt, clicks letter-generate-btn, waits for letter output, clicks toggle-signature-btn, draws on signature-canvas via page.mouse.move events (touchAction:none — pointer events fired by mouse work), then clicks letter-pdf-btn and asserts a PDF download starts. The preview env shows the language picker on each /signin route change — pre-set localStorage aa_lang/aa_lang_picked before nav, or click OK with explicit XPath //button[normalize-space()='OK'].",
+  "rca_of_the_issue": "Root cause: When the main agent added LegalLetterModal with signature support (App.js:4739), they registered the route at line 12210 ({modal?.type === 'letter' && <LegalLetterModal />}) but never wired any control to call setModal({type:'letter'}). The existing tile.id='letter' onTile handler at line 11969 still routes to letter_lib (the old LetterLibraryModal). Mitigation: change line 11969 to setModal({type:'letter'}), OR add SignaturePad block to LetterLibraryModal (more incremental — keeps the template-driven flow). Reproduction: log in as test user → dashboard → click letter tile → letter-lib-modal opens (not letter-modal); search code: grep -n 'setModal' frontend/src/App.js | grep '\"letter\"' returns 0 matches for exactly 'letter' alone."
+}
