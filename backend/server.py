@@ -7700,6 +7700,253 @@ async def _job_founder_weekly_digest():
         logger.exception(f"[cron] founder weekly digest failed: {e}")
 
 
+# 🗣 #5 — Top Lex topics this week (Mongo aggregation on conversations).
+@api_router.get("/founder/top-topics")
+async def founder_top_topics(days: int = 7, _: dict = Depends(_check_founder_only)):
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 90)))).isoformat()
+    rows = await db.conversations.aggregate([
+        {"$match": {"created_at": {"$gte": cutoff}, "category": {"$ne": None, "$exists": True}}},
+        {"$group": {"_id": "$category", "count": {"$sum": 1},
+                    "users": {"$addToSet": "$user_id"}}},
+        {"$project": {"_id": 0, "category": "$_id", "count": 1,
+                      "unique_users": {"$size": "$users"}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 15},
+    ]).to_list(15)
+    total = sum(r["count"] for r in rows) or 1
+    for r in rows:
+        r["pct"] = round((r["count"] / total) * 100, 1)
+    return {"days": days, "topics": rows, "total_chats": total}
+
+
+# 💷 #7 — Cash flow forecast (next 30 days). Projected income from active subs MINUS known costs.
+@api_router.get("/founder/cash-flow")
+async def founder_cash_flow(_: dict = Depends(_check_founder_only)):
+    now = datetime.now(timezone.utc)
+    in_30d = (now + timedelta(days=30)).isoformat()
+
+    # Projected income — sum monthly tier price for subs that will renew in 30 days
+    stripe_users = await db.users.find(
+        {"stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+         "subscription_status": {"$in": ["active", "trialing"]},
+         "cancel_at_period_end": {"$ne": True}},
+        {"_id": 0, "tier": 1},
+    ).to_list(2000)
+    _TIER = {"plus": 19.99, "pro": 34.99, "yearly": 26.66, "trial_pro": 0.0}
+    projected_income = round(sum(_TIER.get(u.get("tier", ""), 0) for u in stripe_users), 2)
+
+    # Known monthly costs from business_relationships
+    relationships = await db.business_relationships.find(
+        {"monthly_cost_gbp": {"$gt": 0}, "status": {"$ne": "cancelled"}},
+        {"_id": 0, "name": 1, "monthly_cost_gbp": 1, "category": 1},
+    ).to_list(200)
+    monthly_costs = round(sum(r.get("monthly_cost_gbp", 0) for r in relationships), 2)
+
+    # Partner commissions owed (will be paid out quarterly, so prorated)
+    pc_agg = await db.partner_commissions.aggregate([
+        {"$match": {"paid": False}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount_gbp"}}},
+    ]).to_list(1)
+    partner_owed = round(((pc_agg[0]["total"] if pc_agg else 0) or 0), 2)
+    # Conservatively assume 1/3 of quarterly accrual is paid out in next 30d
+    partner_payout_30d = round(partner_owed / 3, 2)
+
+    # Upcoming deadlines with amount_gbp in next 30d
+    deadline_costs = await db.founder_deadlines.find(
+        {"done": {"$ne": True}, "due_date": {"$lte": in_30d[:10]},
+         "amount_gbp": {"$gt": 0}},
+        {"_id": 0, "title": 1, "amount_gbp": 1, "due_date": 1},
+    ).to_list(20)
+    deadline_total = round(sum(d.get("amount_gbp", 0) for d in deadline_costs), 2)
+
+    total_outgoings = round(monthly_costs + partner_payout_30d + deadline_total, 2)
+    net = round(projected_income - total_outgoings, 2)
+
+    return {
+        "as_of": now.isoformat(),
+        "projected_income_30d_gbp": projected_income,
+        "monthly_recurring_costs_gbp": monthly_costs,
+        "partner_payouts_30d_gbp": partner_payout_30d,
+        "deadline_costs_30d_gbp": deadline_total,
+        "deadline_items": deadline_costs,
+        "total_outgoings_30d_gbp": total_outgoings,
+        "net_30d_gbp": net,
+        "cost_breakdown": relationships,
+    }
+
+
+# 🔧 #8 — Quick actions
+class RefundPayload(BaseModel):
+    user_id: str
+    reason: Optional[str] = "requested_by_customer"
+    amount_pence: Optional[int] = None  # If None, full refund of last charge
+
+@api_router.post("/founder/refund-user")
+async def founder_refund_user(data: RefundPayload, _: dict = Depends(_check_founder_only)):
+    """Refund a user's most recent Stripe charge. Logged to founder_actions audit log."""
+    u = await db.users.find_one({"id": data.user_id}, {"_id": 0})
+    if not u:
+        raise HTTPException(404, "User not found")
+    if not u.get("stripe_customer_id"):
+        raise HTTPException(400, "User has no Stripe customer ID")
+    try:
+        import stripe as _stripe
+        _stripe.api_key = os.environ.get("STRIPE_API_KEY", "")
+        # Get the most recent charge
+        charges = _stripe.Charge.list(customer=u["stripe_customer_id"], limit=1)
+        if not charges.data:
+            raise HTTPException(400, "No charges found for this customer")
+        charge = charges.data[0]
+        refund_args = {"charge": charge.id, "reason": data.reason}
+        if data.amount_pence:
+            refund_args["amount"] = data.amount_pence
+        refund = _stripe.Refund.create(**refund_args)
+        await db.founder_actions.insert_one({
+            "id": str(uuid.uuid4()), "action": "refund",
+            "user_id": data.user_id, "user_email": u.get("email"),
+            "stripe_charge_id": charge.id, "stripe_refund_id": refund.id,
+            "amount_pence": refund.amount, "reason": data.reason,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
+        return {"ok": True, "refund_id": refund.id, "amount_gbp": refund.amount / 100}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Refund failed: {e}")
+        raise HTTPException(500, f"Refund failed: {str(e)[:200]}")
+
+class LockPayload(BaseModel):
+    user_id: str
+    reason: Optional[str] = ""
+
+@api_router.post("/founder/lock-user")
+async def founder_lock_user(data: LockPayload, _: dict = Depends(_check_founder_only)):
+    """Disable a user account (account_locked=true). Login will be rejected."""
+    r = await db.users.update_one(
+        {"id": data.user_id},
+        {"$set": {"account_locked": True, "locked_at": datetime.now(timezone.utc).isoformat(),
+                  "locked_reason": data.reason}}
+    )
+    if r.matched_count == 0:
+        raise HTTPException(404, "User not found")
+    await db.founder_actions.insert_one({
+        "id": str(uuid.uuid4()), "action": "lock", "user_id": data.user_id,
+        "reason": data.reason, "ts": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"ok": True}
+
+class BroadcastPayload(BaseModel):
+    audience: str  # "all" | "paying" | "free" | "partner"
+    partner_code: Optional[str] = None  # Required when audience="partner"
+    subject: str
+    body_html: str
+
+@api_router.post("/founder/broadcast")
+async def founder_broadcast(data: BroadcastPayload, _: dict = Depends(_check_founder_only)):
+    """Send a broadcast email to a segment of users. Rate-limited to 1 broadcast per hour."""
+    # Rate limit
+    last = await db.founder_actions.find_one(
+        {"action": "broadcast"}, sort=[("ts", -1)]
+    )
+    if last:
+        last_ts = datetime.fromisoformat(last["ts"].replace("Z", "+00:00"))
+        if (datetime.now(timezone.utc) - last_ts).total_seconds() < 3600:
+            raise HTTPException(429, "Broadcast rate-limited — 1 per hour max")
+
+    q: dict = {}
+    if data.audience == "paying":
+        q = {"stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+             "subscription_status": {"$in": ["active", "trialing"]}}
+    elif data.audience == "free":
+        q = {"$or": [{"stripe_subscription_id": {"$exists": False}},
+                     {"stripe_subscription_id": None}, {"stripe_subscription_id": ""}]}
+    elif data.audience == "partner":
+        if not data.partner_code:
+            raise HTTPException(400, "partner_code required when audience=partner")
+        q = {"partner_code": data.partner_code.upper()}
+    # else "all"
+
+    users = await db.users.find(q, {"_id": 0, "email": 1, "full_name": 1}).to_list(5000)
+    if not users:
+        return {"ok": True, "sent": 0, "message": "No users matched audience filter"}
+
+    # Send via Resend
+    sent = failed = 0
+    try:
+        from email_helper import send_email
+        for u in users:
+            try:
+                await send_email(to=u["email"], kind="user",
+                                 subject=data.subject, body_html=data.body_html)
+                sent += 1
+            except Exception:
+                failed += 1
+    except Exception as e:
+        raise HTTPException(500, f"Email helper failed: {e}")
+
+    await db.founder_actions.insert_one({
+        "id": str(uuid.uuid4()), "action": "broadcast",
+        "audience": data.audience, "partner_code": data.partner_code,
+        "subject": data.subject, "sent": sent, "failed": failed,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"ok": True, "audience": data.audience, "matched": len(users), "sent": sent, "failed": failed}
+
+
+# 🚨 Anomaly detection — hourly watchdog for signup/refund/churn spikes.
+async def _job_anomaly_watchdog():
+    """Compares last hour vs previous 24h average. Emails founder on significant spikes."""
+    try:
+        founder_email = (os.environ.get("FOUNDER_EMAIL") or "samuel.malick@aiadvocate.co.uk").lower()
+        now = datetime.now(timezone.utc)
+        hour_ago = (now - timedelta(hours=1)).isoformat()
+        day_ago = (now - timedelta(hours=24)).isoformat()
+
+        # Last hour vs last 24h avg
+        last_hour_signups = await db.users.count_documents({"created_at": {"$gte": hour_ago}})
+        last_24h_signups = await db.users.count_documents({"created_at": {"$gte": day_ago}})
+        avg_per_hour_24h = last_24h_signups / 24
+
+        last_hour_cancels = await db.users.count_documents({
+            "subscription_status": "canceled", "updated_at": {"$gte": hour_ago},
+        })
+
+        alerts = []
+        # Signup spike: ≥10x avg AND ≥10 signups (avoids 0→2 false positive)
+        if last_hour_signups >= 10 and (avg_per_hour_24h == 0 or last_hour_signups >= avg_per_hour_24h * 10):
+            alerts.append(f"🚀 Signup spike: <b>{last_hour_signups}</b> in last hour (24h avg: {avg_per_hour_24h:.1f}/hr). Sudden growth or bot attack — check the user lookup feed.")
+        # Churn spike: ≥3 cancels in 1h
+        if last_hour_cancels >= 3:
+            alerts.append(f"🚨 Churn spike: <b>{last_hour_cancels}</b> cancellations in last hour. Something broke or an upset post went viral. Investigate fast.")
+
+        if not alerts:
+            return
+        # Don't alert more than once per 4h on the same anomaly
+        recent = await db.system_alerts.find_one(
+            {"type": "anomaly", "ts": {"$gte": (now - timedelta(hours=4)).isoformat()}}
+        )
+        if recent:
+            return
+        body_html = (
+            "<div style='font-family:Arial;color:#1a1a1a;'>"
+            "<h3 style='color:#dc2626;'>🚨 AI Advocate — anomaly detected</h3>"
+            "<ul>" + "".join(f"<li>{a}</li>" for a in alerts) + "</ul>"
+            "<p>Open the founder dashboard: <a href='https://aiadvocate.co.uk/founder'>aiadvocate.co.uk/founder</a></p>"
+            "</div>"
+        )
+        from email_helper import send_email
+        await send_email(to=founder_email, kind="firm",
+                         subject="🚨 AI Advocate — anomaly detected",
+                         body_html=body_html)
+        await db.system_alerts.insert_one({
+            "id": str(uuid.uuid4()), "type": "anomaly", "alerts": alerts,
+            "ts": now.isoformat(),
+        })
+        logger.info(f"[cron] anomaly alert sent: {len(alerts)} alerts")
+    except Exception as e:
+        logger.exception(f"[cron] anomaly watchdog failed: {e}")
+
+
 # ==================== LAW FIRM PORTAL ====================
 # NB: founder-signature + commissions admin endpoints below use _check_admin_user
 # (defined inline) because the canonical require_admin Depends is declared
@@ -14784,6 +15031,14 @@ async def startup():
             _job_founder_weekly_digest,
             CronTrigger(day_of_week="mon", hour=9, minute=0),
             id="aa_founder_weekly",
+            replace_existing=True,
+        )
+
+        # 🚨 Hourly anomaly watchdog — signup spike, churn spike, refund spike.
+        sched.add_job(
+            _job_anomaly_watchdog,
+            CronTrigger(minute=15),
+            id="aa_anomaly",
             replace_existing=True,
         )
 

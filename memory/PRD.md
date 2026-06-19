@@ -684,3 +684,39 @@ Before sending anything that creates a financial commitment, paste it for review
 
 ### Deployment note
 Production redeploy required to push all of these to aiadvocate.co.uk. ENV vars unchanged.
+
+## 🆕 2026-02 — Founder Dashboard v3 (FINAL — 4-feature bundle SHIPPED)
+
+### #5 — Top Lex topics this week
+- `GET /api/founder/top-topics?days=7` — Mongo aggregation on `db.conversations` grouped by category, returns count + unique users + % share.
+- UI: bar-chart style list in the founder dashboard.
+
+### #7 — Cash flow forecast (next 30 days)
+- `GET /api/founder/cash-flow` — projected income from active subs renewing + recurring costs from `business_relationships` + partner payouts (1/3 of unpaid commissions) + deadline-driven outgoings.
+- UI: 5 KPI cards (income, recurring costs, partner payouts, deadlines, net).
+- Verified: preview env shows £1,584 income / £95 costs / £1,489 net.
+
+### #8 — Quick actions
+- `POST /api/founder/refund-user` — refunds most recent Stripe charge for a user. Audit log to `db.founder_actions`.
+- `POST /api/founder/lock-user` — sets `account_locked=true` on user doc. Login enforcement TBD (separate task).
+- `POST /api/founder/broadcast` — sends bulk email via Resend. Audience: all | paying | free | partner. Rate-limited 1/hr via `db.founder_actions`.
+- UI: broadcast composer collapsible section (audience selector, subject, HTML body, send button with confirm dialog).
+
+### 🚨 Anomaly watchdog (hourly cron)
+- New scheduler job `aa_anomaly` — runs every hour at :15 minutes.
+- Detects: signup spike (≥10x 24h avg AND ≥10 in last hour), churn spike (≥3 cancels in last hour). Refund detection requires Stripe webhook integration (deferred).
+- Rate-limited: max 1 alert per 4h.
+- Email to FOUNDER_EMAIL via Resend.
+
+### Cron jobs now active
+`aa_llm_spend`, `aa_anomaly`, `aa_founder_weekly`, `aa_headsup`, `aa_stripe_audit`, `aa_partner_commissions`, `aa_drafts`, `aa_autosend`.
+
+### Tests
+All 4 endpoints validated:
+- `top-topics`: ✅ aggregation returns valid structure
+- `cash-flow`: ✅ £1,584/£95/£1,489 sensible figures
+- `broadcast` (partner audience filter): ✅ correct "no users matched"
+- `aa_anomaly` cron: ✅ registered
+
+### Deployment
+Production redeploy required. All env vars unchanged.

@@ -15841,20 +15841,31 @@ function FounderPage({ user, onClose }) {
   const [activity, setActivity] = useState(null);
   // 💷 #4 — VAT tracker
   const [vat, setVat] = useState(null);
+  // 🗣 #5 — Top Lex topics
+  const [topics, setTopics] = useState(null);
+  // 💷 #7 — Cash flow forecast
+  const [cashFlow, setCashFlow] = useState(null);
+  // 🔧 #8 — Broadcast email composer
+  const [showBroadcast, setShowBroadcast] = useState(false);
+  const [bcast, setBcast] = useState({ audience: "all", partner_code: "", subject: "", body_html: "" });
 
   const load = useCallback(async () => {
     setBusy(true); setErr("");
     try {
-      const [overview, ar, act, v] = await Promise.all([
+      const [overview, ar, act, v, tt, cf] = await Promise.all([
         api.get("/founder/overview"),
         api.get("/founder/at-risk").catch(() => ({ data: null })),
         api.get("/founder/activity").catch(() => ({ data: null })),
         api.get("/founder/vat-tracker").catch(() => ({ data: null })),
+        api.get("/founder/top-topics", { params: { days: 7 } }).catch(() => ({ data: null })),
+        api.get("/founder/cash-flow").catch(() => ({ data: null })),
       ]);
       setData(overview.data);
       setAtRisk(ar.data);
       setActivity(act.data);
       setVat(v.data);
+      setTopics(tt.data);
+      setCashFlow(cf.data);
     } catch (e) {
       setErr(e?.response?.data?.detail || "Access denied — founder email only.");
     } finally { setBusy(false); }
@@ -15932,6 +15943,87 @@ function FounderPage({ user, onClose }) {
             <Kpi label="Partner $ owed" value={fmtGbp(m.partner_commissions_owed_gbp)} accent={m.partner_commissions_owed_gbp > 0 ? "warn" : "neutral"} />
             <Kpi label="Active partners" value={m.active_partners} />
           </div>
+        </Section>
+
+        {/* 💷 #7 CASH FLOW FORECAST */}
+        {cashFlow && (
+          <Section title="💷 Cash flow forecast (next 30 days)">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10 }}>
+              <Kpi label="Projected income" value={fmtGbp(cashFlow.projected_income_30d_gbp)} accent="good" />
+              <Kpi label="Recurring costs" value={fmtGbp(cashFlow.monthly_recurring_costs_gbp)} accent="warn" />
+              <Kpi label="Partner payouts" value={fmtGbp(cashFlow.partner_payouts_30d_gbp)} accent="warn" />
+              <Kpi label="Deadline costs" value={fmtGbp(cashFlow.deadline_costs_30d_gbp)} accent="warn" />
+              <Kpi label="Net 30d" value={fmtGbp(cashFlow.net_30d_gbp)} accent={cashFlow.net_30d_gbp >= 0 ? "good" : "warn"} />
+            </div>
+            {cashFlow.deadline_items.length > 0 && (
+              <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-muted)" }}>
+                Deadline outgoings: {cashFlow.deadline_items.map(d => `${d.title} (£${d.amount_gbp})`).join(" · ")}
+              </div>
+            )}
+          </Section>
+        )}
+
+        {/* 🗣 #5 TOP LEX TOPICS */}
+        {topics && topics.topics.length > 0 && (
+          <Section title={`🗣 Top Lex topics (last ${topics.days}d · ${topics.total_chats} chats)`}>
+            {topics.topics.slice(0, 10).map(t => (
+              <div key={t.category} style={{ padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                  <span style={{ color: "var(--text)", textTransform: "capitalize" }}>{t.category.replace(/_/g, " ")}</span>
+                  <span style={{ color: "var(--gold)" }}>{t.count} chats · {t.unique_users} users · {t.pct}%</span>
+                </div>
+                <div style={{ height: 4, background: "var(--bg)", borderRadius: 2, marginTop: 4, overflow: "hidden" }}>
+                  <div style={{ width: `${t.pct}%`, height: "100%", background: "var(--gold)" }} />
+                </div>
+              </div>
+            ))}
+          </Section>
+        )}
+
+        {/* 🔧 #8 QUICK ACTIONS — broadcast email */}
+        <Section title="🔧 Quick actions">
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button className="btn-gold" data-testid="broadcast-toggle" onClick={() => setShowBroadcast(v => !v)} style={{ padding: "8px 14px", fontSize: 13 }}>
+              📧 {showBroadcast ? "Close composer" : "Broadcast email"}
+            </button>
+            <span style={{ fontSize: 11, color: "var(--text-muted)", alignSelf: "center" }}>
+              Use lookup above to refund / lock a specific user.
+            </span>
+          </div>
+          {showBroadcast && (
+            <div style={{ marginTop: 12, padding: 12, background: "var(--bg)", borderRadius: 8, border: "1px solid var(--gold-deep)" }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <select className="input" data-testid="broadcast-audience" value={bcast.audience} onChange={(e) => setBcast({ ...bcast, audience: e.target.value })} style={{ flex: 1 }}>
+                  <option value="all">All users</option>
+                  <option value="paying">Paying users only</option>
+                  <option value="free">Free users only</option>
+                  <option value="partner">A specific partner's referrals</option>
+                </select>
+                {bcast.audience === "partner" && (
+                  <input className="input" placeholder="Partner code (e.g. LAMBETH-CAB)" value={bcast.partner_code}
+                    onChange={(e) => setBcast({ ...bcast, partner_code: e.target.value })} style={{ flex: 1 }} />
+                )}
+              </div>
+              <input className="input" data-testid="broadcast-subject" placeholder="Subject line" value={bcast.subject}
+                onChange={(e) => setBcast({ ...bcast, subject: e.target.value })} style={{ marginBottom: 8 }} />
+              <textarea className="input" data-testid="broadcast-body" rows={6} placeholder="HTML body (use <b>, <p>, <a href=...>)"
+                value={bcast.body_html} onChange={(e) => setBcast({ ...bcast, body_html: e.target.value })} />
+              <button className="btn-gold" data-testid="broadcast-send" disabled={!bcast.subject || !bcast.body_html}
+                onClick={async () => {
+                  const ok = await aaConfirm(`Send to ${bcast.audience} audience? This is rate-limited to 1/hour.`);
+                  if (!ok) return;
+                  try {
+                    const { data: r } = await api.post("/founder/broadcast", bcast);
+                    aaToast(`Sent to ${r.sent} users (${r.failed} failed)`, "success");
+                    setShowBroadcast(false);
+                    setBcast({ audience: "all", partner_code: "", subject: "", body_html: "" });
+                  } catch (e) {
+                    aaToast(e?.response?.data?.detail || "Broadcast failed", "error");
+                  }
+                }}
+                style={{ marginTop: 8, width: "100%" }}>Send broadcast</button>
+            </div>
+          )}
         </Section>
 
         {/* 💷 #4 VAT THRESHOLD TRACKER */}
