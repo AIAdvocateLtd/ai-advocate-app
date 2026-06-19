@@ -585,3 +585,27 @@ Tested 2026-02:
 - ✅ `db.llm_usage` aggregation pipeline works (verified with synthetic data)
 - ✅ `GET /api/admin/llm-spend` returns correct totals + top spenders
 - ✅ `yarn build` passes — no syntax errors
+
+## 🆕 2026-02 — E-Signature + UK Devolved Jurisdictions (SHIPPED)
+### Canvas e-signature
+- New `SignaturePad` React component (`/app/frontend/src/App.js`) — HTML5 canvas, Retina-aware, finger or mouse drawing, base64 PNG output.
+- Wired into `LetterLibraryModal`: signature card appears under generated letter; user toggles "Sign letter" → canvas reveals → draws → PDF download button now sends `signature_data_url`, `signer_name`, `signer_date` to backend.
+- Backend: `build_pdf()` extended to embed signature PNG + printed name + date + ECA 2000 audit footnote.
+- Security: 200KB cap on `signature_data_url` returns HTTP 413.
+- Cost: £0 — no third-party SaaS. Legally valid for most non-deed letters under Electronic Communications Act 2000 (England, Wales, Scotland, NI).
+
+### UK-internal jurisdiction
+- New `jurisdiction` field on user docs (`england` | `wales` | `scotland` | `northern_ireland`).
+- New endpoint: `POST /api/profile/uk-jurisdiction` (validation + normalisation of "ni" → "northern_ireland").
+- `lex_system_prompt()` now injects a `juris_block` with jurisdiction-specific statute + court overlay (Renting Homes (Wales) Act 2016, Private Housing (Tenancies) (Scotland) Act 2016, Sheriff Court, Procurator Fiscal, PRT, sheriff appeals, etc.).
+- `PATCH /api/auth/preferences` now accepts `jurisdiction` (including null to clear).
+- Frontend `SettingsModal`: new "UK legal system" dropdown shown only when country=GB. Auto-clears when country changes away from GB.
+
+### Tests
+- iter28: 8/8 PASSED (initial impl)
+- iter29: 13/13 PASSED (regression + size cap + preferences-jurisdiction integration)
+- pytest files: `/app/backend/tests/test_iter28_signature_uk_juris.py`, `/app/backend/tests/test_iter29_sig_cap_and_pref_jurisdiction.py`
+
+### Known cleanup
+- `LegalLetterModal` (App.js:4739) is now dead code (no callers). Acceptable for now; cleanup PR can delete it + the duplicate `letter-pdf-btn` testid.
+- App.js still ~16,300 lines — deferred refactor.
