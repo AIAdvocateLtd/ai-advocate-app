@@ -15893,7 +15893,9 @@ function FounderPage({ user, onClose }) {
         {/* MONEY TODAY */}
         <Section title="💰 Money today">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
-            <Kpi label="Paying users" value={m.paying_users} />
+            <Kpi label="MRR" value={fmtGbp(m.mrr_gbp)} accent={m.mrr_gbp > 0 ? "good" : "neutral"} />
+            <Kpi label="ARR (projected)" value={fmtGbp(m.arr_gbp)} />
+            <Kpi label="Paying users" value={m.paying_users} accent={m.paying_users > 0 ? "good" : "neutral"} />
             <Kpi label="Total users" value={m.total_users} />
             <Kpi label="New users (24h)" value={m.new_24h_users} accent={m.new_24h_users > 0 ? "good" : "neutral"} />
             <Kpi label="LLM cost (24h)" value={fmtGbp(m.llm_24h_cost_gbp)} />

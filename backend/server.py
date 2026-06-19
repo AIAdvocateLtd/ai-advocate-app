@@ -7297,13 +7297,37 @@ async def founder_overview(_: dict = Depends(_check_founder_only)):
     iso_24h = (now - timedelta(hours=24)).isoformat()
     iso_30d = (now - timedelta(days=30)).isoformat()
 
-    # 💰 Money — pull from existing collections (no new ones needed)
+    # 💰 Money — count ONLY real customers with a valid Stripe subscription.
+    # Dev/admin/seed users (no Stripe sub) must NOT count as 'paying'.
     paying_users = await db.users.count_documents({
+        "stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+        "subscription_status": {"$in": ["active", "trialing", "past_due"]},
         "tier": {"$in": ["plus", "pro", "yearly", "trial_pro"]},
-        "subscription_status": {"$in": ["active", "trialing", "past_due", None]},
     })
-    total_users = await db.users.count_documents({})
-    new_24h_users = await db.users.count_documents({"created_at": {"$gte": iso_24h}})
+    # Total = all real signups, excluding internal/admin/test accounts so the
+    # dashboard reflects actual user growth.
+    EXCLUDE_EMAILS = {"admin@aiadvocate.co.uk", "test@advocate.app",
+                       "samuel.malick@aiadvocate.co.uk"}
+    total_users = await db.users.count_documents({
+        "email": {"$nin": list(EXCLUDE_EMAILS)},
+        "auth_provider": {"$ne": "system"},  # excludes any system-seeded rows
+    })
+    new_24h_users = await db.users.count_documents({
+        "created_at": {"$gte": iso_24h},
+        "email": {"$nin": list(EXCLUDE_EMAILS)},
+    })
+
+    # Stripe MRR — sum of monthly recurring revenue across active subs
+    stripe_users = await db.users.find(
+        {
+            "stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+            "subscription_status": {"$in": ["active", "trialing"]},
+        },
+        {"_id": 0, "tier": 1},
+    ).to_list(2000)
+    _TIER_PRICE = {"plus": 19.99, "pro": 34.99, "yearly": 26.66, "trial_pro": 0.0}
+    mrr_gbp = round(sum(_TIER_PRICE.get(u.get("tier", ""), 0) for u in stripe_users), 2)
+    arr_gbp = round(mrr_gbp * 12, 2)
 
     # 💷 LLM spend last 24h
     llm_24h = await db.llm_usage.aggregate([
@@ -7336,6 +7360,8 @@ async def founder_overview(_: dict = Depends(_check_founder_only)):
             "paying_users": paying_users,
             "total_users": total_users,
             "new_24h_users": new_24h_users,
+            "mrr_gbp": mrr_gbp,
+            "arr_gbp": arr_gbp,
             "llm_24h_cost_gbp": llm_24h_total,
             "llm_24h_calls": llm_24h_calls,
             "partner_commissions_owed_gbp": partner_owed,
