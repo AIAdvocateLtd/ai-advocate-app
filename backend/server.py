@@ -1108,8 +1108,15 @@ TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverif
 async def verify_turnstile(token: Optional[str], request: Optional[Request] = None) -> None:
     """Raise HTTPException(400) if the Turnstile token is missing/invalid.
     No-op if TURNSTILE_SECRET_KEY isn't configured — allows the protection to
-    be enabled with a single env-var flip."""
+    be enabled with a single env-var flip.
+
+    🚨 Panic switch: setting TURNSTILE_DISABLED=1 in the env disables verification
+    without removing the keys. Useful when the widget itself is broken on the
+    client (CDN outage, hostname misconfig in CF dashboard, etc.)."""
     if not TURNSTILE_SECRET_KEY:
+        return
+    if (os.environ.get("TURNSTILE_DISABLED") or "").strip() in ("1", "true", "yes"):
+        logger.info("Turnstile disabled via TURNSTILE_DISABLED env var")
         return
     if not token:
         raise HTTPException(400, "Bot-check didn't load. If you're using Brave or a privacy browser, disable Shields for this site and refresh — or try Safari/Chrome.")
