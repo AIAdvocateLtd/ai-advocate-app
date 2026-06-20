@@ -16359,6 +16359,19 @@ function App() {
     // Unauthenticated visitors at root → marketing landing. We skip this for any
     // sub-path (so /signup, /login, /engage/x, etc. still work) and for users
     // who already have a token (they get the app dashboard as before).
+    // 📲 Skip marketing redirect for installed PWA launches (manifest start_url
+    // is `/?source=pwa`) and for standalone-display mode (Android PWA / iOS
+    // home-screen icon launches). These users want the app, not the landing.
+    const params = new URLSearchParams(window.location.search);
+    const isPwaLaunch =
+      params.get("source") === "pwa" ||
+      (typeof window.matchMedia === "function" &&
+        (window.matchMedia("(display-mode: standalone)").matches ||
+         window.matchMedia("(display-mode: minimal-ui)").matches)) ||
+      window.navigator.standalone === true; // iOS Safari home-screen
+    if (isPwaLaunch) {
+      sessionStorage.setItem("aa_skip_marketing", "1");
+    }
     const hasToken = !!localStorage.getItem("aa_token");
     if (p === "/" && !hasToken && !sessionStorage.getItem("aa_skip_marketing")) {
       window.location.replace("/welcome.html");

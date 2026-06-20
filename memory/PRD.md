@@ -9,6 +9,17 @@
 - **Lawyers** working B2B2C via Firm Portal
 
 
+### 2026-06 (Iter 53 — PWA → Google Play Store ready)
+- 📲 **Manifest upgraded to TWA-grade.** `/app/frontend/public/manifest.json` now has `id`, `scope`, `display_override`, `categories`, `lang`, 4 icons (192/512 in `any` + dedicated 192/512 `maskable` with 20% safe-zone padding), and 4 launcher shortcuts (Ask Lex, Cases, Vault, Find Legal Aid). `start_url` is `/?source=pwa` for install attribution.
+- 🛠 **Service worker added** at `/app/frontend/public/sw.js`. Network-first for HTML navs, cache-first for static, never caches `/api/*` (legal data must always be live). Registered from both `index.html` (React app) and `welcome.html` (static marketing splash). Confirmed `activated` in the live preview.
+- 🎯 **Fixed PWA-killer bug**: `/welcome.html` is where most first-time visitors land, but it had no `<link rel="manifest">`, so Chrome wouldn't fire the install prompt. Added manifest link, apple-touch-icon meta, and SW registration to welcome.html. Verified Chrome now sees a valid manifest from every entrypoint.
+- 🚦 **PWA-launch detection in App.js**: when launched from the installed app (`?source=pwa` query, `display-mode: standalone`, or iOS `navigator.standalone`), the React app now sets `aa_skip_marketing` and skips the redirect to welcome.html. Installed users land straight in the language picker / auth flow, not the marketing splash.
+- 📄 **`/app/memory/google_play_listing.md`** — complete Play Console copy: app title (30 char), short description (80 char), full description (4000 char), Data Safety form answers per data type (Stripe / Anthropic / OpenAI / Google / Resend / PostHog / Tavily disclosures), IARC content rating answers, financial-services declaration, IAP / subscription SKU table.
+- 📄 **`/app/memory/pwabuilder_steps.md`** — step-by-step from `aiadvocate.co.uk` → PWABuilder.com → `.aab` → Play Console internal testing → production. Covers `assetlinks.json` upload to `/.well-known/`, keystore backup, common review rejections + fixes.
+- 🟡 **Pending (user action)**: confirm package id `uk.co.aiadvocate.aiadvocate` in PWABuilder, capture 2–8 phone screenshots (1080×1920), create 1024×500 feature graphic, host `assetlinks.json` once PWABuilder emits it.
+
+
+
 ### 2026-06 (Iter 52 — Multi-page upload everywhere + UI polish)
 - 📎 **Multi-page upload for Letter Reader + Contract Tools.** Both modals now accept multiple photos/PDFs in one go. Frontend chains: pick N files → first one shown as main preview, rest as `extraFiles` pills → on "Analyse", each file is uploaded via `/lex/upload`, then `/document/analyze` (or `/contract/analyze`) is called with `doc_ids=<comma-separated>`. The server stitches the per-page extracted text together (in submission order) and runs one combined analysis. Lex chat's `📎` already supported multi-select.
 - 🎯 **New backend modes**: `POST /api/document/analyze` and `POST /api/contract/analyze` now accept an optional `doc_ids` form param (comma-separated /lex/upload IDs) on top of the existing `file` upload path. Single-file legacy path still works. Verified end-to-end via curl with a 2-page letter (returns `category=debt_collection, severity=high`).

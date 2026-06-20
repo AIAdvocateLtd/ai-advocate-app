@@ -8,6 +8,12 @@
 <meta name="theme-color" content="#0a0a0a">
 <meta name="robots" content="index, follow">
 
+<!-- PWA manifest — required for Google Play / PWABuilder install prompt on this landing page -->
+<link rel="manifest" href="/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AI Advocate">
+
 <!-- Open Graph / Social -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://aiadvocate.co.uk/">
@@ -664,5 +670,19 @@
   });
 </script>
 
+<script>
+  // PWA service worker — registered here as well as on the React app so the
+  // install prompt fires on the most-visited (marketing) page.
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      var isLocalhost = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+      if (location.protocol === "https:" || isLocalhost) {
+        navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(function (e) {
+          console.warn("SW registration failed", e);
+        });
+      }
+    });
+  }
+</script>
 </body>
 </html>

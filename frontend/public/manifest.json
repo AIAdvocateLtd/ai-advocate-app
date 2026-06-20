@@ -1,24 +1,73 @@
 {
-  "name": "AI Advocate",
+  "id": "/?source=pwa",
+  "name": "AI Advocate — AI Lawyer in your Pocket",
   "short_name": "AI Advocate",
-  "description": "Your AI lawyer in your pocket — Ask Lex, analyse evidence, draft letters, manage cases.",
-  "start_url": "/",
+  "description": "Your AI lawyer in your pocket. Get instant legal guidance, analyse evidence, draft letters, manage case files, find legal aid, and get a Solicitor Sanity Check — all in plain English, tailored to UK law (England, Wales, Scotland & Northern Ireland).",
+  "start_url": "/?source=pwa",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
   "background_color": "#000000",
-  "theme_color": "#f7c948",
+  "theme_color": "#000000",
+  "lang": "en-GB",
+  "dir": "ltr",
+  "categories": ["productivity", "business", "utilities"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/assets/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "/assets/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/icon-192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/assets/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Ask Lex",
+      "short_name": "Ask Lex",
+      "description": "Chat with Lex about your legal issue",
+      "url": "/?screen=chat&source=shortcut",
+      "icons": [{ "src": "/icons/ask_lex.png", "sizes": "512x512", "type": "image/png" }]
+    },
+    {
+      "name": "Case Files",
+      "short_name": "Cases",
+      "description": "Open your case files",
+      "url": "/?screen=cases&source=shortcut",
+      "icons": [{ "src": "/icons/files.png", "sizes": "512x512", "type": "image/png" }]
+    },
+    {
+      "name": "Lex Vault",
+      "short_name": "Vault",
+      "description": "Your secure evidence vault",
+      "url": "/?screen=vault&source=shortcut",
+      "icons": [{ "src": "/icons/vault.png", "sizes": "512x512", "type": "image/png" }]
+    },
+    {
+      "name": "Find Legal Aid",
+      "short_name": "Legal Aid",
+      "description": "Find legal aid solicitors near you",
+      "url": "/?screen=legalaid&source=shortcut",
+      "icons": [{ "src": "/icons/aid.png", "sizes": "512x512", "type": "image/png" }]
     }
   ]
 }
