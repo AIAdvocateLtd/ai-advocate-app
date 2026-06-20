@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "uk.co.aiadvocate.aiadvocate",
+    "sha256_cert_fingerprints": ["D0:68:C9:E1:7F:17:96:F3:D5:57:6D:C3:59:5B:2B:BD:F8:F2:D5:60:38:A9:9A:E9:A8:08:9D:05:F2:04:58:73"]
+  }
+}]
