@@ -114,7 +114,143 @@ The CTA in every email points to **https://aiadvocate.co.uk/partners** — that'
 
 ---
 
-## 📝 General sending guidance
+## 5️⃣ For Shelter (national housing charity)
+
+**Subject:** A 24/7 self-serve tool for Shelter's housing-rights callers
+
+> Dear [Director of Services / Head of Helpline],
+>
+> Shelter answered 1.6 million housing-rights enquiries last year, and your advisers — like everyone in this sector — are stretched thin on the questions that *don't* need a human. *"What does my s.21 notice mean?"*, *"How do I report disrepair?"*, *"My deposit hasn't come back — what now?"* eat hours every day that could go to the cases that genuinely need an adviser.
+>
+> I run **AI Advocate**, a UK consumer legal-information app launched in 2026 that handles exactly that gap. It gives renters 24/7 plain-English answers in 11 languages, drafts the standard housing letters (disrepair, deposit, complaint escalation, defective-premises pre-action), and **constantly directs users back to Shelter for anything serious**. It runs across England, Wales, Scotland and Northern Ireland with jurisdiction-aware answers.
+>
+> **What I'm proposing for Shelter:**
+>
+> - You get a unique referral code that gives your callers free or discounted Pro access
+> - **10% of Year 1 subscription revenue (capped at £40 per converted user), paid quarterly via BACS** — unrestricted income to Shelter's general fund
+> - Monthly anonymised analytics on what your callers are actually asking (genuinely useful policy data)
+> - 30-day risk-free pilot, walk away any time
+> - Founding Partner badge in our dashboard (first 5 partners only)
+>
+> Could I send you a one-page Partner Agreement to review, or jump on a 15-minute call? Full overview at https://aiadvocate.co.uk/partners.
+>
+> Warm regards,
+> Samuel Malick
+> Founder & Director, AI Advocate Ltd
+> samuel.malick@aiadvocate.co.uk · Company No. 16612244 · ICO ZC158457
+
+---
+
+## 6️⃣ For Law Centres Network (umbrella for 40+ UK Law Centres)
+
+**Subject:** A self-serve front-door for Law Centres clients — partnership idea
+
+> Dear [Director / Network Manager],
+>
+> Law Centres operate on impossibly thin margins, and your member centres have told me repeatedly that the queue at the front door is the worst part of the job — clients arriving with questions that *could* be self-served, but blocking the slots that need full casework.
+>
+> **AI Advocate** is a UK consumer legal-information app that gives clients somewhere to go before — or between — their Law Centre appointments. It explains process in plain English (housing possession, employment tribunal, welfare benefits, immigration basics), drafts standard letters, maintains an encrypted Vault for evidence, and **constantly signposts users back to Law Centres / qualified solicitors for anything substantive**.
+>
+> **What I'm proposing for the Network:**
+>
+> - One umbrella partner code, with sub-codes for each participating Law Centre
+> - **10% of Year 1 subscription revenue per converted user (capped at £40, paid quarterly via BACS)** flowing directly to the Centre that referred them — restricted-free income to keep the lights on
+> - Centralised conversion dashboard for the Network, plus per-Centre stats
+> - Anonymised topic analytics — useful evidence base for policy and funding bids
+> - Zero setup cost, 30-day rolling, walk away any time
+>
+> If this is something the Network would consider piloting with 3–5 willing Centres first, I'd love to talk. 15-min call or a written proposal — whichever's easier? https://aiadvocate.co.uk/partners.
+>
+> Best wishes,
+> Samuel Malick
+> Founder & Director, AI Advocate Ltd
+> samuel.malick@aiadvocate.co.uk · Company No. 16612244
+
+---
+
+## 7️⃣ For Trades Unions (TUC, Unison, Unite, GMB, NEU, USDAW, RCN)
+
+**Subject:** A 24/7 member-benefit legal tool for [Union Name] members
+
+> Dear [Head of Member Services / Legal Services Director],
+>
+> Union members pay subs in part because they want backup when things go wrong at work, at home, or with the state. The reality is that your legal services team can only take on a fraction of the queries that come in — and even those wait days or weeks for a callback.
+>
+> **AI Advocate** is a UK consumer legal-information app that gives members 24/7 plain-English answers on employment, housing, debt, benefits and family matters in 11 languages — and crucially, **always tells members "for anything serious, contact [Union] legal services"**. It's a triage layer, not a replacement.
+>
+> **What I'm proposing for [Union Name]:**
+>
+> - Branded sign-up code under our Union tier — free or discounted Pro access for paid-up members
+> - Member-benefit positioning: extra value for the same sub, helping retention
+> - **10% of Year 1 subscription revenue (capped at £40 per converted member), paid quarterly via BACS** — direct unrestricted income to the Union
+> - Monthly analytics: which topics are members asking about? Useful for campaigns and policy
+> - Co-branded welcome email for any member who signs up via your code
+> - 30-day risk-free pilot, walk away any time
+>
+> Could I send the formal one-page Partner Agreement, or get 15 minutes in your diary? https://aiadvocate.co.uk/partners.
+>
+> Warm regards,
+> Samuel Malick
+> Founder & Director, AI Advocate Ltd
+> samuel.malick@aiadvocate.co.uk · Company No. 16612244
+
+---
+
+## 8️⃣ For AgeUK (and Independent Age, Carers UK)
+
+**Subject:** Plain-English legal help for older callers — partnership idea for [Charity]
+
+> Dear [Director of Services / Head of Information & Advice],
+>
+> AgeUK's Information & Advice team handles 5+ million enquiries a year, and a significant share are legal-adjacent questions — Power of Attorney, wills, benefits appeals, blue badge refusals, council tax exemptions, social care funding, scams. Most are well-understood problems with clear self-serve answers if the caller only has them in plain language.
+>
+> **AI Advocate** is a UK consumer legal-information app built specifically for plain-English clarity. It answers questions in 11 languages, with a large-text accessible interface, drafts the standard letters older adults need (complaint escalation, blue badge appeal, scam-bank claim, will-instruction summary), and **always signposts callers back to AgeUK / Citizens Advice / qualified solicitors** for anything that needs a human.
+>
+> **What I'm proposing for [Charity]:**
+>
+> - Branded sign-up code giving callers free or discounted Pro access
+> - **10% of Year 1 subscription revenue (capped at £40 per converted user), paid quarterly via BACS** — unrestricted income to [Charity]
+> - Monthly topic analytics — what are older adults actually asking?
+> - Optional: large-text / high-contrast mode toggle, voice input (already built in)
+> - 30-day risk-free pilot, walk away any time
+>
+> Could I send you a one-page proposal or jump on a 15-minute call? https://aiadvocate.co.uk/partners.
+>
+> Best wishes,
+> Samuel Malick
+> Founder & Director, AI Advocate Ltd
+> samuel.malick@aiadvocate.co.uk · Company No. 16612244
+
+---
+
+## 9️⃣ For Domestic Abuse Charities (Refuge, Women's Aid, Galop, Karma Nirvana, Men's Advice Line)
+
+**Subject:** A discreet, offline-evidence-vault legal tool for [Charity]'s survivors
+
+> Dear [Director of Services / Head of Helpline],
+>
+> Survivors who reach out to [Charity] often face overlapping legal battles in the same week — non-molestation and occupation orders, child contact, housing, benefits, divorce. The legal complexity at the worst moment of someone's life is brutal, and adviser capacity is never enough.
+>
+> **AI Advocate** is a UK consumer legal-information app that I think could genuinely help, with three features I'd flag specifically for survivors:
+>
+> 1. **Encrypted offline Vault** — survivors can upload photos of injuries, screenshots of threatening messages, tenancy documents, payslips. Bank-grade encryption, stored on UK servers, deletable with one tap. Crucially, the app **looks like a normal legal-help app** on the home screen (no "DV" / "abuse" branding) — discreet by design.
+> 2. **Plain-English explanations** of non-molestation orders, occupation orders, prohibited steps orders, with letter-drafting for solicitor instruction and legal aid applications.
+> 3. **Always signposts to [Charity] / Refuge / 999 / National DA Helpline** — never tries to replace human support for safety-critical conversations.
+>
+> **What I'm proposing for [Charity]:**
+>
+> - Branded sign-up code — free Pro access for survivors via your service
+> - **10% of Year 1 subscription revenue (capped at £40 per converted user), paid quarterly via BACS** — unrestricted income to your service
+> - Monthly anonymised analytics
+> - 30-day risk-free pilot, walk away any time
+> - Optional: I can demo the discreet-mode Vault on a 15-minute call before we agree anything formal
+>
+> I appreciate this is a sensitive sector and there's no obligation. If it's not the right fit, please just let me know and I won't follow up. Brief overview at https://aiadvocate.co.uk/partners.
+>
+> Warm regards,
+> Samuel Malick
+> Founder & Director, AI Advocate Ltd
+> samuel.malick@aiadvocate.co.uk · Company No. 16612244 · ICO ZC158457
 
 1. **Don't blast send all four templates in one day.** Send 3-5 per day with personalised opening lines.
 2. **Track responses in your /founder diary** as you go — paste the diary entry "Sent to X today" for an audit trail.
