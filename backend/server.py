@@ -4590,6 +4590,101 @@ async def topup_checkout(data: TopupCheckoutPayload, request: Request, user: dic
         raise HTTPException(500, f"Checkout error: {str(e)}")
 
 
+# ---------------------------------------------------------------------------
+# Partner (B2B) subscription checkout — unauthenticated public endpoint
+# ---------------------------------------------------------------------------
+# Used by the /for-organisations landing page. A council/charity rep enters
+# their org name + contact email + tier, gets a Stripe Checkout URL, pays,
+# and lands back on the partners page. We capture their org details in
+# Stripe metadata so the founder dashboard can convert them to a real Partner
+# row in the partners collection after payment confirmation.
+
+class PartnerCheckoutReq(BaseModel):
+    tier: str             # "pilot" | "union" | "council" | "enterprise"
+    org_name: str
+    contact_email: EmailStr
+    contact_phone: Optional[str] = None
+    contact_role: Optional[str] = None   # e.g. "Director of Customer Services"
+    notes: Optional[str] = None          # free-text from the form
+
+@api_router.post("/partners/checkout")
+async def partner_checkout(data: PartnerCheckoutReq, request: Request):
+    """Public — no auth required. The partner is an org, not a personal user."""
+    try:
+        from partner_module import PARTNER_TIER_PRICES  # late import to avoid circular
+    except Exception:
+        raise HTTPException(503, "Partner pricing not configured.")
+    tier_info = PARTNER_TIER_PRICES.get(data.tier)
+    if not tier_info:
+        raise HTTPException(400, f"Unknown partner tier: {data.tier}")
+    if not stripe.api_key:
+        raise HTTPException(503, "Stripe not configured.")
+    try:
+        origin = (os.environ.get("FRONTEND_URL") or request.headers.get("origin") or APP_PUBLIC_URL).rstrip("/")
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            payment_method_types=["card"],
+            line_items=[{"price": tier_info["price_id"], "quantity": 1}],
+            customer_email=data.contact_email,
+            success_url=f"{origin}/for-organisations.html?partner_signup=success&tier={data.tier}",
+            cancel_url=f"{origin}/for-organisations.html?partner_signup=cancel",
+            metadata={
+                "partner_tier":       data.tier,
+                "partner_org_name":   data.org_name[:500],
+                "partner_contact":    data.contact_email,
+                "partner_phone":      (data.contact_phone or "")[:50],
+                "partner_role":       (data.contact_role or "")[:200],
+                "partner_notes":      (data.notes or "")[:500],
+                "partner_signup":     "1",
+            },
+            subscription_data={
+                "metadata": {
+                    "partner_tier":     data.tier,
+                    "partner_org_name": data.org_name[:500],
+                },
+            },
+            allow_promotion_codes=True,
+        )
+        # Fire-and-forget: log the enquiry so the founder dashboard can see
+        # who's clicking even if they bail on Stripe Checkout.
+        try:
+            await db["partner_enquiries"].insert_one({
+                "id":             str(uuid.uuid4()),
+                "tier":           data.tier,
+                "org_name":       data.org_name,
+                "contact_email":  data.contact_email,
+                "contact_phone":  data.contact_phone,
+                "contact_role":   data.contact_role,
+                "notes":          data.notes,
+                "stripe_session": session.id,
+                "status":         "checkout_started",
+                "created_at":     datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:
+            logger.exception("partner_enquiries insert failed (non-fatal)")
+        return {"checkout_url": session.url, "session_id": session.id, "tier": data.tier}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Partner checkout error")
+        raise HTTPException(500, f"Checkout error: {str(e)}")
+
+@api_router.get("/partners/pricing")
+async def partner_pricing_public():
+    """Public — shows the for-organisations page what tiers are available."""
+    try:
+        from partner_module import PARTNER_TIER_PRICES
+    except Exception:
+        return {"tiers": []}
+    return {
+        "tiers": [
+            {"slug": slug, "label": info["label"], "price_gbp": info["gbp"]}
+            for slug, info in PARTNER_TIER_PRICES.items()
+        ]
+    }
+
+
+
 async def _activate_topup_for_user(user_id: str, pack_id: str):
     """Called from the Stripe webhook on successful checkout.session.completed
     when the session's metadata contains `topup_pack`. Idempotent."""

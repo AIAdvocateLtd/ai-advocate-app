@@ -36,6 +36,22 @@ from pydantic import BaseModel, EmailStr
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# B2B subscription tier price IDs (Stripe LIVE mode)
+# ---------------------------------------------------------------------------
+# Live Stripe Price IDs for the partner-facing subscription tiers shown on
+# /for-organisations. The /api/partners/checkout endpoint in server.py maps
+# the tier slug here to the Stripe price the partner is charged.
+#
+# Update these only if the underlying Stripe product/price changes.
+PARTNER_TIER_PRICES = {
+    "pilot":      {"price_id": "price_1TktQXFh8lRHrXPI5gSJ1SBm", "label": "Partner Pilot",      "gbp": 99},
+    "union":      {"price_id": "price_1TktToFh8lRHrXPIKxugJUzF", "label": "Partner Union",      "gbp": 249},
+    "council":    {"price_id": "price_1TktVVFh8lRHrXPIHKyfIi2b", "label": "Partner Council",    "gbp": 499},
+    "enterprise": {"price_id": "price_1TktZ0Fh8lRHrXPIpA3P5c8P", "label": "Partner Enterprise", "gbp": 1500},
+}
+
+
 # Subscription prices (GBP/month). Mirror of marketing copy.
 TIER_MONTHLY_PRICE_GBP = {
     "plus": 19.99,
