@@ -48,7 +48,7 @@ PARTNER_TIER_PRICES = {
     "pilot":      {"price_id": "price_1TktQXFh8lRHrXPI5gSJ1SBm", "label": "Partner Pilot",      "gbp": 99},
     "union":      {"price_id": "price_1TktToFh8lRHrXPIKxugJUzF", "label": "Partner Union",      "gbp": 249},
     "council":    {"price_id": "price_1TktVVFh8lRHrXPIHKyfIi2b", "label": "Partner Council",    "gbp": 499},
-    "enterprise": {"price_id": "price_1TktZ0Fh8lRHrXPIpA3P5c8P", "label": "Partner Enterprise", "gbp": 1500},
+    "enterprise": {"price_id": "price_1TktZ0Fh8lRHrXPIpA3P5c8P", "label": "Partner Enterprise", "gbp": 1999},
 }
 
 
