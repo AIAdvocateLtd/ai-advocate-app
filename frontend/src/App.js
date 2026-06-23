@@ -80,6 +80,19 @@ api.interceptors.response.use(
     const status = error?.response?.status;
     const cfg = error?.config || {};
     const url = cfg.url || "";
+    // 📧 403 + email_not_verified → flag globally so App renders the verify screen.
+    // We don't reject the promise differently — the caller's try/catch sees the
+    // 403, but the app's render path will swap to EmailVerifyScreen on next tick.
+    if (status === 403) {
+      const detail = error?.response?.data?.detail;
+      const code = (detail && typeof detail === "object") ? detail.code : null;
+      if (code === "email_not_verified") {
+        try {
+          window.__aaVerifyEmail = (detail && detail.email) || window.__aaVerifyEmail || "";
+          window.dispatchEvent(new CustomEvent("aa-verify-required", { detail }));
+        } catch {}
+      }
+    }
     if (status !== 401 || cfg.__aaRetried) return Promise.reject(error);
     // Never retry auth endpoints themselves (avoid loops)
     if (url.startsWith("/auth/")) return Promise.reject(error);
@@ -16326,6 +16339,113 @@ function Empty({ children }) {
 }
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 📧 EmailVerifyScreen — shown after signup until the user clicks the link in
+// their inbox. Calls /auth/resend-verification to re-send, polls
+// /auth/verify-status to detect verification in another tab, and gives the
+// user an escape hatch ("wrong email — sign out and try again").
+// ─────────────────────────────────────────────────────────────────────────────
+function EmailVerifyScreen({ email, onVerified, onCancel }) {
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+  const [cooldown, setCooldown] = useState(0);
+
+  // Poll every 4 seconds — when the user clicks the link in another tab, we
+  // detect it here and auto-progress them into the app.
+  useEffect(() => {
+    if (!email) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await api.get(`/auth/verify-status?email=${encodeURIComponent(email)}`);
+        if (!cancelled && r.data?.verified) onVerified?.();
+      } catch { /* swallow — network blip is fine */ }
+    };
+    const id = setInterval(tick, 4000);
+    tick();
+    return () => { cancelled = true; clearInterval(id); };
+  }, [email, onVerified]);
+
+  // Resend-button cooldown (UX hint — backend enforces real rate-limit)
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const id = setTimeout(() => setCooldown((s) => s - 1), 1000);
+    return () => clearTimeout(id);
+  }, [cooldown]);
+
+  const resend = async () => {
+    if (busy || cooldown > 0) return;
+    setBusy(true); setError(""); setSent(false);
+    try {
+      await api.post("/auth/resend-verification", { email });
+      setSent(true);
+      setCooldown(30);
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Could not resend. Try again in a moment.");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--bg, #0a0a0a)", color: "var(--text, #e6e6e6)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 16px" }}>
+      <div style={{ maxWidth: 480, width: "100%", background: "var(--card, #14130c)", border: "1px solid var(--line, #2a2a2a)", borderRadius: 16, padding: "32px 26px", textAlign: "center" }} data-testid="email-verify-screen">
+        <div style={{ fontSize: 44, marginBottom: 12 }}>📧</div>
+        <h1 style={{ fontSize: 22, color: "var(--gold, #f7c948)", margin: "0 0 10px 0", fontWeight: 700 }}>Check your email</h1>
+        <p style={{ fontSize: 14, color: "var(--text-muted, #9a9a9a)", lineHeight: 1.6, margin: "0 0 18px 0" }}>
+          We've sent a one-click verification link to:
+        </p>
+        <p style={{ fontSize: 15, fontWeight: 600, color: "var(--gold, #f7c948)", marginBottom: 24, wordBreak: "break-all" }} data-testid="verify-email-address">
+          {email || "your email"}
+        </p>
+        <p style={{ fontSize: 13, color: "var(--text-muted, #9a9a9a)", lineHeight: 1.6, marginBottom: 22 }}>
+          Tap the button in that email to unlock your AI Advocate account.
+          This screen will update automatically the moment you do.
+        </p>
+
+        {sent && (
+          <div style={{ background: "rgba(247,201,72,0.08)", border: "1px solid rgba(247,201,72,0.3)", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 13, color: "#f7c948" }} data-testid="verify-resend-success">
+            ✓ A fresh verification link has been sent.
+          </div>
+        )}
+        {error && (
+          <div style={{ background: "rgba(220,38,38,0.08)", border: "1px solid rgba(220,38,38,0.4)", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 13, color: "#fca5a5" }} data-testid="verify-resend-error">
+            {error}
+          </div>
+        )}
+
+        <button
+          onClick={resend}
+          disabled={busy || cooldown > 0}
+          data-testid="verify-resend-btn"
+          style={{
+            width: "100%", padding: "12px 18px", borderRadius: 8, border: "1px solid var(--gold, #f7c948)",
+            background: "transparent", color: "var(--gold, #f7c948)", fontWeight: 600, fontSize: 14,
+            cursor: (busy || cooldown > 0) ? "not-allowed" : "pointer", opacity: (busy || cooldown > 0) ? 0.5 : 1, marginBottom: 10,
+          }}
+        >
+          {busy ? "Sending…" : cooldown > 0 ? `Resend (${cooldown}s)` : "Resend verification email"}
+        </button>
+
+        <button
+          onClick={onCancel}
+          data-testid="verify-cancel-btn"
+          style={{
+            width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid var(--line, #2a2a2a)",
+            background: "transparent", color: "var(--text-muted, #9a9a9a)", fontSize: 13, cursor: "pointer",
+          }}
+        >
+          Wrong email? Sign out and try again
+        </button>
+
+        <p style={{ fontSize: 11, color: "var(--text-muted, #6b6b6b)", marginTop: 22, lineHeight: 1.5 }}>
+          Can't find the email? Check your spam folder, or try a different email if this one was typed wrong.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+
 function App() {
   // Public magic-link pages — bypass auth/marketing entirely. Captured BEFORE
   // hooks but rendered AFTER all hooks to respect rules-of-hooks.
@@ -16471,9 +16591,68 @@ function App() {
     localStorage.setItem("aa_token", data.access_token); setToken(data.access_token); setAuthHeader(data.access_token);
     setUser(data.user); setSentryUser(data.user); identifyAnalytics(data.user);
     track("user_signed_in");
+    // 📧 If signup returned an unverified user, sit them on the verify screen
+    // instead of letting them into the app. They have a valid JWT but every
+    // protected endpoint will 403 with email_not_verified until they click
+    // the link in their inbox.
+    if (data.user && data.user.email_verified === false) {
+      setVerifyPendingEmail(data.user.email || "");
+      setStep("verify-email");
+      return;
+    }
     setStep("app");
   };
-  const onLogout = () => { localStorage.removeItem("aa_token"); setToken(null); setUser(null); setAuthHeader(null); clearSentryUser(); resetAnalytics(); setStep("auth"); };
+  const onLogout = () => { localStorage.removeItem("aa_token"); setToken(null); setUser(null); setAuthHeader(null); clearSentryUser(); resetAnalytics(); setVerifyPendingEmail(""); setStep("auth"); };
+
+  // 📧 Email-verification state. Drives the EmailVerifyScreen render below.
+  const [verifyPendingEmail, setVerifyPendingEmail] = useState("");
+
+  // 📧 If any API call returns 403 + email_not_verified, drop into the verify screen.
+  useEffect(() => {
+    const handler = (e) => {
+      const email = e?.detail?.email || window.__aaVerifyEmail || (user && user.email) || "";
+      if (email) setVerifyPendingEmail(email);
+      setStep("verify-email");
+    };
+    window.addEventListener("aa-verify-required", handler);
+    return () => window.removeEventListener("aa-verify-required", handler);
+  }, [user]);
+
+  // 📧 /verify-email?token=xxx — when the user clicks the link in their email,
+  // we land here. Exchange the token for a JWT, store it, and progress to the
+  // app (auto-login — no need to re-enter password).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!window.location.pathname.startsWith("/verify-email")) return;
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.post("/auth/verify-email", { token });
+        if (cancelled) return;
+        localStorage.setItem("aa_token", data.access_token);
+        setToken(data.access_token);
+        setAuthHeader(data.access_token);
+        setUser(data.user);
+        setSentryUser(data.user);
+        identifyAnalytics(data.user);
+        setVerifyPendingEmail("");
+        // Clean the token out of the URL so it can't be replayed.
+        window.history.replaceState({}, "", "/app");
+        setStep("app");
+      } catch (e) {
+        if (cancelled) return;
+        // Token invalid / expired — drop the user on the verify screen so they
+        // can request a fresh link.
+        setVerifyPendingEmail("");
+        setStep("verify-email");
+        window.history.replaceState({}, "", "/app");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   if (step === "loading") return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}><span className="spinner" /></div>;
 
@@ -16489,6 +16668,27 @@ function App() {
       {step === "lang" && <LanguagePicker lang={lang} initial={lang} onConfirm={(l) => { setLang(l); setStep("terms"); }} />}
       {step === "terms" && <TermsScreen lang={lang} onAccept={() => { localStorage.setItem("aa_terms", "1"); setStep("auth"); }} onDecline={() => setStep("lang")} onChangeLang={() => setStep("lang")} />}
       {step === "auth" && <AuthScreen lang={lang} country={country} onAuth={onAuth} />}
+      {/* 📧 Email-verification gate — sits between signup and dashboard. */}
+      {step === "verify-email" && (
+        <EmailVerifyScreen
+          email={verifyPendingEmail || (user && user.email) || ""}
+          onVerified={async () => {
+            // The user has clicked the link in another tab (or device).
+            // Pull a fresh /auth/me to confirm + load the now-verified user.
+            try {
+              const r = await api.get("/auth/me");
+              setUser(r.data);
+              setSentryUser(r.data);
+              identifyAnalytics(r.data);
+              setVerifyPendingEmail("");
+              setStep("app");
+            } catch {
+              // /auth/me will 403 if somehow still unverified — stay on screen.
+            }
+          }}
+          onCancel={onLogout}
+        />
+      )}
       {/* 👁 Founder dashboard — auth-gated to founder email, accessed via /founder */}
       {step === "app" && user && sessionStorage.getItem("aa_view") === "founder" && (
         <FounderPage user={user} onClose={() => { sessionStorage.removeItem("aa_view"); window.location.replace("/app"); }} />

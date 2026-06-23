@@ -9,6 +9,15 @@
 - **Lawyers** working B2B2C via Firm Portal
 
 
+### 2026-06 (Iter 54 — Email Verification Hard Gate + Turnstile Runtime Fix)
+- 🔐 **Email verification (Hard Gate)** for email/password signups. New accounts get `email_verified=false`, receive a Resend-powered email with a one-click link, and **cannot use any protected endpoint** until they click it. Google/Apple sign-ins are auto-verified (provider already confirmed the email). Existing users are grandfathered on startup via a one-time `email_verified=true` backfill — no one currently using the app gets locked out.
+- 🆕 Endpoints: `POST /auth/verify-email` (token exchange → fresh JWT), `POST /auth/resend-verification` (rate-limited 3/hour/email, 5/hour/IP), `GET /auth/verify-status` (frontend polls so other-tab clicks auto-progress).
+- 🆕 Frontend: `EmailVerifyScreen` component with **email shown**, **Resend** button (30s UI cooldown), **Wrong email — sign out** escape hatch, and **4-second polling** that auto-progresses when the user verifies elsewhere. Global axios interceptor catches 403 + `code: "email_not_verified"` and routes any unverified user back to the verify screen. `/verify-email?token=xxx` URL handler exchanges token for JWT and auto-logs the user in.
+- 🛡 **Turnstile runtime fix (root cause of last 5 hours of debugging)**: Site key now fetched from `/api/auth/providers` at runtime instead of being baked into the JS bundle at build time. Fixes the recurring issue where setting `REACT_APP_TURNSTILE_SITE_KEY` in Emergent secrets didn't propagate without a frontend rebuild (which Emergent's "Re-deploy changes" wasn't triggering when only env vars changed, no code changed). Now keys can be set or rotated in production secrets and propagate on the next backend reload — no rebuild needed.
+- 🛠 Founder email (`samuel.malick@aiadvocate.co.uk`) auto-verified at signup to prevent founder lockout. Already-existing accounts grandfathered as verified.
+
+
+
 ### 2026-06 (Iter 53 — PWA → Google Play Store ready)
 - 📲 **Manifest upgraded to TWA-grade.** `/app/frontend/public/manifest.json` now has `id`, `scope`, `display_override`, `categories`, `lang`, 4 icons (192/512 in `any` + dedicated 192/512 `maskable` with 20% safe-zone padding), and 4 launcher shortcuts (Ask Lex, Cases, Vault, Find Legal Aid). `start_url` is `/?source=pwa` for install attribution.
 - 🛠 **Service worker added** at `/app/frontend/public/sw.js`. Network-first for HTML navs, cache-first for static, never caches `/api/*` (legal data must always be live). Registered from both `index.html` (React app) and `welcome.html` (static marketing splash). Confirmed `activated` in the live preview.

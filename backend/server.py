@@ -494,7 +494,7 @@ class JurisdictionAcceptPayload(BaseModel):
 # below get_user() because they depend on it as a FastAPI dependency.
 
 
-async def get_user(creds: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+async def get_user(creds: HTTPAuthorizationCredentials = Depends(security), request: Request = None) -> dict:
     if not creds:
         raise HTTPException(401, "Not authenticated")
     try:
@@ -504,6 +504,27 @@ async def get_user(creds: HTTPAuthorizationCredentials = Depends(security)) -> d
             raise HTTPException(401, "User not found")
         if user.get("deleted"):
             raise HTTPException(401, "Account has been deleted")
+        # 📧 Email-verification gate. We block authed access if the user signed up
+        # via email/password and hasn't clicked the verify link yet.
+        # Whitelisted: a small set of self-service endpoints the user needs to
+        # actually trigger / check / complete verification (otherwise they're
+        # stuck in an unverified limbo with no way out).
+        path = (request.url.path if request else "") or ""
+        is_verify_endpoint = any(p in path for p in (
+            "/auth/verify-email",
+            "/auth/resend-verification",
+            "/auth/verify-status",
+            "/auth/logout",
+            "/auth/me",  # used by the verify screen to show "verifying X@Y.com"
+        ))
+        if (not user.get("email_verified", True)) and not is_verify_endpoint:
+            # 403 with a stable machine-readable code — frontend interceptor
+            # catches this and routes to the EmailVerifyScreen.
+            raise HTTPException(403, detail={
+                "code": "email_not_verified",
+                "message": "Please verify your email to continue.",
+                "email": user.get("email"),
+            })
         # Tag Sentry scope with the user so errors carry context
         if SENTRY_DSN:
             try:
@@ -1340,12 +1361,42 @@ async def signup(data: UserSignup, request: Request):
         "terms_accepted": True,
         "signup_device_id": data.device_id,  # for abuse fingerprinting (1 user per device per 24h max ≈ 2)
         "signup_ip": (request.client.host if request.client else None),
+        # 📧 Email-verification gate. False for email/password signups; flipped
+        # to True by /auth/verify-email when the user clicks the email link.
+        # The founder is auto-verified to avoid locking the operator out.
+        "email_verified": (data.email or "").lower() == founder_email,
         # Launch-promo fields
         "signup_position": real_signup_count + 1,         # 1-indexed signup number
         "launch_day_pass_until": day_pass_until,           # null if missed offer
         "launch_promo_code": None if awarded_day_pass else "WELCOME20",
     }
     await db.users.insert_one(user_doc)
+
+    # 📧 Email verification: generate a one-time token, store the HASH (not the
+    # raw token — defence-in-depth if the DB ever leaks), and email the
+    # plain-text link to the user. Token is 32 bytes base64url → ~43 chars,
+    # cryptographically random. 24h expiry.
+    if not user_doc["email_verified"]:
+        import secrets as _secrets, hashlib as _hashlib
+        verify_token = _secrets.token_urlsafe(32)
+        token_hash = _hashlib.sha256(verify_token.encode("utf-8")).hexdigest()
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {
+                "email_verify_token_hash": token_hash,
+                "email_verify_expires_at": (now + timedelta(hours=24)).isoformat(),
+            }},
+        )
+        # Build the link. We point at the production domain so it works in the
+        # user's email client. If they click it on a different device, the
+        # /verify-email route in the React app handles the token exchange.
+        app_origin = (os.environ.get("FRONTEND_URL") or "https://aiadvocate.co.uk").rstrip("/")
+        verify_url = f"{app_origin}/verify-email?token={verify_token}"
+        try:
+            from email_helper import send_verify_email_link
+            await send_verify_email_link(data.email, data.full_name or "", verify_url)
+        except Exception:
+            logger.exception("verification email dispatch failed")
 
     # 🎁 Claim any pending gifts addressed to this email (e.g. parent bought
     # a Crisis Pack while the user hadn't signed up yet — activates instantly here)
@@ -1392,6 +1443,103 @@ async def signup(data: UserSignup, request: Request):
         logger.exception("welcome email dispatch failed")
 
     return TokenResp(access_token=make_token(user_id, data.email), user=user_to_public(user_doc))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 📧 Email verification — gates email/password signups before they can access
+# Lex / paid features. Three endpoints:
+#   POST /auth/verify-email    — exchange token from email link for verified=true
+#   POST /auth/resend-verification — re-send the link (rate-limited 3/hour/email)
+#   GET  /auth/verify-status   — check whether an email is verified (used by the
+#                                 frontend verify screen to detect "user clicked
+#                                 link in another tab" without polling /auth/me)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class VerifyEmailReq(BaseModel):
+    token: str
+
+@api_router.post("/auth/verify-email")
+async def auth_verify_email(data: VerifyEmailReq):
+    """Public endpoint hit by the link in the verification email. Validates the
+    token, marks email_verified=True, and returns a fresh JWT so the user is
+    instantly signed in (no need to re-enter password)."""
+    import hashlib as _h
+    if not data.token or len(data.token) < 16:
+        raise HTTPException(400, "Invalid or missing token.")
+    token_hash = _h.sha256(data.token.encode("utf-8")).hexdigest()
+    user = await db.users.find_one({"email_verify_token_hash": token_hash}, {"_id": 0, "password_hash": 0})
+    if not user:
+        raise HTTPException(400, "This verification link is invalid or has already been used. Please request a new one.")
+    expires_at = user.get("email_verify_expires_at") or ""
+    try:
+        exp_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00")) if expires_at else None
+    except Exception:
+        exp_dt = None
+    if exp_dt and exp_dt < datetime.now(timezone.utc):
+        raise HTTPException(400, "This verification link has expired. Please request a new one.")
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set":   {"email_verified": True,
+                    "email_verified_at": datetime.now(timezone.utc).isoformat()},
+         "$unset": {"email_verify_token_hash": "",
+                    "email_verify_expires_at": ""}},
+    )
+    user["email_verified"] = True
+    return TokenResp(access_token=make_token(user["id"], user["email"]), user=user_to_public(user))
+
+
+class ResendVerifyReq(BaseModel):
+    email: EmailStr
+
+@api_router.post("/auth/resend-verification")
+async def auth_resend_verification(data: ResendVerifyReq, request: Request):
+    """Rate-limited: max 3 sends per email per hour, max 5 per IP per hour.
+    Always returns 200 even if the email doesn't exist — prevents account
+    enumeration. The user just sees 'check your inbox' regardless."""
+    import secrets as _s, hashlib as _h
+    email = (data.email or "").strip().lower()
+    ip = (request.client.host if request.client else "unknown")
+    now = datetime.now(timezone.utc)
+    one_hour_ago = (now - timedelta(hours=1)).isoformat()
+
+    # Rate limit by email and by IP — both apply.
+    sent_email = await db.email_verify_log.count_documents({"email": email, "at": {"$gte": one_hour_ago}})
+    sent_ip    = await db.email_verify_log.count_documents({"ip": ip, "at": {"$gte": one_hour_ago}})
+    if sent_email >= 3 or sent_ip >= 5:
+        raise HTTPException(429, "Too many verification emails requested in the past hour. Please wait, then try again.")
+
+    user = await db.users.find_one({"email": email})
+    # Don't reveal whether the email exists. But only actually send if it does.
+    if user and not user.get("email_verified") and not user.get("deleted"):
+        verify_token = _s.token_urlsafe(32)
+        token_hash = _h.sha256(verify_token.encode("utf-8")).hexdigest()
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$set": {
+                "email_verify_token_hash": token_hash,
+                "email_verify_expires_at": (now + timedelta(hours=24)).isoformat(),
+            }},
+        )
+        app_origin = (os.environ.get("FRONTEND_URL") or "https://aiadvocate.co.uk").rstrip("/")
+        verify_url = f"{app_origin}/verify-email?token={verify_token}"
+        try:
+            from email_helper import send_verify_email_link
+            await send_verify_email_link(email, user.get("full_name") or "", verify_url)
+        except Exception:
+            logger.exception("resend verification email dispatch failed")
+
+    await db.email_verify_log.insert_one({"email": email, "ip": ip, "at": now.isoformat()})
+    return {"ok": True, "message": "If an unverified account exists for that email, a verification link has been sent."}
+
+
+@api_router.get("/auth/verify-status")
+async def auth_verify_status(email: EmailStr):
+    """Public — returns whether a given email is verified. Used by the
+    EmailVerifyScreen to poll the user's verification state when they're
+    waiting for the email link to arrive. Doesn't reveal whether the email
+    has an account: an unknown email returns verified=false too."""
+    user = await db.users.find_one({"email": email.lower()}, {"email_verified": 1, "_id": 0})
+    return {"email": email, "verified": bool(user and user.get("email_verified"))}
 
 @api_router.post("/auth/login")
 async def login(data: UserLogin, request: Request):
@@ -1478,12 +1626,19 @@ async def google_login(data: GoogleLogin):
             "subscription_status": "trial",
             "stripe_customer_id": None, "stripe_subscription_id": None,
             "terms_accepted": True,
+            # 📧 Google already verified the email before issuing the token,
+            # so this account is auto-verified — no need to send a link.
+            "email_verified": True,
         }
         await db.users.insert_one(user)
     else:
         # Link google_id if missing
         if not user.get("google_id"):
             await db.users.update_one({"id": user["id"]}, {"$set": {"google_id": google_sub}})
+        # Mark verified — Google has confirmed the email even on link flow.
+        if not user.get("email_verified"):
+            await db.users.update_one({"id": user["id"]}, {"$set": {"email_verified": True}})
+            user["email_verified"] = True
     return TokenResp(access_token=make_token(user["id"], user["email"]), user=user_to_public(user))
 
 @api_router.post("/auth/apple", response_model=TokenResp)
@@ -1542,11 +1697,17 @@ async def apple_login(data: AppleLogin):
             "subscription_status": "trial",
             "stripe_customer_id": None, "stripe_subscription_id": None,
             "terms_accepted": True,
+            # 📧 Apple verified the email at their end before signing the token,
+            # so this account is auto-verified — no verification link needed.
+            "email_verified": True,
         }
         await db.users.insert_one(user)
     else:
         if not user.get("apple_id"):
             await db.users.update_one({"id": user["id"]}, {"$set": {"apple_id": apple_sub}})
+        if not user.get("email_verified"):
+            await db.users.update_one({"id": user["id"]}, {"$set": {"email_verified": True}})
+            user["email_verified"] = True
     return TokenResp(access_token=make_token(user["id"], user["email"]), user=user_to_public(user))
 
 @api_router.get("/auth/providers")
@@ -14888,6 +15049,22 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
+    # 📧 One-time backfill: grandfather every existing account as
+    # email_verified=True. This means anyone who signed up before this feature
+    # rolled out is not retroactively locked out. New email/password signups
+    # from here on get email_verified=False until they click the email link.
+    # Safe to run on every boot — the {"$exists": False} filter only matches
+    # rows that haven't been backfilled yet.
+    try:
+        backfill_result = await db.users.update_many(
+            {"email_verified": {"$exists": False}},
+            {"$set": {"email_verified": True, "email_verified_grandfathered": True}},
+        )
+        if backfill_result.modified_count:
+            logger.info(f"📧 Email-verification backfill: grandfathered {backfill_result.modified_count} existing users.")
+    except Exception:
+        logger.exception("Email-verification backfill failed (non-fatal)")
+
     try:
         await ensure_lawfirm_seed()
         logger.info("Law firm seed ensured")

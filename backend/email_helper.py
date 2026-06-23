@@ -191,6 +191,36 @@ async def send_welcome_missed_offer(email: str, full_name: str = "") -> bool:
     return await _send(email, "Welcome to AI Advocate (and a small thank-you gift)", html)
 
 
+async def send_verify_email_link(email: str, full_name: str, verify_url: str) -> bool:
+    """Sent immediately after signup. One-click link confirms the email is real.
+
+    Without verification, users can't access Lex chat / paid features — so this
+    is the literal critical-path email that gates the entire product. Keep it
+    short, mobile-first, and unmistakable: a single black button, no marketing.
+    """
+    name = (full_name or "").strip().split(" ")[0] or "there"
+    html = _wrap(f"""
+      <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">Verify your email, {name}</h2>
+      <p>Tap the button below to confirm this is your email. It takes one second and unlocks your AI Advocate account.</p>
+      <p style="text-align:center; margin:28px 0;">
+        <a href="{verify_url}" style="display:inline-block; background:#1a1300; color:#f7c948; text-decoration:none; padding:14px 32px; border-radius:8px; font-weight:700; font-size:15px; letter-spacing:0.04em;">
+          ✓ Verify my email
+        </a>
+      </p>
+      <p style="font-size:13px; color:#666; line-height:1.6;">
+        Or copy &amp; paste this link into your browser:<br>
+        <span style="font-family:monospace; word-break:break-all; color:#1a1300;">{verify_url}</span>
+      </p>
+      <p style="font-size:12px; color:#888; margin-top:24px; line-height:1.5;">
+        This link is valid for 24 hours. If you didn't sign up to AI Advocate, you can safely ignore this email — no account will be created without confirmation.
+      </p>
+      <p style="margin:20px 0 0 0;">— The AI Advocate team</p>
+    """, preview="Confirm your email to unlock your AI Advocate account.")
+    return await _send(email, "Verify your email — AI Advocate", html)
+
+
+
+
 async def send_founding_thank_you(email: str, full_name: str = "") -> bool:
     """Personal thank-you from the founder, fired when the founder taps 'Approve'
     on a Founding-100 queue row in the admin panel. Distinct from the auto
