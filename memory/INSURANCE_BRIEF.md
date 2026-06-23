@@ -180,3 +180,30 @@ Aim for **3 quotes** to compare on (a) annual premium, (b) AI-output cover wordi
 ---
 
 *Prepared 2026. Update Year-1/Year-2 turnover figures as your launch progresses.*
+
+---
+
+## 14. Broker follow-up response (added 23 June 2026)
+
+**File generated:** `/app/frontend/public/CFC_Broker_Followup_Response.pdf`
+**Download URL:** `https://aiadvocate.co.uk/CFC_Broker_Followup_Response.pdf` (after Deploy)
+
+The broker came back asking for explicit yes/no confirmation on several questions
+already answered in the original form, plus a revenue clarification (form fields had
+rendered "2" instead of "£2,000"). Summary of confirmations sent:
+
+| Q | Question (paraphrased) | Confirmed Answer |
+|---|---|---|
+| 1.3 | Subsidiaries? | NO |
+| 1.4 | Part of a larger corporate group? | NO |
+| 1.5 | Financial year end | **31 July** (first accounts 31/07/2026) |
+| 1.6 | Revenue — full amounts | UK Current FY £2,000 / Next FY £30,000. Total GR same. Loss (£5,000) current / (£10,000) next. All UK; no USA/overseas revenue. |
+| 1.9 | Investment / funding received or planned? | NO — 100% founder-funded, no fundraising in next 12 months |
+| 2.3 | Tangible products / installation? | NO |
+| 2.4 | Hosting services to clients? | NO |
+| 2.6 | Managed services? | NO |
+| 3.6 | Subcontractors? | NO |
+| 5.2 | Cease-and-desist / IP claim received? | NO |
+| 8.1 | Limits of indemnity (E&O £1M/£1k · Cyber £1M/£1k · GL £1M/£250 · D&O £500k/£1k) | CONFIRMED. Also requested £2M E&O quote as comparison + written confirmation that AI-generated outputs are covered. |
+| 10 | Awareness of incidents / claims? | NO |
+
