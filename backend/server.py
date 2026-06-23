@@ -1551,12 +1551,25 @@ async def apple_login(data: AppleLogin):
 
 @api_router.get("/auth/providers")
 async def auth_providers():
-    """Tells the frontend which social providers are configured."""
+    """Tells the frontend which social providers are configured.
+
+    Also returns the Turnstile site key at runtime — this means we can rotate
+    Turnstile keys (or set them for the first time on a fresh deployment)
+    without having to rebuild the React bundle. The frontend prefers this
+    runtime value over the build-time REACT_APP_TURNSTILE_SITE_KEY env var,
+    so the site key works the moment it's set in production secrets.
+    """
     return {
         "google_enabled": bool(GOOGLE_CLIENT_ID),
         "google_client_id": GOOGLE_CLIENT_ID,
         "apple_enabled": bool(APPLE_SERVICES_ID),
         "apple_services_id": APPLE_SERVICES_ID,
+        "turnstile_site_key": (
+            os.environ.get("REACT_APP_TURNSTILE_SITE_KEY")
+            or os.environ.get("TURNSTILE_SITE_KEY")
+            or ""
+        ).strip(),
+        "turnstile_disabled": (os.environ.get("TURNSTILE_DISABLED") or "").strip() in ("1", "true", "yes"),
     }
 
 

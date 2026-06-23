@@ -445,10 +445,15 @@ function AuthScreen({ lang, country, onAuth }) {
   const [providers, setProviders] = useState({ google_enabled: false, apple_enabled: false });
 
   // 🛡 Cloudflare Turnstile (bot-shield on signup). The widget renders only if
-  // REACT_APP_TURNSTILE_SITE_KEY is set — otherwise the env-var is empty and we
-  // skip rendering. Backend skips verification too if its secret isn't set, so
-  // dev/preview continues to work end-to-end without keys.
-  const TURNSTILE_SITE_KEY = process.env.REACT_APP_TURNSTILE_SITE_KEY || "";
+  // a site key is configured. We prefer the RUNTIME value returned by
+  // /auth/providers over the build-time REACT_APP_TURNSTILE_SITE_KEY env var,
+  // so the key can be set/rotated in production secrets without rebuilding
+  // the React bundle. Backend skips verification too if its secret isn't set,
+  // so dev/preview continues to work end-to-end without keys.
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState(
+    process.env.REACT_APP_TURNSTILE_SITE_KEY || ""
+  );
+  const TURNSTILE_SITE_KEY = turnstileSiteKey;
   const [turnstileToken, setTurnstileToken] = useState("");
   const turnstileRef = useRef(null);
   const turnstileWidgetId = useRef(null);
@@ -472,7 +477,15 @@ function AuthScreen({ lang, country, onAuth }) {
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem("aa_welcomed"));
   const [showTaster, setShowTaster] = useState(false);
 
-  useEffect(() => { api.get("/auth/providers").then(r => setProviders(r.data)).catch(() => {}); }, []);
+  useEffect(() => {
+    api.get("/auth/providers").then(r => {
+      setProviders(r.data);
+      // Runtime Turnstile site key — overrides build-time env var if set.
+      // This lets the key be configured/rotated via production secrets
+      // without rebuilding the React bundle.
+      if (r.data?.turnstile_site_key) setTurnstileSiteKey(r.data.turnstile_site_key);
+    }).catch(() => {});
+  }, []);
 
   // Inject Google Identity Services script when enabled
   useEffect(() => {
