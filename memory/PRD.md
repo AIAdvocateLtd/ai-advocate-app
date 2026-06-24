@@ -9,6 +9,16 @@
 - **Lawyers** working B2B2C via Firm Portal
 
 
+### 2026-06 (Iter 55 — CFC Insurance Proposal PDF v4 final)
+- 📄 **`CFC_Tech_Proposal_Form_AI_Advocate_v4_FINAL.pdf`** generated at `/app/frontend/public/`. Rebuild from clean DRAFT via `/tmp/patch_v4.py`.
+- ✅ **MFA section corrected**: ticked **No** (was incorrectly Yes in v3). Truthful explanation written into `Why_MFA_is_not_enabled` — clarifies the founder uses SSH-key auth + Google MFA, no PCI data is stored (Stripe holds it), end-user OAuth (Google/Apple) inherits provider MFA, native user-side MFA is on the Q2 2026 roadmap.
+- ✅ **£ duplication fixed**: revenue fields now contain plain numbers (form has pre-printed £ glyph next to each cell).
+- ✅ **Registered Address fixed**: was duplicating company name; now reads "20-22 Wenlock Road, London, N1 7GU, United Kingdom" + ICO/Co. number on the continuation line.
+- ✅ **Font consistency**: every text widget forced to Helvetica with content-aware size tier (10 → 9 → 8 → 7 pt) so long paragraphs no longer shrink to micro-print while short fields stay readable.
+- ✅ **Flattened** via `doc.bake()` so all X-marks and field values bake into permanent ink (renders identically in Adobe, Preview, Chrome, Firefox).
+- 🔍 Verified by `analyze_file_tool` on pages 1 (address + revenue table), 5 (MFA), and 7 (Additional info block).
+
+
 ### 2026-06 (Iter 54 — Email Verification Hard Gate + Turnstile Runtime Fix)
 - 🔐 **Email verification (Hard Gate)** for email/password signups. New accounts get `email_verified=false`, receive a Resend-powered email with a one-click link, and **cannot use any protected endpoint** until they click it. Google/Apple sign-ins are auto-verified (provider already confirmed the email). Existing users are grandfathered on startup via a one-time `email_verified=true` backfill — no one currently using the app gets locked out.
 - 🆕 Endpoints: `POST /auth/verify-email` (token exchange → fresh JWT), `POST /auth/resend-verification` (rate-limited 3/hour/email, 5/hour/IP), `GET /auth/verify-status` (frontend polls so other-tab clicks auto-progress).
