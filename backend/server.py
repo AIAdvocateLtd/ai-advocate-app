@@ -2349,10 +2349,14 @@ async def get_timeline(user: dict = Depends(get_user)):
     except Exception:
         logger.exception("timeline auto-promote pass failed (non-fatal)")
 
-    # Chat sessions — group conversations by session, take first message as title
+    # Chat sessions — group conversations by session, take first message as title.
+    # NB: skip rows where deleted_at is set (soft-deleted by Clear Timeline or by
+    # per-item delete); without this filter cleared chats keep reappearing in
+    # the list — see bug report 2026-06-26.
     try:
         cursor = db.conversations.aggregate([
-            {"$match": {"user_id": user_id}},
+            {"$match": {"user_id": user_id,
+                        "deleted_at": {"$in": [None, "", False]}}},
             {"$sort": {"created_at": 1}},
             {"$group": {
                 "_id": "$session_id",
@@ -2445,7 +2449,8 @@ async def get_timeline(user: dict = Depends(get_user)):
 @api_router.get("/lex/sessions")
 async def list_sessions(user: dict = Depends(get_user)):
     pipeline = [
-        {"$match": {"user_id": user["id"]}},
+        {"$match": {"user_id": user["id"],
+                    "deleted_at": {"$in": [None, "", False]}}},
         {"$sort": {"created_at": -1}},
         {"$group": {
             "_id": "$session_id",
@@ -14143,13 +14148,20 @@ async def delete_timeline_item(
 
     if kind == "chat":
         # Chat 'id' is the session_id — soft-delete every conversation row in that session.
+        # Idempotent: if every row is already deleted we still return success, so the
+        # frontend reload removes the stale row from the list either way.
         res = await db.conversations.update_many(
             {"user_id": user["id"], "session_id": item_id,
              "deleted_at": {"$in": [None, "", False]}},
             {"$set": {"deleted_at": now_iso}},
         )
-        if res.modified_count == 0:
-            raise HTTPException(404, "Chat not found or already deleted")
+        if res.matched_count == 0:
+            # Could be an already-deleted session — only 404 if there's nothing at all.
+            any_row = await db.conversations.find_one(
+                {"user_id": user["id"], "session_id": item_id}, {"_id": 1}
+            )
+            if not any_row:
+                raise HTTPException(404, "Chat not found")
         return {"deleted": True, "kind": kind, "rows": res.modified_count}
 
     if kind == "deadline":
@@ -14158,8 +14170,12 @@ async def delete_timeline_item(
              "deleted_at": {"$in": [None, "", False]}},
             {"$set": {"deleted_at": now_iso}},
         )
-        if res.modified_count == 0:
-            raise HTTPException(404, "Deadline not found or already deleted")
+        if res.matched_count == 0:
+            any_row = await db.reminders.find_one(
+                {"user_id": user["id"], "id": item_id}, {"_id": 1}
+            )
+            if not any_row:
+                raise HTTPException(404, "Deadline not found")
         return {"deleted": True, "kind": kind}
 
     # kind == "case"
@@ -14168,8 +14184,12 @@ async def delete_timeline_item(
          "deleted_at": {"$in": [None, "", False]}},
         {"$set": {"deleted_at": now_iso}},
     )
-    if res.modified_count == 0:
-        raise HTTPException(404, "Case not found or already deleted")
+    if res.matched_count == 0:
+        any_row = await db.cases.find_one(
+            {"user_id": user["id"], "id": item_id}, {"_id": 1}
+        )
+        if not any_row:
+            raise HTTPException(404, "Case not found")
     return {"deleted": True, "kind": kind}
 
 

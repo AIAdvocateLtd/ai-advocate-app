@@ -1,0 +1,31 @@
+{
+  "summary": "Verified the timeline per-item delete bug fix (chat 'Chat not found or already deleted' toast). All 10 backend pytest cases PASS against the preview URL, including the primary regression (deleted session_id no longer appears in GET /api/timeline or GET /api/lex/sessions), idempotency (2nd delete returns 200 rows:0), 404 for genuinely missing IDs, 400/422 input validation, deadline delete e2e, and case delete e2e. Frontend smoke could not complete the full click flow because of stacked T&C/language/cookie modals on first load; backend coverage is comprehensive so this does not gate the fix.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_timeline_delete_bug.py",
+    "/app/test_reports/pytest/iter_timeline_delete.xml"
+  ],
+  "action_items": [
+    "Optional: have the main agent run a manual click-test on the Case Timeline modal (test@advocate.app / Test12345!) once existing chat rows exist — backend tests already confirm the soft-delete + reload behaviour is correct."
+  ],
+  "critical_code_review_comments": [
+    "server.py lines 2358-2359 and 2452-2453: the deleted_at filter using {$in:[null,'',false]} is correct and consistent across /api/timeline conversations aggregate, /api/lex/sessions aggregate, reminders find, cases find, and case_items linked lookup — the fix is uniform.",
+    "DELETE /api/timeline/item (lines 14149-14165) idempotency works correctly: when all rows are already soft-deleted, matched_count==0 triggers a presence check on conversations (without the deleted_at filter), and we only 404 when nothing at all exists — exactly the intended semantics.",
+    "Frontend deleteItem() (App.js line 8383) calls load() after success, so the row disappears regardless of whether the delete updated rows or was idempotent — this is correct given the backend now also filters deleted rows out of the timeline list."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_timeline_delete_bug.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "N/A (smoke blocked by T&C gate, see context)"},
+  "test_credentials": "test@advocate.app / Test12345! (pre-seeded)",
+  "seed_data_creation": "test_create_reminder_and_delete creates a TEST_delete_me reminder and then deletes it; chat sessions are soft-deleted (recoverable from Recycle Bin, not destructive).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests live at /app/backend/tests/test_timeline_delete_bug.py and run with `pytest backend/tests/test_timeline_delete_bug.py -v`. Frontend smoke for this flow needs the test runner to handle 3 sequential gates before reaching the login form on a fresh session: (1) language modal -> click OK, (2) Terms & Conditions modal -> tick both checkboxes (input[type=checkbox] nth 0 and 1) then 'Accept & Continue' (this step is flaky in automation — the button click sometimes appears to succeed but the modal stays; may need explicit dispatchEvent), (3) cookies banner -> 'Accept all'. Only after all three does [data-testid=email-input] appear. The Case Timeline opens via [data-testid=open-timeline-btn] on the home screen, and the per-row trash uses [data-testid=timeline-delete-{idx}].",
+  "rca of the issue": "Root cause: the conversations aggregate at /api/timeline filtered only by user_id (no deleted_at filter), so chats that had been soft-deleted by 'Clear Timeline' or by an earlier per-item delete kept appearing in the list. When the user clicked the trash on a stale row, DELETE /api/timeline/item targeted a session whose rows were all already deleted_at-set, the update_one matched 0 rows, and the endpoint raised 404 'Chat not found or already deleted' — surfaced as the red toast. Fix applied at /app/backend/server.py: (a) lines 2358-2359 add deleted_at:{$in:[null,'',false]} to the /api/timeline conversations $match, (b) lines 2452-2453 add the same filter to /api/lex/sessions $match, (c) lines 14149-14165 make DELETE idempotent — only 404 when *no* conversation row with that session_id exists at all. Verification: test_c_delete_chat_removes_from_timeline confirms the deleted session_id disappears from /api/timeline; test_d_lex_sessions_also_filters_deleted confirms the same in /api/lex/sessions; test_e_idempotent_second_delete_returns_200 confirms a repeat-delete is now 200 rows:0 (no more 404 toast); test_f confirms 404 still fires for truly unknown ids."
+}
