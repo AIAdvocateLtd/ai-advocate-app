@@ -14126,6 +14126,53 @@ async def clear_timeline(user: dict = Depends(get_user)):
     return {"cleared": True, "conversations": convs.modified_count, "reminders": rems.modified_count}
 
 
+@api_router.delete("/timeline/item")
+async def delete_timeline_item(
+    kind: str,
+    item_id: str,
+    user: dict = Depends(get_user),
+):
+    """Soft-delete a single timeline item the user selected (chat, deadline, or
+    case). Recoverable from Recycle Bin for 30 days. Lets users prune individual
+    entries instead of nuking the whole timeline."""
+    if kind not in ("chat", "deadline", "case"):
+        raise HTTPException(400, f"Unsupported kind: {kind!r}")
+    if not item_id:
+        raise HTTPException(400, "item_id is required")
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    if kind == "chat":
+        # Chat 'id' is the session_id — soft-delete every conversation row in that session.
+        res = await db.conversations.update_many(
+            {"user_id": user["id"], "session_id": item_id,
+             "deleted_at": {"$in": [None, "", False]}},
+            {"$set": {"deleted_at": now_iso}},
+        )
+        if res.modified_count == 0:
+            raise HTTPException(404, "Chat not found or already deleted")
+        return {"deleted": True, "kind": kind, "rows": res.modified_count}
+
+    if kind == "deadline":
+        res = await db.reminders.update_one(
+            {"user_id": user["id"], "id": item_id,
+             "deleted_at": {"$in": [None, "", False]}},
+            {"$set": {"deleted_at": now_iso}},
+        )
+        if res.modified_count == 0:
+            raise HTTPException(404, "Deadline not found or already deleted")
+        return {"deleted": True, "kind": kind}
+
+    # kind == "case"
+    res = await db.cases.update_one(
+        {"user_id": user["id"], "id": item_id,
+         "deleted_at": {"$in": [None, "", False]}},
+        {"$set": {"deleted_at": now_iso}},
+    )
+    if res.modified_count == 0:
+        raise HTTPException(404, "Case not found or already deleted")
+    return {"deleted": True, "kind": kind}
+
+
 # ==========================================================================
 # 🚀 PHASE 4b BATCH — 6 features added 2026-02:
 #   1. OCR Form Scanner (POST /api/forms/ocr/detect)

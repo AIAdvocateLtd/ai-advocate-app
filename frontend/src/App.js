@@ -2557,27 +2557,6 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                   })()}
                   {m.role === "lex" && (
                     <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
-                      <button data-testid={`fb-up-${i}`} title="Helpful" disabled={m._fb}
-                        onClick={async () => {
-                          try { await api.post("/feedback", { rating: "up", session_id: sessionId, surface: "lex_chat" }); } catch {}
-                          setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _fb: "up" } : mm));
-                        }}
-                        style={{ background: m._fb === "up" ? "rgba(34,197,94,0.2)" : "transparent",
-                                 border: "1px solid var(--line)", color: m._fb === "up" ? "#22c55e" : "var(--text-muted)",
-                                 borderRadius: 8, padding: "2px 8px", fontSize: 11, cursor: m._fb ? "default" : "pointer" }}>
-                        👍
-                      </button>
-                      <button data-testid={`fb-down-${i}`} title="Not helpful" disabled={m._fb}
-                        onClick={async () => {
-                          try { await api.post("/feedback", { rating: "down", session_id: sessionId, surface: "lex_chat" }); } catch {}
-                          setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _fb: "down" } : mm));
-                        }}
-                        style={{ background: m._fb === "down" ? "rgba(239,68,68,0.2)" : "transparent",
-                                 border: "1px solid var(--line)", color: m._fb === "down" ? "#ef4444" : "var(--text-muted)",
-                                 borderRadius: 8, padding: "2px 8px", fontSize: 11, cursor: m._fb ? "default" : "pointer" }}>
-                        👎
-                      </button>
-
                       {/* 🪜 Outcome Ladder — strategic on-demand structuring */}
                       <button data-testid={`ladder-${i}`} title="See worst / likely / best outcomes"
                         disabled={m._ladderBusy}
@@ -8399,6 +8378,29 @@ function CaseTimeline({ lang, onClose, onOpenChat, onOpenReminders, onOpenCase }
     return "/icons/ask_lex.png";
   };
 
+  // 🗑 Per-item delete — user can prune a single chat / deadline / case instead
+  // of clearing the whole timeline. Soft-delete (recoverable from Recycle Bin).
+  const deleteItem = async (it) => {
+    const labelByKind = { chat: "this chat", deadline: "this deadline", case: "this case" };
+    const ok = await aaConfirm({
+      title: `Delete ${labelByKind[it.kind] || "this item"}?`,
+      message: "It will move to Recycle Bin for 30 days. You can restore it from there.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api.delete("/timeline/item", { params: { kind: it.kind, item_id: it.id } });
+      aaToast("Deleted", "success");
+      load();
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Failed to delete", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // 📂 Manual "Save as Case File" — calls /api/cases/from-session and reloads
   // the timeline so the row flips from button → "✓ Filed under Case Files".
   const saveAsCase = async (sessionId, suggestedTitle) => {
@@ -8534,6 +8536,36 @@ function CaseTimeline({ lang, onClose, onOpenChat, onOpenReminders, onOpenCase }
                   {clickable && (
                     <span style={{ fontSize: 10, color: "var(--gold)", marginLeft: "auto" }}>open →</span>
                   )}
+                  {/* 🗑 Per-item delete — sits at the far right of the row meta */}
+                  <button
+                    data-testid={`timeline-delete-${idx}`}
+                    onClick={(e) => { e.stopPropagation(); deleteItem(it); }}
+                    disabled={busy}
+                    title="Delete this item"
+                    aria-label="Delete this item"
+                    style={{
+                      marginLeft: clickable ? 8 : "auto",
+                      background: "transparent",
+                      border: "1px solid var(--line)",
+                      borderRadius: 6,
+                      color: "#fca5a5",
+                      padding: "2px 6px",
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      lineHeight: 1,
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "rgba(239,68,68,0.10)";
+                      e.currentTarget.style.borderColor = "#ef4444";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.borderColor = "var(--line)";
+                    }}
+                  >
+                    <Trash2 size={11} />
+                  </button>
                 </div>
                 <div style={{ color: "var(--text)", fontSize: 13, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
                   {it.title}
