@@ -13240,7 +13240,10 @@ async def admin_users_uncomp(data: CompUserPayload, admin: dict = Depends(requir
       • Cancels any active Stripe subscription so they're not double-billed
       • Sends a branded cancellation email so the user has a paper trail
     """
-    target = await db.users.find_one({"email": data.email.strip().lower()}, {"_id": 0})
+    target = await db.users.find_one(
+        {"email": {"$regex": f"^{re.escape(data.email.strip().lower())}$", "$options": "i"}},
+        {"_id": 0},
+    )
     if not target:
         raise HTTPException(404, "User not found.")
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -13307,7 +13310,13 @@ async def admin_users_delete(data: DeleteUserPayload, admin: dict = Depends(requ
     PROTECTED = {"admin@aiadvocate.co.uk", "appstore.reviewer@aiadvocate.co.uk", "demo@aiadvocate.co.uk"}
     if email_lc in PROTECTED:
         raise HTTPException(400, f"Cannot delete protected account: {email_lc}")
-    target = await db.users.find_one({"email": email_lc}, {"_id": 0, "id": 1, "email": 1})
+    # Case-insensitive email lookup — historic signups stored email as-typed
+    # (e.g. KLKL@hotmail.com), so we match on the lowercased form via regex
+    # rather than an exact string compare.
+    target = await db.users.find_one(
+        {"email": {"$regex": f"^{re.escape(email_lc)}$", "$options": "i"}},
+        {"_id": 0, "id": 1, "email": 1},
+    )
     if not target:
         raise HTTPException(404, "User not found.")
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -13349,7 +13358,10 @@ async def admin_users_restore(data: RestoreUserPayload, admin: dict = Depends(re
     """Restore a previously soft-deleted user. Clears the deleted flag — their
     Pro comp (if any) is intact because we preserve it in /admin/users/delete."""
     email_lc = data.email.strip().lower()
-    target = await db.users.find_one({"email": email_lc, "deleted": True}, {"_id": 0, "id": 1, "email": 1})
+    target = await db.users.find_one(
+        {"email": {"$regex": f"^{re.escape(email_lc)}$", "$options": "i"}, "deleted": True},
+        {"_id": 0, "id": 1, "email": 1},
+    )
     if not target:
         raise HTTPException(404, "Deleted user not found.")
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -13376,7 +13388,10 @@ async def admin_users_purge(data: RestoreUserPayload, admin: dict = Depends(requ
     PROTECTED = {"admin@aiadvocate.co.uk", "appstore.reviewer@aiadvocate.co.uk", "demo@aiadvocate.co.uk"}
     if email_lc in PROTECTED:
         raise HTTPException(400, f"Cannot purge protected account: {email_lc}")
-    target = await db.users.find_one({"email": email_lc, "deleted": True}, {"_id": 0, "id": 1, "email": 1})
+    target = await db.users.find_one(
+        {"email": {"$regex": f"^{re.escape(email_lc)}$", "$options": "i"}, "deleted": True},
+        {"_id": 0, "id": 1, "email": 1},
+    )
     if not target:
         raise HTTPException(404, "Deleted user not found (only soft-deleted users can be purged).")
     uid = target["id"]

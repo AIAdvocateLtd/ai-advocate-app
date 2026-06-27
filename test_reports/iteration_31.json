@@ -1,0 +1,35 @@
+{
+  "summary": "Verified the case-insensitive email lookup bug fix on the admin user-management endpoints. Created 9 pytest cases covering delete/comp/uncomp(revoke)/restore/purge with both lowercase and mixed-case inputs, plus protected-account and non-existent-email guards. 8/9 PASS. 1 FAIL — /api/admin/users/comp was NOT actually fixed; it still uses an exact-match lookup, so comping a mixed-case user via lowercase creates a stray pending_comp_grant duplicate instead of updating the real account.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/admin/users/comp",
+        "issue": "Still uses exact-match `db.users.find_one({\"email\": email_lc})` at server.py line 13168 — the case-insensitive regex was applied to delete/uncomp/restore/purge but MISSED on comp. Reproduction: signup user 'MixedCaseTest_xxx@Example.com' (capitals preserved by signup), POST /api/admin/users/comp with body {email: 'mixedcasetest_xxx@example.com', days: 30}. Expected: 200 with comp_pro_until set on the real account. Actual: 200 but body returns {pending: true, message: 'User has no account yet. Comp queued...'} — a pending_comp_grants doc is inserted while the real user remains uncomped. The review request claimed lines 13167-13172 had the regex; they do not.",
+        "priority": "CRITICAL",
+        "fix": "Replace `target = await db.users.find_one({\"email\": email_lc}, {\"_id\": 0})` with `target = await db.users.find_one({\"email\": {\"$regex\": f\"^{re.escape(email_lc)}$\", \"$options\": \"i\"}}, {\"_id\": 0})` — same pattern already used in admin_users_delete/uncomp/restore/purge."
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_admin_users_case_insensitive.py",
+    "/app/test_reports/pytest/admin_case_insensitive_results.xml"
+  ],
+  "action_items": [
+    "Apply the same case-insensitive regex pattern to admin_users_comp at /app/backend/server.py line 13168. The other four endpoints (delete/uncomp/restore/purge) are correctly fixed and tested green."
+  ],
+  "critical_code_review_comments": [
+    "The comp endpoint already lowercases email_lc but then uses exact match — inconsistent with its 4 sibling endpoints. The fix is a single-line change.",
+    "Suggest extracting `find_user_by_email_ci(email)` as a small helper to prevent this class of bug from recurring on any future admin endpoint.",
+    "Signup at line 1325 (`db.users.find_one({\"email\": data.email})`) is also case-sensitive — two accounts with the same email differing only in case can be created. Not the bug under review but worth noting for hardening."
+  ],
+  "updated_files": ["/app/backend/tests/test_admin_users_case_insensitive.py"],
+  "success_rate": {"backend": "89% (8/9)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "Admin admin@aiadvocate.co.uk / AdminLex2026! (worked). Fixture users created dynamically as MixedCaseTest_<token>@Example.com / Test12345!, and purged after each test for cleanup.",
+  "seed_data_creation": "Each test creates a unique mixed-case user via /api/auth/signup (preserves capitals in DB per line 1347) and purges via /api/admin/users/delete + /api/admin/users/purge at the end. No leftover fixtures.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "After main agent patches admin_users_comp at line 13168 to use the regex form, simply re-run `pytest /app/backend/tests/test_admin_users_case_insensitive.py -v` — all 9 tests should pass. The test file also covers protected-account guard and non-existent-user 404, so it doubles as a regression suite.",
+  "rca of the issue": "Root cause: signup stores email as-typed (server.py:1347 — `data.email`, no lowercasing). Admin lookups did `find_one({email: email_lc})` exact match, so mixed-case stored emails never matched. Fix applied to 4 of 5 endpoints (delete, uncomp/revoke, restore, purge) via `{email: {$regex: f'^{re.escape(email_lc)}$', $options: 'i'}}`. The comp endpoint (line 13168) was missed — its first call site still does exact match, so it falls through to the 'no account yet' branch and inserts a pending_comp_grants doc instead. Reproduction script: see /app/backend/tests/test_admin_users_case_insensitive.py::test_comp_case_insensitive. Mitigation: one-line change at line 13168 mirroring the regex pattern used in the four sibling endpoints."
+}
