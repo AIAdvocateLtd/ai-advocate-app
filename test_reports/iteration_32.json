@@ -1,0 +1,44 @@
+{
+  "summary": "Re-ran /app/backend/tests/test_admin_users_case_insensitive.py after fix at server.py lines 13167-13172. All 9/9 tests PASS (previously 8/9). The admin_users_comp endpoint now correctly uses case-insensitive regex lookup and finds mixed-case stored users to update comp_pro_until instead of incorrectly inserting a pending_comp_grants doc.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_admin_users_case_insensitive.py",
+    "/app/test_reports/pytest/iter32_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "All 5 admin user endpoints (delete/comp/uncomp/restore/purge) now consistently use case-insensitive regex for email lookups against historically stored mixed-case emails. Good consistency.",
+    "Consider extracting the repeated {email: {$regex: f'^{re.escape(email_lc)}$', $options: 'i'}} pattern into a helper function (e.g., find_user_by_email_ci) to reduce duplication and reduce risk of future inconsistency."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "N/A"},
+  "test_credentials": "admin@aiadvocate.co.uk / AdminLex2026! (from review request)",
+  "seed_data_creation": "Test suite creates and cleans up its own users via TEST_ prefix",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 9 case-insensitive admin user tests pass: delete (lowercase + mixedcase), comp, revoke, restore, purge, protected-account guards (admin@aiadvocate.co.uk on lowercase + mixedcase), and 404 for nonexistent users. Fix confirmed at server.py lines 13167-13172 using $regex with re.escape and case-insensitive $options.",
+  "test_results_detail": {
+    "total": 9,
+    "passed": 9,
+    "failed": 0,
+    "passed_tests": [
+      "test_delete_with_lowercase_email_succeeds",
+      "test_delete_with_mixedcase_email_succeeds",
+      "test_comp_case_insensitive",
+      "test_revoke_case_insensitive",
+      "test_restore_case_insensitive",
+      "test_purge_case_insensitive_and_removed_from_recent",
+      "test_protected_account_guard_still_works",
+      "test_protected_account_guard_against_mixed_case_input",
+      "test_nonexistent_user_returns_404"
+    ]
+  }
+}

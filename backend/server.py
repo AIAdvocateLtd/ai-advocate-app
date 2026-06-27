@@ -13165,7 +13165,11 @@ async def admin_users_comp(data: CompUserPayload, admin: dict = Depends(require_
     If the user hasn't signed up yet, store as a pending grant — auto-applied
     when they later create an account with this email (same pattern as pending_gifts)."""
     email_lc = data.email.strip().lower()
-    target = await db.users.find_one({"email": email_lc}, {"_id": 0})
+    # Case-insensitive lookup — historic signups stored email as-typed.
+    target = await db.users.find_one(
+        {"email": {"$regex": f"^{re.escape(email_lc)}$", "$options": "i"}},
+        {"_id": 0},
+    )
     days = max(1, int(data.days or 30)) if data.days and data.days > 0 else (365 * 30)  # 0 = lifetime
     now = datetime.now(timezone.utc)
 
