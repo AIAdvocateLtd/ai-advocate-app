@@ -2682,13 +2682,12 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         </div>
 
         <div className="flex items-center gap-2" style={{ padding: "12px 12px 56px", borderTop: "1px solid var(--line)", position: "relative" }}>
-          {/* 🌍 Per-thread jurisdiction pill — subtle reminder of which country's
-              law Lex is currently using for this conversation. Tap to override
-              for just this chat (does not change the user's profile country).
-              Per-question overrides also work via natural language — Lex's
-              system prompt handles "actually, I'm asking about UK law" automatically. */}
+          {/* 🌍 Per-thread jurisdiction pill — sits DIRECTLY UNDER the Lex avatar
+              so the current jurisdiction reads as metadata about Lex ("Lex — UK Law"),
+              not as global page chrome. Tap to override for this chat only (does
+              NOT change the user's profile country). */}
           <div data-testid="jurisdiction-pill-wrap"
-               style={{ position: "absolute", top: -28, left: 12, display: "flex", alignItems: "center" }}>
+               style={{ position: "absolute", bottom: -24, left: 4, display: "flex", alignItems: "center" }}>
             <button data-testid="jurisdiction-pill"
                     onClick={() => setJurisdictionPickerOpen(o => !o)}
                     style={{
@@ -2710,11 +2709,11 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
             {jurisdictionPickerOpen && (
               <div data-testid="jurisdiction-pill-menu"
                    style={{
-                     position: "absolute", bottom: "100%", left: 0, marginBottom: 6,
+                     position: "absolute", top: "100%", left: 0, marginTop: 6,
                      background: "var(--bg-card)",
                      border: "1px solid var(--gold-deep)",
                      borderRadius: 10, padding: 6,
-                     boxShadow: "0 -8px 24px rgba(0,0,0,0.55)",
+                     boxShadow: "0 8px 24px rgba(0,0,0,0.55)",
                      zIndex: 50, minWidth: 220,
                      // Mobile-safe: never taller than 60vh, always scrollable inside
                      maxHeight: "min(60vh, 360px)",

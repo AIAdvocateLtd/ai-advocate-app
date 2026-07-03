@@ -839,6 +839,20 @@ async def check_quota_and_increment(user_id: str, tier: str, feature: str, perio
     )
     return True, current + 1, limit
 
+async def get_quota_remaining(user_id: str, tier: str, feature: str, period: str = "daily") -> Optional[int]:
+    """Peek quota — returns remaining count WITHOUT incrementing. None = unlimited.
+    Used by the smart Deep Think auto-router so we don't consume quota until we
+    actually decide to flip Deep Think on."""
+    now = datetime.now(timezone.utc)
+    bucket = now.strftime("%Y-%m-%d") if period == "daily" else now.strftime("%Y-%m")
+    limit_key = f"{feature}_{period}"
+    limit = TIER_QUOTAS.get(tier, {}).get(limit_key)
+    if limit is None:
+        return None  # unlimited
+    doc = await db.usage.find_one({"user_id": user_id, "bucket": bucket, "feature": feature}, {"_id": 0})
+    current = doc["count"] if doc else 0
+    return max(0, limit - current)
+
 async def get_user_usage_summary(user_id: str, tier: str) -> dict:
     """Returns current usage vs limit for the dashboard banner."""
     now = datetime.now(timezone.utc)
@@ -1018,6 +1032,41 @@ def lex_model_for_tier(tier: str, deep_think: bool = False) -> tuple:
         return ("openai", "gpt-5.2", 1400)
     # free → Haiku for cost/speed. Fall back to Sonnet if Haiku id is rejected.
     return ("anthropic", "claude-haiku-4-5-20251001", 1200)
+
+
+# 🧠 Smart Deep-Think auto-router (Pro tier only).
+# Runs a tiny Haiku classifier (~$0.0001) to decide if a question genuinely
+# benefits from Sonnet's extended-thinking mode. Protects margin by NOT burning
+# Deep Think on trivial factual questions ("what is a Section 21?") while still
+# invoking it for situational multi-step reasoning ("my landlord served me a
+# Section 21 but I've been withholding rent because of damp — what should I do?").
+async def should_auto_deep_think(message: str) -> bool:
+    """Cheap Haiku classifier. Returns True if the question warrants extended
+    reasoning. Deliberately conservative — false negatives are fine, false
+    positives cost money."""
+    if not message or len(message.strip()) < 60:
+        # Short questions are almost never complex situational queries.
+        return False
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        chat = LlmChat(
+            api_key=os.environ["EMERGENT_LLM_KEY"],
+            session_id=f"deepthink-router-{uuid.uuid4()}",
+            system_message=(
+                "You are a triage classifier for a UK legal-help app. Given a user's "
+                "question, decide if it needs EXTENDED reasoning (multi-step analysis, "
+                "weighing conflicting facts, chain-of-thought for a specific personal "
+                "situation) versus SIMPLE (factual definition, single-step lookup, "
+                "yes/no answer). Reply with EXACTLY one word: 'complex' or 'simple'. "
+                "Nothing else."
+            ),
+        ).with_model("anthropic", "claude-haiku-4-5-20251001").with_params(max_tokens=4)
+        resp = await chat.send_message(UserMessage(text=message[:800]))
+        verdict = (resp or "").strip().lower()
+        return verdict.startswith("complex")
+    except Exception as e:
+        logging.warning(f"deep-think classifier failed, defaulting to False: {e!r}")
+        return False
 
 # Simple score-based language detection for the 11 supported languages.
 # Used when auto_detect=True — overrides the chosen UI language for the reply.
@@ -1789,11 +1838,31 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     if data.deep_think and tier not in ("pro", "yearly", "trial_pro"):
         raise HTTPException(402, "Deep Think requires Pro. Upgrade to unlock King's Counsel-grade reasoning.")
 
+    # 🧠 Smart auto-router — Pro users who left Deep Think OFF get it auto-invoked
+    # on genuinely complex questions. Skipped if they explicitly toggled it (either
+    # way) OR if their monthly Deep Think quota is already exhausted.
+    deep_think_auto = False
+    if (not data.deep_think) and tier in ("pro", "yearly", "trial_pro"):
+        try:
+            if await should_auto_deep_think(data.message):
+                # Peek at quota WITHOUT consuming — only consume if we actually flip it on.
+                q = await get_quota_remaining(user["id"], tier, "deep_think", "monthly")
+                if q is None or q > 0:
+                    data.deep_think = True
+                    deep_think_auto = True
+        except Exception as e:
+            logging.warning(f"auto-deep-think decision failed: {e!r}")
+
     # Deep Think monthly quota (protects margin on Pro tier)
     if data.deep_think:
         ok_dt, used_dt, limit_dt = await check_quota_and_increment(user["id"], tier, "deep_think", "monthly")
         if not ok_dt:
-            raise HTTPException(429, f"Deep Think monthly limit reached ({used_dt}/{limit_dt}). Disable Deep Think for unlimited Sonnet 4.5 chats this month, or upgrade to Yearly Pro for 50/mo.")
+            if deep_think_auto:
+                # Auto-triggered but quota gone — silently fall back to normal Sonnet.
+                data.deep_think = False
+                deep_think_auto = False
+            else:
+                raise HTTPException(429, f"Deep Think monthly limit reached ({used_dt}/{limit_dt}). Disable Deep Think for unlimited Sonnet 4.5 chats this month, or upgrade to Yearly Pro for 50/mo.")
 
     # Daily quota for chat
     ok, used, limit = await check_quota_and_increment(user["id"], tier, "lex_chat", "daily")
@@ -1960,6 +2029,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         "language": reply_language,
         "model_used": model_id,
         "deep_think": data.deep_think,
+        "deep_think_auto": deep_think_auto,
         "citations": citations,
         "linked_case_id": data.case_id or None,  # 💬 attach to case if continuing a Case File
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -1991,6 +2061,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         "response": response,
         "reply_language": reply_language,
         "model": model_id,
+        "deep_think_auto": deep_think_auto,
         "connected_session_id": connected_session_id,
         "citations": citations,
     }
@@ -2021,10 +2092,27 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
             raise HTTPException(402, "This category requires Plus or Pro. Upgrade to unlock.")
     if data.deep_think and tier not in ("pro", "yearly", "trial_pro"):
         raise HTTPException(402, "Deep Think requires Pro. Upgrade to unlock King's Counsel-grade reasoning.")
+
+    # 🧠 Smart auto-router — mirrors /lex/chat behaviour on the streaming path.
+    deep_think_auto = False
+    if (not data.deep_think) and tier in ("pro", "yearly", "trial_pro"):
+        try:
+            if await should_auto_deep_think(data.message):
+                q = await get_quota_remaining(user["id"], tier, "deep_think", "monthly")
+                if q is None or q > 0:
+                    data.deep_think = True
+                    deep_think_auto = True
+        except Exception as e:
+            logging.warning(f"auto-deep-think (stream) failed: {e!r}")
+
     if data.deep_think:
         ok_dt, used_dt, limit_dt = await check_quota_and_increment(user["id"], tier, "deep_think", "monthly")
         if not ok_dt:
-            raise HTTPException(429, f"Deep Think monthly limit reached ({used_dt}/{limit_dt}). Disable Deep Think for unlimited Sonnet 4.5 chats this month, or upgrade to Yearly Pro for 50/mo.")
+            if deep_think_auto:
+                data.deep_think = False
+                deep_think_auto = False
+            else:
+                raise HTTPException(429, f"Deep Think monthly limit reached ({used_dt}/{limit_dt}). Disable Deep Think for unlimited Sonnet 4.5 chats this month, or upgrade to Yearly Pro for 50/mo.")
     ok, used, limit = await check_quota_and_increment(user["id"], tier, "lex_chat", "daily")
     if not ok:
         raise HTTPException(429, f"Daily limit reached ({used}/{limit} Lex messages on Free). Upgrade to Plus for unlimited.")
@@ -2196,6 +2284,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                 "language": reply_language,
                 "model_used": model_id,
                 "deep_think": data.deep_think,
+                "deep_think_auto": deep_think_auto,
                 "citations": citations,
                 "linked_case_id": data.case_id or None,  # 💬 attach to case (streamed path)
                 "created_at": datetime.now(timezone.utc).isoformat(),
@@ -2204,7 +2293,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
             logger.exception("Failed to persist streamed conversation — user already saw the response")
 
         # Final event with metadata that needed the full text to compute
-        yield f"data: {_json.dumps({'type':'done','connected_session_id':connected_session_id,'full_text':full_text})}\n\n"
+        yield f"data: {_json.dumps({'type':'done','connected_session_id':connected_session_id,'full_text':full_text,'deep_think_auto':deep_think_auto})}\n\n"
 
     return StreamingResponse(
         event_stream(),

@@ -1,0 +1,54 @@
+{
+  "summary": "Tested the smart Deep Think auto-router (backend) and jurisdiction pill (frontend, code review only — UI automation was blocked by language modal after 3 loop-prevention attempts). Found and applied one critical fix: the auto-router classifier used a non-existent method `with_max_tokens(4)` on LlmChat, which made the ENTIRE feature silently fail (all complex questions returned deep_think_auto=false via exception fallback). After patching to `.with_params(max_tokens=4)`, all 6 backend tests pass and the router behaves per spec.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/api/lex/chat (should_auto_deep_think helper, server.py line ~1063)",
+        "issue": "LlmChat has no method `with_max_tokens`; only `with_params(max_tokens=…)`. The classifier was raising AttributeError every single call and falling into the except branch that returns False. Net effect: the smart Deep Think auto-router NEVER triggered for any user — the whole feature under review was completely broken as shipped. FIXED IN-PLACE (single line change).",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Ask Lex chat modal — jurisdiction pill",
+        "issues": [
+          "Could NOT verify at runtime because language modal blocked automated login after 3 attempts (Playwright click on lang-ok-btn kept timing out — the modal returns on every fresh navigation and the OK button's click was silently intercepted). Static code review of App.js lines 2685-2755 confirms all spec requirements: pill wrap uses position:absolute + bottom:-24 + left:4 (sits below composer wrapper); dropdown uses position:absolute + top:100% + marginTop:6 (opens DOWNWARD); jurisdiction-pill, jurisdiction-pill-menu, jurisdiction-pick-{code} testids all present; onClick fires aaToast('Lex will use {country} law for this chat only'). The pill sits under the mic/Lex-avatar area of the composer bar (composer wrapper has 56px bottom-padding to leave room for the pill), which matches the intent."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_deep_think_auto_router.py",
+    "/app/test_reports/pytest/deep_think_router.xml"
+  ],
+  "action_items": [
+    "MAIN AGENT: verify the classifier fix I applied at server.py line ~1063 (`.with_max_tokens(4)` → `.with_params(max_tokens=4)`). Without it, the auto-router is a no-op. This is a real regression that was live.",
+    "MAIN AGENT: manually re-test the jurisdiction pill in the browser (Playwright auto-login was blocked by the language modal after 3 attempts — the OK button click kept timing out even with force=True; the modal's overlay z-index or portal mount may be trapping actionability checks). Recommend also adding a data-testid on the toast so it can be asserted from tests."
+  ],
+  "critical_code_review_comments": [
+    "server.py:1063 — `.with_max_tokens(4)` is not a real LlmChat method (only with_model, with_params, send_message, etc. are available in emergentintegrations). Bug. Fixed in place.",
+    "server.py:1848-1854 — auto-router uses get_quota_remaining peek without race protection. If two auto-triggered requests fire concurrently at quota-1 remaining, both will pass the peek and both will consume, resulting in used=limit+1. Low likelihood but worth noting.",
+    "server.py:1043-1069 — the classifier is fire-and-forget on every Pro chat >=60 chars. Adds ~200-400ms latency + tiny Haiku cost per request. Consider adding a lightweight local heuristic (word count, question-mark count, presence of 'my/I/me' + situational verbs) as a pre-filter to skip the LLM call on obviously-simple messages.",
+    "server.py streaming endpoint at ~2093-2116 duplicates the auto-router logic verbatim from the non-streaming path — extract to a helper (e.g. maybe_auto_upgrade_deep_think(user, data, tier)) to avoid drift between the two.",
+    "Frontend App.js:2685 — the comment says the pill sits 'DIRECTLY UNDER the Lex avatar' but the pill is actually positioned via bottom:-24 relative to the COMPOSER wrapper (padding-bottom:56 leaves room for it). The 'Lex avatar' in scope is the mic button image on the composer bar, not the chat-header avatar. Comment could be clearer."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (line ~1063 — fixed .with_max_tokens to .with_params(max_tokens=4))",
+    "/app/backend/tests/test_deep_think_auto_router.py (new — 6 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (6/6 after fix)",
+    "frontend": "N/A — code review only, runtime automation blocked"
+  },
+  "test_credentials": "Used test@advocate.app / Test12345! and admin@aiadvocate.co.uk / AdminLex2026! from /app/memory/test_credentials.md. Also auto-generated per-run users test_router_pro_*@advocate.app and test_router_free_*@advocate.app (Pro via /api/admin/users/comp, Free via mongo trial_end_date backdating).",
+  "seed_data_creation": "Per-run: 1 Pro-comped user + 1 Free (trial expired) user. Marked email_verified=True directly in db.users to bypass verification-email link requirement. These accounts are throwaway (unique UUID suffix per run) and do not modify seeded data.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend auto-router tests live in /app/backend/tests/test_deep_think_auto_router.py — run with `pytest backend/tests/test_deep_think_auto_router.py -v`. Complex-question test takes ~30-60s each (Haiku classifier + Sonnet response + RAG). Frontend jurisdiction pill was NOT verified at runtime — the language modal blocked automated login (button text 'OK' with data-testid='lang-ok-btn' kept timing out on click, likely due to overlay/portal actionability issue). Main agent can manually verify by logging in as test@advocate.app and opening Ask Lex.",
+  "rca_of_the_issue": "Root cause of the auto-router bug: emergentintegrations.llm.chat.LlmChat exposes only these methods: [get_messages, send_message, send_message_multimodal_response, with_model, with_params]. The developer wrote `.with_max_tokens(4)` which was a plausible-looking but non-existent method. Because the entire classifier body is wrapped in try/except with a warning log and returns False on failure, the bug was invisible in tests that only checked HTTP 200 — the request succeeded, deep_think_auto was silently False, and the user got normal Sonnet (not deep-think Sonnet) for every complex question. Detection: only surfaced when I checked backend logs and saw 'WARNING:root:deep-think classifier failed, defaulting to False: AttributeError(\\\"LlmChat object has no attribute with_max_tokens\\\")' repeated 3x — one per test call. Mitigation applied: replaced with `.with_params(max_tokens=4)`. Recommend adding a unit test that asserts the classifier does NOT swallow AttributeError, so any future API breaking change surfaces immediately."
+}
