@@ -2360,6 +2360,80 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
             <div className="brand-font gold" style={{ fontSize: 18, letterSpacing: "0.04em" }}>{title || "LEX"}</div>
           </div>
           <div className="flex items-center gap-2">
+            {/* 🌍 Per-chat jurisdiction pill — session-level setting alongside Deep Think.
+                Lives in the header (not the composer) so it (a) never overlaps the
+                disclaimer footer, (b) matches top-down reading order, and (c)
+                opens its dropdown DOWNWARD like every native picker. */}
+            <div data-testid="jurisdiction-pill-wrap" style={{ position: "relative", display: "flex", alignItems: "center" }}>
+              <button data-testid="jurisdiction-pill"
+                      onClick={() => setJurisdictionPickerOpen(o => !o)}
+                      title="Change law for this chat only"
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 6,
+                        background: "rgba(247,201,72,0.08)",
+                        border: "1px solid var(--gold-deep)",
+                        color: "var(--gold-soft)",
+                        padding: "5px 10px", borderRadius: 16,
+                        fontSize: 11, fontWeight: 600, letterSpacing: "0.04em",
+                        cursor: "pointer", whiteSpace: "nowrap",
+                      }}>
+                <Scale size={12} style={{ opacity: 0.9 }} />
+                <span style={{ color: "var(--gold)" }}>
+                  {(COUNTRIES.find(c => c.code === threadCountry)?.name) || threadCountry} law
+                </span>
+                <ChevronDown size={12} style={{ opacity: 0.7,
+                  transform: jurisdictionPickerOpen ? "rotate(180deg)" : "rotate(0)",
+                  transition: "transform 120ms" }} />
+              </button>
+              {jurisdictionPickerOpen && (
+                <div data-testid="jurisdiction-pill-menu"
+                     style={{
+                       position: "absolute", top: "100%", right: 0, marginTop: 6,
+                       background: "var(--bg-card)",
+                       border: "1px solid var(--gold-deep)",
+                       borderRadius: 10, padding: 6,
+                       boxShadow: "0 8px 24px rgba(0,0,0,0.55)",
+                       zIndex: 50, minWidth: 240,
+                       maxHeight: "min(60vh, 400px)",
+                       overflowY: "auto", WebkitOverflowScrolling: "touch",
+                     }}>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", padding: "6px 8px",
+                                letterSpacing: "0.04em", fontWeight: 700,
+                                borderBottom: "1px solid var(--line)", marginBottom: 4,
+                                textTransform: "uppercase" }}>
+                    Change law for this chat only
+                  </div>
+                  {COUNTRIES.map(c => (
+                    <button key={c.code}
+                            data-testid={`jurisdiction-pick-${c.code}`}
+                            onClick={() => {
+                              setThreadCountry(c.code);
+                              setJurisdictionPickerOpen(false);
+                              if (c.code !== country) {
+                                aaToast(`Lex will use ${c.name} law for this chat only`, "info");
+                              } else {
+                                aaToast(`Back to ${c.name} law (your profile default)`, "info");
+                              }
+                            }}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 8, width: "100%",
+                              padding: "7px 10px", borderRadius: 8, cursor: "pointer",
+                              background: c.code === threadCountry ? "rgba(247,201,72,0.18)" : "transparent",
+                              border: "none", color: "var(--text)", fontSize: 12.5, textAlign: "left",
+                              fontWeight: c.code === threadCountry ? 700 : 500,
+                            }}>
+                      <Flag cc={c.code.toLowerCase()} size={14} alt={c.name} />
+                      <span style={{ flex: 1 }}>{c.name}</span>
+                      {c.code === threadCountry && <Check size={13} style={{ color: "var(--gold)" }} />}
+                    </button>
+                  ))}
+                  <div style={{ borderTop: "1px solid var(--line)", marginTop: 4, padding: "8px 10px 4px",
+                                fontSize: 10.5, color: "var(--text-muted)", lineHeight: 1.4 }}>
+                    💡 Or just type "<em>actually, this is about UK law</em>" — Lex will switch automatically.
+                  </div>
+                </div>
+              )}
+            </div>
             {/* Deep Think toggle — Pro only with monthly counter */}
             <button data-testid="deep-think-toggle"
               onClick={() => {
@@ -2682,79 +2756,6 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         </div>
 
         <div className="flex items-center gap-2" style={{ padding: "12px 12px 56px", borderTop: "1px solid var(--line)", position: "relative" }}>
-          {/* 🌍 Per-thread jurisdiction pill — sits JUST ABOVE the composer, aligned
-              with the Lex avatar on the bottom-left. Reads as metadata attached to
-              Lex ("Lex — UK Law") without overlapping the disclaimer/legal-info
-              footer beneath the composer. Tap to override for this chat only. */}
-          <div data-testid="jurisdiction-pill-wrap"
-               style={{ position: "absolute", top: -28, left: 4, display: "flex", alignItems: "center" }}>
-            <button data-testid="jurisdiction-pill"
-                    onClick={() => setJurisdictionPickerOpen(o => !o)}
-                    style={{
-                      display: "inline-flex", alignItems: "center", gap: 6,
-                      background: "rgba(247,201,72,0.08)",
-                      border: "1px solid var(--gold-deep)",
-                      color: "var(--gold-soft)",
-                      padding: "3px 9px", borderRadius: 999,
-                      fontSize: 10.5, fontWeight: 600, letterSpacing: "0.02em",
-                      cursor: "pointer", whiteSpace: "nowrap",
-                    }}
-                    title="Tap to change jurisdiction for this chat only">
-              <Scale size={11} style={{ opacity: 0.9 }} />
-              Using <strong style={{ color: "var(--gold)" }}>{(COUNTRIES.find(c => c.code === threadCountry)?.name) || threadCountry}</strong> law
-              <ChevronDown size={11} style={{ marginLeft: 1, opacity: 0.7,
-                transform: jurisdictionPickerOpen ? "rotate(180deg)" : "rotate(0)",
-                transition: "transform 120ms" }} />
-            </button>
-            {jurisdictionPickerOpen && (
-              <div data-testid="jurisdiction-pill-menu"
-                   style={{
-                     position: "absolute", bottom: "100%", left: 0, marginBottom: 6,
-                     background: "var(--bg-card)",
-                     border: "1px solid var(--gold-deep)",
-                     borderRadius: 10, padding: 6,
-                     boxShadow: "0 -8px 24px rgba(0,0,0,0.55)",
-                     zIndex: 50, minWidth: 220,
-                     // Mobile-safe: never taller than 60vh, always scrollable inside
-                     maxHeight: "min(60vh, 360px)",
-                     overflowY: "auto", WebkitOverflowScrolling: "touch",
-                   }}>
-                <div style={{ fontSize: 10, color: "var(--text-muted)", padding: "4px 8px 6px",
-                              letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 700 }}>
-                  Apply law of…
-                </div>
-                {COUNTRIES.map(c => (
-                  <button key={c.code}
-                          data-testid={`jurisdiction-pick-${c.code}`}
-                          onClick={() => {
-                            setThreadCountry(c.code);
-                            setJurisdictionPickerOpen(false);
-                            if (c.code !== country) {
-                              aaToast(`Lex will use ${c.name} law for this chat only`, "info");
-                            } else {
-                              aaToast(`Back to ${c.name} law (your profile default)`, "info");
-                            }
-                          }}
-                          style={{
-                            display: "flex", alignItems: "center", gap: 8, width: "100%",
-                            padding: "7px 10px", borderRadius: 8, cursor: "pointer",
-                            background: c.code === threadCountry ? "rgba(247,201,72,0.18)" : "transparent",
-                            border: "none", color: "var(--text)", fontSize: 12.5, textAlign: "left",
-                            fontWeight: c.code === threadCountry ? 700 : 500,
-                          }}>
-                    <Flag cc={c.code.toLowerCase()} size={14} alt={c.name} />
-                    <span style={{ flex: 1 }}>{c.name}</span>
-                    {c.code === threadCountry && <Check size={13} style={{ color: "var(--gold)" }} />}
-                  </button>
-                ))}
-                <div style={{ borderTop: "1px solid var(--line)", marginTop: 4, padding: "8px 10px 4px",
-                              fontSize: 10.5, color: "var(--text-muted)", lineHeight: 1.4 }}>
-                  💡 Tip: you can also just type<br/>
-                  "<em>actually, this is about UK law</em>" and Lex will switch automatically.
-                </div>
-              </div>
-            )}
-          </div>
           <button onClick={onMic} data-testid="mic-btn"
                   style={{ background: "#000", border: `2px solid ${recording ? "var(--danger)" : "var(--gold)"}`,
                            borderRadius: "50%", width: 48, height: 48, cursor: "pointer", padding: 0, overflow: "hidden",
