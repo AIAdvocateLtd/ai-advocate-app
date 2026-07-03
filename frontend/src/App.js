@@ -2361,27 +2361,26 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
           </div>
           <div className="flex items-center gap-2">
             {/* 🌍 Per-chat jurisdiction pill — session-level setting alongside Deep Think.
-                Lives in the header (not the composer) so it (a) never overlaps the
-                disclaimer footer, (b) matches top-down reading order, and (c)
-                opens its dropdown DOWNWARD like every native picker. */}
+                Compact flag-only design keeps the header uncluttered; the dropdown
+                still opens downward and shows the full country name + "for this
+                chat only" label. Pulses gold when the country changes. */}
             <div data-testid="jurisdiction-pill-wrap" style={{ position: "relative", display: "flex", alignItems: "center" }}>
               <button data-testid="jurisdiction-pill"
                       onClick={() => setJurisdictionPickerOpen(o => !o)}
-                      title="Change law for this chat only"
+                      title={`${(COUNTRIES.find(c => c.code === threadCountry)?.name) || threadCountry} law — tap to change for this chat only`}
+                      key={`pill-${threadCountry}`}
                       style={{
-                        display: "inline-flex", alignItems: "center", gap: 6,
+                        display: "inline-flex", alignItems: "center", gap: 4,
                         background: "rgba(247,201,72,0.08)",
                         border: "1px solid var(--gold-deep)",
                         color: "var(--gold-soft)",
-                        padding: "5px 10px", borderRadius: 16,
-                        fontSize: 11, fontWeight: 600, letterSpacing: "0.04em",
+                        padding: "4px 8px", borderRadius: 16,
+                        fontSize: 11, fontWeight: 600,
                         cursor: "pointer", whiteSpace: "nowrap",
+                        animation: "jurisdictionPulse 1500ms ease-out",
                       }}>
-                <Scale size={12} style={{ opacity: 0.9 }} />
-                <span style={{ color: "var(--gold)" }}>
-                  {(COUNTRIES.find(c => c.code === threadCountry)?.name) || threadCountry} law
-                </span>
-                <ChevronDown size={12} style={{ opacity: 0.7,
+                <Flag cc={threadCountry.toLowerCase()} size={14} alt="" />
+                <ChevronDown size={11} style={{ opacity: 0.7,
                   transform: jurisdictionPickerOpen ? "rotate(180deg)" : "rotate(0)",
                   transition: "transform 120ms" }} />
               </button>
@@ -2434,27 +2433,27 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                 </div>
               )}
             </div>
-            {/* Deep Think toggle — Pro only with monthly counter */}
-            <button data-testid="deep-think-toggle"
-              onClick={() => {
-                if (!isPro) { aaToast(t(lang, "deepThinkProOnly"), "error"); return; }
-                setDeepThink(v => !v);
-              }}
-              title={t(lang, "deepThink") + (dtUsed && dtUsed.limit != null ? ` — ${dtUsed.used}/${dtUsed.limit}` : "")}
-              style={{
-                background: deepThink && isPro ? "var(--gold)" : "transparent",
-                color: deepThink && isPro ? "#1a1300" : (isPro ? "var(--gold)" : "var(--text-muted)"),
-                border: `1px solid ${isPro ? "var(--gold-deep)" : "var(--line)"}`,
-                borderRadius: 16, padding: "5px 10px", fontSize: 11, cursor: "pointer",
-                fontWeight: 600, letterSpacing: "0.04em",
-              }}>
-              🧠 {deepThink && isPro ? t(lang, "deepThinkOn") : t(lang, "deepThink")}
-              {isPro && dtUsed && dtUsed.limit != null ? (
-                <span data-testid="dt-counter" style={{ marginLeft: 6, fontSize: 10, opacity: 0.8 }}>
-                  {dtUsed.used}/{dtUsed.limit}
-                </span>
-              ) : (!isPro ? " 🔒" : null)}
-            </button>
+            {/* Deep Think toggle — Pro only. Hidden entirely for Free/Plus so they
+                don't see a locked/inert button that just clutters the header. */}
+            {isPro && (
+              <button data-testid="deep-think-toggle"
+                onClick={() => setDeepThink(v => !v)}
+                title={t(lang, "deepThink") + (dtUsed && dtUsed.limit != null ? ` — ${dtUsed.used}/${dtUsed.limit}` : "")}
+                style={{
+                  background: deepThink ? "var(--gold)" : "transparent",
+                  color: deepThink ? "#1a1300" : "var(--gold)",
+                  border: "1px solid var(--gold-deep)",
+                  borderRadius: 16, padding: "5px 10px", fontSize: 11, cursor: "pointer",
+                  fontWeight: 600, letterSpacing: "0.04em",
+                }}>
+                🧠 {deepThink ? t(lang, "deepThinkOn") : t(lang, "deepThink")}
+                {dtUsed && dtUsed.limit != null ? (
+                  <span data-testid="dt-counter" style={{ marginLeft: 6, fontSize: 10, opacity: 0.8 }}>
+                    {dtUsed.used}/{dtUsed.limit}
+                  </span>
+                ) : null}
+              </button>
+            )}
             <button onClick={onClose} data-testid="lex-close-btn" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}>
               <X size={24} />
             </button>

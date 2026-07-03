@@ -43,3 +43,13 @@
   0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
   40% { transform: translateY(-3px); opacity: 1.0; }
 }
+
+
+/* 🌍 Jurisdiction pill pulse — fires on every mount + when key changes
+   (i.e. when threadCountry updates). Signals "AI just picked up on your
+   jurisdiction" without needing a separate toast. */
+@keyframes jurisdictionPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(247, 201, 72, 0.55); background: rgba(247, 201, 72, 0.28); }
+  70%  { box-shadow: 0 0 0 8px rgba(247, 201, 72, 0); background: rgba(247, 201, 72, 0.08); }
+  100% { box-shadow: 0 0 0 0 rgba(247, 201, 72, 0);   background: rgba(247, 201, 72, 0.08); }
+}
