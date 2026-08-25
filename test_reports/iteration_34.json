@@ -1,0 +1,36 @@
+{
+  "summary": "Verified Google Translate DOM crash fix on CaseFilesModal. Logged in as test@advocate.app, opened Case Files via nav-cases, and confirmed rendered HTML attributes are correct. No React reconciliation errors (insertBefore/removeChild) observed on modal open/close path. Created a new case ('Test Case') successfully via + New Case → Save.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verification_results": {
+    "cases_modal_outer_translate": "no (PASS)",
+    "cases_modal_outer_lang": "en-GB (PASS)",
+    "modal_card_translate": "no (PASS)",
+    "modal_card_class_contains_notranslate": true,
+    "react_dom_crash_errors_insertBefore_removeChild": 0,
+    "regression_new_case_created": true,
+    "console_warnings_noted": ["Invalid DOM property `fetchpriority` (should be fetchPriority) — unrelated to this fix"]
+  },
+  "notes": [
+    "Modal did not close on first Escape press after creating a case (Escape may have been consumed by an inner input/dialog). Not a regression of this fix — outer/inner translate attributes remained correct and no DOM reconciliation errors occurred. Clicking the X close button works normally.",
+    "Onboarding order in preview: language OK → cookie Essential only → T&C Accept & Continue → welcome-tour-skip → (taster 'Try Lex' modal may auto-open on auth screen; close via [data-testid='taster-close'] before submitting login)."
+  ],
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Minor: React warning 'Invalid DOM property fetchpriority. Did you mean fetchPriority?' — some element uses lowercase attribute. Non-blocking but should be corrected.",
+    "The 'Try Lex' taster modal auto-opens over the auth screen and can obscure the login submit button for automated flows. Consider not auto-opening when the login form is being interacted with."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100%"},
+  "test_credentials": "test@advocate.app / Test12345! (works, /api/auth/login -> 200)",
+  "seed_data_creation": "Created a case named 'Test Case' via UI as part of regression check.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "CaseFilesModal (App.js ~line 6357) has translate='no' lang={lang} on outer [data-testid='cases-modal'] and inner .modal-card also has translate='no' + notranslate class — verified in rendered DOM. Modal opens via [data-testid='nav-cases'] (bottom nav). To reach the app: dismiss language OK → cookie 'Essential only' → tick T&C checkboxes → 'Accept & Continue' → 'welcome-tour-skip' → 'taster-close' (if Try Lex opens) → then fill email/password/submit. Login POST returns 200 quickly.",
+  "rca_of_the_issue": "Sentry crashes 'Failed to execute insertBefore/removeChild on Node' inside CaseFilesModal were caused by Google Translate (and similar extensions) mutating text nodes React expected to control. Fix added translate='no' + lang={lang} on outer wrapper and translate='no' + notranslate class on inner modal-card so translation extensions skip these subtrees. Verified attributes present in rendered HTML and modal open/create/close path produces zero DOM reconciliation errors."
+}

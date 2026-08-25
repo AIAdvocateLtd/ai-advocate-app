@@ -6354,8 +6354,8 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
   };
 
   return (
-    <div className="modal-bg" data-testid="cases-modal">
-      <div className="modal-card" style={{ padding: 20 }}>
+    <div className="modal-bg" data-testid="cases-modal" translate="no" lang={lang}>
+      <div className="modal-card notranslate" translate="no" style={{ padding: 20 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h2 className="brand-font gold" style={{ fontSize: 20, display: "inline-flex", alignItems: "center", gap: 8 }}>
             {t(lang, "caseFiles")}
