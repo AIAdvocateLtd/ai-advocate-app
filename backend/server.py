@@ -56,7 +56,20 @@ from app_crypto import encrypt_text, decrypt_text, encrypt_bytes, decrypt_bytes,
 from rag import build_rag_context, is_enabled as rag_enabled, get_usage as rag_get_usage  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
+# 🛡️ Resilience config to prevent Sentry NetworkTimeout crashes on transient Atlas hiccups.
+# retryReads/retryWrites: driver auto-retries idempotent ops once on retryable network errors.
+# serverSelectionTimeoutMS: fail fast (5s) instead of hanging 30s if a node is unreachable.
+# socketTimeoutMS: cap any single socket read at 20s so slow queries don't stall the worker.
+client = AsyncIOMotorClient(
+    mongo_url,
+    retryReads=True,
+    retryWrites=True,
+    serverSelectionTimeoutMS=5000,
+    socketTimeoutMS=20000,
+    connectTimeoutMS=5000,
+    maxPoolSize=50,
+    minPoolSize=5,
+)
 db = client[os.environ['DB_NAME']]
 
 JWT_SECRET = os.environ['JWT_SECRET']
