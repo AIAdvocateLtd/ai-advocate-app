@@ -6825,7 +6825,7 @@ async def case_timeline_feed(case_id: str, user: dict = Depends(get_user)):
 
 
 # ==================== Lex Vault (zero-knowledge encrypted storage) ====================
-import secrets as _secrets
+import secrets as _secrets  # noqa: F811
 
 # Per-tier item caps. Vault is FREE for everyone (safety feature), with tiered limits.
 VAULT_ITEM_CAPS = {
@@ -7333,9 +7333,9 @@ If a relative date is mentioned (e.g. "within 14 days"), compute it from today {
 # Shared helpers + endpoints for both consumer (`db.users`, JWT kind="user"-default)
 # and law-firm (`db.firm_accounts`, JWT kind="firm") accounts. Tokens stored in
 # `password_reset_tokens` collection, single-use, 60-min TTL via MongoDB TTL index.
-import secrets as _secrets
+import secrets as _secrets  # noqa: F811
 import pyotp  # noqa: E402
-import qrcode  # noqa: E402
+import qrcode  # noqa: E402,F811
 from io import BytesIO  # noqa: E402
 import base64 as _base64  # noqa: E402
 
@@ -7676,7 +7676,7 @@ async def founder_overview(_: dict = Depends(_check_founder_only)):
     # 💰 Money — count ONLY real customers with a valid Stripe subscription.
     # Dev/admin/seed users (no Stripe sub) must NOT count as 'paying'.
     paying_users = await db.users.count_documents({
-        "stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+        "stripe_subscription_id": {"$exists": True, "$nin": [None, ""]},
         "subscription_status": {"$in": ["active", "trialing", "past_due"]},
         "tier": {"$in": ["plus", "pro", "yearly", "trial_pro"]},
     })
@@ -7696,7 +7696,7 @@ async def founder_overview(_: dict = Depends(_check_founder_only)):
     # Stripe MRR — sum of monthly recurring revenue across active subs
     stripe_users = await db.users.find(
         {
-            "stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+            "stripe_subscription_id": {"$exists": True, "$nin": [None, ""]},
             "subscription_status": {"$in": ["active", "trialing"]},
         },
         {"_id": 0, "tier": 1},
@@ -7809,6 +7809,7 @@ async def add_diary(data: FounderDiaryEntry, _: dict = Depends(_check_founder_on
     rec = {"id": str(uuid.uuid4()), "note": data.note,
            "ts": datetime.now(timezone.utc).isoformat()}
     await db.founder_diary.insert_one(rec)
+    rec.pop("_id", None)
     return rec
 
 
@@ -7885,7 +7886,7 @@ async def founder_activity(_: dict = Depends(_check_founder_only)):
         {
             "email": {"$nin": EXCLUDE},
             "subscription_status": {"$in": ["active", "trialing"]},
-            "stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+            "stripe_subscription_id": {"$exists": True, "$nin": [None, ""]},
         },
         {"_id": 0, "email": 1, "tier": 1, "subscription_status": 1,
          "subscription_current_period_end": 1, "stripe_subscription_id": 1, "created_at": 1},
@@ -7915,7 +7916,7 @@ async def founder_vat(_: dict = Depends(_check_founder_only)):
     # Sum tier prices for currently-active subs × 12 (conservative rolling-12 estimate)
     stripe_users = await db.users.find(
         {
-            "stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+            "stripe_subscription_id": {"$exists": True, "$nin": [None, ""]},
             "subscription_status": {"$in": ["active", "trialing"]},
         },
         {"_id": 0, "tier": 1, "created_at": 1},
@@ -7977,19 +7978,19 @@ async def _job_founder_weekly_digest():
         })
         new_paying = await db.users.count_documents({
             "email": {"$nin": EXCLUDE},
-            "stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+            "stripe_subscription_id": {"$exists": True, "$nin": [None, ""]},
             "subscription_status": {"$in": ["active", "trialing"]},
             "created_at": {"$gte": week_ago},
         })
 
         paying_users_now = await db.users.count_documents({
-            "stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+            "stripe_subscription_id": {"$exists": True, "$nin": [None, ""]},
             "subscription_status": {"$in": ["active", "trialing"]},
         })
 
         # MRR
         stripe_users = await db.users.find(
-            {"stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+            {"stripe_subscription_id": {"$exists": True, "$nin": [None, ""]},
              "subscription_status": {"$in": ["active", "trialing"]}},
             {"_id": 0, "tier": 1},
         ).to_list(2000)
@@ -8103,7 +8104,7 @@ async def founder_cash_flow(_: dict = Depends(_check_founder_only)):
 
     # Projected income — sum monthly tier price for subs that will renew in 30 days
     stripe_users = await db.users.find(
-        {"stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+        {"stripe_subscription_id": {"$exists": True, "$nin": [None, ""]},
          "subscription_status": {"$in": ["active", "trialing"]},
          "cancel_at_period_end": {"$ne": True}},
         {"_id": 0, "tier": 1},
@@ -8231,7 +8232,7 @@ async def founder_broadcast(data: BroadcastPayload, _: dict = Depends(_check_fou
 
     q: dict = {}
     if data.audience == "paying":
-        q = {"stripe_subscription_id": {"$exists": True, "$ne": None, "$ne": ""},
+        q = {"stripe_subscription_id": {"$exists": True, "$nin": [None, ""]},
              "subscription_status": {"$in": ["active", "trialing"]}}
     elif data.audience == "free":
         q = {"$or": [{"stripe_subscription_id": {"$exists": False}},
