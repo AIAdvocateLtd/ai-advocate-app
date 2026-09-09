@@ -1245,7 +1245,7 @@ const useRecorder = () => {
       recorder.start();
       mr.current = { recorder, stream };
       setRecording(true);
-    } catch (e) { aaToast(t(lang, "micAccessDenied"), "error"); }
+    } catch (e) { aaToast("Microphone access denied. Please enable it in Settings.", "error"); }
   };
   const stop = () => new Promise((resolve) => {
     if (!mr.current) return resolve(null);
@@ -2244,11 +2244,8 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         const dls = r.data?.deadlines || [];
         if (dls.length) setMessages(m => [...m, { role: "deadlines", content: "", at: new Date().toISOString(), deadlines: dls }]);
       }).catch(() => {});
-      try {
-        const r = await api.post("/voice/tts", { text: finalText.slice(0, 1500), voice: "fable", language: data.reply_language }, { responseType: "blob" });
-        const url = URL.createObjectURL(r.data);
-        if (audioRef.current) { audioRef.current.src = url; audioRef.current.play().catch(() => {}); }
-      } catch {}
+      // Auto-read-back removed — users found it slow and annoying. Voice mode still
+      // reads answers aloud on its own dedicated screen; chat replies stay silent.
     } catch (streamErr) {
       // Streaming failed — fall back to the buffered endpoint with the original
       // typewriter animation. User sees a tiny delay but never a broken chat.
@@ -2278,11 +2275,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
           setTimeout(tick, 25);
         };
         tick();
-        try {
-          const r = await api.post("/voice/tts", { text: data.response.slice(0, 1500), voice: "fable", language: data.reply_language }, { responseType: "blob" });
-          const url = URL.createObjectURL(r.data);
-          if (audioRef.current) { audioRef.current.src = url; audioRef.current.play().catch(() => {}); }
-        } catch {}
+        // Auto-read-back removed here too — chat replies stay silent by default.
       } catch (e) {
         setMessages(m => [...m, { role: "lex", content: e?.response?.data?.detail || "Error: try again" }]);
       }
@@ -16587,6 +16580,39 @@ function App() {
     setJurisdictionPrompt(null);
   };
 
+  // 🇬🇧 Non-UK first-launch warning — AI Advocate is trained on UK law.
+  // We check the phone's Intl locale + backend detection (via existing jurisdictionPrompt
+  // channel) and show a one-time modal so non-UK users know before they rely on answers.
+  // Suppress-once via localStorage; never blocks the app.
+  const [nonUkWarning, setNonUkWarning] = useState(null);
+  useEffect(() => {
+    if (!user || step !== "app") return;
+    if (localStorage.getItem("aa_uk_scope_ack") === "1") return;
+    // Country hint from the phone: navigator.language BCP-47 tag + Intl timezone
+    let detected = null;
+    try {
+      const nav = (navigator.language || "").toUpperCase();
+      const region = nav.split("-")[1] || nav.split("_")[1] || "";
+      if (region && region.length === 2) detected = region;
+      if (!detected) {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+        if (tz.startsWith("Europe/London")) detected = "GB";
+        else if (tz.startsWith("America/")) detected = "US";
+        else if (tz.startsWith("Europe/Paris")) detected = "FR";
+        else if (tz.startsWith("Europe/Dublin")) detected = "IE";
+        else if (tz.startsWith("Australia/")) detected = "AU";
+      }
+    } catch { /* no-op */ }
+    if (detected && detected !== "GB" && detected !== "UK") {
+      const countryName = COUNTRIES.find(c => c.code === detected)?.name || detected;
+      setNonUkWarning({ code: detected, name: countryName });
+    }
+  }, [user?.id, step]);
+  const acknowledgeUkScope = () => {
+    localStorage.setItem("aa_uk_scope_ack", "1");
+    setNonUkWarning(null);
+  };
+
   // 📱 Hide the native Capacitor splash once React has rendered + auth resolved. No-op on web.
   useEffect(() => {
     if (step !== "loading") { hideSplash().catch(() => {}); }
@@ -16778,6 +16804,33 @@ function App() {
           })()}
           <Dashboard user={user} lang={lang} country={country} setLang={setLang} setCountry={setCountry} onLogout={onLogout} refreshUser={(u) => setUser(u)} />
         </>
+      )}
+      {nonUkWarning && (
+        <div data-testid="non-uk-warning-modal" className="modal-bg" style={{ zIndex: 10050 }}>
+          <div className="modal-card" data-testid="non-uk-warning-card" style={{ maxWidth: 420, padding: 26, textAlign: "center" }}>
+            <div style={{ fontSize: 42, marginBottom: 10 }} aria-hidden>🇬🇧</div>
+            <h2 className="brand-font gold" style={{ fontSize: 22, marginBottom: 10 }}>
+              A quick heads-up
+            </h2>
+            <p style={{ color: "var(--text)", fontSize: 14.5, lineHeight: 1.55, marginBottom: 14 }}>
+              AI Advocate is designed and trained for <strong style={{ color: "var(--gold)" }}>UK law</strong> (England, Wales, Scotland and Northern Ireland).
+            </p>
+            <p style={{ color: "var(--text-dim)", fontSize: 13.5, lineHeight: 1.55, marginBottom: 18 }}>
+              You appear to be in <strong>{nonUkWarning.name}</strong>. Legal answers may not accurately reflect the law where you live — please double-check anything important with a local solicitor.
+            </p>
+            <button
+              data-testid="non-uk-warning-continue"
+              className="btn-gold w-full"
+              onClick={acknowledgeUkScope}
+              style={{ padding: "11px 14px", fontSize: 14, marginBottom: 8 }}
+            >
+              I understand — continue
+            </button>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>
+              We're expanding to more countries soon.
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
