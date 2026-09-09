@@ -5,7 +5,7 @@
   "ios": {
     "contentInset": "always",
     "scheme": "AI Advocate",
-    "limitsNavigationsToAppBoundDomains": true,
+    "limitsNavigationsToAppBoundDomains": false,
     "preferredContentMode": "mobile"
   },
   "android": {
