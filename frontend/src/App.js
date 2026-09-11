@@ -2618,6 +2618,17 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                             })}
                           </div>
                         )}
+                        {/* 📌 SRA compliance — per-response "not legal advice" tag on every Lex reply */}
+                        {m.role === "lex" && (
+                          <div data-testid={`lex-not-advice-${i}`}
+                               style={{
+                                 marginTop: 6, alignSelf: "flex-start", maxWidth: "82%",
+                                 fontSize: 9.5, color: "var(--text-muted)", letterSpacing: "0.02em",
+                                 fontStyle: "italic", opacity: 0.75, lineHeight: 1.3,
+                               }}>
+                            This is legal information, not legal advice.
+                          </div>
+                        )}
                       </>
                     );
                   })()}
@@ -2785,13 +2796,13 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         </div>
 
         {/* ⚖ Persistent UPL footer — required to evidence "general legal information, not advice"
-            on every Lex chat surface. Apple App Review checks for this on AI legal apps. */}
+            on every Lex chat surface. Apple App Review + SRA compliance rely on this. */}
         <div data-testid="lex-upl-footer" style={{
           padding: "6px 16px 8px", textAlign: "center",
           fontSize: 10, color: "var(--text-muted)", lineHeight: 1.4, letterSpacing: "0.02em",
         }}>
           <ShieldCheck size={9} style={{ display: "inline", marginRight: 4, opacity: 0.6 }} />
-          AI-generated legal <strong style={{ color: "var(--gold-soft)" }}>information</strong>, not legal advice. Always verify with a regulated solicitor before acting.
+          AI Advocate is <strong style={{ color: "var(--gold-soft)" }}>not a law firm</strong> and is not SRA regulated. AI-generated legal information, not legal advice — always verify with a regulated solicitor.
         </div>
 
         {/* 📎 Attached document pills — visible while ≥1 file is attached to the session */}
@@ -7832,6 +7843,35 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             📥 {t(lang, "downloadBackup")}
           </button>
         </div>
+
+        {/* 🤝 Referral programme transparency — SRA / CMA compliance (2026-02) */}
+        <div data-testid="settings-referral-transparency" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <Share2 size={18} style={{ color: "var(--gold)" }} />
+            <span style={{ fontWeight: 600 }}>Referral programme</span>
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.55 }}>
+            AI Advocate operates a paid referral programme. Some partner organisations, Citizens Advice branches, and law firms receive a fee (typically 20–30% of the first subscription payment, or a fixed onboarding bonus) when a user signs up with their partner code.
+            <br /><br />
+            <strong style={{ color: "var(--gold-soft)" }}>What this means for you:</strong> the referral fee is paid by AI Advocate out of our margin — you never pay extra because you were referred. Your subscription price is identical whether you sign up directly or via a partner.
+            <br /><br />
+            If a partner code is currently linked to your account it will be shown below. Referral fees never influence the legal information Lex gives you.
+          </div>
+          {user?.partner_code ? (
+            <div data-testid="settings-referral-partner-code"
+                 style={{ marginTop: 10, padding: "8px 10px", background: "rgba(247,201,72,0.06)",
+                          border: "1px solid var(--gold-deep)", borderRadius: 10,
+                          fontSize: 11.5, color: "var(--gold-soft)" }}>
+              🤝 Referred by partner code: <strong style={{ color: "var(--gold)" }}>{user.partner_code}</strong>
+            </div>
+          ) : (
+            <div data-testid="settings-referral-none"
+                 style={{ marginTop: 10, fontSize: 11, color: "var(--text-muted)", fontStyle: "italic" }}>
+              No partner referral is linked to your account.
+            </div>
+          )}
+        </div>
+
 
         {/* Contact & Support */}
         <div data-testid="settings-contact" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 }}>          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>

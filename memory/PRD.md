@@ -9,6 +9,15 @@
 - **Lawyers** working B2B2C via Firm Portal
 
 
+### 2026-02 (Iter 56 — SRA Compliance Pack while Apple reviews)
+- ⚖️ **Enhanced UPL footer** under every Lex chat surface (`data-testid="lex-upl-footer"`). Old: "AI-generated legal information, not legal advice. Always verify with a regulated solicitor before acting." **New**: "AI Advocate is **not a law firm** and is not SRA regulated. AI-generated legal information, not legal advice — always verify with a regulated solicitor." Meets SRA public-facing disclosure requirement + is visible on every chat exchange (not just once per session).
+- 📌 **Per-response "not legal advice" tag** rendered below every Lex assistant bubble (`data-testid="lex-not-advice-{i}"`). Small muted italic line: "This is legal information, not legal advice." Auto-appended after every reply — no user dismissal, no session flag, always visible. Belt-and-braces on top of the persistent chat footer.
+- 🤝 **Referral programme transparency card** added to Settings (`data-testid="settings-referral-transparency"`). Explains that partner organisations, Citizens Advice branches, and law firms may receive a fee (typically 20–30% of first subscription payment) when a user signs up with their partner code. States clearly: "the referral fee is paid by AI Advocate out of our margin — you never pay extra." Shows the linked partner code if present (`settings-referral-partner-code`) or "No partner referral is linked" (`settings-referral-none`). Meets SRA / CMA transparency-of-financial-incentives rules.
+- ✅ **GDPR data export verified live** — curl'd `GET /api/users/me/export` against `appstore.reviewer@aiadvocate.co.uk` and got HTTP 200 · 17.5 KB structured JSON with 11 top-level keys (user, conversations, cases, case_items, legal_files, reminders, feature_requests, vault_items_metadata, export_generated_at, format_version, notes). Frontend button `data-testid="export-data-btn"` in Settings → Manage My Data was already wired to this endpoint. Confirmed working end-to-end — no user action needed.
+- Rationale: Bulletproofs the app against UK legal-services compliance risks BEFORE public App Store launch. No code refactor, purely additive UI changes — safe to ship while Apple is reviewing.
+
+
+
 ### 2026-06 (Iter 55 — CFC Insurance Proposal PDF v4 final)
 - 📄 **`CFC_Tech_Proposal_Form_AI_Advocate_v4_FINAL.pdf`** generated at `/app/frontend/public/`. Rebuild from clean DRAFT via `/tmp/patch_v4.py`.
 - ✅ **MFA section corrected**: ticked **No** (was incorrectly Yes in v3). Truthful explanation written into `Why_MFA_is_not_enabled` — clarifies the founder uses SSH-key auth + Google MFA, no PCI data is stored (Stripe holds it), end-user OAuth (Google/Apple) inherits provider MFA, native user-side MFA is on the Q2 2026 roadmap.
