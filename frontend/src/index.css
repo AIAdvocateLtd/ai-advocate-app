@@ -37,6 +37,18 @@ html, body, #root {
   font-family: 'Outfit', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  /* Prevent sideways panning inside a native Capacitor wrapper — the whole
+     app is designed vertical, any horizontal scroll is a layout bug. */
+  overflow-x: hidden;
+  max-width: 100vw;
+  /* Prevent iOS "bounce" scroll from revealing the page background when
+     the user swipes past the top/bottom of the modal */
+  overscroll-behavior-y: none;
+}
+/* Belt-and-braces: also stop iOS from auto-zooming into inputs — every
+   text field gets a minimum 16px font-size (Apple's zoom threshold). */
+input, textarea, select {
+  font-size: 16px;
 }
 
 /* Subtle gold grain texture */
@@ -95,7 +107,7 @@ body::before {
   padding: 14px 16px;
   border-radius: 12px;
   width: 100%;
-  font-size: 15px;
+  font-size: 16px; /* 16px minimum — anything smaller triggers iOS auto-zoom on focus */
   font-family: 'Outfit', sans-serif;
   transition: border-color 180ms ease;
 }
