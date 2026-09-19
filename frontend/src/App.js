@@ -2789,7 +2789,14 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
             {uploadingDoc ? <span className="spinner" style={{ width: 14, height: 14 }} /> : <Paperclip size={16} />}
           </button>
           <input className="input" data-testid="chat-input" placeholder={t(lang, "chatPlaceholder")} value={input} onChange={(e) => setInput(e.target.value)}
-                 onKeyDown={(e) => e.key === "Enter" && send(input)} style={{ flex: 1 }} />
+                 onKeyDown={(e) => e.key === "Enter" && send(input)}
+                 onFocus={(e) => {
+                   // iOS keyboard fix — scroll the input into view after the keyboard
+                   // animation completes so it never hides behind the software keyboard.
+                   const el = e.currentTarget;
+                   setTimeout(() => { try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch {} }, 320);
+                 }}
+                 style={{ flex: 1 }} />
           <button className="btn-gold" data-testid="send-btn" onClick={() => send(input)} disabled={!input.trim() || busy} style={{ padding: "12px 16px" }}>
             <Send size={18} />
           </button>
@@ -16523,6 +16530,46 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem("aa_token"));
   // Splash plays once per browser-tab session (not on every screen change)
   const [showSplash, setShowSplash] = useState(() => !sessionStorage.getItem("aa_splash_seen"));
+
+  // 📱 iOS keyboard fix — track visualViewport height and publish it as `--vvh`
+  // CSS variable so `.modal-bg` shrinks when the software keyboard opens,
+  // preventing the chat input from being hidden behind the keyboard on iPhone.
+  useEffect(() => {
+    const setVvh = () => {
+      const vv = window.visualViewport;
+      const h = (vv && vv.height) || window.innerHeight;
+      document.documentElement.style.setProperty("--vvh", h + "px");
+      // Also expose scale + offsetTop for future use (rare iOS bug where keyboard
+      // shifts the visual viewport down instead of shrinking it).
+      if (vv) {
+        document.documentElement.style.setProperty("--vv-offset-top", (vv.offsetTop || 0) + "px");
+      }
+    };
+    setVvh();
+    const vv = window.visualViewport;
+    if (vv) {
+      vv.addEventListener("resize", setVvh);
+      vv.addEventListener("scroll", setVvh);
+    }
+    window.addEventListener("resize", setVvh);
+    window.addEventListener("orientationchange", setVvh);
+    // Re-check on every focus/blur of inputs (belt-and-braces for edge cases)
+    const onFocusIn = () => { setTimeout(setVvh, 100); setTimeout(setVvh, 350); };
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusIn);
+    return () => {
+      if (vv) {
+        vv.removeEventListener("resize", setVvh);
+        vv.removeEventListener("scroll", setVvh);
+      }
+      window.removeEventListener("resize", setVvh);
+      window.removeEventListener("orientationchange", setVvh);
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusIn);
+    };
+  }, []);
+
+
 
   // 🌐 Marketing-site routing — these public paths bypass the React app entirely
   // and serve static HTML. We do this in a useEffect (not at render time) so the
