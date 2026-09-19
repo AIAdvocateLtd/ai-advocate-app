@@ -15842,39 +15842,58 @@ function ManageDataModal({ lang, onClose, onAccountDeleted }) {
   const [confirmText, setConfirmText] = useState("");
 
   const exportData = async () => {
+    // 🔍 DIAGNOSTIC MODE — Build 13 only. Every step calls window.alert so
+    // we see exactly where the native export breaks on iOS. Once we've
+    // identified the failing step, we remove these alerts.
+    const say = (m) => { try { window.alert(m); } catch (e) {} };
     setBusy(true);
     try {
-      const { data } = await api.get("/users/me/export");
-      const json = JSON.stringify(data, null, 2);
-      const filename = `ai-advocate-export-${new Date().toISOString().slice(0,10)}.json`;
-      const kb = Math.max(1, Math.round(json.length / 1024));
-      // Call the already-statically-imported native helper (no dynamic chunk).
-      const result = await native.exportFile({
-        filename,
-        contents: json,
-        mimeType: "application/json",
-      });
-      if (result?.ok) {
-        if (result.method === "native") {
-          aaToast(`Your data is ready (${kb} KB). Choose where to save it.`, "success");
-        } else if (result.method === "native-cancelled") {
-          aaToast("Export cancelled — tap Export my data to try again.", "info");
-        } else {
-          aaToast(`Your data (${kb} KB) has been downloaded.`, "success");
-        }
-      } else {
-        // Show the actual failure reason so we can diagnose (and users have
-        // an unambiguous message rather than a silent grey button).
-        const reason = result?.error || "unknown error";
-        aaToast(`Export failed: ${reason}. Email support@aiadvocate.co.uk and we'll send it manually.`, "error");
+      say("① Starting export — calling backend…");
+      let data;
+      try {
+        const r = await api.get("/users/me/export");
+        data = r.data;
+      } catch (e) {
+        say("❌ API call failed: " + (e?.response?.status || e?.message || "unknown"));
+        setBusy(false);
+        return;
       }
-    } catch (e) {
-      const reason = e?.response?.status
-        ? `server ${e.response.status}`
-        : (e?.message || "network error");
-      aaToast(`Export failed: ${reason}. Email support@aiadvocate.co.uk and we'll send it manually.`, "error");
+      const json = JSON.stringify(data, null, 2);
+      say("② Backend OK. JSON size: " + Math.round(json.length/1024) + " KB");
+
+      const filename = `ai-advocate-export-${new Date().toISOString().slice(0,10)}.json`;
+
+      say("③ isNative() = " + (native.isNative ? String(native.isNative()) : "helper missing"));
+
+      say("④ Calling native.exportFile…");
+      let result;
+      try {
+        result = await native.exportFile({
+          filename,
+          contents: json,
+          mimeType: "application/json",
+        });
+      } catch (e) {
+        say("❌ native.exportFile threw: " + (e?.message || String(e)));
+        setBusy(false);
+        return;
+      }
+
+      say("⑤ exportFile returned: " + JSON.stringify(result));
+
+      if (result?.ok) {
+        aaToast(
+          result.method === "native" ? "Your data is ready. Choose where to save it."
+          : result.method === "native-cancelled" ? "Export cancelled."
+          : "Your data has been downloaded.",
+          "success"
+        );
+      } else {
+        aaToast("Export failed: " + (result?.error || "unknown"), "error");
+      }
+    } finally {
+      setBusy(false);
     }
-    finally { setBusy(false); }
   };
 
   const deleteAccount = async () => {
