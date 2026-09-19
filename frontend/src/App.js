@@ -15847,28 +15847,32 @@ function ManageDataModal({ lang, onClose, onAccountDeleted }) {
       const { data } = await api.get("/users/me/export");
       const json = JSON.stringify(data, null, 2);
       const filename = `ai-advocate-export-${new Date().toISOString().slice(0,10)}.json`;
-      // Rough size hint for the toast so the user knows something real came through.
       const kb = Math.max(1, Math.round(json.length / 1024));
-      // Use the native-aware helper — on iOS it opens the Share sheet so the
-      // user can Save to Files / Mail / AirDrop. On web it triggers a download.
-      const mod = await import("@/nativeBridge");
-      const result = await mod.exportFile({
+      // Call the already-statically-imported native helper (no dynamic chunk).
+      const result = await native.exportFile({
         filename,
         contents: json,
         mimeType: "application/json",
       });
       if (result?.ok) {
-        aaToast(
-          result.method === "native"
-            ? `Your data is ready (${kb} KB). Choose where to save it.`
-            : `Your data (${kb} KB) has been downloaded to your device.`,
-          "success"
-        );
+        if (result.method === "native") {
+          aaToast(`Your data is ready (${kb} KB). Choose where to save it.`, "success");
+        } else if (result.method === "native-cancelled") {
+          aaToast("Export cancelled — tap Export my data to try again.", "info");
+        } else {
+          aaToast(`Your data (${kb} KB) has been downloaded.`, "success");
+        }
       } else {
-        aaToast("Export failed. Please email support@aiadvocate.co.uk and we'll send it manually.", "error");
+        // Show the actual failure reason so we can diagnose (and users have
+        // an unambiguous message rather than a silent grey button).
+        const reason = result?.error || "unknown error";
+        aaToast(`Export failed: ${reason}. Email support@aiadvocate.co.uk and we'll send it manually.`, "error");
       }
     } catch (e) {
-      aaToast("Export failed. Please email support@aiadvocate.co.uk and we'll send it manually.", "error");
+      const reason = e?.response?.status
+        ? `server ${e.response.status}`
+        : (e?.message || "network error");
+      aaToast(`Export failed: ${reason}. Email support@aiadvocate.co.uk and we'll send it manually.`, "error");
     }
     finally { setBusy(false); }
   };

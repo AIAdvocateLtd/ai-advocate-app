@@ -206,15 +206,20 @@ export async function addAppListeners({ onResume, onPause, onBackButton } = {}) 
 // ---------- File export (GDPR data export & similar) ----------
 // Web: triggers a browser download via <a download>. Works everywhere except
 //      WKWebView (Capacitor iOS) where the anchor click is a silent no-op.
-// Native: writes the file to app temp dir with Filesystem, then opens the
+// Native: writes the file to app cache dir with Filesystem, then opens the
 //         iOS Share sheet so the user can Save to Files / Mail / AirDrop.
 // Returns { ok: true, method: 'native'|'web', path? } or { ok: false, error }.
 export async function exportFile({ filename = "export.json", contents = "", mimeType = "application/json" } = {}) {
   if (isNative()) {
+    let step = "init";
     try {
+      step = "load-filesystem";
       const FS = await lazy("Filesystem");
+      step = "load-share";
       const S = await lazy("Share");
-      if (!FS || !S) throw new Error("Native modules unavailable");
+      if (!FS) throw new Error("Filesystem plugin unavailable");
+      if (!S)  throw new Error("Share plugin unavailable");
+      step = "writeFile";
       // Write file to app cache dir (auto-cleaned by iOS, no permission prompt).
       const write = await FS.Filesystem.writeFile({
         path: filename,
@@ -222,20 +227,48 @@ export async function exportFile({ filename = "export.json", contents = "", mime
         directory: FS.Directory.Cache,
         encoding: FS.Encoding.UTF8,
       });
-      const uri = write.uri;
-      await S.share({
-        title: "AI Advocate — Data Export",
-        text: "Your AI Advocate data export.",
-        url: uri,
-        dialogTitle: "Save or share your data",
-      });
+      step = "getUri";
+      // On iOS, `write.uri` is already a valid file:// URL. Belt-and-braces:
+      // explicitly resolve via getUri so we always share a native path.
+      let uri = write?.uri;
+      try {
+        const resolved = await FS.Filesystem.getUri({ directory: FS.Directory.Cache, path: filename });
+        if (resolved?.uri) uri = resolved.uri;
+      } catch (e) { /* fall through with write.uri */ }
+      if (!uri) throw new Error("Could not resolve file URI after write");
+      step = "share";
+      // Capacitor Share on iOS accepts `url` (file:// URI) OR `files` array.
+      // Try the modern `files` field first, fall back to `url`.
+      try {
+        await S.share({
+          title: "AI Advocate — Data Export",
+          text: "Your AI Advocate data export.",
+          files: [uri],
+          dialogTitle: "Save or share your data",
+        });
+      } catch (shareErr) {
+        // Retry with url field (Capacitor Share v4-v6 style)
+        await S.share({
+          title: "AI Advocate — Data Export",
+          text: "Your AI Advocate data export.",
+          url: uri,
+          dialogTitle: "Save or share your data",
+        });
+      }
       return { ok: true, method: "native", path: uri };
     } catch (e) {
-      console.warn("[nativeBridge] Native export failed, falling back to web:", e);
-      // Fall through to web fallback so users still get their data.
+      const msg = e?.message || String(e);
+      console.warn(`[nativeBridge] Native export failed at step=${step}:`, msg);
+      // iOS Share sheet returns an error if the user simply *cancels* — treat
+      // that as a soft success so we don't show a scary red toast.
+      if (/cancel/i.test(msg) || /dismiss/i.test(msg)) {
+        return { ok: true, method: "native-cancelled" };
+      }
+      // Otherwise, return the error so the caller can display a real message.
+      return { ok: false, error: `${step}: ${msg}`, native: true };
     }
   }
-  // Web fallback — standard <a download> click.
+  // Web fallback — standard <a download> click (does NOT work in WKWebView).
   try {
     const blob = new Blob([contents], { type: mimeType });
     const url = URL.createObjectURL(blob);
