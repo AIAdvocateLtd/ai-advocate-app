@@ -210,35 +210,42 @@ export async function addAppListeners({ onResume, onPause, onBackButton } = {}) 
 //         iOS Share sheet so the user can Save to Files / Mail / AirDrop.
 // Returns { ok: true, method: 'native'|'web', path? } or { ok: false, error }.
 export async function exportFile({ filename = "export.json", contents = "", mimeType = "application/json" } = {}) {
+  // 🔍 DIAGNOSTIC MODE — surface each internal step via native alert so we
+  // can see exactly where the iOS export pipeline stops.
+  const say = (m) => { try { window.alert(m); } catch (e) {} };
   if (isNative()) {
     let step = "init";
     try {
+      say("A. entered native branch");
       step = "load-filesystem";
       const FS = await lazy("Filesystem");
+      say("B. Filesystem loaded? " + (!!FS) + " · has .Filesystem? " + !!(FS && FS.Filesystem) + " · has .Directory? " + !!(FS && FS.Directory) + " · has .Encoding? " + !!(FS && FS.Encoding));
       step = "load-share";
       const S = await lazy("Share");
+      say("C. Share loaded? " + (!!S) + " · has .share? " + !!(S && S.share));
       if (!FS) throw new Error("Filesystem plugin unavailable");
       if (!S)  throw new Error("Share plugin unavailable");
       step = "writeFile";
-      // Write file to app cache dir (auto-cleaned by iOS, no permission prompt).
+      say("D. calling writeFile…");
       const write = await FS.Filesystem.writeFile({
         path: filename,
         data: contents,
         directory: FS.Directory.Cache,
         encoding: FS.Encoding.UTF8,
       });
+      say("E. writeFile returned uri: " + (write?.uri || "(none)"));
       step = "getUri";
-      // On iOS, `write.uri` is already a valid file:// URL. Belt-and-braces:
-      // explicitly resolve via getUri so we always share a native path.
       let uri = write?.uri;
       try {
         const resolved = await FS.Filesystem.getUri({ directory: FS.Directory.Cache, path: filename });
         if (resolved?.uri) uri = resolved.uri;
-      } catch (e) { /* fall through with write.uri */ }
+        say("F. getUri returned: " + uri);
+      } catch (e) {
+        say("F. getUri failed (using write.uri): " + (e?.message || e));
+      }
       if (!uri) throw new Error("Could not resolve file URI after write");
       step = "share";
-      // Capacitor Share on iOS accepts `url` (file:// URI) OR `files` array.
-      // Try the modern `files` field first, fall back to `url`.
+      say("G. calling Share.share (files array)…");
       try {
         await S.share({
           title: "AI Advocate — Data Export",
@@ -246,25 +253,25 @@ export async function exportFile({ filename = "export.json", contents = "", mime
           files: [uri],
           dialogTitle: "Save or share your data",
         });
+        say("H. Share.share(files) resolved");
       } catch (shareErr) {
-        // Retry with url field (Capacitor Share v4-v6 style)
+        say("H. Share.share(files) FAILED: " + (shareErr?.message || shareErr) + " · retrying with url…");
         await S.share({
           title: "AI Advocate — Data Export",
           text: "Your AI Advocate data export.",
           url: uri,
           dialogTitle: "Save or share your data",
         });
+        say("H2. Share.share(url) resolved");
       }
       return { ok: true, method: "native", path: uri };
     } catch (e) {
       const msg = e?.message || String(e);
+      say("❌ native export failed at step=" + step + " · " + msg);
       console.warn(`[nativeBridge] Native export failed at step=${step}:`, msg);
-      // iOS Share sheet returns an error if the user simply *cancels* — treat
-      // that as a soft success so we don't show a scary red toast.
       if (/cancel/i.test(msg) || /dismiss/i.test(msg)) {
         return { ok: true, method: "native-cancelled" };
       }
-      // Otherwise, return the error so the caller can display a real message.
       return { ok: false, error: `${step}: ${msg}`, native: true };
     }
   }
