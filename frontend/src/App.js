@@ -5,7 +5,7 @@ import {
   MessageCircle, Mic, Folder, FileText, Gavel, Globe, Briefcase, Home as HomeIcon,
   Stethoscope, Scale, X, Send, Upload, Languages, LogOut, Check, ArrowLeft, Square, Play,
   Camera, MapPin, Phone, ExternalLink, Settings as SettingsIcon, Star, Building2, Image as ImageIcon,
-  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint, Sparkles, Volume2, ChevronDown, Paperclip, FileType
+  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint, Sparkles, Volume2, ChevronDown, Paperclip, FileType, Mail
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
 import { setAppIconBadge } from "@/appBadge";
@@ -15842,55 +15842,21 @@ function ManageDataModal({ lang, onClose, onAccountDeleted }) {
   const [confirmText, setConfirmText] = useState("");
 
   const exportData = async () => {
-    // 🔍 DIAGNOSTIC MODE — Build 13 only. Every step calls window.alert so
-    // we see exactly where the native export breaks on iOS. Once we've
-    // identified the failing step, we remove these alerts.
-    const say = (m) => { try { window.alert(m); } catch (e) {} };
     setBusy(true);
     try {
-      say("① Starting export — calling backend…");
-      let data;
-      try {
-        const r = await api.get("/users/me/export");
-        data = r.data;
-      } catch (e) {
-        say("❌ API call failed: " + (e?.response?.status || e?.message || "unknown"));
-        setBusy(false);
-        return;
-      }
-      const json = JSON.stringify(data, null, 2);
-      say("② Backend OK. JSON size: " + Math.round(json.length/1024) + " KB");
-
-      const filename = `ai-advocate-export-${new Date().toISOString().slice(0,10)}.json`;
-
-      say("③ isNative() = " + (native.isNative ? String(native.isNative()) : "helper missing"));
-
-      say("④ Calling native.exportFile…");
-      let result;
-      try {
-        result = await native.exportFile({
-          filename,
-          contents: json,
-          mimeType: "application/json",
-        });
-      } catch (e) {
-        say("❌ native.exportFile threw: " + (e?.message || String(e)));
-        setBusy(false);
-        return;
-      }
-
-      say("⑤ exportFile returned: " + JSON.stringify(result));
-
-      if (result?.ok) {
-        aaToast(
-          result.method === "native" ? "Your data is ready. Choose where to save it."
-          : result.method === "native-cancelled" ? "Export cancelled."
-          : "Your data has been downloaded.",
-          "success"
-        );
+      const r = await api.post("/users/me/export-email");
+      if (r?.data?.ok) {
+        const to = r.data.email || user?.email || "your inbox";
+        const kb = r.data.size_kb ? ` (${r.data.size_kb} KB)` : "";
+        aaToast(`Sent to ${to}${kb}. Check your inbox in a few minutes.`, "success");
       } else {
-        aaToast("Export failed: " + (result?.error || "unknown"), "error");
+        aaToast("We couldn't send your data right now. Please try again in a few minutes.", "error");
       }
+    } catch (e) {
+      const status = e?.response?.status;
+      const detail = e?.response?.data?.detail;
+      const msg = detail || (status ? `server ${status}` : (e?.message || "network error"));
+      aaToast(`Export failed: ${msg}. Email support@aiadvocate.co.uk and we'll send it manually.`, "error");
     } finally {
       setBusy(false);
     }
@@ -15921,7 +15887,7 @@ function ManageDataModal({ lang, onClose, onAccountDeleted }) {
           </div>
           <div style={{ color: "var(--text-dim)", fontSize: 12, lineHeight: 1.5, marginBottom: 10 }}>{t(lang, "exportBody")}</div>
           <button className="btn-gold w-full" onClick={exportData} disabled={busy} data-testid="export-data-btn">
-            <Download size={14} style={{ display: "inline", marginRight: 6 }} /> {t(lang, "exportBtn")}
+            <Mail size={14} style={{ display: "inline", marginRight: 6 }} /> {busy ? "Sending…" : t(lang, "exportBtn")}
           </button>
         </div>
 

@@ -7058,6 +7058,13 @@ async def gdpr_export_my_data(user: dict = Depends(get_user)):
     """GDPR Article 20 / UK-GDPR — data portability. Returns the user's full data as JSON.
     Encrypted fields (chat content, case summaries, vault items) are TRANSPARENTLY DECRYPTED here so
     the user gets their plaintext data back."""
+    return await _build_user_export(user)
+
+
+async def _build_user_export(user: dict) -> dict:
+    """Shared helper for GDPR export — used by both the direct-download endpoint
+    (GET /users/me/export) and the email-me-my-data endpoint
+    (POST /users/me/export-email). Returns the full user data as a plain dict."""
     uid = user["id"]
     me = await db.users.find_one({"id": uid}, {"_id": 0, "hashed_password": 0})
     if not me:
@@ -7103,6 +7110,44 @@ async def gdpr_export_my_data(user: dict = Depends(get_user)):
         "feature_requests": feature_requests,
         "vault_items_metadata": vault_items,
     }
+
+
+@api_router.post("/users/me/export-email")
+async def gdpr_export_email(user: dict = Depends(get_user)):
+    """GDPR Article 20 — data portability via email. Sends the user's full export
+    as a JSON attachment to their registered email address using Resend.
+    This is the primary path for mobile users (iOS/Android) where in-app file
+    download UX is unreliable inside a WebView."""
+    to_email = user.get("email")
+    if not to_email:
+        raise HTTPException(400, "No email address on your account. Contact support@aiadvocate.co.uk.")
+    payload = await _build_user_export(user)
+    import base64 as _b64_export, json as _json_export
+    from email_helper import send_email as _send_email_export
+    json_bytes = _json_export.dumps(payload, indent=2, ensure_ascii=False, default=str).encode("utf-8")
+    b64 = _b64_export.b64encode(json_bytes).decode("ascii")
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    filename = f"ai-advocate-export-{date_str}.json"
+    kb = max(1, round(len(json_bytes) / 1024))
+    subject = f"Your AI Advocate data export — {date_str}"
+    body_html = f"""
+      <p>Hi{(' ' + payload['user'].get('name')) if payload['user'].get('name') else ''},</p>
+      <p>Here is your full AI Advocate data export, as required by UK-GDPR Article 20 (data portability).</p>
+      <p><strong>What's attached:</strong> a JSON file (<code>{filename}</code>, ~{kb} KB) containing everything we hold about you — your profile, Ask Lex conversations, case files, timeline entries, uploaded documents, reminders and vault metadata.</p>
+      <p><strong>What's NOT in the export:</strong> your encrypted Vault contents. Those are encrypted with your PIN on your device — only you can decrypt them by opening the Vault in the app.</p>
+      <p>You can open the JSON file with any text editor, Notes, Numbers, Excel, or upload it to a service that imports GDPR data exports.</p>
+      <p>If you didn't request this export, please contact us immediately at <a href="mailto:support@aiadvocate.co.uk">support@aiadvocate.co.uk</a>.</p>
+    """
+    ok = await _send_email_export(
+        to=to_email,
+        subject=subject,
+        body_html=body_html,
+        attachments=[{"filename": filename, "content": b64}],
+        kind="user",
+    )
+    if not ok:
+        raise HTTPException(502, "We couldn't send the email right now. Please try again in a few minutes.")
+    return {"ok": True, "email": to_email, "size_kb": kb, "filename": filename}
 
 
 @api_router.delete("/users/me")

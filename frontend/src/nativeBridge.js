@@ -210,72 +210,44 @@ export async function addAppListeners({ onResume, onPause, onBackButton } = {}) 
 //         iOS Share sheet so the user can Save to Files / Mail / AirDrop.
 // Returns { ok: true, method: 'native'|'web', path? } or { ok: false, error }.
 export async function exportFile({ filename = "export.json", contents = "", mimeType = "application/json" } = {}) {
-  // 🔍 DIAGNOSTIC MODE — surface each internal step via native alert so we
-  // can see exactly where the iOS export pipeline stops.
-  const say = (m) => { try { window.alert(m); } catch (e) {} };
   if (isNative()) {
     let step = "init";
     try {
-      say("A. entered native branch");
       step = "load-filesystem";
       const FS = await lazy("Filesystem");
-      say("B. Filesystem loaded? " + (!!FS) + " · has .Filesystem? " + !!(FS && FS.Filesystem) + " · has .Directory? " + !!(FS && FS.Directory) + " · has .Encoding? " + !!(FS && FS.Encoding));
       step = "load-share";
       const S = await lazy("Share");
-      say("C. Share loaded? " + (!!S) + " · has .share? " + !!(S && S.share));
       if (!FS) throw new Error("Filesystem plugin unavailable");
       if (!S)  throw new Error("Share plugin unavailable");
       step = "writeFile";
-      say("D. calling writeFile…");
       const write = await FS.Filesystem.writeFile({
         path: filename,
         data: contents,
         directory: FS.Directory.Cache,
         encoding: FS.Encoding.UTF8,
       });
-      say("E. writeFile returned uri: " + (write?.uri || "(none)"));
       step = "getUri";
       let uri = write?.uri;
       try {
         const resolved = await FS.Filesystem.getUri({ directory: FS.Directory.Cache, path: filename });
         if (resolved?.uri) uri = resolved.uri;
-        say("F. getUri returned: " + uri);
-      } catch (e) {
-        say("F. getUri failed (using write.uri): " + (e?.message || e));
-      }
+      } catch (e) { /* fall through with write.uri */ }
       if (!uri) throw new Error("Could not resolve file URI after write");
       step = "share";
-      say("G. calling Share.share (files array)…");
       try {
-        await S.share({
-          title: "AI Advocate — Data Export",
-          text: "Your AI Advocate data export.",
-          files: [uri],
-          dialogTitle: "Save or share your data",
-        });
-        say("H. Share.share(files) resolved");
+        await S.share({ title: "AI Advocate", text: "Your data.", files: [uri], dialogTitle: "Save or share" });
       } catch (shareErr) {
-        say("H. Share.share(files) FAILED: " + (shareErr?.message || shareErr) + " · retrying with url…");
-        await S.share({
-          title: "AI Advocate — Data Export",
-          text: "Your AI Advocate data export.",
-          url: uri,
-          dialogTitle: "Save or share your data",
-        });
-        say("H2. Share.share(url) resolved");
+        await S.share({ title: "AI Advocate", text: "Your data.", url: uri, dialogTitle: "Save or share" });
       }
       return { ok: true, method: "native", path: uri };
     } catch (e) {
       const msg = e?.message || String(e);
-      say("❌ native export failed at step=" + step + " · " + msg);
       console.warn(`[nativeBridge] Native export failed at step=${step}:`, msg);
-      if (/cancel/i.test(msg) || /dismiss/i.test(msg)) {
-        return { ok: true, method: "native-cancelled" };
-      }
+      if (/cancel/i.test(msg) || /dismiss/i.test(msg)) return { ok: true, method: "native-cancelled" };
       return { ok: false, error: `${step}: ${msg}`, native: true };
     }
   }
-  // Web fallback — standard <a download> click (does NOT work in WKWebView).
+  // Web fallback
   try {
     const blob = new Blob([contents], { type: mimeType });
     const url = URL.createObjectURL(blob);
@@ -284,9 +256,7 @@ export async function exportFile({ filename = "export.json", contents = "", mime
     document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 800);
     return { ok: true, method: "web" };
-  } catch (e) {
-    return { ok: false, error: e?.message || String(e) };
-  }
+  } catch (e) { return { ok: false, error: e?.message || String(e) }; }
 }
 
 // ---------- Keyboard height tracking (iOS chat-input fix) ----------
