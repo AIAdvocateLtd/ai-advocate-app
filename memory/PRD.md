@@ -9,6 +9,15 @@
 - **Lawyers** working B2B2C via Firm Portal
 
 
+### 2026-02 (Iter 58 — CRITICAL: Password hash leak in GDPR export fixed)
+- 🚨 **Bug**: `_build_user_export()` projection used `hashed_password: 0` but the actual DB field is `password_hash` (single word, singular). Projection was a no-op → **bcrypt password hashes were included in every /users/me/export response and email attachment**. User discovered on TestFlight Build 15 when previewing the emailed JSON — saw `"password_hash": "$2b$12$..."` in plain view.
+- ✅ **Fix**: Removed field-name projection (typo-fragile). Replaced with post-fetch `pop()` of an explicit deny-list: `password_hash`, `hashed_password`, `totp_secret`, `totp_backup_codes`, `email_verify_token_hash`, `password_reset_token_hash`, `apple_id`, `google_id`, `webauthn_credentials`. Belt-and-braces so a future typo can't re-leak.
+- ✅ **Verified**: curl against `appstore.reviewer@aiadvocate.co.uk` — sensitive fields = NONE. User dict now contains only: auth_provider, comp_pro_*, country, created_at, email, email_verified*, full_name, id, language, last_login_*, stripe_customer_id, stripe_subscription_id, subscription_status, terms_accepted, trial_*_date. All legitimate GDPR export fields.
+- 📊 **Risk**: LOW in practice — app is not publicly launched, only founder has used export, bcrypt cost 12 = infeasible offline crack, no known real user hashes exposed.
+- 🚀 **Deploy required**: This is a backend-only fix. No new TestFlight build needed — user's iPhone will get the clean export as soon as production is redeployed.
+
+
+
 ### 2026-02 (Iter 57 — Apple Guideline 2.1 Rejection Fixes)
 - ⚖️ **iOS keyboard fix (Ask Lex chat input)**: Root cause was Capacitor `Keyboard.resize: "body"` mode which pads only `<body>`, leaving `position: fixed` modals anchored to full viewport (behind keyboard). Switched to `resize: "native"` (WebView shrinks with keyboard). Added `@capacitor/keyboard` event listeners (`keyboardWillShow/Hide`) that publish `--kb-height` CSS var. `.modal-bg` height now `calc(var(--vvh, 100dvh) - var(--kb-height, 0px))`. Input rises above keyboard exactly like Safari web behaviour. Files: `capacitor.config.json`, `nativeBridge.js:attachKeyboardListeners`, `App.js` global useEffect, `index.css:.modal-bg`.
 - 📱 **iOS viewport hardening**: Added `maximum-scale=1, user-scalable=no` to viewport meta (blocks pinch-zoom + iOS auto-zoom into inputs under 16px). Set `overflow-x: hidden` and `max-width: 100vw` on html/body/#root to kill horizontal panning. Added `overscroll-behavior-y: none` to prevent iOS rubber-band bounce. Bumped `.input` font-size 15px→16px. Global rule sets all `input, textarea, select` to 16px minimum.

@@ -7066,11 +7066,20 @@ async def _build_user_export(user: dict) -> dict:
     (GET /users/me/export) and the email-me-my-data endpoint
     (POST /users/me/export-email). Returns the full user data as a plain dict."""
     uid = user["id"]
-    me = await db.users.find_one({"id": uid}, {"_id": 0, "hashed_password": 0})
+    # Strip ALL sensitive auth material before returning to the user.
+    # We use a post-fetch pop rather than a projection so a typo can never
+    # leak a hash again (belt-and-braces after the 2026-09 password_hash leak).
+    me = await db.users.find_one({"id": uid}, {"_id": 0})
     if not me:
         raise HTTPException(404, "User not found")
-    # Strip secrets and tokens that aren't user data
-    me.pop("apple_id", None); me.pop("google_id", None)
+    for k in (
+        "password_hash", "hashed_password",
+        "totp_secret", "totp_backup_codes",
+        "email_verify_token_hash", "password_reset_token_hash",
+        "apple_id", "google_id",
+        "webauthn_credentials",  # if present
+    ):
+        me.pop(k, None)
 
     convos = []
     async for c in db.conversations.find({"user_id": uid}, {"_id": 0}).sort("created_at", 1).limit(2000):
