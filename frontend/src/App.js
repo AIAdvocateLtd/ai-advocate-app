@@ -16534,13 +16534,14 @@ function App() {
   // 📱 iOS keyboard fix — track visualViewport height and publish it as `--vvh`
   // CSS variable so `.modal-bg` shrinks when the software keyboard opens,
   // preventing the chat input from being hidden behind the keyboard on iPhone.
+  // ALSO attaches Capacitor Keyboard plugin listeners on iOS/Android native so
+  // we get the exact keyboard height from the OS (WKWebView's visualViewport
+  // is unreliable when Capacitor `resize: native` mode isn't fully honoured).
   useEffect(() => {
     const setVvh = () => {
       const vv = window.visualViewport;
       const h = (vv && vv.height) || window.innerHeight;
       document.documentElement.style.setProperty("--vvh", h + "px");
-      // Also expose scale + offsetTop for future use (rare iOS bug where keyboard
-      // shifts the visual viewport down instead of shrinking it).
       if (vv) {
         document.documentElement.style.setProperty("--vv-offset-top", (vv.offsetTop || 0) + "px");
       }
@@ -16553,10 +16554,17 @@ function App() {
     }
     window.addEventListener("resize", setVvh);
     window.addEventListener("orientationchange", setVvh);
-    // Re-check on every focus/blur of inputs (belt-and-braces for edge cases)
     const onFocusIn = () => { setTimeout(setVvh, 100); setTimeout(setVvh, 350); };
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusIn);
+    // Native Capacitor keyboard listeners — publishes --kb-height on <html>
+    let detachKb = () => {};
+    (async () => {
+      try {
+        const mod = await import("@/nativeBridge");
+        if (mod.attachKeyboardListeners) detachKb = await mod.attachKeyboardListeners();
+      } catch (e) { /* web only — no-op */ }
+    })();
     return () => {
       if (vv) {
         vv.removeEventListener("resize", setVvh);
@@ -16566,6 +16574,7 @@ function App() {
       window.removeEventListener("orientationchange", setVvh);
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusIn);
+      try { detachKb(); } catch (e) {}
     };
   }, []);
 

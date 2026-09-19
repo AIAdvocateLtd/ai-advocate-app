@@ -40,6 +40,7 @@ async function lazy(name) {
       case "Device":      return (await import("@capacitor/device")).Device;
       case "Clipboard":   return (await import("@capacitor/clipboard")).Clipboard;
       case "Browser":     return (await import("@capacitor/browser")).Browser;
+      case "Keyboard":    return (await import("@capacitor/keyboard")).Keyboard;
       default: return null;
     }
   } catch (e) {
@@ -202,11 +203,34 @@ export async function addAppListeners({ onResume, onPause, onBackButton } = {}) 
   return () => subs.forEach(s => s.remove?.());
 }
 
+// ---------- Keyboard height tracking (iOS chat-input fix) ----------
+// Publishes `--kb-height` on <html> whenever the software keyboard opens/closes
+// so any bottom-anchored UI (like the Lex chat input) can lift itself above it.
+// Web version leaves it as 0px — Safari handles keyboard viewport natively.
+// Returns a cleanup fn.
+export async function attachKeyboardListeners() {
+  if (!isNative()) return () => {};
+  const K = await lazy("Keyboard");
+  if (!K) return () => {};
+  const root = document.documentElement;
+  const setKb = (h) => root.style.setProperty("--kb-height", (h || 0) + "px");
+  setKb(0);
+  const subs = [];
+  try {
+    subs.push(await K.addListener("keyboardWillShow", (info) => setKb(info?.keyboardHeight || 0)));
+    subs.push(await K.addListener("keyboardDidShow",  (info) => setKb(info?.keyboardHeight || 0)));
+    subs.push(await K.addListener("keyboardWillHide", () => setKb(0)));
+    subs.push(await K.addListener("keyboardDidHide",  () => setKb(0)));
+  } catch (e) { console.warn("[nativeBridge] Keyboard listeners failed:", e); }
+  return () => subs.forEach(s => s.remove?.());
+}
+
 // Default export — handy for `import native from "@/nativeBridge"`
 const native = {
   isNative, getPlatform,
   getPosition, share, openExternal,
   secureGet, secureSet, secureRemove,
   vibrate, getNetworkStatus, hideSplash, addAppListeners,
+  attachKeyboardListeners,
 };
 export default native;

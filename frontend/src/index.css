@@ -226,10 +226,13 @@ textarea.input { resize: vertical; min-height: 80px; font-family: 'Outfit', sans
   position: fixed;
   top: 0; left: 0; right: 0;
   /* iOS keyboard fix — height follows visualViewport so `align-items: flex-end`
-     puts the modal-card just above the keyboard, not behind it. */
+     puts the modal-card just above the keyboard, not behind it.
+     `--kb-height` is published by Capacitor Keyboard plugin listeners
+     (see nativeBridge.attachKeyboardListeners) — this is the RELIABLE
+     signal on WKWebView where visualViewport can't be trusted. */
   height: 100vh;
   height: 100dvh;
-  height: var(--vvh, 100dvh);
+  height: calc(var(--vvh, 100dvh) - var(--kb-height, 0px));
   background: rgba(0,0,0,0.75);
   backdrop-filter: blur(6px);
   display: flex; align-items: flex-end;
