@@ -7121,12 +7121,211 @@ async def _build_user_export(user: dict) -> dict:
     }
 
 
+def _render_user_export_html(payload: dict) -> str:
+    """Human-friendly HTML rendering of the GDPR export. Opens in any browser
+    like a proper webpage — no JSON brackets, markdown properly rendered,
+    conversations formatted as Q&A, dates human-readable."""
+    import html as _h
+    import re as _re
+    def esc(s):
+        return _h.escape(str(s)) if s is not None else ""
+    def fmt_dt(s):
+        if not s: return ""
+        try:
+            return str(s).replace("T", " ").split("+")[0][:19]
+        except Exception:
+            return esc(s)
+    def md_to_html(s):
+        # Very small markdown → HTML converter for chat responses.
+        # Not a full parser — just handles the patterns Lex outputs.
+        if not s: return ""
+        t = esc(s)
+        # Convert headings (## Foo → <h4>Foo</h4>)
+        t = _re.sub(r"^###\s+(.+)$", r"<h5>\1</h5>", t, flags=_re.M)
+        t = _re.sub(r"^##\s+(.+)$", r"<h4>\1</h4>", t, flags=_re.M)
+        t = _re.sub(r"^#\s+(.+)$", r"<h3>\1</h3>", t, flags=_re.M)
+        # Bold + italic
+        t = _re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", t)
+        t = _re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", t)
+        # Links [text](url)
+        t = _re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r'<a href="\2">\1</a>', t)
+        # Horizontal rules
+        t = _re.sub(r"^---+$", "<hr>", t, flags=_re.M)
+        # Lists (- item)
+        t = _re.sub(r"(?m)^-\s+(.+)$", r"<li>\1</li>", t)
+        t = _re.sub(r"(<li>.*?</li>\s*)+", lambda m: f"<ul>{m.group(0)}</ul>", t, flags=_re.S)
+        # Blockquotes (> line)
+        t = _re.sub(r"(?m)^&gt;\s?(.*)$", r"<blockquote>\1</blockquote>", t)
+        # Paragraphs from double-newlines
+        parts = _re.split(r"\n\s*\n", t)
+        body = "\n".join(
+            p if p.startswith(("<h", "<ul", "<hr", "<blockquote", "<p")) else f"<p>{p.replace(chr(10), '<br>')}</p>"
+            for p in parts
+        )
+        return body
+
+    u = payload.get("user", {}) or {}
+    convos = payload.get("conversations", []) or []
+    cases = payload.get("cases", []) or []
+    case_items = payload.get("case_items", []) or []
+    files = payload.get("legal_files", []) or []
+    reminders = payload.get("reminders", []) or []
+    vault = payload.get("vault_items_metadata", []) or []
+    reqs = payload.get("feature_requests", []) or []
+
+    # Case items grouped by case_id for readability
+    items_by_case = {}
+    for it in case_items:
+        items_by_case.setdefault(it.get("case_id"), []).append(it)
+
+    css = """
+      :root { color-scheme: light dark; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.55; color: #1a1a1a; background: #fafafa; margin: 0; padding: 24px; max-width: 780px; margin: 0 auto; }
+      h1 { font-size: 26px; margin: 0 0 4px; color: #6b5b17; letter-spacing: -0.01em; }
+      h2 { font-size: 20px; margin: 32px 0 12px; padding-bottom: 6px; border-bottom: 2px solid #f0d47a; color: #6b5b17; }
+      h3 { font-size: 17px; margin: 20px 0 8px; }
+      h4 { font-size: 15px; margin: 14px 0 6px; }
+      h5 { font-size: 14px; margin: 12px 0 4px; }
+      p { margin: 8px 0; }
+      hr { border: none; border-top: 1px solid #e5e5e5; margin: 16px 0; }
+      ul { margin: 8px 0 8px 20px; padding: 0; }
+      li { margin: 4px 0; }
+      blockquote { border-left: 3px solid #f0d47a; margin: 8px 0; padding: 4px 12px; color: #444; background: #fdf6e3; }
+      a { color: #b28f00; }
+      table.meta { width: 100%; border-collapse: collapse; margin: 12px 0 20px; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+      table.meta th, table.meta td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 13px; }
+      table.meta th { background: #f8f4e5; color: #6b5b17; font-weight: 600; width: 36%; }
+      .qa { background: #fff; border: 1px solid #eee; border-radius: 10px; padding: 16px; margin: 14px 0; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+      .qa .qmeta { color: #888; font-size: 12px; margin-bottom: 8px; }
+      .qa .q { background: #f8f4e5; padding: 10px 12px; border-radius: 8px; margin: 8px 0; font-weight: 500; }
+      .qa .a { padding: 4px 0; font-size: 14px; }
+      .qa .sources { margin-top: 12px; font-size: 12px; color: #666; border-top: 1px dashed #ddd; padding-top: 8px; }
+      .qa .sources a { color: #b28f00; word-break: break-all; }
+      .disclaimer { background: #fdf6e3; border: 1px solid #f0d47a; padding: 12px 16px; border-radius: 8px; margin: 20px 0; font-size: 13px; color: #6b5b17; }
+      .badge { display: inline-block; background: #f0d47a; color: #6b5b17; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-right: 6px; letter-spacing: 0.03em; text-transform: uppercase; }
+      .muted { color: #888; font-size: 12px; }
+      .empty { color: #888; font-style: italic; padding: 8px 0; }
+      @media (prefers-color-scheme: dark) {
+        body { background: #111; color: #ddd; }
+        h1, h2 { color: #f0d47a; }
+        table.meta { background: #1a1a1a; }
+        table.meta th { background: #241f10; color: #f0d47a; }
+        table.meta td { border-color: #2a2a2a; }
+        .qa { background: #1a1a1a; border-color: #2a2a2a; }
+        .qa .q { background: #241f10; }
+        .qa .sources { border-color: #2a2a2a; }
+        blockquote { background: #241f10; color: #ccc; }
+        .disclaimer { background: #241f10; color: #f0d47a; }
+      }
+    """
+
+    html = [f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI Advocate — Your Data Export</title><style>{css}</style></head><body>
+    <h1>Your AI Advocate Data</h1>
+    <p class="muted">Generated {esc(fmt_dt(payload.get('export_generated_at')))} · Format version {esc(payload.get('format_version'))}</p>
+    <div class="disclaimer">{esc(payload.get('notes', ''))}</div>
+
+    <h2>1. Your Profile</h2>
+    <table class="meta">
+      <tr><th>Email</th><td>{esc(u.get('email'))}</td></tr>
+      <tr><th>Full name</th><td>{esc(u.get('full_name') or '—')}</td></tr>
+      <tr><th>Language</th><td>{esc(u.get('language'))}</td></tr>
+      <tr><th>Country</th><td>{esc(u.get('country'))}</td></tr>
+      <tr><th>Subscription</th><td>{esc(u.get('subscription_status'))}</td></tr>
+      <tr><th>Sign-in method</th><td>{esc(u.get('auth_provider'))}</td></tr>
+      <tr><th>Email verified</th><td>{"Yes" if u.get('email_verified') else "No"}</td></tr>
+      <tr><th>Account created</th><td>{esc(fmt_dt(u.get('created_at')))}</td></tr>
+      <tr><th>Last login</th><td>{esc(fmt_dt(u.get('last_login_at')))} ({esc(u.get('last_login_country') or '—')})</td></tr>
+    </table>
+
+    <h2>2. Ask Lex — Your Conversations ({len(convos)})</h2>"""]
+
+    if not convos:
+        html.append('<div class="empty">You have no saved conversations yet.</div>')
+    else:
+        for c in convos:
+            cat = esc(c.get('category', 'ask_lex')).replace('_', ' ')
+            html.append(f"""
+              <div class="qa">
+                <div class="qmeta"><span class="badge">{cat}</span> {esc(fmt_dt(c.get('created_at')))} · Model: {esc(c.get('model_used') or '—')}</div>
+                <div class="q"><strong>You asked:</strong><br>{md_to_html(c.get('user_message', ''))}</div>
+                <div class="a"><strong>Lex replied:</strong>{md_to_html(c.get('assistant_response', ''))}</div>""")
+            cites = c.get('citations') or []
+            if cites:
+                html.append('<div class="sources"><strong>Sources:</strong><ul>')
+                for cit in cites:
+                    if isinstance(cit, dict):
+                        url = esc(cit.get('url', ''))
+                        title = esc(cit.get('title', 'Source'))
+                        html.append(f'<li><a href="{url}">{title}</a></li>')
+                html.append('</ul></div>')
+            html.append('</div>')
+
+    html.append(f'<h2>3. Case Files ({len(cases)})</h2>')
+    if not cases:
+        html.append('<div class="empty">You have no case files.</div>')
+    else:
+        for k in cases:
+            related_items = items_by_case.get(k.get('id'), [])
+            html.append(f"""
+              <div class="qa">
+                <h3>{esc(k.get('title', 'Untitled case'))}</h3>
+                <div class="qmeta">
+                  <span class="badge">{esc(k.get('category', 'general'))}</span>
+                  Created {esc(fmt_dt(k.get('created_at')))}
+                  {' · Status: ' + esc(k.get('status')) if k.get('status') else ''}
+                </div>
+                {md_to_html(k.get('summary', '')) if k.get('summary') else '<p class="muted">No summary.</p>'}
+                {'<h4>Timeline & entries ({} items)</h4>'.format(len(related_items)) if related_items else ''}
+              """)
+            for it in related_items:
+                html.append(f'<blockquote><strong>{esc(fmt_dt(it.get("created_at")))}</strong> — {esc(it.get("kind") or "note")}<br>{md_to_html(it.get("description", ""))}</blockquote>')
+            html.append('</div>')
+
+    html.append(f'<h2>4. Uploaded Documents ({len(files)})</h2>')
+    if not files:
+        html.append('<div class="empty">No documents uploaded.</div>')
+    else:
+        html.append('<table class="meta"><tr><th>File name</th><th>Uploaded</th></tr>')
+        for f in files:
+            html.append(f'<tr><td>{esc(f.get("filename") or f.get("name") or "—")}</td><td>{esc(fmt_dt(f.get("created_at") or f.get("uploaded_at")))}</td></tr>')
+        html.append('</table>')
+
+    html.append(f'<h2>5. Reminders ({len(reminders)})</h2>')
+    if not reminders:
+        html.append('<div class="empty">No reminders set.</div>')
+    else:
+        html.append('<table class="meta"><tr><th>Title</th><th>Due</th><th>Status</th></tr>')
+        for r in reminders:
+            html.append(f'<tr><td>{esc(r.get("title") or r.get("what") or "—")}</td><td>{esc(fmt_dt(r.get("due_at") or r.get("when")))}</td><td>{esc(r.get("status") or "pending")}</td></tr>')
+        html.append('</table>')
+
+    html.append(f'<h2>6. Vault Items ({len(vault)}) — metadata only</h2>')
+    html.append('<p class="muted">Encrypted contents remain on your device — decrypt them in the app with your PIN.</p>')
+    if vault:
+        html.append('<table class="meta"><tr><th>Item name</th><th>Type</th><th>Added</th></tr>')
+        for v in vault:
+            html.append(f'<tr><td>{esc(v.get("name") or "—")}</td><td>{esc(v.get("kind") or v.get("type") or "—")}</td><td>{esc(fmt_dt(v.get("created_at")))}</td></tr>')
+        html.append('</table>')
+
+    if reqs:
+        html.append(f'<h2>7. Feature Requests You Submitted ({len(reqs)})</h2>')
+        for fr in reqs:
+            html.append(f'<div class="qa"><div class="qmeta">{esc(fmt_dt(fr.get("created_at")))}</div>{md_to_html(fr.get("message") or fr.get("body") or "")}</div>')
+
+    html.append('''
+      <hr>
+      <p class="muted">This export was generated automatically by AI Advocate under UK-GDPR Article 20 (right to data portability).
+      No passwords, security tokens or third-party authentication IDs are ever included — those never leave our secure store.
+      Questions? <a href="mailto:support@aiadvocate.co.uk">support@aiadvocate.co.uk</a>.</p>
+    </body></html>''')
+    return "".join(html)
+
+
 @api_router.post("/users/me/export-email")
 async def gdpr_export_email(user: dict = Depends(get_user)):
     """GDPR Article 20 — data portability via email. Sends the user's full export
-    as a JSON attachment to their registered email address using Resend.
-    This is the primary path for mobile users (iOS/Android) where in-app file
-    download UX is unreliable inside a WebView."""
+    as JSON (machine-readable, required by GDPR) + HTML (human-readable) attachments
+    to their registered email address using Resend."""
     to_email = user.get("email")
     if not to_email:
         raise HTTPException(400, "No email address on your account. Contact support@aiadvocate.co.uk.")
@@ -7134,29 +7333,41 @@ async def gdpr_export_email(user: dict = Depends(get_user)):
     import base64 as _b64_export, json as _json_export
     from email_helper import send_email as _send_email_export
     json_bytes = _json_export.dumps(payload, indent=2, ensure_ascii=False, default=str).encode("utf-8")
-    b64 = _b64_export.b64encode(json_bytes).decode("ascii")
+    html_bytes = _render_user_export_html(payload).encode("utf-8")
+    json_b64 = _b64_export.b64encode(json_bytes).decode("ascii")
+    html_b64 = _b64_export.b64encode(html_bytes).decode("ascii")
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    filename = f"ai-advocate-export-{date_str}.json"
-    kb = max(1, round(len(json_bytes) / 1024))
+    json_name = f"ai-advocate-export-{date_str}.json"
+    html_name = f"ai-advocate-export-{date_str}.html"
+    total_kb = max(1, round((len(json_bytes) + len(html_bytes)) / 1024))
+    convo_count = len(payload.get("conversations", []))
+    case_count = len(payload.get("cases", []))
     subject = f"Your AI Advocate data export — {date_str}"
     body_html = f"""
-      <p>Hi{(' ' + payload['user'].get('name')) if payload['user'].get('name') else ''},</p>
+      <p>Hi{(' ' + payload['user'].get('full_name')) if payload['user'].get('full_name') else ''},</p>
       <p>Here is your full AI Advocate data export, as required by UK-GDPR Article 20 (data portability).</p>
-      <p><strong>What's attached:</strong> a JSON file (<code>{filename}</code>, ~{kb} KB) containing everything we hold about you — your profile, Ask Lex conversations, case files, timeline entries, uploaded documents, reminders and vault metadata.</p>
-      <p><strong>What's NOT in the export:</strong> your encrypted Vault contents. Those are encrypted with your PIN on your device — only you can decrypt them by opening the Vault in the app.</p>
-      <p>You can open the JSON file with any text editor, Notes, Numbers, Excel, or upload it to a service that imports GDPR data exports.</p>
+      <p><strong>Two files are attached — pick whichever suits you:</strong></p>
+      <ul>
+        <li><strong>{html_name}</strong> — a beautifully formatted, human-friendly page you can open in Safari, Chrome or any browser. This is the one to open if you just want to <em>read</em> your data.</li>
+        <li><strong>{json_name}</strong> — the same data in a machine-readable format (JSON). Use this if you want to import your data into another service, back it up, or feed it into a tool.</li>
+      </ul>
+      <p><strong>What's inside:</strong> your profile, {convo_count} Ask Lex conversation{'s' if convo_count != 1 else ''}, {case_count} case file{'s' if case_count != 1 else ''}, timeline entries, uploaded documents, reminders and Vault metadata. Total size ~{total_kb} KB.</p>
+      <p><strong>What's NOT included:</strong> your encrypted Vault contents (only you can decrypt those on your device with your PIN), and — for your security — no passwords, session tokens or third-party sign-in IDs.</p>
       <p>If you didn't request this export, please contact us immediately at <a href="mailto:support@aiadvocate.co.uk">support@aiadvocate.co.uk</a>.</p>
     """
     ok = await _send_email_export(
         to=to_email,
         subject=subject,
         body_html=body_html,
-        attachments=[{"filename": filename, "content": b64}],
+        attachments=[
+            {"filename": html_name, "content": html_b64},
+            {"filename": json_name, "content": json_b64},
+        ],
         kind="user",
     )
     if not ok:
         raise HTTPException(502, "We couldn't send the email right now. Please try again in a few minutes.")
-    return {"ok": True, "email": to_email, "size_kb": kb, "filename": filename}
+    return {"ok": True, "email": to_email, "size_kb": total_kb, "filename": html_name}
 
 
 @api_router.delete("/users/me")

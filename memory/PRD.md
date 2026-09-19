@@ -9,6 +9,22 @@
 - **Lawyers** working B2B2C via Firm Portal
 
 
+### 2026-02 (Iter 59 — GDPR export human-readable HTML companion)
+- User feedback: the JSON export "looks messy and difficult to read" (correct — JSON is machine-readable by design, not human-readable).
+- Added `_render_user_export_html()` in `server.py` — renders the export payload into a fully-styled standalone HTML page with:
+  - Gold-accented headings matching AI Advocate brand + light/dark mode CSS variables
+  - User profile section as a clean table (email, country, subscription, last login, etc.)
+  - Ask Lex conversations rendered as Q&A cards (question in gold box, reply properly markdown-parsed — headings, bold, italic, links, blockquotes, lists, horizontal rules all converted correctly)
+  - Case files with timeline entries as blockquotes
+  - Uploaded documents, reminders, Vault metadata as tables
+  - Source citations as bulleted links per Lex response
+  - Mini-markdown parser (`md_to_html`) handles `#`/`##`/`###` headings, `**bold**`, `*italic*`, `[text](url)` links, `- lists`, `> blockquotes`, `---` HR, and paragraph splitting on double newlines. Not a full CommonMark parser — just Lex's output patterns.
+- Updated `POST /users/me/export-email`: now attaches BOTH `ai-advocate-export-YYYY-MM-DD.html` (11 KB, human-friendly) AND `ai-advocate-export-YYYY-MM-DD.json` (18 KB, GDPR-required machine-readable). Email body explains which to open for reading vs importing.
+- curl-verified: HTTP 200, 30 KB combined attachment size sent to `appstore.reviewer@aiadvocate.co.uk`.
+- Playwright preview verified visually — Q&A cards render cleanly, gold gradient headers, proper spacing, mobile-responsive.
+
+
+
 ### 2026-02 (Iter 58 — CRITICAL: Password hash leak in GDPR export fixed)
 - 🚨 **Bug**: `_build_user_export()` projection used `hashed_password: 0` but the actual DB field is `password_hash` (single word, singular). Projection was a no-op → **bcrypt password hashes were included in every /users/me/export response and email attachment**. User discovered on TestFlight Build 15 when previewing the emailed JSON — saw `"password_hash": "$2b$12$..."` in plain view.
 - ✅ **Fix**: Removed field-name projection (typo-fragile). Replaced with post-fetch `pop()` of an explicit deny-list: `password_hash`, `hashed_password`, `totp_secret`, `totp_backup_codes`, `email_verify_token_hash`, `password_reset_token_hash`, `apple_id`, `google_id`, `webauthn_credentials`. Belt-and-braces so a future typo can't re-leak.
