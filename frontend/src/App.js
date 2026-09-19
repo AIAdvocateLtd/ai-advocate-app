@@ -15845,13 +15845,31 @@ function ManageDataModal({ lang, onClose, onAccountDeleted }) {
     setBusy(true);
     try {
       const { data } = await api.get("/users/me/export");
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = `ai-advocate-export-${new Date().toISOString().slice(0,10)}.json`;
-      document.body.appendChild(a); a.click();
-      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
-    } catch (e) { aaToast("Export failed. Try again later.", "error"); }
+      const json = JSON.stringify(data, null, 2);
+      const filename = `ai-advocate-export-${new Date().toISOString().slice(0,10)}.json`;
+      // Rough size hint for the toast so the user knows something real came through.
+      const kb = Math.max(1, Math.round(json.length / 1024));
+      // Use the native-aware helper — on iOS it opens the Share sheet so the
+      // user can Save to Files / Mail / AirDrop. On web it triggers a download.
+      const mod = await import("@/nativeBridge");
+      const result = await mod.exportFile({
+        filename,
+        contents: json,
+        mimeType: "application/json",
+      });
+      if (result?.ok) {
+        aaToast(
+          result.method === "native"
+            ? `Your data is ready (${kb} KB). Choose where to save it.`
+            : `Your data (${kb} KB) has been downloaded to your device.`,
+          "success"
+        );
+      } else {
+        aaToast("Export failed. Please email support@aiadvocate.co.uk and we'll send it manually.", "error");
+      }
+    } catch (e) {
+      aaToast("Export failed. Please email support@aiadvocate.co.uk and we'll send it manually.", "error");
+    }
     finally { setBusy(false); }
   };
 

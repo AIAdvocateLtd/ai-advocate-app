@@ -203,6 +203,52 @@ export async function addAppListeners({ onResume, onPause, onBackButton } = {}) 
   return () => subs.forEach(s => s.remove?.());
 }
 
+// ---------- File export (GDPR data export & similar) ----------
+// Web: triggers a browser download via <a download>. Works everywhere except
+//      WKWebView (Capacitor iOS) where the anchor click is a silent no-op.
+// Native: writes the file to app temp dir with Filesystem, then opens the
+//         iOS Share sheet so the user can Save to Files / Mail / AirDrop.
+// Returns { ok: true, method: 'native'|'web', path? } or { ok: false, error }.
+export async function exportFile({ filename = "export.json", contents = "", mimeType = "application/json" } = {}) {
+  if (isNative()) {
+    try {
+      const FS = await lazy("Filesystem");
+      const S = await lazy("Share");
+      if (!FS || !S) throw new Error("Native modules unavailable");
+      // Write file to app cache dir (auto-cleaned by iOS, no permission prompt).
+      const write = await FS.Filesystem.writeFile({
+        path: filename,
+        data: contents,
+        directory: FS.Directory.Cache,
+        encoding: FS.Encoding.UTF8,
+      });
+      const uri = write.uri;
+      await S.share({
+        title: "AI Advocate — Data Export",
+        text: "Your AI Advocate data export.",
+        url: uri,
+        dialogTitle: "Save or share your data",
+      });
+      return { ok: true, method: "native", path: uri };
+    } catch (e) {
+      console.warn("[nativeBridge] Native export failed, falling back to web:", e);
+      // Fall through to web fallback so users still get their data.
+    }
+  }
+  // Web fallback — standard <a download> click.
+  try {
+    const blob = new Blob([contents], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.rel = "noopener";
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 800);
+    return { ok: true, method: "web" };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
 // ---------- Keyboard height tracking (iOS chat-input fix) ----------
 // Publishes `--kb-height` on <html> whenever the software keyboard opens/closes
 // so any bottom-anchored UI (like the Lex chat input) can lift itself above it.
@@ -231,6 +277,6 @@ const native = {
   getPosition, share, openExternal,
   secureGet, secureSet, secureRemove,
   vibrate, getNetworkStatus, hideSplash, addAppListeners,
-  attachKeyboardListeners,
+  attachKeyboardListeners, exportFile,
 };
 export default native;
