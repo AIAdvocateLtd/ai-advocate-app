@@ -1195,12 +1195,23 @@ async def verify_turnstile(token: Optional[str], request: Optional[Request] = No
 
     🚨 Panic switch: setting TURNSTILE_DISABLED=1 in the env disables verification
     without removing the keys. Useful when the widget itself is broken on the
-    client (CDN outage, hostname misconfig in CF dashboard, etc.)."""
+    client (CDN outage, hostname misconfig in CF dashboard, etc.).
+
+    📱 Native-app skip: if the request comes from an installed Capacitor iOS/Android
+    build (identified by the X-Client-Platform header the app sends), Turnstile is
+    skipped. Native app users already cleared the App Store / Play Store gate so
+    bot-abuse risk is negligible, and Turnstile widgets can't reliably render in
+    WKWebView (see App Store rejection #2, 2026-02, Guideline 2.1.0)."""
     if not TURNSTILE_SECRET_KEY:
         return
     if (os.environ.get("TURNSTILE_DISABLED") or "").strip() in ("1", "true", "yes"):
         logger.info("Turnstile disabled via TURNSTILE_DISABLED env var")
         return
+    if request is not None:
+        platform = (request.headers.get("x-client-platform") or "").lower().strip()
+        if platform in ("ios-native", "android-native", "ios-capacitor", "android-capacitor"):
+            logger.info(f"Turnstile skipped for native client platform={platform}")
+            return
     if not token:
         raise HTTPException(400, "Bot-check didn't load. If you're using Brave or a privacy browser, disable Shields for this site and refresh — or try Safari/Chrome.")
     payload = {"secret": TURNSTILE_SECRET_KEY, "response": token}

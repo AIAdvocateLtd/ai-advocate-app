@@ -9,6 +9,30 @@
 - **Lawyers** working B2B2C via Firm Portal
 
 
+### 2026-02 (Iter 60 — Apple Rejection #2: three fixes for Build 16)
+Apple rejected Submission 6c40a7db (Build 15) with three specific issues on iPad Air 11-inch (M3), iPadOS 27.0:
+
+**Issue 1 · Guideline 2.1.0 App Completeness** — Reviewer got an error during registration. Root cause: Cloudflare Turnstile widget failed to render in WKWebView (well-documented Cloudflare+iOS issue), leaving the "Sign Up" button permanently disabled. Also caused the "Pop-up blocked" toast the reviewer screenshotted.
+- **Fix**: Skip Turnstile entirely on native (Capacitor). `App.js` early-returns the Turnstile useEffect when `IS_NATIVE`, hides the widget div, and no longer disables the submit button. Added `X-Client-Platform: ios-native | android-native` header to `axios.defaults` on native. Backend `verify_turnstile()` in `server.py` now checks the header and skips verification when it matches — belt-and-braces for the case where the frontend somehow leaks an empty token.
+- **Curl-verified**: `POST /api/auth/signup` with `X-Client-Platform: ios-native` → HTTP 200 without a Turnstile token; without the header → correctly rejected.
+
+**Issue 2 · Guideline 2.3.10 Accurate Metadata** — "Revise the app's binary and screenshots to remove Google Play references."
+- Removed the "Get it on Google Play" download button from `MarketingSite.jsx` (both the hero triple-CTA and the pricing-note paragraph).
+- Removed "COMING SOON ON Google Play" badge from `welcome.html`.
+- Changed hero pill from "LAUNCHING SOON · iOS · ANDROID · WEB" → "LIVE ON WEB · iOS COMING SOON".
+- Removed in-app "install HTTP Shortcuts from the Play Store" instruction in Emergency SOS smartwatch setup (`App.js` line 11589 — now only shows non-Apple Watch fallback on web).
+- Kept legal-required Google Play mentions in Terms & Privacy Policy (subscription-cancellation disclosure — required, not marketing).
+
+**Issue 3 · Guideline 5.1.2(i) Legal: Privacy — Data Use and Sharing** — App accesses web content with cookie banner, cookies may be used to track, but no App Tracking Transparency (ATT) prompt.
+- Under Apple's *specific* definition of tracking (third-party ad linking or data-broker sharing), AI Advocate does NOT track. PostHog is anonymous product analytics; Sentry is anonymised crash reporting.
+- Per Apple's explicit guidance ("If you do not collect cookies for tracking purposes on Apple devices, remove the cookie prompts or revise them to clarify you do not track users"), added `IS_NATIVE` guard to `CookieConsentBanner` in `App.js` — banner no longer shows inside Capacitor iOS/Android builds. Web still shows it (UK-GDPR / PECR requirement).
+- PostHog analytics remains fully consent-gated via `aa_cookie_consent === "accepted"` check in `analytics.js`. On native, since consent never granted (banner never shown), PostHog never initializes — no tracking cookies ever set. User can still opt-IN via Settings → Privacy → Anonymous Analytics if they want.
+- No ATT prompt implementation needed since no tracking (as defined by Apple) occurs.
+
+Also drafted Apple response v2 (`/app/memory/apple_response_v2.md`, 3,037 chars) explaining all three fixes for the Resolution Center reply on Build 16 submission.
+
+
+
 ### 2026-02 (Iter 59 — GDPR export human-readable HTML companion)
 - User feedback: the JSON export "looks messy and difficult to read" (correct — JSON is machine-readable by design, not human-readable).
 - Added `_render_user_export_html()` in `server.py` — renders the export payload into a fully-styled standalone HTML page with:

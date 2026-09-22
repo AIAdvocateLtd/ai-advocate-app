@@ -67,6 +67,15 @@ const Flag = ({ cc, size = 22, alt = "" }) => (
 
 // ---------- API helpers ----------
 const api = axios.create({ baseURL: API });
+// 📱 Tell the backend which client platform we're on so it can skip web-only
+// bot protection (Turnstile) for native app users who already went through
+// App Store / Play Store review.
+if (IS_NATIVE) {
+  api.defaults.headers.common["X-Client-Platform"] =
+    (typeof window !== "undefined" && window.Capacitor?.getPlatform && window.Capacitor.getPlatform() === "android")
+      ? "android-native"
+      : "ios-native";
+}
 const setAuthHeader = (token) => {
   if (token) api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
   else delete api.defaults.headers.common["Authorization"];
@@ -239,11 +248,17 @@ function AAConfirmHost() {
   );
 }
 
-// 🍪 Cookie / analytics consent banner — PECR + UK-GDPR requirement.
+// 🍪 Cookie / analytics consent banner — PECR + UK-GDPR requirement for the WEB app.
 // Shows on first visit; persists choice in localStorage. If user declines analytics,
 // we still serve the app but skip identifyAnalytics / track() calls.
+// 🍏 Apple 5.1.2 compliance: this banner is hidden inside the native (Capacitor) iOS/Android
+// build because (a) cookie-consent law applies to websites, not installed apps, and (b) Apple
+// reads "cookies" as "user tracking" and requires an App Tracking Transparency prompt —
+// but AI Advocate does not track under Apple's definition (no third-party ad linking,
+// no data broker sharing), so we simply remove the prompt on native as Apple advises.
 function CookieConsentBanner() {
   const [show, setShow] = useState(() => {
+    if (IS_NATIVE) return false; // native builds: no cookie banner, no tracking prompt
     try { return !localStorage.getItem("aa_cookie_consent"); } catch (e) { return false; }
   });
   if (!show) return null;
@@ -532,7 +547,12 @@ function AuthScreen({ lang, country, onAuth }) {
 
   // 🛡 Inject Cloudflare Turnstile widget when site key is configured AND we're
   // in signup mode (no point bot-shielding the sign-in form — they already have an account).
+  // NEVER load Turnstile inside a Capacitor native WebView — the widget requires
+  // popups/challenges that iOS WKWebView aggressively blocks, so it never resolves
+  // and blocks signup entirely. Bot risk from installed-app users is negligible;
+  // the app itself already passed Apple's App Review gate.
   useEffect(() => {
+    if (IS_NATIVE) return; // native (iOS/Android) — skip entirely
     if (!TURNSTILE_SITE_KEY || mode !== "signup") return;
     const loadScript = () => new Promise((resolve) => {
       if (window.turnstile) return resolve();
@@ -799,11 +819,11 @@ function AuthScreen({ lang, country, onAuth }) {
             🤝 Referred by <strong style={{ color: "var(--gold)" }}>{partnerCode}</strong>
           </div>
         )}
-        {mode === "signup" && TURNSTILE_SITE_KEY && (
+        {mode === "signup" && TURNSTILE_SITE_KEY && !IS_NATIVE && (
           <div ref={turnstileRef} data-testid="turnstile-widget" style={{ marginBottom: 10, display: "flex", justifyContent: "center" }} />
         )}
         {err && <div style={{ color: "var(--danger)", fontSize: 13, marginBottom: 8 }}>{err}</div>}
-        <button className="btn-gold w-full" data-testid="auth-submit-btn" type="submit" disabled={busy || (mode === "signup" && TURNSTILE_SITE_KEY && !turnstileToken)}>
+        <button className="btn-gold w-full" data-testid="auth-submit-btn" type="submit" disabled={busy || (mode === "signup" && TURNSTILE_SITE_KEY && !IS_NATIVE && !turnstileToken)}>
           {busy ? <span className="spinner" /> : (mode === "signup" ? t(lang, "signUp") : t(lang, "signIn"))}
         </button>
         {mode === "signin" && (
@@ -11566,7 +11586,9 @@ function EmergencyContactsCard({ lang, user }) {
                 <div style={{ color: "var(--gold)", fontWeight: 700, marginBottom: 6 }}>YOUR PRIVATE SOS URL</div>
                 <input className="input" readOnly value={watchUrl} onClick={(e) => e.target.select()} style={{ fontSize: 10.5, marginBottom: 8 }} data-testid="ec-watch-url" />
                 <div style={{ color: "var(--text-dim)", marginBottom: 6 }}><strong>Apple Watch:</strong> on your iPhone, open <em>Shortcuts</em> → + → "Get Contents of URL" → paste the link above → set Method to GET → tap the share icon → "Add to Apple Watch". Now add the shortcut as a complication on your watch face. One tap = silent SOS.</div>
-                <div style={{ color: "var(--text-dim)", marginBottom: 6 }}><strong>Android / Wear OS:</strong> install <em>HTTP Shortcuts</em> from the Play Store, add a GET request to the URL above, then save it as a Wear OS tile.</div>
+                {!IS_NATIVE && (
+                  <div style={{ color: "var(--text-dim)", marginBottom: 6 }}><strong>Other smartwatches:</strong> use any HTTP shortcut app that supports GET requests to the URL above, then save it as a watch tile.</div>
+                )}
                 <div style={{ color: "#fca5a5", fontStyle: "italic", marginTop: 6 }}>⚠ Keep this URL private — anyone with it can fire an SOS as you. Regenerate any time to invalidate the old one.</div>
                 <button onClick={generateWatchToken} className="btn-ghost" style={{ marginTop: 8, fontSize: 11, padding: "5px 10px" }} data-testid="ec-watch-rotate">
                   Rotate (invalidate old link)

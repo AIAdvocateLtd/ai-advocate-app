@@ -92,7 +92,7 @@ export function MarketingLanding() {
       {/* HERO */}
       <section style={{ padding: "70px 22px 50px", textAlign: "center", maxWidth: 920, margin: "0 auto" }}>
         <div style={{ display: "inline-block", padding: "6px 14px", background: "rgba(247,201,72,0.1)", border: "1px solid var(--gold-deep)", borderRadius: 99, fontSize: 11, color: GOLD, marginBottom: 22, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-          ⚖️ Available on web, iOS &amp; Android
+          ⚖️ Available on web &amp; iOS
         </div>
         <h1 className="brand-font gold" style={{ fontSize: "clamp(36px, 6vw, 64px)", lineHeight: 1.05, marginBottom: 14, letterSpacing: "0.02em" }}>
           Your lawyer<br />in your pocket
@@ -101,7 +101,7 @@ export function MarketingLanding() {
           Real legal answers, document drafting, contract negotiation, evidence analysis and a zero-knowledge encrypted vault — all in 11 languages, all from £19.99 / month.
         </p>
 
-        {/* Triple CTA */}
+        {/* CTA — App Store + Web (Google Play button removed to comply with Apple 2.3.10) */}
         <div data-testid="hero-ctas" style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center", marginBottom: 24 }}>
           <a href="#download-ios" data-testid="cta-ios"
              style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "13px 22px", background: "var(--gold)", color: "#1a1300", borderRadius: 12, textDecoration: "none", fontWeight: 700, fontSize: 14 }}>
@@ -109,14 +109,6 @@ export function MarketingLanding() {
             <span style={{ textAlign: "left", lineHeight: 1.1 }}>
               <span style={{ display: "block", fontSize: 10, opacity: 0.7 }}>Download on the</span>
               App Store
-            </span>
-          </a>
-          <a href="#download-android" data-testid="cta-android"
-             style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "13px 22px", background: "var(--gold)", color: "#1a1300", borderRadius: 12, textDecoration: "none", fontWeight: 700, fontSize: 14 }}>
-            <span style={{ fontSize: 20 }}>▶</span>
-            <span style={{ textAlign: "left", lineHeight: 1.1 }}>
-              <span style={{ display: "block", fontSize: 10, opacity: 0.7 }}>Get it on</span>
-              Google Play
             </span>
           </a>
           <Link to="/app" data-testid="cta-web"
@@ -411,7 +403,7 @@ export function PricingPage() {
         </div>
 
         <div style={{ marginTop: 50, padding: 20, background: "rgba(247,201,72,0.04)", border: "1px solid var(--gold-deep)", borderRadius: 14, fontSize: 13, color: "var(--text-dim)", lineHeight: 1.7 }}>
-          <strong style={{ color: GOLD }}>Fair pricing promise.</strong> No hidden fees. No usage-based surcharges. Cancel anytime 24h before renewal. Refunds handled by the store that processed your payment (Apple App Store, Google Play, or Stripe for web). 7-day free trial available once per account. UK VAT included where applicable.
+          <strong style={{ color: GOLD }}>Fair pricing promise.</strong> No hidden fees. No usage-based surcharges. Cancel anytime 24h before renewal. Refunds handled by the store that processed your payment. 7-day free trial available once per account. UK VAT included where applicable.
         </div>
       </main>
       <MarketingFooter />
