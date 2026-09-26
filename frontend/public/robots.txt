@@ -1,0 +1,31 @@
+# AI Advocate — robots.txt
+# https://aiadvocate.co.uk
+
+User-agent: *
+Allow: /
+
+# Block partner-only / internal pages from public search results
+Disallow: /admin-sponsor.html
+Disallow: /founding-firm-pitch.html
+Disallow: /intro-pack.html
+Disallow: /layout-proposal.html
+Disallow: /pitch-card.html
+Disallow: /reset.html
+Disallow: /track.html
+Disallow: /api/
+
+# Block AI training crawlers that don't cite sources
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+# Sitemap
+Sitemap: https://aiadvocate.co.uk/sitemap.xml

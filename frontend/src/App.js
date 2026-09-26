@@ -15868,7 +15868,7 @@ function ManageDataModal({ lang, onClose, onAccountDeleted }) {
     try {
       const r = await api.post("/users/me/export-email");
       if (r?.data?.ok) {
-        const to = r.data.email || user?.email || "your inbox";
+        const to = r.data.email || "your inbox";
         const kb = r.data.size_kb ? ` (${r.data.size_kb} KB)` : "";
         aaToast(`Sent to ${to}${kb}. Check your inbox in a few minutes.`, "success");
       } else {

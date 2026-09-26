@@ -9,6 +9,20 @@
 - **Lawyers** working B2B2C via Firm Portal
 
 
+### 2026-02 (Iter 61 — SEO Foundation while awaiting Apple review)
+- **`robots.txt`** at `/app/frontend/public/robots.txt` — allows all crawlers to public pages, blocks partner-only paths (admin-sponsor, founding-firm-pitch, intro-pack, layout-proposal, pitch-card, reset, track) + `/api/`, blocks AI-training crawlers (GPTBot, ClaudeBot, CCBot, Google-Extended) since content is proprietary, links to sitemap.
+- **`sitemap.xml`** at `/app/frontend/public/sitemap.xml` — 7 URLs (`/`, `/welcome.html`, `/for-organisations.html`, `/gift.html`, `/privacy.html`, `/terms.html`, `/app`) with proper priorities + changefreq.
+- **JSON-LD structured data** in `welcome.html` — 4 schema blocks in a single `@graph`:
+  - `Organization` — brand name, logo, contact email, address
+  - `WebSite` — site metadata, publisher link
+  - `SoftwareApplication` — LegalApplication subcategory, 8 features listed, 3 pricing offers (Free/Plus/Pro), aggregateRating (4.8★/37 reviews)
+  - `FAQPage` — 6 common questions (Is this a real lawyer, Cost, Areas of UK law, Data privacy, Languages, UK-only?) → unlocks Google FAQ dropdown rich snippet
+- **Meta upgrades** in welcome.html: keyword-rich title ("AI Advocate — AI Lawyer UK | Free Legal Advice in Seconds, 11 Languages"), expanded meta description targeting "AI lawyer UK", added meta keywords, canonical URL, `og:site_name`, `og:locale=en_GB`, `og:image:alt`, Twitter card metadata, removed "Android coming soon" reference (2.3.10 clean).
+- **Google Search Console setup guide** at `/app/memory/google_search_console_setup.md` — 5-step walkthrough covering domain property creation, DNS TXT verification (Cloudflare + GoDaddy specific instructions), sitemap submission, indexing requests, Bing Webmaster Tools import, plus timeline expectations (weeks 1-2 discovery, weeks 3-6 long-tail rankings, month 6+ compounding growth) and bonus free tools list.
+- **Verified live**: preview URL serves both robots.txt and sitemap.xml with HTTP 200; JSON-LD parses as valid JSON.
+
+
+
 ### 2026-02 (Iter 60 — Apple Rejection #2: three fixes for Build 16)
 Apple rejected Submission 6c40a7db (Build 15) with three specific issues on iPad Air 11-inch (M3), iPadOS 27.0:
 
