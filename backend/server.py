@@ -8353,6 +8353,362 @@ async def _job_founder_weekly_digest():
         logger.exception(f"[cron] founder weekly digest failed: {e}")
 
 
+# ========================================================================
+# 🤖 FOUNDER AUTOPILOT — Daily growth brief + content autopilot queue
+# ========================================================================
+# What this gives Samuel:
+#   1. A short daily email at 07:00 UTC (= 7am UK winter / 8am UK summer) with
+#      the metrics that moved overnight so he can see progress with his coffee.
+#   2. 3 fresh short-form social posts (TikTok caption, Instagram caption,
+#      X thread) queued every day at 06:00 UTC, awaiting 1-tap approval in
+#      /founder → "Content autopilot" so he can publish from his phone.
+# No external social-platform credentials needed yet — this is the draft
+# queue. Direct publishing to Meta Graph / TikTok Content API comes later
+# once Samuel has his platform tokens.
+
+class ContentDraftPatch(BaseModel):
+    status: Optional[str] = None          # "draft" | "approved" | "rejected" | "published"
+    headline: Optional[str] = None
+    body: Optional[str] = None
+    hashtags: Optional[List[str]] = None
+
+
+async def _compute_daily_brief_snapshot() -> dict:
+    """Pure data function: returns today-vs-yesterday metrics as a dict.
+    Used by both the /founder/daily-brief endpoint and the email cron job."""
+    now = datetime.now(timezone.utc)
+    day_ago = (now - timedelta(days=1)).isoformat()
+    two_days_ago = (now - timedelta(days=2)).isoformat()
+
+    EXCLUDE = ["admin@aiadvocate.co.uk", "test@advocate.app", "samuel.malick@aiadvocate.co.uk"]
+    base_user_filter = {"email": {"$nin": EXCLUDE}}
+
+    new_24h = await db.users.count_documents({**base_user_filter, "created_at": {"$gte": day_ago}})
+    new_prev_24h = await db.users.count_documents({
+        **base_user_filter,
+        "created_at": {"$gte": two_days_ago, "$lt": day_ago},
+    })
+    new_paying_24h = await db.users.count_documents({
+        **base_user_filter,
+        "stripe_subscription_id": {"$exists": True, "$nin": [None, ""]},
+        "subscription_status": {"$in": ["active", "trialing"]},
+        "created_at": {"$gte": day_ago},
+    })
+
+    paying_users_now = await db.users.count_documents({
+        "stripe_subscription_id": {"$exists": True, "$nin": [None, ""]},
+        "subscription_status": {"$in": ["active", "trialing"]},
+    })
+
+    # MRR
+    stripe_users = await db.users.find(
+        {"stripe_subscription_id": {"$exists": True, "$nin": [None, ""]},
+         "subscription_status": {"$in": ["active", "trialing"]}},
+        {"_id": 0, "tier": 1},
+    ).to_list(2000)
+    _TIER = {"plus": 19.99, "pro": 34.99, "yearly": 26.66, "trial_pro": 0.0}
+    mrr = round(sum(_TIER.get(u.get("tier", ""), 0) for u in stripe_users), 2)
+
+    # Churn signals (last 24h)
+    cancelled_24h = await db.users.count_documents({
+        "cancel_at_period_end": True,
+        "updated_at": {"$gte": day_ago},
+    }) if "updated_at" in (await db.users.find_one({}, {"updated_at": 1}) or {}) else 0
+
+    # Chat activity (last 24h) — proxy for engagement
+    chats_24h = await db.conversations.count_documents({"created_at": {"$gte": day_ago}})
+    chats_prev_24h = await db.conversations.count_documents({
+        "created_at": {"$gte": two_days_ago, "$lt": day_ago},
+    })
+
+    # LLM spend (last 24h)
+    llm = await db.llm_usage.aggregate([
+        {"$match": {"ts": {"$gte": day_ago}}},
+        {"$group": {"_id": None, "total": {"$sum": "$cost_gbp"}, "calls": {"$sum": 1}}},
+    ]).to_list(1)
+    llm_cost = round(((llm[0]["total"] if llm else 0) or 0), 2)
+    llm_calls = (llm[0]["calls"] if llm else 0) or 0
+
+    # Country breakdown of yesterday's signups (top 5)
+    country_rows = await db.users.aggregate([
+        {"$match": {**base_user_filter, "created_at": {"$gte": day_ago}}},
+        {"$group": {"_id": {"$ifNull": ["$country", "??"]}, "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 5},
+    ]).to_list(5)
+    country_breakdown = [{"country": r["_id"], "count": r["count"]} for r in country_rows]
+
+    # Simple deltas
+    def _delta(cur, prev):
+        if prev == 0:
+            return "+∞%" if cur > 0 else "±0"
+        pct = round(((cur - prev) / prev) * 100)
+        return f"{'+' if pct >= 0 else ''}{pct}%"
+
+    return {
+        "generated_at": now.isoformat(),
+        "mrr_gbp": mrr,
+        "paying_users": paying_users_now,
+        "new_signups_24h": new_24h,
+        "new_signups_prev_24h": new_prev_24h,
+        "new_signups_delta": _delta(new_24h, new_prev_24h),
+        "new_paying_24h": new_paying_24h,
+        "chats_24h": chats_24h,
+        "chats_prev_24h": chats_prev_24h,
+        "chats_delta": _delta(chats_24h, chats_prev_24h),
+        "llm_cost_24h_gbp": llm_cost,
+        "llm_calls_24h": llm_calls,
+        "cancelled_24h": cancelled_24h,
+        "country_breakdown_24h": country_breakdown,
+    }
+
+
+@api_router.get("/founder/daily-brief")
+async def founder_daily_brief(_: dict = Depends(_check_founder_only)):
+    """Live snapshot of the last 24h — what the growth brief email contains."""
+    return await _compute_daily_brief_snapshot()
+
+
+async def _job_founder_daily_brief():
+    """Daily email at 07:00 UTC with the growth brief + any content drafts
+    waiting for approval. Keeps the founder in the loop in <60 seconds."""
+    try:
+        founder_email = (os.environ.get("FOUNDER_EMAIL") or "samuel.malick@aiadvocate.co.uk").lower()
+        snap = await _compute_daily_brief_snapshot()
+        now = datetime.now(timezone.utc)
+
+        # Pending content drafts count
+        pending_drafts = await db.content_drafts.count_documents({"status": "draft"})
+
+        # Country breakdown row
+        countries_html = "".join(
+            f"<li>{c['country']}: <b>{c['count']}</b></li>"
+            for c in snap.get("country_breakdown_24h", [])
+        ) or "<li>No signups in the last 24 hours.</li>"
+
+        green = "#16a34a"; red = "#dc2626"; amber = "#d4af37"
+        signup_colour = green if snap["new_signups_24h"] > snap["new_signups_prev_24h"] else (red if snap["new_signups_24h"] < snap["new_signups_prev_24h"] else "#6b7280")
+        chat_colour = green if snap["chats_24h"] >= snap["chats_prev_24h"] else red
+
+        if pending_drafts:
+            drafts_cta = f'<a href="https://aiadvocate.co.uk/founder" style="color:{amber};">Open the queue →</a>'
+        else:
+            drafts_cta = "No fresh drafts — generation runs again at 06:00 UTC."
+
+        body_html = f"""
+        <div style="font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;line-height:1.55;max-width:600px;">
+          <h2 style="color:#1a1300;border-bottom:2px solid #f7c948;padding-bottom:8px;">
+            ☀️ Daily growth brief — {now.strftime('%A %d %B')}
+          </h2>
+          <p style="color:#6b7280;font-size:13px;margin:4px 0 20px;">
+            Yesterday's numbers in 60 seconds. Full dashboard: <a href="https://aiadvocate.co.uk/founder" style="color:{amber};">aiadvocate.co.uk/founder</a>
+          </p>
+
+          <h3 style="color:#1a1300;margin-top:20px;font-size:16px;">📈 The 24h snapshot</h3>
+          <table cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:14px;width:100%;">
+            <tr style="background:#fdfaf0;"><td>MRR right now</td><td style="text-align:right;"><b>£{snap['mrr_gbp']:.2f}</b></td></tr>
+            <tr><td>Paying users</td><td style="text-align:right;"><b>{snap['paying_users']}</b></td></tr>
+            <tr style="background:#fdfaf0;"><td>New signups (24h)</td><td style="text-align:right;"><b>{snap['new_signups_24h']}</b> <span style="color:{signup_colour};font-size:12px;">{snap['new_signups_delta']} vs prev</span></td></tr>
+            <tr><td>New paying (24h)</td><td style="text-align:right;"><b style="color:{green if snap['new_paying_24h'] else '#6b7280'};">{snap['new_paying_24h']}</b></td></tr>
+            <tr style="background:#fdfaf0;"><td>Ask Lex chats (24h)</td><td style="text-align:right;"><b>{snap['chats_24h']}</b> <span style="color:{chat_colour};font-size:12px;">{snap['chats_delta']} vs prev</span></td></tr>
+            <tr><td>LLM spend (24h)</td><td style="text-align:right;">£{snap['llm_cost_24h_gbp']:.2f} ({snap['llm_calls_24h']} calls)</td></tr>
+          </table>
+
+          <h3 style="color:#1a1300;margin-top:24px;font-size:16px;">🌍 Where yesterday's signups came from</h3>
+          <ul style="font-size:14px;">{countries_html}</ul>
+
+          <h3 style="color:#1a1300;margin-top:24px;font-size:16px;">🤖 Content autopilot</h3>
+          <p style="font-size:14px;margin:4px 0;">
+            <b>{pending_drafts}</b> social posts ready for your approval. {drafts_cta}
+          </p>
+
+          <p style="margin-top:32px;font-size:12px;color:#6b7280;">
+            Sent daily at 07:00 UTC. Toggle this off in <code>_job_founder_daily_brief</code> if it ever becomes noise.
+          </p>
+        </div>
+        """
+
+        from email_helper import send_email
+        subject_emoji = "🚀" if snap["new_signups_24h"] > snap["new_signups_prev_24h"] else "☀️"
+        await send_email(
+            to=founder_email, kind="firm",
+            subject=f"{subject_emoji} AI Advocate daily — {snap['new_signups_24h']} new signups, MRR £{snap['mrr_gbp']:.2f}",
+            body_html=body_html,
+        )
+        logger.info(f"[cron] founder daily brief sent to {founder_email}")
+    except Exception as e:
+        logger.exception(f"[cron] founder daily brief failed: {e}")
+
+
+# ---- Content autopilot: draft queue ----------------------------------------
+
+_CONTENT_TOPICS = [
+    "deposit disputes — getting your deposit back from a UK landlord",
+    "section 21 no-fault eviction — your rights as a tenant",
+    "unfair dismissal — what counts and what to do in the first 48 hours",
+    "small claims court UK — how to sue someone for under £10,000 without a lawyer",
+    "consumer rights refunds — Section 75 and chargebacks",
+    "parking fines — how to appeal a PCN and win",
+    "SSP, redundancy pay, and statutory notice periods explained",
+    "immigration — challenging a Home Office visa refusal",
+    "noisy neighbours — the legal escalation path from council to injunction",
+    "mobile phone contracts — getting out of a locked-in deal early",
+    "online scams — recovering your money through your bank",
+    "flight delay compensation under UK261 — what airlines don't tell you",
+]
+
+async def _generate_single_draft(topic: str, kind: str) -> dict:
+    """Uses Claude Sonnet to generate one short-form social post about `topic`
+    in `kind` format. Returns a dict ready to insert into db.content_drafts."""
+    style_by_kind = {
+        "tiktok": "One 20-30 second TikTok script. Hook in the first 3 words. Short punchy sentences. End with a cliffhanger CTA like 'Comment the word CASE if you want the next step.'",
+        "instagram": "A single Instagram caption (max 220 chars) + 2-sentence hook pinned at the top. Add 6 strategic UK legal hashtags.",
+        "x": "A 5-tweet X thread. Each tweet max 260 chars. Tweet 1 = the hook. Final tweet = soft CTA to try AI Advocate free.",
+    }
+    style = style_by_kind.get(kind, style_by_kind["instagram"])
+
+    system = (
+        "You are the social-media writer for AI Advocate — a free AI legal assistant for UK consumers. "
+        "You write in a confident, warm, plain-English voice that empowers ordinary people to understand their legal rights. "
+        "You NEVER use legalese. You NEVER give definitive legal advice — always include a soft 'always double-check with a solicitor for your specific case' note at the end. "
+        "You write for people who are stressed, scared, and skint. Make them feel seen, then teach them one thing."
+    )
+
+    prompt = f"""Generate one piece of social content.
+
+TOPIC: {topic}
+FORMAT: {kind.upper()} — {style}
+
+Return STRICT JSON only (no markdown fences):
+{{
+  "headline": "the hook / first line / pinned-top sentence",
+  "body": "the full post body (ready to copy-paste)",
+  "hashtags": ["hashtag1","hashtag2", ...]
+}}"""
+
+    chat = LlmChat(
+        api_key=EMERGENT_LLM_KEY,
+        session_id=f"content-{kind}-{uuid.uuid4()}",
+        system_message=system,
+    ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=900)
+
+    resp = await chat.send_message(UserMessage(text=prompt))
+    data = _extract_json_object(resp) or {}
+    headline = (data.get("headline") or "").strip()
+    body = (data.get("body") or "").strip()
+    hashtags = [h.strip().lstrip("#") for h in (data.get("hashtags") or []) if isinstance(h, str)]
+    if not body:
+        raise RuntimeError(f"empty draft body for {kind} / {topic}")
+
+    return {
+        "id": str(uuid.uuid4()),
+        "kind": kind,
+        "topic": topic,
+        "headline": headline[:200],
+        "body": body,
+        "hashtags": hashtags[:10],
+        "status": "draft",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "approved_at": None,
+    }
+
+
+async def _job_content_autopilot_daily():
+    """Picks 3 trending topics and generates one tiktok + one instagram +
+    one x-thread draft, dropped into db.content_drafts for approval."""
+    try:
+        import random
+        # Pick 3 topics that haven't been used in the last 7 days (soft dedupe)
+        seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        recent_topics = await db.content_drafts.distinct(
+            "topic", {"created_at": {"$gte": seven_days_ago}}
+        )
+        pool = [t for t in _CONTENT_TOPICS if t not in recent_topics] or _CONTENT_TOPICS
+        pick = random.sample(pool, k=min(3, len(pool)))
+
+        kinds = ["tiktok", "instagram", "x"]
+        created = 0
+        for i, topic in enumerate(pick):
+            kind = kinds[i % len(kinds)]
+            try:
+                draft = await _generate_single_draft(topic, kind)
+                await db.content_drafts.insert_one(draft)
+                created += 1
+            except Exception as e:
+                logger.warning(f"[cron] content autopilot draft failed ({kind}/{topic}): {e}")
+        logger.info(f"[cron] content autopilot created {created}/3 drafts")
+    except Exception as e:
+        logger.exception(f"[cron] content autopilot failed: {e}")
+
+
+class ContentGenerateReq(BaseModel):
+    topic: Optional[str] = None
+    kind: Optional[str] = "instagram"   # tiktok | instagram | x
+
+
+@api_router.post("/founder/content-drafts/generate")
+async def founder_content_generate(data: ContentGenerateReq, _: dict = Depends(_check_founder_only)):
+    """Manually generate a fresh draft on demand. Useful when Samuel has an
+    idea at lunchtime and wants a draft he can post from his phone in 60s."""
+    import random
+    topic = (data.topic or random.choice(_CONTENT_TOPICS)).strip()
+    kind = (data.kind or "instagram").lower()
+    if kind not in ("tiktok", "instagram", "x"):
+        raise HTTPException(400, "kind must be tiktok, instagram, or x")
+    try:
+        draft = await _generate_single_draft(topic, kind)
+    except Exception as e:
+        logger.exception("manual content generate failed")
+        raise HTTPException(502, f"Could not generate draft: {e}")
+    await db.content_drafts.insert_one(draft)
+    draft.pop("_id", None)
+    return draft
+
+
+@api_router.get("/founder/content-drafts")
+async def founder_content_list(
+    status: str = "draft",
+    limit: int = 50,
+    _: dict = Depends(_check_founder_only),
+):
+    """List drafts filtered by status. Newest first."""
+    q = {} if status == "all" else {"status": status}
+    rows = await db.content_drafts.find(q, {"_id": 0}).sort("created_at", -1).to_list(max(1, min(limit, 200)))
+    return {"drafts": rows, "count": len(rows)}
+
+
+@api_router.patch("/founder/content-drafts/{draft_id}")
+async def founder_content_patch(draft_id: str, patch: ContentDraftPatch, _: dict = Depends(_check_founder_only)):
+    """Approve / reject / edit a draft."""
+    allowed_status = {"draft", "approved", "rejected", "published"}
+    updates = {}
+    if patch.status is not None:
+        if patch.status not in allowed_status:
+            raise HTTPException(400, f"status must be one of {sorted(allowed_status)}")
+        updates["status"] = patch.status
+        if patch.status == "approved":
+            updates["approved_at"] = datetime.now(timezone.utc).isoformat()
+    if patch.headline is not None: updates["headline"] = patch.headline[:200]
+    if patch.body is not None: updates["body"] = patch.body
+    if patch.hashtags is not None:
+        updates["hashtags"] = [h.strip().lstrip("#") for h in patch.hashtags if isinstance(h, str)][:12]
+    if not updates:
+        raise HTTPException(400, "No changes to apply")
+    r = await db.content_drafts.update_one({"id": draft_id}, {"$set": updates})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Draft not found")
+    doc = await db.content_drafts.find_one({"id": draft_id}, {"_id": 0})
+    return doc
+
+
+@api_router.delete("/founder/content-drafts/{draft_id}")
+async def founder_content_delete(draft_id: str, _: dict = Depends(_check_founder_only)):
+    r = await db.content_drafts.delete_one({"id": draft_id})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Draft not found")
+    return {"ok": True}
+
+
 # 🗣 #5 — Top Lex topics this week (Mongo aggregation on conversations).
 @api_router.get("/founder/top-topics")
 async def founder_top_topics(days: int = 7, _: dict = Depends(_check_founder_only)):
@@ -15781,6 +16137,25 @@ async def startup():
             _job_founder_weekly_digest,
             CronTrigger(day_of_week="mon", hour=9, minute=0),
             id="aa_founder_weekly",
+            replace_existing=True,
+        )
+
+        # ☀️ Daily growth brief — emails the founder every day at 07:00 UTC
+        # (= 7am GMT / 8am BST) so he can see yesterday's numbers with coffee.
+        sched.add_job(
+            _job_founder_daily_brief,
+            CronTrigger(hour=7, minute=0),
+            id="aa_founder_daily_brief",
+            replace_existing=True,
+        )
+
+        # 🤖 Content autopilot — generates 3 fresh social-media drafts every
+        # day at 06:00 UTC so they're waiting in the queue before the brief
+        # email mentions them.
+        sched.add_job(
+            _job_content_autopilot_daily,
+            CronTrigger(hour=6, minute=0),
+            id="aa_content_autopilot",
             replace_existing=True,
         )
 

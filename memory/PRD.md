@@ -9,6 +9,25 @@
 - **Lawyers** working B2B2C via Firm Portal
 
 
+### 2026-02 (Iter 63 — Founder Autopilot: daily brief + content queue)
+Samuel asked for a Polsia-style "runs itself" program. Reality-check delivered: no agent fully runs a business today (Instagram/TikTok ban automation at the API layer, GDPR/PECR block mass outreach, legal apps carry regulator risk from auto-replies). Built the realistic version: a draft-first autopilot that generates all the raw work, Samuel approves in 60 seconds a day.
+- **New backend endpoints** (founder-only):
+  - `GET  /api/founder/daily-brief` — 24h growth snapshot (MRR, new signups vs prev 24h with delta %, new paying, Ask Lex chats delta, LLM spend, country breakdown of yesterday's signups, cancelled count).
+  - `GET  /api/founder/content-drafts?status=draft|approved|rejected|published|all` — list drafts.
+  - `POST /api/founder/content-drafts/generate` — on-demand draft generation with `kind=tiktok|instagram|x` and optional `topic`.
+  - `PATCH /api/founder/content-drafts/{id}` — update status/headline/body/hashtags.
+  - `DELETE /api/founder/content-drafts/{id}`.
+- **New Mongo collection**: `content_drafts` ({id, kind, topic, headline, body, hashtags[], status, created_at, approved_at}).
+- **Two new APScheduler cron jobs** (in-process, alongside existing weekly digest):
+  - `_job_content_autopilot_daily` at **06:00 UTC** — picks 3 trending UK legal topics (with 7-day dedupe against `_CONTENT_TOPICS` pool of 12), uses Claude Sonnet 4.5 to write one TikTok, one Instagram, one X-thread draft per day. Each draft has an on-brand hook, short-form body, 4-6 UK-targeted hashtags, and a soft "double-check with a solicitor" disclaimer.
+  - `_job_founder_daily_brief` at **07:00 UTC** — emails Samuel the 24h snapshot + how many drafts are waiting, with a direct link to `/founder`.
+- **FounderPage UI additions**:
+  - "☀️ Today's growth brief" Section with 6 KPIs (new signups with delta %, new paying, Ask Lex chats with delta %, LLM spend, Δ bands, country breakdown).
+  - "🤖 Content autopilot" Section — filter by status, "✨ Generate one now" (choose kind), each draft shows headline/body/hashtags with Approve / Copy (clipboard) / Mark-as-posted / Skip / Delete actions. All driven by `data-testid="content-*"` for QA.
+- **End-to-end tested**: Claude Sonnet 4.5 produced legitimate, well-structured UK legal content ("Your landlord has 10 days to protect your deposit…", "Got a visa refusal from the Home Office?…", "Airlines hide this." for UK261 compensation). Daily brief function runs cleanly, Resend dispatch wired.
+- **Honest scope note** written to Samuel: this cuts his daily growth-ops work from ~2 hours to ~30-45 minutes. The courageous bits (press pitches, podcast appearances, charity re-outreach) stay with him. Direct Meta/TikTok Graph API publishing is intentionally **not** wired yet — needs his platform tokens, and the draft queue is strictly better for brand voice control in month one.
+
+
 ### 2026-02 (Iter 62 — Web/PWA Pivot: Apple Store withdrawn)
 Decision taken: pause the App Store (3.1.1 IAP + 4.2 Minimum Functionality remains too costly pre-launch) and double down on Web/PWA, which already matches "native-feel" on key features (camera via `getUserMedia` + `capture="environment"` for Snap Evidence, biometric vault unlock via WebAuthn in `vaultBiometric.js`, home-screen install via manifest).
 - **New `PWAInstallPrompt` component** at `/app/frontend/src/PWAInstallPrompt.js` — custom "Add to Home Screen" UX:

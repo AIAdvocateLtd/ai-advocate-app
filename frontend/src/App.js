@@ -15975,17 +15975,25 @@ function FounderPage({ user, onClose }) {
   // 🔧 #8 — Broadcast email composer
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [bcast, setBcast] = useState({ audience: "all", partner_code: "", subject: "", body_html: "" });
+  // ☀️ Daily growth brief + 🤖 Content autopilot
+  const [brief, setBrief] = useState(null);
+  const [drafts, setDrafts] = useState([]);
+  const [draftsBusy, setDraftsBusy] = useState(false);
+  const [draftFilter, setDraftFilter] = useState("draft"); // draft|approved|rejected|published|all
+  const [genKind, setGenKind] = useState("instagram");
 
   const load = useCallback(async () => {
     setBusy(true); setErr("");
     try {
-      const [overview, ar, act, v, tt, cf] = await Promise.all([
+      const [overview, ar, act, v, tt, cf, br, dr] = await Promise.all([
         api.get("/founder/overview"),
         api.get("/founder/at-risk").catch(() => ({ data: null })),
         api.get("/founder/activity").catch(() => ({ data: null })),
         api.get("/founder/vat-tracker").catch(() => ({ data: null })),
         api.get("/founder/top-topics", { params: { days: 7 } }).catch(() => ({ data: null })),
         api.get("/founder/cash-flow").catch(() => ({ data: null })),
+        api.get("/founder/daily-brief").catch(() => ({ data: null })),
+        api.get("/founder/content-drafts", { params: { status: "draft", limit: 20 } }).catch(() => ({ data: { drafts: [] } })),
       ]);
       setData(overview.data);
       setAtRisk(ar.data);
@@ -15993,11 +16001,61 @@ function FounderPage({ user, onClose }) {
       setVat(v.data);
       setTopics(tt.data);
       setCashFlow(cf.data);
+      setBrief(br.data);
+      setDrafts(dr.data?.drafts || []);
     } catch (e) {
       setErr(e?.response?.data?.detail || "Access denied — founder email only.");
     } finally { setBusy(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  const reloadDrafts = useCallback(async (status) => {
+    try {
+      const { data } = await api.get("/founder/content-drafts", { params: { status, limit: 50 } });
+      setDrafts(data?.drafts || []);
+    } catch {}
+  }, []);
+
+  const generateDraftNow = async () => {
+    setDraftsBusy(true);
+    try {
+      await api.post("/founder/content-drafts/generate", { kind: genKind });
+      aaToast(`New ${genKind} draft ready`, "success");
+      await reloadDrafts(draftFilter);
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Could not generate draft", "error");
+    } finally { setDraftsBusy(false); }
+  };
+
+  const patchDraft = async (id, patch) => {
+    try {
+      await api.patch(`/founder/content-drafts/${id}`, patch);
+      await reloadDrafts(draftFilter);
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Could not update draft", "error");
+    }
+  };
+
+  const deleteDraft = async (id) => {
+    const ok = await aaConfirm("Delete this draft permanently?");
+    if (!ok) return;
+    try {
+      await api.delete(`/founder/content-drafts/${id}`);
+      await reloadDrafts(draftFilter);
+    } catch (e) {
+      aaToast(e?.response?.data?.detail || "Could not delete draft", "error");
+    }
+  };
+
+  const copyDraft = async (d) => {
+    const text = [d.headline, d.body, (d.hashtags || []).map(h => `#${h}`).join(" ")].filter(Boolean).join("\n\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      aaToast("Copied — paste it in your social app", "success");
+    } catch {
+      aaToast("Clipboard blocked. Long-press to select the text.", "info");
+    }
+  };
 
   const runLookup = async () => {
     if (!lookupQ.trim() || lookupQ.trim().length < 3) return;
@@ -16069,6 +16127,143 @@ function FounderPage({ user, onClose }) {
             <Kpi label="LLM calls (24h)" value={m.llm_24h_calls} />
             <Kpi label="Partner $ owed" value={fmtGbp(m.partner_commissions_owed_gbp)} accent={m.partner_commissions_owed_gbp > 0 ? "warn" : "neutral"} />
             <Kpi label="Active partners" value={m.active_partners} />
+          </div>
+        </Section>
+
+        {/* ☀️ DAILY GROWTH BRIEF — the 24h snapshot */}
+        {brief && (
+          <Section title="☀️ Today's growth brief (last 24h)">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 12 }}>
+              <Kpi label="New signups" value={brief.new_signups_24h}
+                   accent={brief.new_signups_24h > brief.new_signups_prev_24h ? "good" : (brief.new_signups_24h < brief.new_signups_prev_24h ? "warn" : "neutral")} />
+              <Kpi label="Δ vs prev 24h" value={brief.new_signups_delta} />
+              <Kpi label="New paying" value={brief.new_paying_24h} accent={brief.new_paying_24h > 0 ? "good" : "neutral"} />
+              <Kpi label="Ask Lex chats" value={brief.chats_24h} accent={brief.chats_24h >= brief.chats_prev_24h ? "good" : "warn"} />
+              <Kpi label="Chats Δ" value={brief.chats_delta} />
+              <Kpi label="LLM spend" value={fmtGbp(brief.llm_cost_24h_gbp)} />
+            </div>
+            {brief.country_breakdown_24h && brief.country_breakdown_24h.length > 0 && (
+              <div style={{ marginTop: 12, fontSize: 13, color: "var(--text-muted)" }}>
+                🌍 New signups by country: {brief.country_breakdown_24h.map(c => `${c.country} (${c.count})`).join(" · ")}
+              </div>
+            )}
+            <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-muted)" }}>
+              Auto-emailed daily at 07:00 UTC (7am GMT / 8am BST) to {`${user.email}`}.
+            </div>
+          </Section>
+        )}
+
+        {/* 🤖 CONTENT AUTOPILOT — draft queue */}
+        <Section title="🤖 Content autopilot">
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10 }}>
+            Lex writes 3 fresh social posts (TikTok · Instagram · X) every day at 06:00 UTC.
+            Approve → copy → paste in your phone's social app. Takes 60 seconds total.
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+            <select className="input" data-testid="content-filter" value={draftFilter}
+              onChange={(e) => { setDraftFilter(e.target.value); reloadDrafts(e.target.value); }}
+              style={{ flex: "0 0 auto", maxWidth: 160, fontSize: 13 }}>
+              <option value="draft">Pending ({drafts.filter(d => d.status === "draft").length || "–"})</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="published">Published</option>
+              <option value="all">All</option>
+            </select>
+            <select className="input" data-testid="content-kind" value={genKind} onChange={(e) => setGenKind(e.target.value)}
+              style={{ flex: "0 0 auto", maxWidth: 140, fontSize: 13 }}>
+              <option value="instagram">Instagram</option>
+              <option value="tiktok">TikTok</option>
+              <option value="x">X thread</option>
+            </select>
+            <button className="btn-gold" data-testid="content-generate-btn" onClick={generateDraftNow} disabled={draftsBusy}
+              style={{ padding: "8px 14px", fontSize: 13 }}>
+              {draftsBusy ? "Writing…" : "✨ Generate one now"}
+            </button>
+          </div>
+
+          {drafts.length === 0 && (
+            <div style={{ padding: 16, textAlign: "center", color: "var(--text-muted)", fontSize: 13, border: "1px dashed var(--line)", borderRadius: 8 }}>
+              {draftFilter === "draft"
+                ? "Queue is empty. Fresh drafts land here at 06:00 UTC daily — or tap ✨ Generate one now."
+                : `No ${draftFilter} drafts yet.`}
+            </div>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {drafts.map((d) => (
+              <div key={d.id} data-testid={`content-draft-${d.id}`} style={{
+                padding: 12, background: "var(--bg)", borderRadius: 10,
+                border: `1px solid ${d.status === "approved" ? "#16a34a" : d.status === "rejected" ? "#374151" : "var(--gold-deep)"}`,
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "var(--gold)", color: "#1a1300", fontWeight: 700, textTransform: "uppercase" }}>
+                      {d.kind}
+                    </span>
+                    <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                      {d.topic.length > 60 ? d.topic.slice(0, 60) + "…" : d.topic}
+                    </span>
+                    <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4,
+                      background: d.status === "approved" ? "rgba(34,197,94,0.15)" : d.status === "rejected" ? "rgba(107,114,128,0.15)" : "rgba(247,201,72,0.15)",
+                      color: d.status === "approved" ? "#86efac" : d.status === "rejected" ? "var(--text-muted)" : "var(--gold)",
+                      fontWeight: 700,
+                    }}>
+                      {d.status}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                    {new Date(d.created_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </div>
+
+                {d.headline && (
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--gold-soft)", marginBottom: 6, lineHeight: 1.4 }}>
+                    {d.headline}
+                  </div>
+                )}
+                <div style={{ fontSize: 13, color: "var(--text)", whiteSpace: "pre-wrap", lineHeight: 1.5, marginBottom: 8 }}>
+                  {d.body}
+                </div>
+                {d.hashtags && d.hashtags.length > 0 && (
+                  <div style={{ fontSize: 11, color: "#60a5fa", marginBottom: 10 }}>
+                    {d.hashtags.map(h => `#${h}`).join(" ")}
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {d.status !== "approved" && (
+                    <button data-testid={`content-approve-${d.id}`} className="btn-gold"
+                      onClick={() => patchDraft(d.id, { status: "approved" })}
+                      style={{ padding: "6px 10px", fontSize: 12 }}>✓ Approve</button>
+                  )}
+                  <button data-testid={`content-copy-${d.id}`}
+                    onClick={() => copyDraft(d)}
+                    style={{ padding: "6px 10px", fontSize: 12, background: "transparent", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 6, cursor: "pointer" }}>
+                    📋 Copy
+                  </button>
+                  {d.status === "approved" && (
+                    <button data-testid={`content-publish-${d.id}`}
+                      onClick={() => patchDraft(d.id, { status: "published" })}
+                      style={{ padding: "6px 10px", fontSize: 12, background: "transparent", color: "#86efac", border: "1px solid #16a34a", borderRadius: 6, cursor: "pointer" }}>
+                      Mark as posted
+                    </button>
+                  )}
+                  {d.status !== "rejected" && d.status !== "published" && (
+                    <button data-testid={`content-reject-${d.id}`}
+                      onClick={() => patchDraft(d.id, { status: "rejected" })}
+                      style={{ padding: "6px 10px", fontSize: 12, background: "transparent", color: "var(--text-muted)", border: "1px solid var(--line)", borderRadius: 6, cursor: "pointer" }}>
+                      Skip
+                    </button>
+                  )}
+                  <button data-testid={`content-delete-${d.id}`}
+                    onClick={() => deleteDraft(d.id)}
+                    style={{ padding: "6px 10px", fontSize: 12, background: "transparent", color: "var(--danger)", border: "1px solid var(--line)", borderRadius: 6, cursor: "pointer", marginLeft: "auto" }}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </Section>
 
