@@ -12,6 +12,7 @@ import { setAppIconBadge } from "@/appBadge";
 import { setSentryUser, clearSentryUser } from "@/sentry";
 import { identify as identifyAnalytics, resetAnalytics, track } from "@/analytics";
 import native, { isNative, hideSplash, openExternal as nativeOpenExternal } from "@/nativeBridge";
+import PWAInstallPrompt from "@/PWAInstallPrompt";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
 // we hide all Subscribe / Upgrade buttons (and replace them with a web-billing notice).
@@ -16846,6 +16847,7 @@ function App() {
     <div className="App app-shell">
       <AAConfirmHost />
       <CookieConsentBanner />
+      <PWAInstallPrompt />
       {showSplash && <SplashScreen onDone={() => { sessionStorage.setItem("aa_splash_seen", "1"); setShowSplash(false); }} />}
       {step === "lang" && <LanguagePicker lang={lang} initial={lang} onConfirm={(l) => { setLang(l); setStep("terms"); }} />}
       {step === "terms" && <TermsScreen lang={lang} onAccept={() => { localStorage.setItem("aa_terms", "1"); setStep("auth"); }} onDecline={() => setStep("lang")} onChangeLang={() => setStep("lang")} />}

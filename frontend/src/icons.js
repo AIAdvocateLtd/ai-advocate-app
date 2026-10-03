@@ -15,7 +15,7 @@ const make = (file, label) => {
       height={size * ICON_SIZE_SCALE}
       loading="eager"
       decoding="async"
-      fetchpriority="high"
+      fetchPriority="high"
       style={{
         display: "inline-block",
         objectFit: "contain",

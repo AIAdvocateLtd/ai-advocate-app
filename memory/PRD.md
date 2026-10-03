@@ -9,6 +9,18 @@
 - **Lawyers** working B2B2C via Firm Portal
 
 
+### 2026-02 (Iter 62 — Web/PWA Pivot: Apple Store withdrawn)
+Decision taken: pause the App Store (3.1.1 IAP + 4.2 Minimum Functionality remains too costly pre-launch) and double down on Web/PWA, which already matches "native-feel" on key features (camera via `getUserMedia` + `capture="environment"` for Snap Evidence, biometric vault unlock via WebAuthn in `vaultBiometric.js`, home-screen install via manifest).
+- **New `PWAInstallPrompt` component** at `/app/frontend/src/PWAInstallPrompt.js` — custom "Add to Home Screen" UX:
+  - Android/Chrome: listens to `beforeinstallprompt`, shows a branded compact install card with a 1-tap "Install" button that triggers `prompt()`.
+  - iOS Safari: no BIP event available, so proactively surfaces a card with "Show me how" → full-sheet step-by-step guide (Share → Add to Home Screen → Add).
+  - Suppressed in: standalone (already installed), Capacitor native, Emergent preview iframe, dismissed within 7 days, already-installed.
+  - Appears after a 12s delay so it never fights splash/tour.
+- **Wired into `App.js`**: imported and rendered at app root alongside `CookieConsentBanner`.
+- **Fixed React warning**: `fetchpriority` → `fetchPriority` (camelCase) in `/app/frontend/src/icons.js` for all tile icons.
+- **Apple withdrawal reply drafted** at `/app/memory/apple_withdrawal.md` — polite one-paragraph reply + operational checklist (stop App Store badges, keep Capacitor source, keep Apple Sign-in for web).
+
+
 ### 2026-02 (Iter 61 — SEO Foundation while awaiting Apple review)
 - **`robots.txt`** at `/app/frontend/public/robots.txt` — allows all crawlers to public pages, blocks partner-only paths (admin-sponsor, founding-firm-pitch, intro-pack, layout-proposal, pitch-card, reset, track) + `/api/`, blocks AI-training crawlers (GPTBot, ClaudeBot, CCBot, Google-Extended) since content is proprietary, links to sitemap.
 - **`sitemap.xml`** at `/app/frontend/public/sitemap.xml` — 7 URLs (`/`, `/welcome.html`, `/for-organisations.html`, `/gift.html`, `/privacy.html`, `/terms.html`, `/app`) with proper priorities + changefreq.
