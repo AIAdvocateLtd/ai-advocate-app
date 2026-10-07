@@ -7,15 +7,14 @@ import React from "react";
 const ICON_SIZE_SCALE = 1.0;
 
 const make = (file, label) => {
-  const Comp = ({ size = 44, alt = label }) => (
+  const Comp = ({ size = 44, alt = label, priority = false }) => (
     <img
       src={`/icons/${file}`}
       alt={alt}
       width={size * ICON_SIZE_SCALE}
       height={size * ICON_SIZE_SCALE}
-      loading="eager"
+      loading={priority ? "eager" : "lazy"}
       decoding="async"
-      fetchPriority="high"
       style={{
         display: "inline-block",
         objectFit: "contain",

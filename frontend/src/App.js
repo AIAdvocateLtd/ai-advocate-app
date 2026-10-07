@@ -1878,6 +1878,39 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
   const seedSentRef = useRef(false);
   const classifiedRef = useRef(false);
 
+  // 🔊 Opt-in "Read aloud" per Lex reply. We track which message is speaking
+  // so the icon can switch to a stop control. Nothing auto-plays — this is a
+  // user-triggered action only (sister feature request, Feb 2026).
+  const [speakingIdx, setSpeakingIdx] = useState(null);
+  const ttsAudioRef = useRef(null);
+  const stopSpeaking = useCallback(() => {
+    try { ttsAudioRef.current?.pause(); } catch {}
+    ttsAudioRef.current = null;
+    setSpeakingIdx(null);
+  }, []);
+  const speakMessage = useCallback(async (idx, text) => {
+    if (!text || !text.trim()) return;
+    if (speakingIdx === idx) { stopSpeaking(); return; }
+    stopSpeaking();
+    setSpeakingIdx(idx);
+    try {
+      const r = await api.post("/voice/tts",
+        { text: text.slice(0, 4000), language: (lang || "en").split("-")[0] },
+        { responseType: "blob" });
+      const url = URL.createObjectURL(r.data);
+      const a = new Audio(url);
+      ttsAudioRef.current = a;
+      a.onended = () => { URL.revokeObjectURL(url); setSpeakingIdx(null); ttsAudioRef.current = null; };
+      a.onerror = () => { URL.revokeObjectURL(url); setSpeakingIdx(null); ttsAudioRef.current = null; };
+      await a.play();
+    } catch (e) {
+      setSpeakingIdx(null);
+      aaToast("Couldn't read this aloud. Try again in a moment.", "error");
+    }
+  }, [lang, speakingIdx, stopSpeaking]);
+  // Stop any in-flight audio when the chat modal closes
+  useEffect(() => () => stopSpeaking(), [stopSpeaking]);
+
   // ⚖ One-time UPL acknowledgment — App Store + UK Legal Services Act 2007 evidence trail.
   // Persisted per-device so users only see this once. Required disclosure: this is
   // information, not regulated legal advice, no solicitor-client relationship.
@@ -2655,6 +2688,17 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                   })()}
                   {m.role === "lex" && (
                     <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+                      {/* 🔊 Read aloud — opt-in TTS for this reply (user request Feb 2026) */}
+                      <button data-testid={`read-aloud-${i}`}
+                        title={speakingIdx === i ? "Stop reading" : "Read this reply out loud"}
+                        onClick={() => speakMessage(i, parseLexMetadata(m.content).body)}
+                        style={{ background: speakingIdx === i ? "rgba(247,201,72,0.22)" : "transparent",
+                                 border: "1px solid var(--gold-deep)", color: "var(--gold)",
+                                 borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600,
+                                 display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <Volume2 size={12} /> {speakingIdx === i ? "Stop" : "Read aloud"}
+                      </button>
+
                       {/* 🪜 Outcome Ladder — strategic on-demand structuring */}
                       <button data-testid={`ladder-${i}`} title="See worst / likely / best outcomes"
                         disabled={m._ladderBusy}
