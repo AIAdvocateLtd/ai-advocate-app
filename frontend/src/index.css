@@ -36,14 +36,20 @@ html, body, #root {
   margin: 0;
   font-family: 'Outfit', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
-  min-height: 100vh;
-  /* Prevent sideways panning inside a native Capacitor wrapper — the whole
-     app is designed vertical, any horizontal scroll is a layout bug. */
+  /* 📱 Android fix (Feb 2026): previously `min-height: 100vh` + body-level
+     `overscroll-behavior-y: none` was breaking single-finger scroll on
+     OnePlus / OxygenOS Chrome AND inside in-app Chrome Custom Tabs
+     (WhatsApp, Instagram browser).
+       • `100vh` on Android is the LARGE viewport (URL bar hidden), so
+         content below could be rendered off-screen with no scroll chain
+         when the URL bar was shown.
+       • `overscroll-behavior-y: none` on body breaks the native scroll
+         chain in WebView-wrapped browsers.
+     Switched to `100dvh` (dynamic viewport height, Android Chrome 108+ /
+     iOS 15.4+) and moved overscroll containment to modal overlays only. */
+  min-height: 100dvh;
   overflow-x: hidden;
   max-width: 100vw;
-  /* Prevent iOS "bounce" scroll from revealing the page background when
-     the user swipes past the top/bottom of the modal */
-  overscroll-behavior-y: none;
 }
 /* Belt-and-braces: also stop iOS from auto-zooming into inputs — every
    text field gets a minimum 16px font-size (Apple's zoom threshold). */
@@ -62,7 +68,7 @@ body::before {
   z-index: 0;
 }
 
-.app-shell { position: relative; z-index: 1; min-height: 100vh; }
+.app-shell { position: relative; z-index: 1; min-height: 100dvh; }
 
 .brand-font { font-family: 'Cinzel', serif; letter-spacing: 0.04em; }
 
