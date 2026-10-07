@@ -75,6 +75,14 @@ body::before {
 }
 
 /* Buttons */
+/* 📱 Global Android touch fix — apply touch-action: manipulation to every
+   button on the app so the OS never confuses a vertical scroll with a tap
+   on a button underneath. Fixes "one finger won't scroll" on OnePlus /
+   OxygenOS / ColorOS Chrome. */
+button {
+  touch-action: manipulation;
+}
+
 .btn-gold {
   background: linear-gradient(135deg, #f7c948 0%, #d6a017 100%);
   color: #1a1300;
@@ -159,6 +167,12 @@ textarea.input { resize: vertical; min-height: 80px; font-family: 'Outfit', sans
   outline: none;
   appearance: none;
   -webkit-appearance: none;
+  /* 📱 Android Chrome fix: without this, OxygenOS/ColorOS browsers get
+     confused between "finger drag over the button" and "scroll the page"
+     and lose the single-finger scroll gesture entirely (two-finger works
+     because it's unambiguously a scroll). `manipulation` tells Chromium
+     "pan+zoom are allowed; everything else can be fast-tap". */
+  touch-action: manipulation;
 }
 .tile-clean:focus,
 .tile-clean:focus-visible,
