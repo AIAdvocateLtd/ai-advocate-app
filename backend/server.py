@@ -7934,12 +7934,19 @@ async def auth_2fa_login(req: TOTPLoginReq):
 
 # ==================== FOUNDER OPERATIONS DASHBOARD ====================
 # Single Pane of Glass for the sole director. Available at /api/founder/* and
-# protected by the same admin-email check (extra strict: must be the founder
-# email exactly — not just "any admin"). Frontend route is /founder.
+# protected by the same admin-email check (originally founder-only — Feb 2026
+# broadened to accept ADMIN_EMAILS too, so the owner's existing admin account
+# can run growth autopilot without needing a separate founder login).
 async def _check_founder_only(user: dict = Depends(get_user)):
     founder_email = (os.environ.get("FOUNDER_EMAIL") or "samuel.malick@aiadvocate.co.uk").lower()
-    if (user.get("email") or "").lower() != founder_email:
-        raise HTTPException(403, "Founder access only.")
+    admin_emails = {
+        e.strip().lower()
+        for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",")
+        if e.strip()
+    }
+    allowed = admin_emails | {founder_email}
+    if (user.get("email") or "").lower() not in allowed:
+        raise HTTPException(403, "Founder/admin access only.")
     return user
 
 @api_router.get("/founder/overview")
@@ -8471,9 +8478,17 @@ async def founder_daily_brief(_: dict = Depends(_check_founder_only)):
 
 async def _job_founder_daily_brief():
     """Daily email at 07:00 UTC with the growth brief + any content drafts
-    waiting for approval. Keeps the founder in the loop in <60 seconds."""
+    waiting for approval. Sent to FOUNDER_EMAIL plus every ADMIN_EMAILS
+    address (so the owner's admin login gets it even without a founder
+    account). Keeps the founder in the loop in <60 seconds."""
     try:
         founder_email = (os.environ.get("FOUNDER_EMAIL") or "samuel.malick@aiadvocate.co.uk").lower()
+        admin_emails = {
+            e.strip().lower()
+            for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",")
+            if e.strip()
+        }
+        recipients = sorted(admin_emails | {founder_email})
         snap = await _compute_daily_brief_snapshot()
         now = datetime.now(timezone.utc)
 
@@ -8530,12 +8545,13 @@ async def _job_founder_daily_brief():
 
         from email_helper import send_email
         subject_emoji = "🚀" if snap["new_signups_24h"] > snap["new_signups_prev_24h"] else "☀️"
-        await send_email(
-            to=founder_email, kind="firm",
-            subject=f"{subject_emoji} AI Advocate daily — {snap['new_signups_24h']} new signups, MRR £{snap['mrr_gbp']:.2f}",
-            body_html=body_html,
-        )
-        logger.info(f"[cron] founder daily brief sent to {founder_email}")
+        subject = f"{subject_emoji} AI Advocate daily — {snap['new_signups_24h']} new signups, MRR £{snap['mrr_gbp']:.2f}"
+        for recipient in recipients:
+            try:
+                await send_email(to=recipient, kind="firm", subject=subject, body_html=body_html)
+            except Exception as inner:
+                logger.warning(f"[cron] daily brief to {recipient} failed: {inner}")
+        logger.info(f"[cron] founder daily brief sent to {recipients}")
     except Exception as e:
         logger.exception(f"[cron] founder daily brief failed: {e}")
 
