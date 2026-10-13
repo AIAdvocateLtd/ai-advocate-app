@@ -10833,25 +10833,24 @@ function CompProAdminCard({ lang }) {
 
   const revokeComp = async (email) => {
     const ok = await aaConfirm({
-      title: "Revoke & remove?",
-      message: `Revoke Pro for ${email} AND permanently remove them from the admin lists?\n\nUse Delete instead if they were never comped.`,
-      confirmLabel: "Revoke & remove",
+      title: "Revoke Pro trial?",
+      message: `Revoke Pro for ${email} and reset them back to the Free tier?\n\nThey stay in the admin list — you can grant them a different trial length afterwards. Use Delete to permanently remove them from the list.`,
+      confirmLabel: "Revoke trial",
       danger: true,
     });
     if (!ok) return;
     setActionBusy(true); setFeedback(null);
-    // Optimistic — pull from local state immediately
-    setResults(rs => rs.filter(u => u.email !== email));
-    setActiveComps(cs => cs.filter(c => c.email !== email));
     try {
-      // uncomp endpoint now auto-soft-deletes by default (keep:false)
-      await api.post("/admin/users/uncomp", { email, reason: "Owner revoked" });
-      setFeedback({ ok: true, msg: `✓ ${email} revoked & removed from list` });
+      // keep:true → revoke the Pro comp but leave the user on the admin list
+      // so the owner can grant a different trial length without re-adding them.
+      await api.post("/admin/users/uncomp", { email, reason: "Owner revoked trial", keep: true });
+      setFeedback({ ok: true, msg: `✓ ${email} reset to Free — pick a new trial length below` });
       loadComps();
       loadFounding();
+      // Refresh so the row shows "free" and the "Grant 30d" button comes back
+      if (query) search(); else loadRecent();
     } catch (e) {
       setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not revoke." });
-      // Re-fetch on error to restore
       if (query) search(); else loadRecent();
       loadComps();
     } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
