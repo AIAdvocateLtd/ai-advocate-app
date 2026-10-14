@@ -10937,7 +10937,7 @@ function CompProAdminCard({ lang }) {
           </span>
         </div>
         <div style={{ fontSize: 10.5, color: "var(--text-muted)", lineHeight: 1.45, marginBottom: 10 }}>
-          The landing page promises the first 100 signups a free 24-hour Day Pass — already auto-granted on signup. Tap <strong>Approve</strong> to send a personal thank-you email and clear the row, or <strong>Skip</strong> to dismiss without emailing.
+          Your first 100 signups. Tap <strong>Approve</strong> to send a personal thank-you email and clear the row, or <strong>Skip</strong> to dismiss without emailing.
         </div>
         {founding.users.length === 0 ? (
           <div style={{ fontSize: 11.5, color: "var(--text-muted)", padding: "10px 6px", textAlign: "center",

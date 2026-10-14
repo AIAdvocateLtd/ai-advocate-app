@@ -1402,18 +1402,11 @@ async def signup(data: UserSignup, request: Request):
     user_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
 
-    # ── First-100 Day Pass mechanic ──────────────────────────────────────
-    # Count real (non-demo, non-admin) signups so far. If we're within the
-    # first 100, the user gets an automatic 24-hour Day Pass (Plus tier).
-    # Signup #101+ gets a 20% off welcome code instead — both reactions are
-    # delivered via Resend transactional emails further down.
-    DAY_PASS_LIMIT = 100
+    # Launch Day Pass / WELCOME20 offers retired — signup_position kept for the Founding-100 queue.
     real_signup_count = await db.users.count_documents({
         "auth_provider": {"$nin": ["demo"]},
         "email": {"$ne": "admin@aiadvocate.co.uk"},
     })
-    awarded_day_pass = real_signup_count < DAY_PASS_LIMIT
-    day_pass_until = (now + timedelta(hours=24)).isoformat() if awarded_day_pass else None
 
     user_doc = {
         "id": user_id,
@@ -1440,8 +1433,8 @@ async def signup(data: UserSignup, request: Request):
         "email_verified": (data.email or "").lower() == founder_email,
         # Launch-promo fields
         "signup_position": real_signup_count + 1,         # 1-indexed signup number
-        "launch_day_pass_until": day_pass_until,           # null if missed offer
-        "launch_promo_code": None if awarded_day_pass else "WELCOME20",
+        "launch_day_pass_until": None,
+        "launch_promo_code": None,
     }
     await db.users.insert_one(user_doc)
 
@@ -1507,11 +1500,8 @@ async def signup(data: UserSignup, request: Request):
     # Fire the welcome email. We await directly (not asyncio.create_task) so
     # the task isn't garbage-collected before completion. Resend is fast (~300ms).
     try:
-        from email_helper import send_welcome_with_daypass, send_welcome_missed_offer
-        if awarded_day_pass:
-            await send_welcome_with_daypass(data.email, data.full_name or "")
-        else:
-            await send_welcome_missed_offer(data.email, data.full_name or "")
+        from email_helper import send_welcome
+        await send_welcome(data.email, data.full_name or "")
     except Exception:
         logger.exception("welcome email dispatch failed")
 
@@ -7671,17 +7661,13 @@ async def auth_resend_welcome(data: ForgotPasswordReq):
         return {"ok": True}
     user = await db.users.find_one(
         {"email": email_lc, "deleted": {"$ne": True}},
-        {"_id": 0, "email": 1, "full_name": 1, "launch_day_pass_until": 1},
+        {"_id": 0, "email": 1, "full_name": 1},
     )
     if user and await _rate_limit_reset(email_lc):
         try:
-            from email_helper import send_welcome_with_daypass, send_welcome_missed_offer
+            from email_helper import send_welcome
             now_iso = datetime.now(timezone.utc).isoformat()
-            dp_active = user.get("launch_day_pass_until") and user["launch_day_pass_until"] > now_iso
-            if dp_active:
-                await send_welcome_with_daypass(user["email"], user.get("full_name") or "")
-            else:
-                await send_welcome_missed_offer(user["email"], user.get("full_name") or "")
+            await send_welcome(user["email"], user.get("full_name") or "")
             # Use the existing password_reset_tokens table for rate-limit tracking — same window
             await db.password_reset_tokens.insert_one({
                 "id": str(uuid.uuid4()),

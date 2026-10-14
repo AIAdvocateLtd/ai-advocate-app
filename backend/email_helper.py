@@ -3,8 +3,7 @@ Resend transactional-email helper for AI Advocate.
 
 Sends 4 email types:
   1. send_waitlist_ack(email)              — when someone joins the waitlist
-  2. send_welcome_with_daypass(email, name) — first 100 real signups
-  3. send_welcome_missed_offer(email, name) — signup #101+
+  2. send_welcome(email, name)              — every new signup (no offers)
   4. send_launch_broadcast(email)           — manual blast when iOS goes live
 
 Key design choices:
@@ -143,7 +142,7 @@ async def send_waitlist_ack(email: str, full_name: str = "") -> bool:
         <strong style="color:#b8860b;">Want to start now?</strong><br>
         The web app is already live — sign up at
         <a href="https://aiadvocate.co.uk/app" style="color:#b8860b; font-weight:600;">aiadvocate.co.uk/app</a>
-        and the first 100 signups get a free 24-hour Day Pass.
+        and start using Lex today.
       </p>
       <p style="font-size:13px; color:#666;">Until then — stay safe out there.</p>
       <p style="margin:18px 0 0 0;">— The AI Advocate team</p>
@@ -151,44 +150,31 @@ async def send_waitlist_ack(email: str, full_name: str = "") -> bool:
     return await _send(email, "You're on the AI Advocate waitlist 🎉", html)
 
 
-async def send_welcome_with_daypass(email: str, full_name: str = "") -> bool:
-    name = (full_name or "").strip().split(" ")[0] or "there"
-    html = _wrap(f"""
-      <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">Welcome, {name} — your free Day Pass is active 🎁</h2>
-      <p>You're one of the first 100 to sign up, so you get a free <strong>24-hour Day Pass</strong> (worth £4.99) — unlocking unlimited Lex chat, evidence analysis, letter generation, and case files for the next 24 hours.</p>
-      <p style="background:#fff8e1; border-left:3px solid #f7c948; padding:12px 14px; border-radius:6px; font-size:14px; margin:18px 0;">
-        <strong style="color:#b8860b;">Get started:</strong><br>
-        1. Open <a href="https://aiadvocate.co.uk/app" style="color:#b8860b; font-weight:600;">aiadvocate.co.uk/app</a><br>
-        2. Try asking Lex any UK legal question<br>
-        3. Add your emergency contacts in Settings → SOS<br>
-      </p>
-      <p style="font-size:14px; line-height:1.6;">
-        When the 24h is up, you'll automatically drop back to the Free tier. No charge, no surprises.
-        If you want to keep the unlimited access, you can upgrade to Plus (£19.99/mo) or Pro (£34.99/mo) any time.
-      </p>
-      <p style="margin:18px 0 0 0;">— The AI Advocate team</p>
-    """, preview="Your 24-hour Day Pass is live — start using Lex now.")
-    return await _send(email, "🎁 Welcome — your free Day Pass is active", html)
-
-
-async def send_welcome_missed_offer(email: str, full_name: str = "") -> bool:
+async def send_welcome(email: str, full_name: str = "") -> bool:
     name = (full_name or "").strip().split(" ")[0] or "there"
     html = _wrap(f"""
       <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">Welcome, {name} 👋</h2>
-      <p>You're now signed up to AI Advocate — thank you for joining.</p>
-      <p>Sadly the first 100 free Day Passes have already been claimed (the offer was wildly popular). But we'd still love to have you try Plus or Pro at a reduced rate.</p>
-      <p style="background:#fff8e1; border:1px solid #f7c948; padding:14px; border-radius:8px; text-align:center; margin:18px 0;">
-        <strong style="color:#b8860b; font-size:13px; letter-spacing:0.08em;">YOUR LATE-COMER REWARD</strong><br>
-        <span style="font-size:24px; font-weight:700; color:#1a1300; display:block; margin:8px 0;">20% off your first month</span>
-        <span style="font-family:monospace; background:#1a1300; color:#f7c948; padding:6px 14px; border-radius:6px; font-size:14px; letter-spacing:0.1em;">WELCOME20</span><br>
-        <span style="font-size:12px; color:#666; display:block; margin-top:8px;">Use the code at checkout. Valid for 14 days from today.</span>
+      <p>Your AI Advocate account is ready. Whether you're dealing with a landlord, an employer, a parking fine or a contract you don't understand, Lex is here to help you understand where you stand, in plain English, any time.</p>
+      <p style="background:#fff8e1; border-left:3px solid #f7c948; padding:12px 14px; border-radius:6px; font-size:14px; margin:18px 0;">
+        <strong style="color:#b8860b;">Get started in 3 steps:</strong><br>
+        1. <strong>Ask Lex anything.</strong> Describe your situation in your own words at <a href="https://aiadvocate.co.uk/app" style="color:#b8860b; font-weight:600;">aiadvocate.co.uk/app</a><br>
+        2. <strong>Open a Case File.</strong> Keep your documents, evidence and timeline together in one place<br>
+        3. <strong>Install the app.</strong> Add AI Advocate to your home screen for one-tap access (Android &amp; iPhone)
       </p>
-      <p style="font-size:14px; line-height:1.6;">
-        Or stay on the free tier forever — you'll still have access to limited Lex chat and core features.
+      <p style="font-size:14px; line-height:1.6; margin-bottom:6px;"><strong>You're on the Free plan</strong>, which includes Lex chat with daily limits and our core tools. When you need more:</p>
+      <p style="font-size:14px; line-height:1.7; margin-top:0;">
+        &bull; <strong>Plus, £19.99/month</strong>: unlimited Lex chat, letter writer, evidence analysis<br>
+        &bull; <strong>Pro, £34.99/month</strong>: our most advanced AI, outcome prediction, Devil's Advocate &amp; more
       </p>
-      <p style="margin:18px 0 0 0;">— The AI Advocate team</p>
-    """, preview="You missed the Day Pass — but here's 20% off as a thank you.")
-    return await _send(email, "Welcome to AI Advocate (and a small thank-you gift)", html)
+      <p style="text-align:center; margin:22px 0;">
+        <a href="https://aiadvocate.co.uk/app" style="display:inline-block; background:#1a1300; color:#f7c948; text-decoration:none; padding:12px 28px; border-radius:8px; font-weight:700; font-size:14px; letter-spacing:0.04em;">View plans</a>
+      </p>
+      <p style="font-size:14px; line-height:1.6;">I built AI Advocate because legal help in the UK is too expensive and too hard to reach for most people. I hope it helps you feel more confident about whatever you're facing. If anything isn't working, or you have an idea, just email <a href="mailto:support@aiadvocate.co.uk" style="color:#b8860b;">support@aiadvocate.co.uk</a>. I read every message.</p>
+      <p style="margin:18px 0 0 0;">Samuel Malick<br>Founder, AI Advocate Ltd.</p>
+      <p style="font-size:11.5px; color:#888; line-height:1.5; margin-top:22px; font-style:italic;">AI Advocate provides legal information, not legal advice, and is not a law firm. For complex or urgent matters, please speak to a qualified solicitor.</p>
+    """, preview="Your account is ready. Here's how to get the most out of Lex.")
+    subject = "Welcome to AI Advocate" if name == "there" else f"Welcome to AI Advocate, {name}"
+    return await _send(email, subject, html)
 
 
 async def send_verify_email_link(email: str, full_name: str, verify_url: str) -> bool:
@@ -229,7 +215,6 @@ async def send_founding_thank_you(email: str, full_name: str = "") -> bool:
     html = _wrap(f"""
       <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">A personal thank-you, {name} 🙏</h2>
       <p>I just wanted to drop you a quick note from the team — you're one of the very first 100 people to sign up for AI Advocate, and that means a lot.</p>
-      <p>Your free 24-hour Day Pass is already active (worth £4.99) — unlimited Lex chat, evidence analysis, letter drafting, the lot. Use it however you like.</p>
       <p style="background:#fff8e1; border-left:3px solid #f7c948; padding:12px 14px; border-radius:6px; font-size:14px; margin:18px 0;">
         <strong style="color:#b8860b;">If something's broken, weird, or could be better</strong> — hit reply to this email. It comes straight to me.
       </p>

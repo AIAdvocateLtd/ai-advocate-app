@@ -862,3 +862,9 @@ All 4 endpoints validated:
 
 ### Deployment
 Production redeploy required. All env vars unchanged.
+
+## 2026-06 — Welcome email replaced
+- Replaced both welcome emails (Day Pass / WELCOME20 late-comer) with a single offer-free `send_welcome()` in `email_helper.py` (quick-start steps, plan prices, founder sign-off from Samuel Malick, legal-info disclaimer). Approved by user.
+- Retired the first-100 Day Pass signup mechanic and WELCOME20 code in `/api/auth/signup`; `/api/auth/resend-welcome` uses the new email. `signup_position` still stored for the Founding-100 admin queue.
+- Removed Day Pass mentions from waitlist ack + founding thank-you emails and the admin Founding-100 helper text.
+- Verified: test copy sent to admin@aiadvocate.co.uk via Resend; signup via API stores launch_day_pass_until=None, launch_promo_code=None.
