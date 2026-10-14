@@ -101,22 +101,14 @@ export function MarketingLanding() {
           Real legal answers, document drafting, contract negotiation, evidence analysis and a zero-knowledge encrypted vault — all in 11 languages, all from £19.99 / month.
         </p>
 
-        {/* CTA — App Store + Web (Google Play button removed to comply with Apple 2.3.10) */}
+        {/* CTA — Web */}
         <div data-testid="hero-ctas" style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center", marginBottom: 24 }}>
-          <a href="#download-ios" data-testid="cta-ios"
-             style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "13px 22px", background: "var(--gold)", color: "#1a1300", borderRadius: 12, textDecoration: "none", fontWeight: 700, fontSize: 14 }}>
-            <span style={{ fontSize: 20 }}>🍎</span>
-            <span style={{ textAlign: "left", lineHeight: 1.1 }}>
-              <span style={{ display: "block", fontSize: 10, opacity: 0.7 }}>Download on the</span>
-              App Store
-            </span>
-          </a>
           <Link to="/app" data-testid="cta-web"
                 style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "13px 22px", background: "transparent", border: "1px solid var(--gold)", color: GOLD, borderRadius: 12, textDecoration: "none", fontWeight: 700, fontSize: 14 }}>
             <Globe size={18} /> Sign up on web
           </Link>
         </div>
-        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>7-day free trial · Cancel anytime · No card required for Free tier</div>
+        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Free plan · Cancel paid plans anytime · No card required for Free</div>
 
         {/* Trust strip */}
         <div data-testid="trust-strip" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginTop: 50, padding: "16px", background: "rgba(247,201,72,0.04)", border: "1px solid var(--gold-deep)", borderRadius: 14 }}>
@@ -216,7 +208,7 @@ export function MarketingLanding() {
           Stop paying £350/hour to ask a question.
         </h2>
         <p style={{ color: "var(--text-dim)", marginBottom: 26, fontSize: 14, lineHeight: 1.6 }}>
-          7-day free trial. No card needed for Free. Built in the UK for people who deserve a fair shot at the law.
+          No card needed for Free. Built in the UK for people who deserve a fair shot at the law.
         </p>
         <Link to="/app" data-testid="final-cta"
               style={{ display: "inline-block", padding: "14px 32px", background: "var(--gold)", color: "#1a1300", borderRadius: 12, textDecoration: "none", fontWeight: 700, fontSize: 15 }}>
@@ -260,7 +252,7 @@ export function TermsPage() {
 
 **5. Vault.** The Lex Vault uses end-to-end encryption with a PIN that only you know. If you lose your PIN, your vault items are PERMANENTLY UNRECOVERABLE. We do not hold a copy.
 
-**6. Subscriptions, free trial & auto-renewal.** Free 7-day trial of paid features on signup. Paid plans renew automatically at £19.99/mo (Plus), £34.99/mo (Pro), or £319.99/yr (Yearly Pro). Cancel any time 24h before renewal. Refunds via the store that processed your payment (Apple/Google/Stripe).
+**6. Subscriptions & auto-renewal.** Paid plans renew automatically at £19.99/mo (Plus), £34.99/mo (Pro), or £319.99/yr (Yearly Pro). All payments are processed by Stripe. Cancel any time 24h before renewal via Settings → Manage Subscription.
 
 **7. Misuse.** You may not use the App for: harassment, illegal recording, defamation, doxing, or building tools that compete with the App.
 
@@ -391,7 +383,7 @@ export function PricingPage() {
                 <span style={{ color: "var(--text-dim)", fontSize: 13, marginLeft: 6 }}>{p.period}</span>
               </div>
               <Link to="/app" style={{ display: "block", textAlign: "center", padding: "10px", background: p.highlight ? "var(--gold)" : "transparent", color: p.highlight ? "#1a1300" : GOLD, border: p.highlight ? "none" : "1px solid var(--gold)", borderRadius: 10, fontWeight: 700, fontSize: 13, textDecoration: "none", marginBottom: 14 }}>
-                {p.name === "Free" ? "Sign up free" : "Start 7-day trial"}
+                {p.name === "Free" ? "Sign up free" : `Choose ${p.name}`}
               </Link>
               <ul style={{ listStyle: "none", padding: 0, margin: 0, color: "var(--text-dim)", fontSize: 12, lineHeight: 1.9 }}>
                 {p.bullets.map((b, j) => (
@@ -403,7 +395,7 @@ export function PricingPage() {
         </div>
 
         <div style={{ marginTop: 50, padding: 20, background: "rgba(247,201,72,0.04)", border: "1px solid var(--gold-deep)", borderRadius: 14, fontSize: 13, color: "var(--text-dim)", lineHeight: 1.7 }}>
-          <strong style={{ color: GOLD }}>Fair pricing promise.</strong> No hidden fees. No usage-based surcharges. Cancel anytime 24h before renewal. Refunds handled by the store that processed your payment. 7-day free trial available once per account. UK VAT included where applicable.
+          <strong style={{ color: GOLD }}>Fair pricing promise.</strong> No hidden fees. No usage-based surcharges. Cancel anytime 24h before renewal. All payments processed securely by Stripe. UK VAT included where applicable.
         </div>
       </main>
       <MarketingFooter />

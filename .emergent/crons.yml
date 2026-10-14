@@ -1,0 +1,9 @@
+crons:
+  - name: deadline-reminders
+    description: "Emails users 7, 3 and 1 day before their saved legal deadlines (8am UK time)"
+    cron: "0 8 * * *"
+    timezone: "Europe/London"
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    endpoint: "{{BASE_URL}}/api/cron/deadline-reminders"
+    method: POST
+    enabled: true

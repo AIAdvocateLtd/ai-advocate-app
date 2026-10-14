@@ -15,6 +15,7 @@ Key design choices:
 """
 
 import asyncio
+import html as _html
 import logging
 import os
 from typing import Optional
@@ -137,7 +138,7 @@ async def send_waitlist_ack(email: str, full_name: str = "") -> bool:
     name = (full_name or "").strip().split(" ")[0] or "there"
     html = _wrap(f"""
       <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">You're on the list, {name} 🎉</h2>
-      <p>Thanks for joining the AI Advocate waitlist. We'll email you the moment the iOS and Android apps go live.</p>
+      <p>Thanks for joining the AI Advocate waitlist. AI Advocate is live now. You don't need to wait.</p>
       <p style="background:#fff8e1; border-left:3px solid #f7c948; padding:12px 14px; border-radius:6px; font-size:14px; margin:18px 0;">
         <strong style="color:#b8860b;">Want to start now?</strong><br>
         The web app is already live — sign up at
@@ -175,6 +176,29 @@ async def send_welcome(email: str, full_name: str = "") -> bool:
     """, preview="Your account is ready. Here's how to get the most out of Lex.")
     subject = "Welcome to AI Advocate" if name == "there" else f"Welcome to AI Advocate, {name}"
     return await _send(email, subject, html)
+
+
+async def send_deadline_reminder(email: str, full_name: str, title: str, due_label: str,
+                                 days_left: int, case_name: str = "") -> bool:
+    name = (full_name or "").strip().split(" ")[0] or "there"
+    when = "tomorrow" if days_left == 1 else f"in {days_left} days"
+    title, case_name, name = _html.escape(title), _html.escape(case_name or ""), _html.escape(name)
+    case_line = f'<br><span style="font-size:13px; color:#666;">Case: {case_name}</span>' if case_name else ""
+    html = _wrap(f"""
+      <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">Reminder: your deadline is {when}</h2>
+      <p>Hi {name}, this is a friendly reminder about a date you saved in AI Advocate.</p>
+      <p style="background:#fff8e1; border-left:3px solid #f7c948; padding:14px; border-radius:6px; margin:18px 0;">
+        <strong style="font-size:16px; color:#1a1300;">{title}</strong><br>
+        <span style="color:#b8860b; font-weight:700;">{due_label}</span>{case_line}
+      </p>
+      <p style="text-align:center; margin:22px 0;">
+        <a href="https://aiadvocate.co.uk/app" style="display:inline-block; background:#1a1300; color:#f7c948; text-decoration:none; padding:12px 28px; border-radius:8px; font-weight:700; font-size:14px;">Open my case</a>
+      </p>
+      <p style="font-size:13px; color:#666; line-height:1.6;">Legal deadlines can be strict. If you're unsure whether this date is correct for your situation, please check with a qualified solicitor or adviser as soon as possible.</p>
+      <p style="font-size:12px; color:#888; line-height:1.5;">You can turn these reminder emails off any time in Settings → Deadline reminder emails.</p>
+      <p style="margin:18px 0 0 0;">— The AI Advocate team</p>
+    """, preview=f"{title} is due {when}.")
+    return await _send(email, f"⏰ Reminder: {title} is due {when}", html)
 
 
 async def send_verify_email_link(email: str, full_name: str, verify_url: str) -> bool:

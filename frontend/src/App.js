@@ -13,6 +13,7 @@ import { setSentryUser, clearSentryUser } from "@/sentry";
 import { identify as identifyAnalytics, resetAnalytics, track } from "@/analytics";
 import native, { isNative, hideSplash, openExternal as nativeOpenExternal } from "@/nativeBridge";
 import PWAInstallPrompt from "@/PWAInstallPrompt";
+import { CaseKeyDates, DeadlineEmailsRow } from "@/CaseKeyDates";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
 // we hide all Subscribe / Upgrade buttons (and replace them with a web-billing notice).
@@ -2338,7 +2339,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
 
   const addDeadlineAsReminder = async (dl, idx) => {
     try {
-      await api.post("/reminders", { title: dl.title, due_at: dl.due_at, kind: dl.kind || "deadline" });
+      await api.post("/reminders", { title: dl.title, due_at: dl.due_at, kind: dl.kind || "deadline", case_id: caseId || undefined, session_id: sessionId || undefined });
       // Mark this deadline as "added" in the local message
       setMessages(ms => ms.map((m, i) => {
         if (m.role !== "deadlines") return m;
@@ -6490,6 +6491,8 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
               <button className="btn-ghost" onClick={(e) => { e.stopPropagation(); remove(); }} data-testid="delete-case-btn" aria-label="Delete this case" style={{ flex: 0.7, fontSize: 12, color: "#fca5a5", minHeight: 44 }}><Trash2 size={14} /></button>
             </div>
 
+            <CaseKeyDates key={open.id} caseId={open.id} api={api} toast={aaToast} />
+
             {/* 🔗 Share-link modal — shown after shareCase() succeeds. Uses a synchronous
                 onClick → writeText to satisfy iOS Safari/Brave's user-gesture requirement. */}
             {shareUrl && (
@@ -7990,6 +7993,8 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             <span style={{ position: "absolute", top: 2, left: smartLocOn ? 22 : 2, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left 0.18s ease" }}></span>
           </button>
         </div>
+
+        <DeadlineEmailsRow user={user} api={api} toast={aaToast} onUpdate={onUpdate} />
 
         {/* 📊 Privacy & analytics — opt-outs promised in cookie consent banner */}
         <div data-testid="privacy-analytics-section" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 12, padding: 10, marginBottom: 12 }}>
@@ -15816,7 +15821,7 @@ const TOS_TEXT = `# Terms of Service
 
 **5. Vault.** The Lex Vault uses end-to-end encryption with a PIN that only you know. If you lose your PIN, your vault items are PERMANENTLY UNRECOVERABLE. We do not hold a copy.
 
-**6. Subscriptions, free trial & auto-renewal.** Free 7-day trial of paid features on signup. Paid plans renew automatically at £19.99/mo (Plus), £34.99/mo (Pro), or £319.99/yr (Yearly Pro). Cancel any time 24h before renewal. Refunds via the store that processed your payment (Apple/Google/Stripe).
+**6. Subscriptions & auto-renewal.** Paid plans renew automatically at £19.99/mo (Plus), £34.99/mo (Pro), or £319.99/yr (Yearly Pro). All payments are processed by Stripe. Cancel any time 24h before renewal via Settings → Manage Subscription.
 
 **7. Misuse.** You may not use the App for: harassment, illegal recording, defamation, doxing, or building tools that compete with the App.
 

@@ -227,6 +227,7 @@ class ReminderCreate(BaseModel):
     description: Optional[str] = ""
     due_at: str  # ISO datetime
     kind: str = "deadline"  # deadline | hearing | follow_up | renewal_review
+    session_id: Optional[str] = None
 
 class VaultSetupRequest(BaseModel):
     pin_verifier: str  # SHA-256(PIN + salt), hex. 64 chars.
@@ -1434,9 +1435,9 @@ async def signup(data: UserSignup, request: Request):
         "partner_code": (data.partner_code or "").strip().upper() or None,  # B2B referral attribution — stays with the user for commission accrual
         "auth_provider": "email",
         "created_at": now.isoformat(),
-        "trial_start_date": now.isoformat(),
-        "trial_end_date": (now + timedelta(days=7)).isoformat(),
-        "subscription_status": "trial",
+        "trial_start_date": None,
+        "trial_end_date": None,  # no automatic trial — admin grants trials manually
+        "subscription_status": "free",
         "stripe_customer_id": None,
         "stripe_subscription_id": None,
         "terms_accepted": True,
@@ -1699,9 +1700,9 @@ async def google_login(data: GoogleLogin):
             "full_name": name, "language": "en-GB", "country": "GB",
             "auth_provider": "google", "google_id": google_sub,
             "created_at": now.isoformat(),
-            "trial_start_date": now.isoformat(),
-            "trial_end_date": (now + timedelta(days=7)).isoformat(),
-            "subscription_status": "trial",
+            "trial_start_date": None,
+            "trial_end_date": None,  # no automatic trial — admin grants trials manually
+            "subscription_status": "free",
             "stripe_customer_id": None, "stripe_subscription_id": None,
             "terms_accepted": True,
             # 📧 Google already verified the email before issuing the token,
@@ -1770,9 +1771,9 @@ async def apple_login(data: AppleLogin):
             "language": "en-GB", "country": "GB",
             "auth_provider": "apple", "apple_id": apple_sub,
             "created_at": now.isoformat(),
-            "trial_start_date": now.isoformat(),
-            "trial_end_date": (now + timedelta(days=7)).isoformat(),
-            "subscription_status": "trial",
+            "trial_start_date": None,
+            "trial_end_date": None,  # no automatic trial — admin grants trials manually
+            "subscription_status": "free",
             "stripe_customer_id": None, "stripe_subscription_id": None,
             "terms_accepted": True,
             # 📧 Apple verified the email at their end before signing the token,
@@ -1840,7 +1841,7 @@ async def ack_security_event(eid: str, user: dict = Depends(get_user)):
 async def update_prefs(data: dict, user: dict = Depends(get_user)):
     update = {}
     for k in ("language", "country", "full_name", "location_enabled", "latitude", "longitude", "city",
-              "emergency_contact_name", "emergency_contact_phone", "jurisdiction"):
+              "emergency_contact_name", "emergency_contact_phone", "jurisdiction", "deadline_emails_enabled"):
         if k in data:
             update[k] = data[k]
     # If the user explicitly set their country here, mark it as manually-pinned so
@@ -3865,7 +3866,7 @@ TERMS_BODY_EN = """TERMS OF SERVICE
 
 5. Eligibility. You must be at least 18 years old (or the age of legal majority in your jurisdiction, whichever is higher) and legally capable of entering into a binding contract.
 
-6. Subscription, Free Trial, Auto-Renewal & Refunds. The App offers a 7-day free trial followed by an auto-renewing subscription. By subscribing through Apple App Store, Google Play, or our web payment processor (Stripe), you authorise recurring charges to your selected payment method until you cancel. Cancel any time at least 24 hours before the next renewal. Refunds are governed by the rules of the store/processor that processed your payment.
+6. Subscription, Auto-Renewal & Refunds. Paid plans are auto-renewing subscriptions. By subscribing through our payment processor (Stripe), you authorise recurring charges to your selected payment method until you cancel. Cancel any time at least 24 hours before the next renewal. Refunds are handled in line with our Terms and your statutory rights.
 
 7. Acceptable Use. You agree not to (a) use the App for any unlawful purpose; (b) submit content that is illegal, defamatory, infringing, or contains malware; (c) attempt to reverse-engineer, scrape, or circumvent technical protections; (d) use the App to draft or send threats, harassment, fraud, or content designed to evade the law; (e) impersonate a lawyer or hold yourself out as receiving legal advice from the App.
 
@@ -3901,7 +3902,7 @@ TERMS_BODY_EN = """TERMS OF SERVICE
 
 PRIVACY POLICY (SUMMARY)
 
-A. Data We Collect. Account data, content data, usage data, optional location data. Payment data is processed by Apple, Google, or Stripe — we never see your full card number.
+A. Data We Collect. Account data, content data, usage data, optional location data. Payment data is processed by Stripe — we never see your full card number.
 
 B. Lawful Basis (UK/EU GDPR). Contract performance, legitimate interests, legal obligation, and consent. You can withdraw consent at any time.
 
@@ -3937,7 +3938,7 @@ TERMS_SUMMARIES = {
 
 5. Edad. Debe ser mayor de 18 años.
 
-6. Suscripción. Prueba gratuita de 14 días, después suscripción de renovación automática vía Apple, Google o Stripe. Cancele en cualquier momento.
+6. Suscripción. Los planes de pago se renuevan automáticamente a través de Stripe. Cancele en cualquier momento.
 
 7. Privacidad. Tratamos sus datos conforme al RGPD/UK GDPR/CCPA. Sus chats y archivos se procesan mediante Anthropic, Google, OpenAI y Stripe. Conserve sus derechos: acceso, rectificación, supresión, portabilidad. Email: privacy@aiadvocate.co.uk.
 
@@ -3963,7 +3964,7 @@ Al pulsar "Aceptar y Continuar", confirma haber leído y aceptado los Términos 
 
 5. Âge. Vous devez avoir au moins 18 ans.
 
-6. Abonnement. Essai gratuit de 14 jours, puis abonnement à renouvellement automatique via Apple, Google ou Stripe. Annulez à tout moment.
+6. Abonnement. Les forfaits payants se renouvellent automatiquement via Stripe. Annulez à tout moment.
 
 7. Confidentialité. Nous traitons vos données conformément au RGPD/UK GDPR/CCPA. Vos conversations et fichiers transitent par Anthropic, Google, OpenAI et Stripe. Vous conservez vos droits : accès, rectification, suppression, portabilité. Email : privacy@aiadvocate.co.uk.
 
@@ -3989,7 +3990,7 @@ En appuyant sur « Accepter et continuer », vous confirmez avoir lu et accepté
 
 ٥. العمر. يجب أن تكون 18 سنة فأكثر.
 
-٦. الاشتراك. تجربة مجانية 14 يومًا، ثم اشتراك متجدد تلقائيًا عبر Apple أو Google أو Stripe. يمكنك الإلغاء في أي وقت.
+٦. الاشتراك. تتجدد الخطط المدفوعة تلقائيًا عبر Stripe. يمكنك الإلغاء في أي وقت.
 
 ٧. الخصوصية. نعالج بياناتك وفقًا لـ GDPR/UK GDPR/CCPA. تُمرَّر محادثاتك وملفاتك عبر Anthropic وGoogle وOpenAI وStripe. لك حقوق: الوصول والتصحيح والحذف وحق النقل. البريد: privacy@aiadvocate.co.uk.
 
@@ -4015,7 +4016,7 @@ En appuyant sur « Accepter et continuer », vous confirmez avoir lu et accepté
 
 5. Wiek. Musisz mieć ukończone 18 lat.
 
-6. Subskrypcja. 14-dniowy bezpłatny okres próbny, potem automatycznie odnawiana subskrypcja przez Apple, Google lub Stripe. Możesz anulować w dowolnym momencie.
+6. Subskrypcja. Płatne plany odnawiają się automatycznie przez Stripe. Możesz anulować w dowolnym momencie.
 
 7. Prywatność. Dane przetwarzamy zgodnie z RODO/UK GDPR/CCPA. Twoje rozmowy i pliki są przesyłane do Anthropic, Google, OpenAI i Stripe. Masz prawo dostępu, sprostowania, usunięcia i przenoszenia danych. E-mail: privacy@aiadvocate.co.uk.
 
@@ -4041,7 +4042,7 @@ Klikając "Akceptuję i kontynuuję", potwierdzasz przeczytanie i akceptację Re
 
 5. Alter. Sie müssen mindestens 18 Jahre alt sein.
 
-6. Abonnement. 14 Tage Gratisversion, danach automatisch verlängerndes Abonnement über Apple, Google oder Stripe. Jederzeit kündbar.
+6. Abonnement. Kostenpflichtige Tarife verlängern sich automatisch über Stripe. Jederzeit kündbar.
 
 7. Datenschutz. Datenverarbeitung gemäß DSGVO/UK GDPR/CCPA. Ihre Chats und Dateien werden an Anthropic, Google, OpenAI und Stripe übermittelt. Sie haben Auskunfts-, Berichtigungs-, Lösch- und Datenübertragbarkeitsrechte. E-Mail: privacy@aiadvocate.co.uk.
 
@@ -4067,7 +4068,7 @@ Durch Tippen auf „Akzeptieren und Fortfahren" bestätigen Sie, die Bedingungen
 
 5. आयु। आपकी उम्र कम से कम 18 वर्ष होनी चाहिए।
 
-6. सदस्यता। 14-दिन का मुफ्त ट्रायल, फिर Apple, Google या Stripe के माध्यम से स्वतः नवीनीकरण। कभी भी रद्द करें।
+6. सदस्यता। सशुल्क प्लान Stripe के माध्यम से स्वतः नवीनीकृत होते हैं। कभी भी रद्द करें।
 
 7. गोपनीयता। GDPR/UK GDPR/CCPA के अनुसार डेटा संसाधित। आपकी चैट और फ़ाइलें Anthropic, Google, OpenAI और Stripe को भेजी जाती हैं। आपके अधिकार: एक्सेस, सुधार, मिटाना, पोर्टेबिलिटी। ईमेल: privacy@aiadvocate.co.uk।
 
@@ -4093,7 +4094,7 @@ Durch Tippen auf „Akzeptieren und Fortfahren" bestätigen Sie, die Bedingungen
 
 ٥۔ عمر۔ آپ کی عمر کم از کم 18 سال ہونی چاہیے۔
 
-٦۔ سبسکرپشن۔ 14-دن کا مفت ٹرائل، پھر Apple، Google یا Stripe کے ذریعے خود کار تجدید۔ کسی بھی وقت منسوخ کریں۔
+٦۔ سبسکرپشن۔ ادا شدہ پلان Stripe کے ذریعے خود بخود تجدید ہوتے ہیں۔ کسی بھی وقت منسوخ کریں۔
 
 ٧۔ پرائیویسی۔ ڈیٹا GDPR/UK GDPR/CCPA کے مطابق۔ آپ کی چیٹس اور فائلیں Anthropic، Google، OpenAI اور Stripe کو بھیجی جاتی ہیں۔ آپ کے حقوق: رسائی، اصلاح، حذف، پورٹیبلٹی۔ ای میل: privacy@aiadvocate.co.uk۔
 
@@ -4119,7 +4120,7 @@ Durch Tippen auf „Akzeptieren und Fortfahren" bestätigen Sie, die Bedingungen
 
 5. Età. Devi avere almeno 18 anni.
 
-6. Abbonamento. Prova gratuita di 14 giorni, poi abbonamento a rinnovo automatico tramite Apple, Google o Stripe. Cancella in qualsiasi momento.
+6. Abbonamento. I piani a pagamento si rinnovano automaticamente tramite Stripe. Cancella in qualsiasi momento.
 
 7. Privacy. Trattiamo i tuoi dati secondo GDPR/UK GDPR/CCPA. Le tue chat e i file passano attraverso Anthropic, Google, OpenAI e Stripe. Diritti: accesso, rettifica, cancellazione, portabilità. Email: privacy@aiadvocate.co.uk.
 
@@ -4145,7 +4146,7 @@ Toccando "Accetta e Continua" confermi di aver letto e accettato i Termini e la 
 
 5. Idade. Deve ter pelo menos 18 anos.
 
-6. Subscrição. Período gratuito de 14 dias, depois subscrição com renovação automática via Apple, Google ou Stripe. Cancele a qualquer momento.
+6. Subscrição. Os planos pagos renovam-se automaticamente via Stripe. Cancele a qualquer momento.
 
 7. Privacidade. Tratamos os dados conforme RGPD/UK GDPR/CCPA. Os seus chats e ficheiros passam por Anthropic, Google, OpenAI e Stripe. Direitos: acesso, rectificação, apagamento, portabilidade. Email: privacy@aiadvocate.co.uk.
 
@@ -4171,7 +4172,7 @@ Ao tocar em "Aceitar e Continuar", confirma ter lido e aceite os Termos e a Pol�
 
 5. 年龄。您必须年满 18 岁。
 
-6. 订阅。14 天免费试用，之后通过 Apple、Google 或 Stripe 自动续订。可随时取消。
+6. 订阅。付费方案通过 Stripe 自动续订。可随时取消。
 
 7. 隐私。我们按照 GDPR/UK GDPR/CCPA 处理数据。您的聊天和文件会通过 Anthropic、Google、OpenAI 和 Stripe 传输。您享有访问、更正、删除、可携权。邮箱：privacy@aiadvocate.co.uk。
 
@@ -7541,8 +7542,14 @@ Please:
 @api_router.post("/reminders")
 async def create_reminder(data: ReminderCreate, user: dict = Depends(get_user)):
     rid = str(uuid.uuid4())
+    case_id = data.case_id
+    if not case_id and data.session_id:
+        conv = await db.conversations.find_one(
+            {"user_id": user["id"], "session_id": data.session_id, "linked_case_id": {"$nin": [None, ""]}},
+            {"_id": 0, "linked_case_id": 1})
+        case_id = (conv or {}).get("linked_case_id")
     doc = {
-        "id": rid, "user_id": user["id"], "case_id": data.case_id,
+        "id": rid, "user_id": user["id"], "case_id": case_id, "session_id": data.session_id,
         "title": data.title[:200], "description": (data.description or "")[:500],
         "due_at": data.due_at, "kind": data.kind, "status": "pending",
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -7582,6 +7589,139 @@ async def update_reminder(rid: str, status: Optional[str] = None, user: dict = D
     r = await db.reminders.update_one({"id": rid, "user_id": user["id"]}, {"$set": {"status": status}})
     if r.matched_count == 0: raise HTTPException(404, "Reminder not found")
     return {"updated": True}
+
+
+@api_router.get("/cases/{case_id}/key-dates")
+async def case_key_dates(case_id: str, user: dict = Depends(get_user)):
+    """Pending dates for a case: added on the case, or saved from a Lex chat linked to it."""
+    if not await db.cases.find_one({"id": case_id, "user_id": user["id"]}, {"_id": 1}):
+        raise HTTPException(404, "Case not found")
+    session_ids = await db.conversations.distinct("session_id", {"user_id": user["id"], "linked_case_id": case_id})
+    q = {
+        "user_id": user["id"], "status": "pending",
+        "deleted_at": {"$in": [None, "", False]},
+        "$or": [{"case_id": case_id}, {"linked_case_id": case_id},
+                {"session_id": {"$in": [s for s in session_ids if s]}}],
+    }
+    dates = await db.reminders.find(q, {"_id": 0}).sort("due_at", 1).to_list(50)
+    return {"key_dates": dates}
+
+
+@api_router.post("/reminders/{rid}/checklist")
+async def generate_reminder_checklist(rid: str, user: dict = Depends(get_user)):
+    """Lex writes a tailored preparation checklist for a key date."""
+    rem = await db.reminders.find_one({"id": rid, "user_id": user["id"]}, {"_id": 0})
+    if not rem: raise HTTPException(404, "Reminder not found")
+    case = await db.cases.find_one({"id": rem.get("case_id"), "user_id": user["id"]}, {"_id": 0, "name": 1, "category": 1}) if rem.get("case_id") else None
+    country = user.get("country") or "GB"
+    sys_prompt = f"""{_today_uk_line()}You are Lex, a UK legal-information assistant. The user (country: {country}) has an important date coming up.
+Write a practical preparation checklist of 6 to 10 items: documents to gather and actions to take before the date.
+Be specific to the type of date (e.g. for an ILR application: passports, BRPs, Life in the UK certificate, English language evidence, proof of continuous residence, payslips, P60s, relationship evidence).
+Each item max 15 words, plain {LANG_NAMES.get(user.get("language") or "en", "English")} only. Reply with ONLY a JSON array of strings — no preamble."""
+    prompt = f"Key date: {rem.get('title')}\nDue: {rem.get('due_at','')[:10]}\nNotes: {rem.get('description') or '-'}\nCase: {(case or {}).get('name') or '-'} ({(case or {}).get('category') or 'general'})"
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"checklist-{uuid.uuid4()}", system_message=sys_prompt
+                       ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=700)
+        raw = (await chat.send_message(UserMessage(text=prompt))).strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].lstrip("json").strip()
+        items = [str(x).strip()[:200] for x in json.loads(raw) if str(x).strip()][:12]
+    except Exception:
+        logger.exception("Checklist generation failed")
+        raise HTTPException(502, "Lex couldn't write the checklist just now. Please try again.")
+    checklist = [{"id": str(uuid.uuid4())[:8], "text": t, "done": False} for t in items]
+    await db.reminders.update_one({"id": rid}, {"$set": {"checklist": checklist}})
+    rem["checklist"] = checklist
+    return rem
+
+
+class ChecklistToggle(BaseModel):
+    done: bool
+
+
+@api_router.patch("/reminders/{rid}/checklist/{item_id}")
+async def toggle_checklist_item(rid: str, item_id: str, data: ChecklistToggle, user: dict = Depends(get_user)):
+    r = await db.reminders.update_one(
+        {"id": rid, "user_id": user["id"], "checklist.id": item_id},
+        {"$set": {"checklist.$.done": data.done}})
+    if r.matched_count == 0: raise HTTPException(404, "Checklist item not found")
+    return {"updated": True}
+
+
+def _uk_days_until(due_at: str) -> Optional[int]:
+    from zoneinfo import ZoneInfo
+    try:
+        due = datetime.fromisoformat((due_at or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=timezone.utc)
+    uk = ZoneInfo("Europe/London")
+    return (due.astimezone(uk).date() - datetime.now(uk).date()).days
+
+
+DEADLINE_EMAIL_DAYS = (7, 3, 1)
+
+
+async def _job_deadline_reminder_emails() -> dict:
+    """Email each pending deadline once per 7/3/1-day threshold (catches up if a run was missed)."""
+    from email_helper import send_deadline_reminder
+    from zoneinfo import ZoneInfo
+    now = datetime.now(timezone.utc)
+    window_end = (now + timedelta(days=9)).isoformat()
+    sent = 0
+    cursor = db.reminders.find({
+        "status": "pending", "deleted_at": {"$in": [None, "", False]},
+        "due_at": {"$gte": (now - timedelta(days=1)).isoformat(), "$lte": window_end},
+    }, {"_id": 0})
+    async for rem in cursor:
+        days_left = _uk_days_until(rem.get("due_at"))
+        if days_left is None or days_left < 1 or days_left > max(DEADLINE_EMAIL_DAYS):
+            continue
+        already = set(rem.get("emailed_days") or [])
+        due_now = [d for d in DEADLINE_EMAIL_DAYS if d >= days_left and d not in already]
+        if not due_now:
+            continue
+        user = await db.users.find_one({"id": rem["user_id"], "deleted": {"$ne": True}},
+                                       {"_id": 0, "email": 1, "full_name": 1, "deadline_emails_enabled": 1})
+        if not user or not user.get("email") or user.get("deadline_emails_enabled") is False:
+            continue
+        case_name = ""
+        if rem.get("case_id"):
+            c = await db.cases.find_one({"id": rem["case_id"]}, {"_id": 0, "name": 1})
+            case_name = (c or {}).get("name") or ""
+        due_dt = datetime.fromisoformat(rem["due_at"].replace("Z", "+00:00"))
+        if due_dt.tzinfo is None:
+            due_dt = due_dt.replace(tzinfo=timezone.utc)
+        due_label = due_dt.astimezone(ZoneInfo("Europe/London")).strftime("%A %d %B %Y")
+        ok = await send_deadline_reminder(user["email"], user.get("full_name") or "", rem.get("title") or "Legal deadline",
+                                          due_label, days_left, case_name)
+        if ok:
+            sent += 1
+            await db.reminders.update_one({"id": rem["id"]}, {"$addToSet": {"emailed_days": {"$each": due_now}}})
+    logger.info(f"[deadline-reminders] sent={sent}")
+    return {"sent": sent}
+
+
+@api_router.post("/cron/deadline-reminders")
+async def cron_deadline_reminders(request: Request):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    secret = os.environ.get("WEBHOOK_CRON_SECRET") or ""
+    auth = request.headers.get("authorization") or ""
+    token = auth[7:] if auth.lower().startswith("bearer ") else ""
+    if not secret or not token or not _secrets.compare_digest(token, secret):
+        raise HTTPException(401, "Unauthorized")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid body")
+    run_id = request.headers.get("x-webhook-id") or (body or {}).get("run_id") or str(uuid.uuid4())
+    try:
+        await db.cron_runs.insert_one({"_id": f"deadline-reminders:{run_id}", "at": datetime.now(timezone.utc).isoformat()})
+    except Exception:
+        return {"ok": True, "duplicate": True}
+    asyncio.create_task(_job_deadline_reminder_emails())
+    return {"ok": True, "queued": True}
 
 _DEADLINE_HINT_RE = re.compile(
     r"\d|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b|"
