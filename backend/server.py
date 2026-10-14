@@ -35,8 +35,16 @@ if SENTRY_DSN:
     import sentry_sdk
     from sentry_sdk.integrations.fastapi import FastApiIntegration
     from sentry_sdk.integrations.starlette import StarletteIntegration
+    def _sentry_before_send(event, hint):
+        # Handled LLM rate-limits in the background deadline detector aren't actionable.
+        exc = (hint or {}).get("exc_info")
+        if exc and exc[0].__name__ == "RateLimitError" and "detect_deadlines" in (event.get("transaction") or ""):
+            return None
+        return event
+
     sentry_sdk.init(
         dsn=SENTRY_DSN,
+        before_send=_sentry_before_send,
         send_default_pii=True,
         environment=os.environ.get("SENTRY_ENV", "production"),
         traces_sample_rate=0.2,  # 20% of requests traced for performance
@@ -1024,7 +1032,14 @@ CONVERSATION MEMORY (CRITICAL):
         "legal_letter": "\n\nYou are now drafting a FORMAL LEGAL LETTER. Use proper structure (sender, recipient, date, subject, body, sign-off). Be firm but professional. Reference the relevant law.",
         "record": "\n\nYou are reviewing a RECORDED LEGAL INTERACTION (police/court transcript). Flag: rights violations, leading questions, things the user should NOT have said, suggested follow-up actions.",
     }
-    return base + addons.get(category, "")
+    return _today_uk_line() + base + addons.get(category, "")
+
+
+def _today_uk_line() -> str:
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("Europe/London")).strftime("%A %d %B %Y")
+    return (f"TODAY'S DATE: {today} (UK time). Use this for ALL date calculations, deadlines and limitation periods. "
+            "If the user mentions a month or day without a year, assume the next upcoming occurrence from today.\n\n")
 
 # ==================== Tier-based Lex Brain Routing ====================
 # Hybrid Claude + GPT-5 strategy (user pref: strategy A):
@@ -7568,6 +7583,15 @@ async def update_reminder(rid: str, status: Optional[str] = None, user: dict = D
     if r.matched_count == 0: raise HTTPException(404, "Reminder not found")
     return {"updated": True}
 
+_DEADLINE_HINT_RE = re.compile(
+    r"\d|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b|"
+    r"\b(mon|tues|wednes|thurs|fri|satur|sun)day\b|\b(today|tomorrow|tonight|yesterday|week|weeks|month|months|year|years|days|"
+    r"deadline|due|hearing|tribunal|court|appeal|limitation|expire|expires|expiry|notice|within|before|until|"
+    r"fortnight|summons|claim|eviction|renew|renewal|application|appointment|interview)\b",
+    re.IGNORECASE,
+)
+
+
 @api_router.post("/reminders/detect")
 async def detect_deadlines(message: str = Form(...), language: str = Form("en-GB"), country: str = Form("GB"),
                             user: dict = Depends(get_user)):
@@ -7578,11 +7602,24 @@ LEGAL DEADLINES, LIMITATION PERIODS, HEARING DATES, RESPONSE DEADLINES, or PAYME
 For each deadline found, return a JSON array entry: {{"title": "...", "due_at": "YYYY-MM-DDTHH:MM:SS+00:00", "kind": "deadline|hearing|follow_up"}}.
 If no deadlines found, return [].
 Reply with ONLY valid JSON — no preamble, no explanation.
-If a relative date is mentioned (e.g. "within 14 days"), compute it from today {datetime.now(timezone.utc).date().isoformat()}."""
+If a relative date is mentioned (e.g. "within 14 days"), compute it from today.
+{_today_uk_line()}"""
+    if not _DEADLINE_HINT_RE.search(message or ""):
+        return {"deadlines": []}
     try:
-        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()), system_message=sys_prompt
-                       ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=500)
-        raw = (await chat.send_message(UserMessage(text=message))).strip()
+        raw = ""
+        for attempt in range(2):
+            try:
+                chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()), system_message=sys_prompt
+                               ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=500)
+                raw = (await chat.send_message(UserMessage(text=message))).strip()
+                break
+            except Exception as e:
+                is_rate_limited = "RateLimit" in type(e).__name__ or "429" in str(e)
+                if attempt == 0 and is_rate_limited:
+                    await asyncio.sleep(2)
+                    continue
+                raise
         # Strip code fences if any
         if raw.startswith("```"):
             raw = raw.split("```")[1].lstrip("json").strip()

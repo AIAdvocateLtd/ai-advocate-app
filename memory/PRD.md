@@ -875,3 +875,9 @@ Production redeploy required. All env vars unchanged.
 - Firm invite + agreement-ready emails (server.py) and founding-firm-pitch.html updated to match.
 - LinkedIn post + firm DM drafts saved to memory/LINKEDIN_OUTREACH.md §6.
 - Still mentioning stores (not changed, awaiting user): terms.html §17 + cancellation lines, privacy.html, intro-pack.html, waitlist ack email ("iOS and Android apps").
+
+## 2026-06 — Lex date fix + deadline detector hardening
+- Root cause of "Lex thinks November 2025": Lex system prompt never contained today's date. `lex_system_prompt()` now prepends `_today_uk_line()` (Europe/London date, "next upcoming occurrence" rule). Verified: Lex answers "November 2026".
+- `/api/reminders/detect`: regex pre-filter `_DEADLINE_HINT_RE` (skips "thanks"/"hi" etc.), one 2s retry on 429, UK date in prompt. Kept Sonnet 4.5 — Haiku tested and mis-computed the ET claim deadline (2 Dec vs correct 2 Jan 2027).
+- Sentry `before_send` drops handled RateLimitError events from `detect_deadlines` (captured by Sentry's auto OpenAI integration). Other errors still reported.
+- Note: Sentry events from live show environment "preview" because SENTRY_ENV="preview" is in backend/.env.
