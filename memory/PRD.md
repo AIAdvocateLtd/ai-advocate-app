@@ -881,3 +881,10 @@ Production redeploy required. All env vars unchanged.
 - `/api/reminders/detect`: regex pre-filter `_DEADLINE_HINT_RE` (skips "thanks"/"hi" etc.), one 2s retry on 429, UK date in prompt. Kept Sonnet 4.5 — Haiku tested and mis-computed the ET claim deadline (2 Dec vs correct 2 Jan 2027).
 - Sentry `before_send` drops handled RateLimitError events from `detect_deadlines` (captured by Sentry's auto OpenAI integration). Other errors still reported.
 - Note: Sentry events from live show environment "preview" because SENTRY_ENV="preview" is in backend/.env.
+
+## 2026-10-14 — Deadline emails, Key-dates countdown, Web-only + no-auto-trial
+- Deadline reminder emails: platform cron `.emergent/crons.yml` (daily 08:00 Europe/London) → POST /api/cron/deadline-reminders (Bearer WEBHOOK_CRON_SECRET, idempotent via db.cron_runs). Sends 7/3/1-day emails (catch-up safe, tracked in reminders.emailed_days). Opt-out: users.deadline_emails_enabled (Settings toggle `DeadlineEmailsRow`).
+- Case-file Key dates card (`frontend/src/CaseKeyDates.js`): countdown, Add key date, Lex-written tickable checklist (POST /api/reminders/{rid}/checklist, PATCH .../checklist/{item_id}), GET /api/cases/{id}/key-dates (includes reminders from chats linked to the case via session_id).
+- NO automatic 7-day Pro trial for new signups (email/Google/Apple) — start Free; admin grants trials (comp Pro). Existing trials run out naturally.
+- Removed all App Store / Google Play / free-trial wording: terms.html (v1.5, §17 deleted), privacy.html, intro-pack.html, founding-firm-pitch.html, in-app terms (11 langs), MarketingSite.jsx (unused), i18n taster strings + heyLexIosNote, taster backend messages, waitlist email. Founding Firm 90-day B2B trial unchanged.
+- Tested: iteration_35 (backend 24/24, frontend 100%).

@@ -1,0 +1,44 @@
+{
+  "summary": "Comprehensive test of (1) Deadline Reminder Emails + cron, (2) ILR/key-dates countdown card + Lex checklist, (3) Settings deadline-emails toggle, (4) 'no automatic trial' on signup, (5) content cleanup (App Store/Google Play/7-day/free trial) across /terms.html /privacy.html /intro-pack.html + in-app /api/legal/terms for 11 languages. Backend: 24 passed, 1 skipped (session->case chat test skipped due to upstream chat quota). Frontend (430x900 mobile): full end-to-end verified for a fresh signup — key-dates card visible, add key date -> countdown '9 days to go', generate checklist -> 10 real Claude items, tick item -> progress 1/10, mark done -> card cleared. Settings modal shows deadline-emails-row and toggle works with toast + aria-pressed change.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/lex/taster (and taster system prompt)", "issue": "Backend taster upsell still mentions '7-day free trial' (server.py L2370 429 message and L2381 LLM system prompt). Spec says taster upsell strings should say 'Sign Up Free' (no trial). Frontend i18n.js tasterUpsellCta is already 'Sign Up Free'; only backend strings need updating."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Case file", "issues": ["A 'It looks like you're in United States / Switch to United States / Keep United Kingdom' banner persists over the top of modals — not a regression of this feature but visually crowds the countdown card on mobile. Non-blocking."]}
+    ]
+  },
+  "content_cleanup_verification": {
+    "/terms.html": "clean (only statutory '14-day cooling-off' which is permitted — not a trial)",
+    "/privacy.html": "clean",
+    "/intro-pack.html": "clean",
+    "in_app_terms_11_langs": "clean (en, es, fr, de, it, pt, pl, ro, ar, ur, zh all contain no 'app store'/'google play'/'7-day'/'14-day free'/'free trial')",
+    "FirmSign.jsx": "Still mentions '90-day free trial' — this is firm-portal B2B only, likely intentional (not in the consumer scope). Flagging for awareness."
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_deadline_reminders.py",
+    "/app/test_reports/pytest/deadline_reminders.xml"
+  ],
+  "action_items": [
+    "Update server.py L2370 and L2381 to replace '7-day free trial' phrasing in the taster upsell (both the HTTP 429 message and the LLM system-prompt CTA sentence) with trial-free wording (e.g. 'Sign up free for unlimited Lex chat, case files, and your private Vault.')."
+  ],
+  "critical_code_review_comments": [
+    "server.py is ~16,364 lines — very large; consider splitting by domain (reminders, cases, auth, firm) into submodules.",
+    "_job_deadline_reminder_emails updates emailed_days only when the Resend send succeeds — correct, but has subtle consequence: a transient Resend failure for a user with example.com/invalid email will cause the next cron run to retry and eventually mark the day. Fine as-is, but worth noting (can look like a stuck reminder in logs).",
+    "cron_deadline_reminders dedupes by X-Webhook-Id via a unique _id insert, but uses the catch-all `except Exception` to return duplicate — any other mongo error would also be reported as duplicate=true. Consider narrowing to DuplicateKeyError.",
+    "create_reminder trims title to 200 and description to 500 with raw slicing; may truncate mid-grapheme for non-English scripts. Minor."
+  ],
+  "updated_files": ["/app/backend/tests/test_deadline_reminders.py"],
+  "success_rate": {"backend": "100% (24/24 run, 1 unrelated skip)", "frontend": "100%"},
+  "test_credentials": "admin@aiadvocate.co.uk / AdminLex2026! (used read-only); UI test used a fresh @example.com user that was auto-verified in Mongo and then cleaned up.",
+  "seed_data_creation": "Created 167 temporary TEST_/UI_ users + 21 cases + 21 reminders + 78 conversations during testing — ALL CLEANED UP post-run (confirmed in Mongo).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "To bypass email verification on fresh @example.com test users, directly set email_verified=true in Mongo (match on the stored email WITHOUT lowercasing — signup stores case-preserved email). Signup response field is `access_token`, not `token`. For cron emailed_days tests, Resend rejects @example.com — use `delivered+TAG@resend.dev` so Resend accepts and the job persists emailed_days.",
+  "rca_of_the_issue": "N/A — all requested features working. Only follow-up: two backend strings still reference '7-day free trial' (taster upsell paths)."
+}

@@ -2367,7 +2367,7 @@ async def lex_taster(req: Request, data: TasterMessage):
         "at": {"$gte": cutoff},
     })
     if used > 0:
-        raise HTTPException(429, "You've used your free question. Sign up for unlimited Lex chat (7-day free trial).")
+        raise HTTPException(429, "You've used your free question. Create a free account to keep chatting with Lex.")
 
     # Use cheapest model — this is a free hook
     try:
@@ -2377,8 +2377,8 @@ async def lex_taster(req: Request, data: TasterMessage):
             system_message=(
                 lex_system_prompt(data.language, data.country, None)
                 + "\n\nIMPORTANT: This is the user's FIRST-EVER question. Be concise (under 250 words), "
-                "warm and helpful. End with: 'Sign up for unlimited Lex chat, case files, and your private "
-                "Vault — 7-day free trial.'"
+                "warm and helpful. End with: 'Create a free account to keep chatting with Lex, plus case files "
+                "and your private Vault.'"
             ),
         ).with_model("anthropic", "claude-haiku-4-5-20251001").with_params(max_tokens=600)
         response = await chat.send_message(UserMessage(text=text))
