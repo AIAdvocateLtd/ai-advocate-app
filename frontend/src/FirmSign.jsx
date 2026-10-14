@@ -111,7 +111,7 @@ function AgreementBody({ firm }) {
         {" "}(<em>"the Firm"</em>)
       </div>
 
-      <p>AI Advocate is launching a UK consumer + B2B legal-technology platform at <a href="https://aiadvocate.co.uk" style={{ color: GOLD_DEEP }}>aiadvocate.co.uk</a>. The first 20 partner firms onboarded during the pre-launch cohort are designated <strong>Founding Firms</strong> and receive the lifetime benefits set out below in recognition of their early support.</p>
+      <p>AI Advocate operates a UK consumer + B2B legal-technology platform at <a href="https://aiadvocate.co.uk" style={{ color: GOLD_DEEP }}>aiadvocate.co.uk</a>. The first 20 partner firms are designated <strong>Founding Firms</strong> and receive the lifetime benefits set out below in recognition of their early support.</p>
 
       <h3 style={{ color: GOLD_DEEP, marginTop: 24 }}>1. FOUNDING FIRM BENEFITS</h3>
       <ul style={{ paddingLeft: 22 }}>
@@ -119,7 +119,7 @@ function AgreementBody({ firm }) {
         <li><strong>90-day free trial</strong> — the first 90 days are entirely complimentary. No card required. The Firm may cancel at any time during this period with no obligation.</li>
         <li><strong>Founding Firm badge</strong> — displayed on the Firm's directory listing while the Firm remains an active Founding Firm subscriber.</li>
         <li><strong>Ranking boost</strong> — the Firm's listing receives priority placement in the postcode and specialism searches relevant to its practice.</li>
-        <li><strong>App Store launch marketing</strong> — subject to App Store approval and successful platform launch, the Firm is featured in screenshots and promotional collateral for the AI Advocate iOS / Android release within 12 months of agreement signing.</li>
+        <li><strong>Launch marketing</strong> — the Firm is featured as a Founding Firm on the AI Advocate website, within the web app's Legal Aid Finder and on AI Advocate's social media channels, within 12 months of agreement signing. Any use of the Firm's name or logo is subject to the Firm's prior approval.</li>
         <li><strong>Enhanced revenue-share on direct referrals</strong> — when an AI Advocate user instructs the Firm via the platform and the Firm receives a fee from that user, the Firm retains <strong>70%</strong> of the fee and remits <strong>30%</strong> to AI Advocate as referral commission. This Founding Firm split is locked for the lifetime of the Firm's continuous subscription. AI Advocate's standard (non-Founding) referral commission rate shall not exceed <strong>35%</strong> for a minimum of 24 months from public launch.</li>
         <li><strong>Two-way Lex integration</strong> — clients may share their full AI Advocate chat history with the Firm upon engagement, dramatically reducing initial consultation time.</li>
         <li><strong>Quarterly roadmap input</strong> — a 30-minute call each quarter with the AI Advocate product team.</li>

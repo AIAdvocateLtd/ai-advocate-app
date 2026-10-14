@@ -113,3 +113,34 @@ The LinkedIn algorithm rewards comments more than posts. Spend 20 minutes a day 
 ---
 
 _Last updated: Feb 2026. If you ever need to check the live price, see `/app/backend/server.py` or the Stripe Dashboard — never guess from memory._
+
+---
+
+## 6. Founding Firms recruitment drafts (approved June 2026)
+
+Replace **[X]** with the real user count from the live admin dashboard before posting.
+
+### LinkedIn post
+> Most people facing a legal problem in the UK never speak to a solicitor. Not because they don't need one, but because they don't know where to start, or they're scared of the cost.
+>
+> That's why I built AI Advocate. It helps people understand where they stand in plain English, then points them to real legal help when they need it.
+>
+> [X] people across the UK already use it, mostly for employment, housing and family issues.
+>
+> I'm now looking for **20 Founding Firms**: small, client-focused practices who want to be the firm our users are referred to. Founding Firms get 90 days free, a rate locked in for life, and featured placement in our Legal Aid Finder.
+>
+> If you run or work at a firm in employment, housing or family law, comment or DM me. Happy to give you a 10-minute walkthrough.
+>
+> #LegalTech #AccessToJustice #UKLaw
+
+### Direct message to firms
+> Hi {Name}, I'm Samuel, founder of AI Advocate, a UK legal-information app used by [X] people, mainly for {employment / housing / family} problems.
+>
+> A lot of our users reach the point where they need a real solicitor, and I'd like to send them to firms like yours. I'm offering 20 firms Founding Firm status: 90 days free, then £199/month locked in for life, plus featured placement when users in {area} need help.
+>
+> Would you be open to a 10-minute call this week? No pressure either way.
+>
+> Samuel Malick, Founder, AI Advocate
+
+**Targeting:** 20–30 small firms (2–15 people) in employment, housing/landlord and family law. Expect ~1 in 10 replies.
+**Before any firm signs:** have a solicitor check the 30% referral commission against SRA referral-fee rules (PI referral fees are banned).

@@ -868,3 +868,10 @@ Production redeploy required. All env vars unchanged.
 - Retired the first-100 Day Pass signup mechanic and WELCOME20 code in `/api/auth/signup`; `/api/auth/resend-welcome` uses the new email. `signup_position` still stored for the Founding-100 admin queue.
 - Removed Day Pass mentions from waitlist ack + founding thank-you emails and the admin Founding-100 helper text.
 - Verified: test copy sent to admin@aiadvocate.co.uk via Resend; signup via API stores launch_day_pass_until=None, launch_promo_code=None.
+
+## 2026-06 — Founding Firm wording (web-only)
+- User decision: AI Advocate stays web-based (no App Store, no Google Play for now).
+- Founding Firm Agreement (PDF generator + FirmSign.jsx e-sign page): intro now "AI Advocate operates…" (no "pre-launch cohort"); "App Store launch marketing" replaced with "Launch marketing" across website, Legal Aid Finder and social media (no Google Play), name/logo use subject to firm approval.
+- Firm invite + agreement-ready emails (server.py) and founding-firm-pitch.html updated to match.
+- LinkedIn post + firm DM drafts saved to memory/LINKEDIN_OUTREACH.md §6.
+- Still mentioning stores (not changed, awaiting user): terms.html §17 + cancellation lines, privacy.html, intro-pack.html, waitlist ack email ("iOS and Android apps").

@@ -9375,7 +9375,7 @@ async def firm_signup(data: FirmPortalSignup):
                         subject=f"🌟 You're in the Founding 20 — sign your AI Advocate Founding Firm Agreement",
                         body_html=f"""<p>Hi {data.contact_name.split(',')[0]},</p>
                         <p>Welcome to AI Advocate. You've just claimed slot <strong>{cohort_count + outstanding + 1} of 20</strong> in our Founding Firm cohort.</p>
-                        <p>That means £199/mo locked for life, 70/30 referral split, Founding Firm badge on your listing, and App Store launch marketing. Full terms in the agreement.</p>
+                        <p>That means £199/mo locked for life, 70/30 referral split, Founding Firm badge on your listing, and launch marketing across our website, web app and social media. Full terms in the agreement.</p>
                         <p style="margin:24px 0;"><a href="{signing_url}" style="background:#f7c948;color:#1a1300;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:700;">Review &amp; sign your agreement →</a></p>
                         <p style="color:#666;font-size:13px;">Or copy this link: <a href="{signing_url}">{signing_url}</a></p>
                         <p style="color:#666;font-size:12px;">I've already pre-signed on behalf of AI Advocate — you just need to add your signature. Takes 2 minutes.</p>
@@ -13574,7 +13574,7 @@ async def admin_firm_agreement_send(
             subject=f"AI Advocate — Founding Firm Agreement for {data.firm_name}",
             body_html=f"""<p>Hi {data.contact_name.split(',')[0]},</p>
             <p>Thank you for joining the AI Advocate <strong>Founding Firm</strong> cohort.</p>
-            <p>Your Founding Firm Agreement is ready to sign. It locks in your £199/month rate for life and confirms all the benefits we discussed (70/30 referral split, App Store launch marketing, ranking boost, etc.).</p>
+            <p>Your Founding Firm Agreement is ready to sign. It locks in your £199/month rate for life and confirms all the benefits we discussed (70/30 referral split, launch marketing across our website, web app and social media, ranking boost, etc.).</p>
             <p style="margin:24px 0;"><a href="{signing_url}" style="background:#f7c948;color:#1a1300;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:700;">Review &amp; sign agreement →</a></p>
             <p style="color:#666;font-size:13px;">Or copy this link: <a href="{signing_url}">{signing_url}</a></p>
             <p style="color:#666;font-size:12px;">You can review the full agreement on screen, draw your signature, and we'll email both parties a signed PDF copy. This link is unique to your firm — please don't forward it.</p>
