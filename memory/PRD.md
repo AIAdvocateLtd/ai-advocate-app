@@ -893,3 +893,4 @@ Production redeploy required. All env vars unchanged.
 - email_helper._send: skips reserved/test domains (example.com/.org/.net, test.com, advocate.app, *.test/.invalid/.example/.local); Resend ValidationError logged as warning (not Sentry).
 - Sentry before_send drops expected 403s: email_not_verified and "Founder access only.".
 - PENDING: frontend TypeError "undefined is not an object (evaluating …)" (75 events, Safari/iOS) — waiting for the user's screenshot of the full title + stack trace.
+- RESOLVED: frontend TypeError was `window.ethereum` (crypto-wallet / in-app browser injection) + `__firefox__` (Firefox iOS) — not our code. Added to sentry.js ignoreErrors (+ __gCrWeb, webkit.messageHandlers). Backend before_send also drops aiohttp "Unclosed client session" (from LLM library).

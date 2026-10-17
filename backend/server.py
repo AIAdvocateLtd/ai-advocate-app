@@ -45,6 +45,9 @@ if SENTRY_DSN:
             detail = str(getattr(exc[1], "detail", ""))
             if "email_not_verified" in detail or detail == "Founder access only.":
                 return None
+        # aiohttp "Unclosed client session" warnings come from inside the LLM library, not our code.
+        if "Unclosed client session" in str((event.get("logentry") or {}).get("message") or event.get("message") or ""):
+            return None
         return event
 
     sentry_sdk.init(

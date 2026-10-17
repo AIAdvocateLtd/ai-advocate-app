@@ -28,6 +28,11 @@ if (dsn && !_crashOptedOut()) {
       "Load failed",
       // user just cancelled an action mid-fetch
       "AbortError",
+      // Injected by crypto-wallet extensions and in-app browsers (Firefox iOS etc.) — not our code
+      /window\.ethereum/,
+      /__firefox__/,
+      /__gCrWeb/,
+      /webkit\.messageHandlers/,
     ],
     // Reduce noise from common 3rd-party browser extension errors
     denyUrls: [
