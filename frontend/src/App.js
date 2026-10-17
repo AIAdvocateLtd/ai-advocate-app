@@ -15,6 +15,8 @@ import native, { isNative, hideSplash, openExternal as nativeOpenExternal } from
 import PWAInstallPrompt from "@/PWAInstallPrompt";
 import { CaseKeyDates, DeadlineEmailsRow } from "@/CaseKeyDates";
 import { renderLexMarkdown, stripLexMarkdown } from "@/LexMarkdown";
+import { ShareActions, ShareActionsRow } from "@/ShareActions";
+import WillWriterModal from "@/WillWriter";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
 // we hide all Subscribe / Upgrade buttons (and replace them with a web-billing notice).
@@ -2703,6 +2705,8 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                         <Volume2 size={12} /> {speakingIdx === i ? "Stop" : "Read aloud"}
                       </button>
 
+                      <ShareActions text={parseLexMetadata(m.content).body} title="Lex's reply — AI Advocate" api={api} toast={aaToast} testIdPrefix={`msg-${i}`} />
+
                       {/* 🪜 Outcome Ladder — strategic on-demand structuring */}
                       <button data-testid={`ladder-${i}`} title="See worst / likely / best outcomes"
                         disabled={m._ladderBusy}
@@ -4745,6 +4749,7 @@ function LetterLibraryModal({ lang, country, onClose }) {
               </button>
               <button className="btn-ghost" onClick={() => { setLetter(""); setLetterId(null); setSignatureData(""); setShowSignPad(false); }} style={{ flex: 1 }}>{t(lang, "letterRedo")}</button>
             </div>
+            <ShareActionsRow text={letter} title={sel.title} api={api} toast={aaToast} showPdf={false} testIdPrefix="letter-lib" />
           </div>
         )}
       </div>
@@ -5002,6 +5007,7 @@ function LegalLetterModal({ lang, country, onClose }) {
               </button>
               <button className="btn-ghost" onClick={() => { setLetter(""); setSignatureData(""); setShowSignPad(false); }} style={{ flex: 1 }}>{t(lang, "letterNewLetter")}</button>
             </div>
+            <ShareActionsRow text={letter} title={form.letter_type || "Legal Letter"} api={api} toast={aaToast} showPdf={false} testIdPrefix="letter" />
           </div>
         )}
       </div>
@@ -12070,6 +12076,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "recycle", label: t(lang, "recycleBin"), Icon: RecycleIcon, req: "free" },
     { id: "letter", label: t(lang, "letterLibrary"), Icon: LetterIcon, req: "free" },
     { id: "et1", label: "ET1 Auto-Fill", sub: "Employment Tribunal claim", Icon: ContractIcon, req: "free", isNew: true },
+    { id: "will", label: "Will Writer", sub: "Draft your will", Icon: DraftIcon, req: "plus", isNew: true },
     { id: "immigration", label: t(lang, "immigration"), Icon: ImmigrationIcon, cat: "immigration", req: "plus" },
     { id: "employment", label: t(lang, "employment"), Icon: EmploymentIcon, cat: "employment", req: "plus" },
     { id: "property", label: t(lang, "property"), Icon: PropertyIcon, cat: "property", req: "plus" },
@@ -12099,6 +12106,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     else if (tile.id === "lawyers") setModal({ type: "lawyers" });
     else if (tile.id === "courtroom") setModal({ type: "courtroom" });
     else if (tile.id === "et1") setModal({ type: "et1" });
+    else if (tile.id === "will") setModal({ type: "will" });
     else if (tile.id === "ask_lex") setModal({ type: "chat", title: t(lang, "askLex"), category: tile.cat });
     else setModal({ type: "chat", title: tile.label, category: tile.cat });
   };
@@ -12338,6 +12346,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "cost" && <CostEstimateModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "hearing" && <HearingRecorderModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "et1" && <ET1AutoFillModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "will" && <WillWriterModal api={api} toast={aaToast} onUpsell={() => { setModal(null); setSubPreset("plus"); setShowSub(true); }} onClose={() => setModal(null)} />}
       {/* Legacy "hearing" tile id removed — merged into "record" via RecordHub. The
           modal route above stays for any external aa:open-modal events that still target it. */}
       {modal?.type === "legal_aid" && <LegalAidModal lang={lang} country={country} onClose={() => setModal(null)} />}
@@ -14602,6 +14611,7 @@ function ContractDrafterBody({ lang, country }) {
               <button className="btn-gold" onClick={copyText} style={{ flex: 1 }} data-testid="ct-copy-btn">{t(lang, "contractCopy")}</button>
               <button className="btn-ghost" onClick={() => { setStep(1); setR(null); setTerms({}); }} style={{ flex: 1 }}>{t(lang, "contractAnother")}</button>
             </div>
+            <ShareActionsRow text={r.full_contract_text || ""} title={r.contract_title || "Contract draft"} api={api} toast={aaToast} testIdPrefix="contract" />
           </div>
         )}
     </>

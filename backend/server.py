@@ -6196,6 +6196,219 @@ async def pdf_inline(data: PDFInline, user: dict = Depends(get_user)):
     return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{data.filename}"'})
 
+# ==================== Will Writer ====================
+WILL_JURISDICTIONS = {"ew": "England & Wales", "scotland": "Scotland", "ni": "Northern Ireland", "other": "Other country"}
+WILL_COMPLEXITY_FLAGS = {
+    "owns_business": "You own a business or shares in a private company",
+    "property_abroad": "You own property or assets outside the UK",
+    "trust_needed": "You want to set up a trust (e.g. for children, or a vulnerable or disabled beneficiary)",
+    "estate_over_iht": "Your estate may be worth more than the inheritance tax threshold",
+    "blended_family": "You have children from a previous relationship or a blended family",
+    "disinherit": "You want to leave out a spouse, partner or child",
+}
+WILL_PAID_TIERS = ("plus", "pro", "yearly", "trial_pro")
+
+WILL_SIGNING_BLOCK = {
+    "two_witness": """SIGNED by the above-named {name} as their last will, in our joint presence, and then by us in their presence:
+
+Signature of {name}: ______________________________    Date: ________________
+
+WITNESS 1
+Signature: ______________________________
+Full name: ______________________________
+Address: ________________________________
+Occupation: _____________________________
+
+WITNESS 2
+Signature: ______________________________
+Full name: ______________________________
+Address: ________________________________
+Occupation: _____________________________""",
+    "scotland": """IN WITNESS WHEREOF I have subscribed this will, consisting of this and the preceding pages, at ____________________ (place) on ____________________ (date), in the presence of the witness named below.
+
+Signature of {name}: ______________________________
+(Also sign at the foot of every page.)
+
+WITNESS
+Signature: ______________________________
+Full name: ______________________________
+Address: ________________________________""",
+    "other": """Signature of {name}: ______________________________    Date: ________________
+
+IMPORTANT: The legal formalities for a valid will in {country} may be different (for example a notary, a fully handwritten will, or a different number of witnesses). Do not sign this document until a local lawyer or notary has confirmed how it must be signed.""",
+}
+
+WILL_INSTRUCTIONS = {
+    "ew": """HOW TO SIGN YOUR WILL (England & Wales — Wills Act 1837, s.9)
+1. Print the will on paper. Do NOT sign it electronically — electronic signatures are not valid for wills.
+2. Sign at the end, in front of TWO witnesses who are both present at the same time.
+3. Both witnesses then sign in front of you. Witnesses must be 18 or over and able to see you sign.
+4. A witness must NOT be a beneficiary, or the husband, wife or civil partner of a beneficiary — otherwise that person loses their gift (Wills Act 1837, s.15).
+5. Do not staple, unstaple, write on or alter the will after signing. To make changes, write a new will.
+6. Keep the original somewhere safe and tell your executors where it is.
+7. Marriage or civil partnership normally cancels an existing will. Review your will after any major life event, or every 5 years.""",
+    "ni": """HOW TO SIGN YOUR WILL (Northern Ireland — Wills and Administration Proceedings (NI) Order 1994)
+1. Print the will on paper. Do NOT sign it electronically.
+2. Sign at the end, in front of TWO witnesses who are both present at the same time.
+3. Both witnesses then sign in front of you. Witnesses should be 18 or over.
+4. A witness must NOT be a beneficiary, or the spouse or civil partner of a beneficiary — otherwise that person loses their gift.
+5. Do not alter the will after signing. To make changes, write a new will.
+6. Keep the original somewhere safe and tell your executors where it is.
+7. Marriage or civil partnership normally cancels an existing will. Review your will after any major life event, or every 5 years.""",
+    "scotland": """HOW TO SIGN YOUR WILL (Scotland — Requirements of Writing (Scotland) Act 1995)
+1. Print the will on paper. Do NOT sign it electronically.
+2. Sign at the end of the will AND at the foot of every page.
+3. Sign in front of ONE witness aged 16 or over, who then signs and adds their full name and address.
+4. Your witness should not be a beneficiary or related to a beneficiary.
+5. In Scotland, your spouse, civil partner and children have "legal rights" to part of your moveable estate, which a will cannot remove.
+6. Keep the original somewhere safe and tell your executors where it is.
+7. Review your will after any major life event (marriage, divorce, children, moving home) or every 5 years.""",
+    "other": """BEFORE YOU SIGN
+1. Will rules differ from country to country. Many countries require a notary, a fully handwritten will, or specific witnesses, and some have "forced heirship" rules that give family members a fixed share.
+2. Have this draft checked by a lawyer or notary in your country before signing.
+3. If you also own property or assets in the UK, you may need a separate UK will — speak to a solicitor.""",
+}
+
+
+class WillSave(BaseModel):
+    id: Optional[str] = None
+    jurisdiction: str = "ew"
+    country: Optional[str] = None
+    answers: dict = {}
+
+
+def _will_out(w: dict) -> dict:
+    out = {k: v for k, v in w.items() if k not in ("_id", "answers_enc", "draft_enc")}
+    try:
+        out["answers"] = json.loads(decrypt_text(w.get("answers_enc")) or "{}")
+    except (ValueError, TypeError):
+        out["answers"] = {}
+    out["draft_text"] = decrypt_text(w.get("draft_enc")) or ""
+    out["complexity_warnings"] = [WILL_COMPLEXITY_FLAGS[k] for k, v in (out["answers"].get("complexity") or {}).items()
+                                  if v and k in WILL_COMPLEXITY_FLAGS]
+    return out
+
+
+def _require_will_tier(user: dict):
+    if user_to_public(user)["tier"] not in WILL_PAID_TIERS:
+        raise HTTPException(402, "Will Writer is available on Plus and Pro. Upgrade to unlock.")
+
+
+async def _get_will(wid: str, user: dict) -> dict:
+    w = await db.wills.find_one({"id": wid, "user_id": user["id"]})
+    if not w: raise HTTPException(404, "Will not found")
+    return w
+
+
+def _will_full_text(w: dict) -> str:
+    """Draft clauses + jurisdiction signing block + signing instructions."""
+    out = _will_out(w)
+    jur = out.get("jurisdiction") or "ew"
+    name = (out["answers"].get("full_name") or "the testator").strip()
+    block_key = "scotland" if jur == "scotland" else "other" if jur == "other" else "two_witness"
+    block = WILL_SIGNING_BLOCK[block_key].format(name=name, country=out.get("country") or "your country")
+    return f"{out['draft_text'].strip()}\n\n{block}\n\n{WILL_INSTRUCTIONS[jur]}"
+
+
+@api_router.get("/wills")
+async def list_wills(user: dict = Depends(get_user)):
+    _require_will_tier(user)
+    rows = await db.wills.find({"user_id": user["id"]}, {"_id": 0, "answers_enc": 0, "draft_enc": 0}).sort("updated_at", -1).to_list(50)
+    return {"wills": rows}
+
+
+@api_router.get("/wills/{wid}")
+async def get_will(wid: str, user: dict = Depends(get_user)):
+    _require_will_tier(user)
+    w = await _get_will(wid, user)
+    out = _will_out(w)
+    if out["draft_text"]:
+        out["full_text"] = _will_full_text(w)
+    return out
+
+
+@api_router.post("/wills")
+async def save_will(data: WillSave, user: dict = Depends(get_user)):
+    _require_will_tier(user)
+    if data.jurisdiction not in WILL_JURISDICTIONS:
+        raise HTTPException(400, "Unknown jurisdiction")
+    now = datetime.now(timezone.utc).isoformat()
+    answers_enc = encrypt_text(json.dumps(data.answers or {})[:20000])
+    name = str((data.answers or {}).get("full_name") or "").strip()[:80]
+    fields = {"jurisdiction": data.jurisdiction, "country": (data.country or "")[:80],
+              "answers_enc": answers_enc, "title": f"Will of {name}" if name else "My will", "updated_at": now}
+    if data.id:
+        r = await db.wills.update_one({"id": data.id, "user_id": user["id"]}, {"$set": fields})
+        if r.matched_count == 0: raise HTTPException(404, "Will not found")
+        wid = data.id
+    else:
+        wid = str(uuid.uuid4())
+        await db.wills.insert_one({"id": wid, "user_id": user["id"], "created_at": now, "has_draft": False, **fields})
+    return _will_out(await _get_will(wid, user))
+
+
+@api_router.post("/wills/{wid}/generate")
+async def generate_will(wid: str, user: dict = Depends(get_user)):
+    _require_will_tier(user)
+    w = await _get_will(wid, user)
+    out = _will_out(w)
+    jur = out["jurisdiction"]
+    a = out["answers"]
+    if not str(a.get("full_name") or "").strip() or not str(a.get("residuary") or "").strip() or not str(a.get("executors") or "").strip():
+        raise HTTPException(400, "Please add your full name, your executors and who gets the rest of your estate.")
+    place = out.get("country") if jur == "other" else WILL_JURISDICTIONS[jur]
+    lang_name = LANG_NAMES.get(user.get("language") or "en", "English")
+    sys_prompt = f"""{_today_uk_line()}You are an experienced wills drafter. Draft a clear, complete simple will governed by the law of {place}.
+Write in {lang_name if jur == "other" else "English"}, in plain but formal legal language, using the correct terminology for {place}.
+Include, where the information is provided: a heading with the person's full name and address; a revocation of all previous wills and codicils;
+appointment of executors (and substitute executors); guardians for children under 18 (where relevant); specific gifts; the gift of the residue of the estate
+with a survivorship condition and a substitute (backup) beneficiary; funeral wishes stated as non-binding wishes; any other stated wishes.
+Use numbered clauses with short CAPITALISED clause headings. Where information is missing, insert a clear placeholder like [INSERT ...].
+Do NOT invent names, assets or wishes, and do not assume anyone's gender or relationship unless it is stated. Do NOT include the signing or witness section — it is added separately.
+Output plain text only — no markdown symbols (#, *), no commentary before or after the will."""
+    prompt = "Answers from the person making the will:\n" + "\n".join(
+        f"- {k.replace('_', ' ').title()}: {v}" for k, v in a.items() if k != "complexity" and str(v).strip())
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"will-{uuid.uuid4()}", system_message=sys_prompt
+                       ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=4000)
+        draft = (await chat.send_message(UserMessage(text=prompt))).strip()
+    except Exception:
+        logger.exception("Will generation failed")
+        raise HTTPException(502, "Lex couldn't draft your will just now. Please try again.")
+    draft = re.sub(r"^\s*#{1,6}\s*", "", draft, flags=re.M).replace("**", "")
+    await db.wills.update_one({"id": wid}, {"$set": {"draft_enc": encrypt_text(draft), "has_draft": True,
+                                                     "drafted_at": datetime.now(timezone.utc).isoformat()}})
+    w = await _get_will(wid, user)
+    res = _will_out(w)
+    res["full_text"] = _will_full_text(w)
+    return res
+
+
+@api_router.get("/wills/{wid}/pdf")
+async def will_pdf(wid: str, user: dict = Depends(get_user)):
+    _require_will_tier(user)
+    w = await _get_will(wid, user)
+    if not w.get("has_draft"): raise HTTPException(400, "Draft your will first")
+    out = _will_out(w)
+    pdf_bytes = build_pdf(
+        title=out.get("title") or "Last Will and Testament",
+        subtitle=f"Draft will · {out.get('country') if out['jurisdiction'] == 'other' else WILL_JURISDICTIONS[out['jurisdiction']]}",
+        body=_will_full_text(w), language=user.get("language") or "en-GB",
+        meta={"Prepared": datetime.now(timezone.utc).strftime("%d %B %Y"),
+              "Status": "Not valid until printed, signed and witnessed as shown at the end"},
+    )
+    fname = re.sub(r"[^A-Za-z0-9]+", "_", out.get("title") or "will").strip("_") + ".pdf"
+    return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
+                             headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@api_router.delete("/wills/{wid}")
+async def delete_will(wid: str, user: dict = Depends(get_user)):
+    r = await db.wills.delete_one({"id": wid, "user_id": user["id"]})
+    if r.deleted_count == 0: raise HTTPException(404, "Will not found")
+    return {"deleted": True}
+
+
 # ==================== Languages ====================
 @api_router.get("/languages")
 async def languages():
@@ -7124,6 +7337,7 @@ async def _build_user_export(user: dict) -> dict:
 
     files = await db.legal_files.find({"user_id": uid}, {"_id": 0}).to_list(2000)
     reminders = await db.reminders.find({"user_id": uid}, {"_id": 0}).to_list(2000)
+    wills = [_will_out(w) async for w in db.wills.find({"user_id": uid}, {"_id": 0})]
     feature_requests = await db.feature_requests.find({"user_id": uid}, {"_id": 0}).to_list(500)
     # Vault metadata only — never include encrypted file blobs in plain export
     vault_items = await db.vault_items.find(
@@ -7141,6 +7355,7 @@ async def _build_user_export(user: dict) -> dict:
         "case_items": case_items,
         "legal_files": files,
         "reminders": reminders,
+        "wills": wills,
         "feature_requests": feature_requests,
         "vault_items_metadata": vault_items,
     }
@@ -7414,7 +7629,7 @@ async def gdpr_delete_my_account(user: dict = Depends(get_user)):
     cols_to_wipe = [
         "conversations", "cases", "case_items", "case_notes", "legal_files",
         "reminders", "feature_requests", "vault_items", "vault_meta", "vault_shares",
-        "usage_counters", "lex_chats", "security_events", "engagement_files",
+        "usage_counters", "lex_chats", "security_events", "engagement_files", "wills",
     ]
     for col in cols_to_wipe:
         try: await db[col].delete_many({"user_id": uid})
@@ -14338,7 +14553,7 @@ async def admin_users_purge(data: RestoreUserPayload, admin: dict = Depends(requ
         "letters", "deadlines", "evidence", "voice_journals", "vault_items",
         "user_documents", "comp_pro_grants", "sponsor_links",
         "totp_secrets", "password_reset_tokens", "trusted_devices",
-        "pending_grants", "stripe_customers",
+        "pending_grants", "stripe_customers", "wills",
     ]
     for col in cascade_collections:
         try:
