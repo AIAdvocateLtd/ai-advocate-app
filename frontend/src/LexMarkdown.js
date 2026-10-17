@@ -97,7 +97,8 @@ export function stripLexMarkdown(body) {
   return body
     .replace(/^\s*(-{3,}|\*{3,}|_{3,})\s*$/gm, "")
     .replace(/^\s*#{1,6}\s+/gm, "")
-    .replace(/^\s*\|?\s*:?-{2,}.*$/gm, "")
+    .replace(/^[ \t]*\|?[ \t]*:?-{2,}.*$/gm, "")
+    .replace(/^[ \t]*\|(.*)\|[ \t]*$/gm, (_, row) => row.split("|").map(c => c.trim()).filter(Boolean).join(" — "))
     .replace(/\*\*|__|`/g, "")
     .replace(/^\s*[-*]\s+/gm, "• ")
     .replace(/\n{3,}/g, "\n\n")

@@ -4,6 +4,8 @@ import { Copy, Mail, FileDown, Share2 } from "lucide-react";
 import { stripLexMarkdown } from "@/LexMarkdown";
 
 const MAILTO_SAFE_LEN = 1800;
+const IS_IOS = typeof navigator !== "undefined" &&
+  (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
 
 const btn = {
   background: "transparent", border: "1px solid var(--gold-deep)", color: "var(--gold)",
@@ -30,6 +32,11 @@ export function ShareActions({ text, title = "AI Advocate", api, toast, onPdf, s
 
   const email = async () => {
     const body = clean();
+    // iPhone/iPad: the mailto "switch apps?" prompt prints the whole encoded URL — use the share sheet (Mail is in it) instead.
+    if (IS_IOS && navigator.share) {
+      try { await navigator.share({ title, text: body }); return; }
+      catch (e) { if (e?.name === "AbortError") return; }
+    }
     let mailBody = body;
     if (body.length > MAILTO_SAFE_LEN) {
       await copyToClipboard(body);
