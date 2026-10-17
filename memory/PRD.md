@@ -898,3 +898,7 @@ Production redeploy required. All env vars unchanged.
 ## 2026-10-17 — Revoke emails softened
 - Admin revoke of a free/comp trial (no Stripe sub) → new `send_complimentary_ended_email` ("Your complimentary Pro access has ended", Free plan, no charge, no reason line).
 - Paid-subscription cancellation (user + firm) emails no longer show "Reason on file" (reason still stored in admin audit log).
+
+## 2026-10-17 — Lex reply formatting + Founding-100 card removed
+- New `frontend/src/LexMarkdown.js` (renderLexMarkdown / stripLexMarkdown): Lex chat + Courtroom Trainer bubbles render headings, bold, lists, rules, quotes, simple tables — no raw # / ** symbols. Citation pills + statute links still applied per text segment. Read-aloud uses stripped text.
+- Removed "Founding 100 — Free Day Pass Queue" card (and its dismiss/thank handlers) from Admin Settings → Comp Pro Access.

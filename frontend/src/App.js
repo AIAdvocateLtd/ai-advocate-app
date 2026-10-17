@@ -14,6 +14,7 @@ import { identify as identifyAnalytics, resetAnalytics, track } from "@/analytic
 import native, { isNative, hideSplash, openExternal as nativeOpenExternal } from "@/nativeBridge";
 import PWAInstallPrompt from "@/PWAInstallPrompt";
 import { CaseKeyDates, DeadlineEmailsRow } from "@/CaseKeyDates";
+import { renderLexMarkdown, stripLexMarkdown } from "@/LexMarkdown";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
 // we hide all Subscribe / Upgrade buttons (and replace them with a web-billing notice).
@@ -2591,10 +2592,12 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                         })()}
                         <div className={m.role === "user" ? "bubble-user" : "bubble-lex"}
                              data-testid={`msg-${m.role}-${i}`}
-                             style={{ padding: "10px 14px", borderRadius: 14, maxWidth: "82%", whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 }}>
-                          {m.role === "lex" && Array.isArray(m.citations) && m.citations.length > 0
-                            ? renderWithCitationPills(meta.body, m.citations, i)
-                            : (m.role === "lex" ? linkifyStatutes(meta.body, `m${i}`) : meta.body)}
+                             style={{ padding: "10px 14px", borderRadius: 14, maxWidth: "82%", whiteSpace: m.role === "user" ? "pre-wrap" : "normal", lineHeight: 1.5, fontSize: 14 }}>
+                          {m.role === "lex"
+                            ? renderLexMarkdown(meta.body, (txt, k) => (Array.isArray(m.citations) && m.citations.length > 0
+                                ? renderWithCitationPills(txt, m.citations, i)
+                                : linkifyStatutes(txt, `m${i}-${k}`)))
+                            : meta.body}
                         </div>
                         {/* RAG citations list — appears under the bubble when Tavily returned sources */}
                         {m.role === "lex" && Array.isArray(m.citations) && m.citations.length > 0 && (
@@ -2692,7 +2695,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                       {/* 🔊 Read aloud — opt-in TTS for this reply (user request Feb 2026) */}
                       <button data-testid={`read-aloud-${i}`}
                         title={speakingIdx === i ? "Stop reading" : "Read this reply out loud"}
-                        onClick={() => speakMessage(i, parseLexMetadata(m.content).body)}
+                        onClick={() => speakMessage(i, stripLexMarkdown(parseLexMetadata(m.content).body))}
                         style={{ background: speakingIdx === i ? "rgba(247,201,72,0.22)" : "transparent",
                                  border: "1px solid var(--gold-deep)", color: "var(--gold)",
                                  borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600,
@@ -4044,8 +4047,8 @@ function CourtroomModal({ lang, country, onClose }) {
             <div ref={pScroll} style={{ flex: 1, overflowY: "auto", marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
               {pMsgs.map((m, i) => (
                 <div key={i} data-pmsg-index={i} className={m.role === "user" ? "bubble-user" : "bubble-lex"}
-                     style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", padding: "9px 12px", borderRadius: 14, maxWidth: "82%", whiteSpace: "pre-wrap", fontSize: 14 }}>
-                  {m.content}
+                     style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", padding: "9px 12px", borderRadius: 14, maxWidth: "82%", whiteSpace: m.role === "user" ? "pre-wrap" : "normal", fontSize: 14 }}>
+                  {m.role === "user" ? m.content : renderLexMarkdown(m.content)}
                 </div>
               ))}
               {pBusy && <div className="bubble-lex" style={{ alignSelf: "flex-start", padding: "9px 12px", borderRadius: 14 }}><span className="spinner" /></div>}
@@ -10886,36 +10889,6 @@ function CompProAdminCard({ lang }) {
     } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
   };
 
-  // 🌟 Founding-100: remove a row from the queue (does NOT touch their day pass).
-  // Optimistic — filter from local state immediately so the list shrinks on tap.
-  const dismissFounding = async (email) => {
-    setActionBusy(true); setFeedback(null);
-    setFounding(f => ({ ...f, users: f.users.filter(u => u.email !== email), pending: Math.max(0, (f.pending || 0) - 1) }));
-    try {
-      await api.post("/admin/founding-100/dismiss", { email });
-      setFeedback({ ok: true, msg: `✓ Removed ${email} from the queue` });
-    } catch (e) {
-      setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not dismiss." });
-      loadFounding(); // restore on error
-    } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
-  };
-
-  // 🌟 Founding-100 "Approve & Thank": fires the personal thank-you email AND
-  // dismisses the row in one tap. Optimistic UI; restores on error.
-  const thankFounding = async (email) => {
-    setActionBusy(true); setFeedback(null);
-    setFounding(f => ({ ...f, users: f.users.filter(u => u.email !== email), pending: Math.max(0, (f.pending || 0) - 1) }));
-    try {
-      const r = await api.post("/admin/founding-100/thank", { email });
-      setFeedback({ ok: true, msg: r.data?.sent
-        ? `✓ Thank-you email sent to ${email}`
-        : `✓ ${email} approved — email could not be sent (check Resend logs)` });
-    } catch (e) {
-      setFeedback({ ok: false, msg: e?.response?.data?.detail || "Could not approve." });
-      loadFounding();
-    } finally { setActionBusy(false); setTimeout(() => setFeedback(null), 4000); }
-  };
-
   return (
     <div data-testid="settings-comp-pro" style={{ background: "var(--bg-card)", border: "1px solid var(--gold-deep)", borderRadius: 14, padding: 16, marginBottom: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -10924,95 +10897,6 @@ function CompProAdminCard({ lang }) {
       </div>
       <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 12 }}>
         Grant free Pro access to family, friends, or unhappy customers. Every grant is logged. Pick a duration, then tap "Grant" next to any user — or use the search to filter.
-      </div>
-
-      {/* 🌟 FOUNDING 100 — queue of first-100 signups eligible for the launch day pass.
-          Day pass is auto-granted at signup. This list is for at-a-glance review
-          so the founder can verify, optionally extend, then dismiss the row. */}
-      <div data-testid="founding-100-card"
-           style={{ background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)",
-                    borderRadius: 12, padding: 12, marginBottom: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <span style={{ fontSize: 11.5, color: "var(--gold)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            🌟 Founding 100 — Free Day Pass Queue
-          </span>
-          <span data-testid="founding-100-slots"
-                style={{ fontSize: 10.5, color: "var(--text-muted)", fontWeight: 600 }}>
-            {founding.slots_taken}/{founding.slots_total} slots · {founding.pending} pending
-          </span>
-        </div>
-        <div style={{ fontSize: 10.5, color: "var(--text-muted)", lineHeight: 1.45, marginBottom: 10 }}>
-          Your first 100 signups. Tap <strong>Approve</strong> to send a personal thank-you email and clear the row, or <strong>Skip</strong> to dismiss without emailing.
-        </div>
-        {founding.users.length === 0 ? (
-          <div style={{ fontSize: 11.5, color: "var(--text-muted)", padding: "10px 6px", textAlign: "center",
-                        border: "1px dashed var(--line)", borderRadius: 8 }}>
-            {founding.slots_taken === 0
-              ? "No founding signups yet — the queue will populate as the first 100 users register."
-              : "All caught up. Every founding signup has been reviewed."}
-          </div>
-        ) : (
-          <div data-testid="founding-100-list"
-               style={{ display: "flex", flexDirection: "column", gap: 6,
-                        maxHeight: 320, overflowY: "auto", paddingRight: 2 }}>
-            {founding.users.map(u => {
-              const dpUntil = u.launch_day_pass_until ? new Date(u.launch_day_pass_until) : null;
-              const dpActive = dpUntil && dpUntil > new Date();
-              const dpHours = dpUntil ? Math.max(0, Math.round((dpUntil - new Date()) / 36e5)) : 0;
-              const hasComp = u.comp_pro_until && new Date(u.comp_pro_until) > new Date();
-              return (
-                <div key={u.id} data-testid={`founding-row-${u.id}`}
-                     style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--line)",
-                              borderRadius: 10, padding: "8px 10px", display: "flex",
-                              alignItems: "center", gap: 8 }}>
-                  <div style={{ minWidth: 32, fontSize: 11, color: "var(--gold)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-                    #{u.signup_position}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {u.email}
-                    </div>
-                    <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>
-                      {u.full_name || "—"}
-                      {dpActive && <span style={{ color: "var(--gold)" }}> · day pass {dpHours}h left</span>}
-                      {!dpActive && dpUntil && <span> · day pass expired</span>}
-                      {!dpUntil && <span> · no day pass on file</span>}
-                      {hasComp && <span style={{ color: "var(--gold)" }}> · comp {u.comp_pro_until.slice(0,10)}</span>}
-                    </div>
-                  </div>
-                  {!hasComp && (
-                    <button data-testid={`founding-approve-${u.id}`}
-                            onClick={() => thankFounding(u.email)} disabled={actionBusy}
-                            title="Send personal thank-you email and clear this row"
-                            style={{ background: "var(--gold)", border: "none", color: "#1a1300",
-                                     borderRadius: 8, padding: "5px 12px", fontSize: 10.5,
-                                     fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-                      Approve & Thank
-                    </button>
-                  )}
-                  <button data-testid={`founding-dismiss-${u.id}`}
-                          onClick={() => dismissFounding(u.email)} disabled={actionBusy}
-                          title="Remove from the queue without sending an email"
-                          style={{ background: "transparent", border: "1px solid var(--line)",
-                                   color: "var(--text-muted)", borderRadius: 8,
-                                   padding: "5px 10px", fontSize: 10.5, fontWeight: 600,
-                                   cursor: "pointer", whiteSpace: "nowrap" }}>
-                    Skip
-                  </button>
-                  <button data-testid={`founding-delete-${u.id}`}
-                          onClick={() => deleteUser(u.email)} disabled={actionBusy}
-                          title="Permanently remove from all admin lists (test signups)"
-                          style={{ background: "transparent", border: "1px solid #ef4444",
-                                   color: "#ef4444", borderRadius: 8,
-                                   padding: "5px 9px", fontSize: 10.5, fontWeight: 700,
-                                   cursor: "pointer", whiteSpace: "nowrap" }}>
-                    Delete
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
 
       {/* Days preset row */}
