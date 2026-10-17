@@ -322,7 +322,6 @@ async def send_cancellation_email(email: str, name: str = "", account_kind: str 
       <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">Your {label} has ended</h2>
       <p>Hi {first},</p>
       <p>We're writing to confirm that your <strong>{label}</strong> has been cancelled{when}. You will not be charged further.</p>
-      {'<p style="background:#fffaeb; border-left:3px solid #f7c948; padding:10px 14px; margin:18px 0; font-size:13px; color:#1a1300;">Reason on file: ' + reason + '</p>' if reason else ''}
       <p>You can still log in and access:</p>
       <ul style="color:#444; font-size:14px; line-height:1.6;">
         <li>Any case files, chats, or evidence you saved while subscribed</li>
@@ -339,6 +338,30 @@ async def send_cancellation_email(email: str, name: str = "", account_kind: str 
     """, preview=f"Confirming your {label} has been cancelled.", kind="firm" if is_firm else "user")
     reply_override = "firms@aiadvocate.co.uk" if is_firm else None
     return await _send(email, f"Your {label} has been cancelled", html, reply_to_override=reply_override)
+
+
+async def send_complimentary_ended_email(email: str, name: str = "", ended_on: str = "") -> bool:
+    """Warm notice when an admin-granted (free) Pro trial ends — no reason shown, no billing language."""
+    first = _html.escape((name or "").split(" ")[0] or "there")
+    when = f" on {ended_on}" if ended_on else ""
+    html = _wrap(f"""
+      <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">Your complimentary Pro access has ended</h2>
+      <p>Hi {first},</p>
+      <p>Thanks for trying AI Advocate Pro. Your complimentary access ended{when}, and your account is now on the <strong>Free plan</strong>. Nothing has been charged, and nothing will be.</p>
+      <p>Everything you saved is still here:</p>
+      <ul style="color:#444; font-size:14px; line-height:1.6;">
+        <li>Your case files, chats and evidence</li>
+        <li>Your Lex Vault (encrypted)</li>
+        <li>Free-plan features, any time you log in</li>
+      </ul>
+      <p>If Pro was helpful, you can upgrade any time and pick up exactly where you left off.</p>
+      <p style="margin:24px 0;">
+        <a href="https://aiadvocate.co.uk/app" style="background:#f7c948; color:#1a1300; padding:12px 22px; border-radius:8px; font-weight:700; text-decoration:none; display:inline-block;">View plans →</a>
+      </p>
+      <p style="font-size:13px; color:#555;">Questions? Just reply or email <a href="mailto:support@aiadvocate.co.uk" style="color:#b8860b;">support@aiadvocate.co.uk</a>.</p>
+      <p style="font-size:13px;">Samuel Malick<br/>Founder, AI Advocate Ltd.</p>
+    """, preview="Your account is now on the Free plan. Everything you saved is still here.")
+    return await _send(email, "Your complimentary Pro access has ended", html)
 
 
 async def send_email(to: str, subject: str, body_html: str, attachments: Optional[list] = None, kind: str = "user") -> bool:

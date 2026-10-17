@@ -14207,15 +14207,14 @@ async def admin_users_uncomp(data: CompUserPayload, admin: dict = Depends(requir
 
     # 📧 Branded cancellation email
     try:
-        from email_helper import send_cancellation_email
+        from email_helper import send_cancellation_email, send_complimentary_ended_email
         from datetime import datetime as _dt
-        await send_cancellation_email(
-            email=target["email"],
-            name=target.get("full_name") or "",
-            account_kind="user",
-            ended_on=_dt.now(timezone.utc).strftime("%d %B %Y"),
-            reason=data.reason or "",
-        )
+        ended_on = _dt.now(timezone.utc).strftime("%d %B %Y")
+        if stripe_cancelled:
+            await send_cancellation_email(email=target["email"], name=target.get("full_name") or "",
+                                          account_kind="user", ended_on=ended_on)
+        else:
+            await send_complimentary_ended_email(target["email"], target.get("full_name") or "", ended_on)
     except Exception as e:
         logger.warning(f"Cancellation email failed for {target['email']}: {e}")
 

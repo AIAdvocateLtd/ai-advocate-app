@@ -894,3 +894,7 @@ Production redeploy required. All env vars unchanged.
 - Sentry before_send drops expected 403s: email_not_verified and "Founder access only.".
 - PENDING: frontend TypeError "undefined is not an object (evaluating …)" (75 events, Safari/iOS) — waiting for the user's screenshot of the full title + stack trace.
 - RESOLVED: frontend TypeError was `window.ethereum` (crypto-wallet / in-app browser injection) + `__firefox__` (Firefox iOS) — not our code. Added to sentry.js ignoreErrors (+ __gCrWeb, webkit.messageHandlers). Backend before_send also drops aiohttp "Unclosed client session" (from LLM library).
+
+## 2026-10-17 — Revoke emails softened
+- Admin revoke of a free/comp trial (no Stripe sub) → new `send_complimentary_ended_email` ("Your complimentary Pro access has ended", Free plan, no charge, no reason line).
+- Paid-subscription cancellation (user + firm) emails no longer show "Reason on file" (reason still stored in admin audit log).
