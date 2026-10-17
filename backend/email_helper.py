@@ -100,6 +100,9 @@ def _wrap(html_body: str, preview: str = "", kind: str = "user") -> str:
 </body></html>"""
 
 
+_UNDELIVERABLE_DOMAINS = {"example.com", "example.org", "example.net", "test.com", "advocate.app"}
+
+
 async def _send(to_email: str, subject: str, html: str, attachments: Optional[list] = None, reply_to_override: Optional[str] = None) -> bool:
     """Low-level async send. Returns False (never raises) so callers can fire-and-forget safely.
 
@@ -109,6 +112,10 @@ async def _send(to_email: str, subject: str, html: str, attachments: Optional[li
     api_key = _api_key()
     if not api_key:
         logger.info(f"[email-skip] {to_email} | {subject!r} (no RESEND_API_KEY)")
+        return False
+    domain = (to_email or "").rsplit("@", 1)[-1].lower()
+    if domain in _UNDELIVERABLE_DOMAINS or domain.endswith((".test", ".invalid", ".example", ".local")):
+        logger.info(f"[email-skip] {to_email} | {subject!r} (reserved test domain)")
         return False
     try:
         resend.api_key = api_key
@@ -126,6 +133,10 @@ async def _send(to_email: str, subject: str, html: str, attachments: Optional[li
         logger.info(f"[email-sent] {to_email} | {subject!r} | id={eid}")
         return True
     except Exception as e:
+        if type(e).__name__ == "ValidationError":
+            # Bad recipient address (user input) — not an app fault, keep it out of Sentry.
+            logger.warning(f"[email-rejected] {to_email} | {subject!r}: {e}")
+            return False
         logger.exception(f"[email-fail] {to_email} | {subject!r}: {e}")
         return False
 

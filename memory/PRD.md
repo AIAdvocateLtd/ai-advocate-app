@@ -888,3 +888,8 @@ Production redeploy required. All env vars unchanged.
 - NO automatic 7-day Pro trial for new signups (email/Google/Apple) — start Free; admin grants trials (comp Pro). Existing trials run out naturally.
 - Removed all App Store / Google Play / free-trial wording: terms.html (v1.5, §17 deleted), privacy.html, intro-pack.html, founding-firm-pitch.html, in-app terms (11 langs), MarketingSite.jsx (unused), i18n taster strings + heyLexIosNote, taster backend messages, waitlist email. Founding Firm 90-day B2B trial unchanged.
 - Tested: iteration_35 (backend 24/24, frontend 100%).
+
+## 2026-10-14 — Sentry noise reduction
+- email_helper._send: skips reserved/test domains (example.com/.org/.net, test.com, advocate.app, *.test/.invalid/.example/.local); Resend ValidationError logged as warning (not Sentry).
+- Sentry before_send drops expected 403s: email_not_verified and "Founder access only.".
+- PENDING: frontend TypeError "undefined is not an object (evaluating …)" (75 events, Safari/iOS) — waiting for the user's screenshot of the full title + stack trace.

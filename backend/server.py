@@ -40,6 +40,11 @@ if SENTRY_DSN:
         exc = (hint or {}).get("exc_info")
         if exc and exc[0].__name__ == "RateLimitError" and "detect_deadlines" in (event.get("transaction") or ""):
             return None
+        # Expected 403s (unverified email gate, founder-only pages) — by design, not bugs.
+        if exc and exc[0].__name__ == "HTTPException":
+            detail = str(getattr(exc[1], "detail", ""))
+            if "email_not_verified" in detail or detail == "Founder access only.":
+                return None
         return event
 
     sentry_sdk.init(
