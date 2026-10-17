@@ -5556,7 +5556,7 @@ async def get_tiers():
                             "Read-Aloud rights (20 / day)"]},
             {"id": "plus", "name": "Plus", "price_gbp": 19.99, "period": "month",
              "highlights": ["Unlimited Lex chats", "15 photo evidences / month",
-                            "Unlimited letters", "Contract Review", "Court Prep modes",
+                            "Unlimited letters", "Will Writer (England, Wales, Scotland & NI)", "Contract Review", "Court Prep modes",
                             "Voice in/out", "Practice Mode", "50 files", "Hey Lex wake word",
                             "Claude Sonnet 4.5 brain"]},
             {"id": "pro", "name": "Pro", "price_gbp": 34.99, "period": "month",
@@ -6338,8 +6338,12 @@ async def save_will(data: WillSave, user: dict = Depends(get_user)):
     fields = {"jurisdiction": data.jurisdiction, "country": (data.country or "")[:80],
               "answers_enc": answers_enc, "title": f"Will of {name}" if name else "My will", "updated_at": now}
     if data.id:
-        r = await db.wills.update_one({"id": data.id, "user_id": user["id"]}, {"$set": fields})
-        if r.matched_count == 0: raise HTTPException(404, "Will not found")
+        existing = await _get_will(data.id, user)
+        old = _will_out(existing)
+        if existing.get("has_draft") and (old["answers"] != (data.answers or {}) or old["jurisdiction"] != data.jurisdiction
+                                          or (old.get("country") or "") != fields["country"]):
+            fields["draft_stale"] = True
+        await db.wills.update_one({"id": data.id, "user_id": user["id"]}, {"$set": fields})
         wid = data.id
     else:
         wid = str(uuid.uuid4())
@@ -6376,7 +6380,7 @@ Output plain text only — no markdown symbols (#, *), no commentary before or a
         logger.exception("Will generation failed")
         raise HTTPException(502, "Lex couldn't draft your will just now. Please try again.")
     draft = re.sub(r"^\s*#{1,6}\s*", "", draft, flags=re.M).replace("**", "")
-    await db.wills.update_one({"id": wid}, {"$set": {"draft_enc": encrypt_text(draft), "has_draft": True,
+    await db.wills.update_one({"id": wid}, {"$set": {"draft_enc": encrypt_text(draft), "has_draft": True, "draft_stale": False,
                                                      "drafted_at": datetime.now(timezone.utc).isoformat()}})
     w = await _get_will(wid, user)
     res = _will_out(w)

@@ -60,7 +60,7 @@ function WillForm({ will, onSaved, api, toast }) {
     setBusy(andGenerate ? "gen" : "save");
     try {
       const { data } = await api.post("/wills", { id: will?.id, jurisdiction: jur, country, answers: a });
-      if (!andGenerate) { toast("Draft saved", "success"); onSaved(data, false); return; }
+      if (!andGenerate) { toast(data.draft_stale ? "Saved — redraft to update your will" : "Draft saved", "success"); onSaved(data, false); return; }
       const g = await api.post(`/wills/${data.id}/generate`);
       toast("Your will has been drafted", "success");
       onSaved(g.data, true);
@@ -129,6 +129,11 @@ function WillResult({ will, api, toast, onEdit, onDelete }) {
   };
   return (
     <div data-testid="will-result">
+      {will.draft_stale && (
+        <div data-testid="will-stale-warning" style={{ background: "rgba(252,211,77,0.08)", border: "1px solid rgba(252,211,77,0.4)", borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 12.5, color: "#fcd34d" }}>
+          You've changed your answers since this will was drafted. Tap <strong>Edit answers</strong> then <strong>Draft my will with Lex</strong> to update it before printing.
+        </div>
+      )}
       {(will.complexity_warnings || []).length > 0 && (
         <div data-testid="will-complexity-warning" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 12.5, color: "#fca5a5" }}>
           <div style={{ display: "flex", gap: 6, alignItems: "center", fontWeight: 700, marginBottom: 4 }}><AlertTriangle size={14} /> We strongly recommend a solicitor checks this will</div>

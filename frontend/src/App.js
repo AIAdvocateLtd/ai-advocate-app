@@ -14472,12 +14472,6 @@ function ContractDrafterBody({ lang, country }) {
     finally { setBusy(false); }
   };
 
-  const copyText = () => {
-    if (!r?.full_contract_text) return;
-    navigator.clipboard.writeText(r.full_contract_text);
-    aaToast(t(lang, "copiedToClipboard"), "success");
-  };
-
   const StepHeader = () => (
     <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
       {[1, 2, 3, 4].map(n => (
@@ -14608,7 +14602,6 @@ function ContractDrafterBody({ lang, country }) {
               </>
             )}
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button className="btn-gold" onClick={copyText} style={{ flex: 1 }} data-testid="ct-copy-btn">{t(lang, "contractCopy")}</button>
               <button className="btn-ghost" onClick={() => { setStep(1); setR(null); setTerms({}); }} style={{ flex: 1 }}>{t(lang, "contractAnother")}</button>
             </div>
             <ShareActionsRow text={r.full_contract_text || ""} title={r.contract_title || "Contract draft"} api={api} toast={aaToast} testIdPrefix="contract" />

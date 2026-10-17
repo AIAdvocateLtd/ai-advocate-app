@@ -1,0 +1,38 @@
+{
+  "summary": "Tested the Will Writer backend (CRUD, generating a will in all 4 jurisdictions with real Claude Sonnet calls, PDF, plan gating, per-user isolation, GDPR export) and the new Copy/Email/PDF/Share actions in the UI. Backend: 15/15 pytest tests pass. UI at 430x900 with the admin (Pro) account: Lex reply actions (msg-1-copy/email/pdf next to read-aloud-1) work — Copy shows a toast and copies text without markdown, PDF POSTs /api/pdf/inline (200) and downloads, Email builds mailto:?subject=...&body=.... Contract draft (NDA) shows contract-copy/email/pdf and all three work; long text gets the 'Full text copied too' toast. The letter library shows letter-lib-copy/email with no extra PDF button (the existing letter-pdf is still there). Will Writer end to end works: list → new → 'Another country' shows will-country and will-other-country-note, and the missing-country toast appears → fill in and Save (toast) → Draft (finished in about 10s) → will-text includes WITNESS 1/2 and 'HOW TO SIGN', the complexity warning shows, Copy, PDF download, Email (truncated at 1800 chars, full text copied, toast), Edit refills the answers and the ticked flag, Back shows the list item, reopening goes to the result, Delete (confirm) removes it with a toast. A Free user tapping tile-will gets the subscribe-modal and not the will modal.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/wills (update with id)", "issue": "Saving changed answers on a will that already has a draft does not clear or flag the old draft. has_draft stays true and draft_enc keeps the old text, so GET /wills/{id}, the PDF and the UI result view show a will that no longer matches the saved answers (e.g. a changed executor) until the user presses 'Draft my will with Lex' again. Suggest setting a 'draft_stale' flag (or clearing has_draft) when the answers change, and telling the user to regenerate."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Contract draft result", "issues": ["There are two copy buttons: the existing 'Copy contract' (ct-copy-btn) and the new contract-copy. Consider removing one."]},
+      {"screen": "Will result / Letter / Contract on mobile 430px", "issues": ["Success toasts (bottom) briefly cover the Copy/Email/PDF row. With two toasts at once (Copied + Full text copied) they cover the main buttons."]},
+      {"screen": "Will form", "issues": ["will-date_of_birth uses the browser's built-in date picker (input type=date) rather than the shadcn calendar. Acceptable on mobile but inconsistent with the guidelines."]},
+      {"screen": "Subscribe modal (Plus card)", "issues": ["The Plus feature list does not mention 'Will Writer', even though Free users tapping the tile are sent here. The selling point is missing."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter36_will_writer.py", "/app/test_reports/pytest/iter36.xml"],
+  "action_items": [
+    "(Minor) Mark or clear the will draft when answers are edited via POST /api/wills with an id, so users don't download an out-of-date will. Show a 'regenerate' hint in WillResult.",
+    "(Minor) Add 'Will Writer' to the Plus/Pro feature list in SubscribeModal.",
+    "(Minor) Remove the duplicate copy button in the contract draft result (ct-copy-btn vs contract-copy).",
+    "(Minor) In ShareActions.copy, the failure toast 'Couldn't copy' uses type 'success'; it should be 'error'."
+  ],
+  "critical_code_review_comments": [
+    "Backend looks right: tier gate on everything except DELETE, user_id on every lookup (another user gets 404), answers and draft encrypted at rest (checked in Mongo), _id excluded, jurisdiction validated, markdown removed from the LLM draft.",
+    "LegalLetterModal (data-testid letter-modal, testIdPrefix 'letter') renders only when modal.type === 'letter', and nothing in App.js sets that type: tile 'letter' opens letter_lib. So the new letter-copy/letter-email buttons in the letter writer cannot be reached. This was probably already the case, but please confirm whether this modal is meant to be reachable.",
+    "WillResult.downloadPdf has no try/catch of its own; errors are caught by the ShareActions pdf wrapper, so that is acceptable.",
+    "Cleaned Lex reply text still contains citation markers like [1][2] and the disclaimer. That is fine for email, just noting it."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter36_will_writer.py"],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100% of requested flows (Lex actions, contract actions, letter-lib actions, Will Writer full flow, free upsell)"},
+  "seed_data_creation": "Temporary @example.com users (free and comp-Pro) and TEST_ wills were created and then deleted. Admin's 'Will of Test Person' (02cdb03c-...) was left alone and is the only admin will remaining.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Root '/' sends logged-out visitors to /welcome.html. To use the app, set localStorage aa_token (from POST /api/auth/login via page.request, because urllib gets 403), aa_welcomed=1, aa_cookie_consent=1, then goto /app. Free users need users.email_verified=true in Mongo. Will generation is fast (~5-10s). The GDPR export endpoint is GET /api/users/me/export. The letter writer modal (letter-*) cannot be reached from the UI; the letter library uses letter-lib-*."
+}

@@ -902,3 +902,8 @@ Production redeploy required. All env vars unchanged.
 ## 2026-10-17 — Lex reply formatting + Founding-100 card removed
 - New `frontend/src/LexMarkdown.js` (renderLexMarkdown / stripLexMarkdown): Lex chat + Courtroom Trainer bubbles render headings, bold, lists, rules, quotes, simple tables — no raw # / ** symbols. Citation pills + statute links still applied per text segment. Read-aloud uses stripped text.
 - Removed "Founding 100 — Free Day Pass Queue" card (and its dismiss/thank handlers) from Admin Settings → Comp Pro Access.
+
+## 2026-10-17 — Share actions + Will Writer
+- `frontend/src/ShareActions.js`: Copy (clean text) / Email (mailto, >1800 chars → truncated + full text copied) / PDF (/api/pdf/inline or custom onPdf) / Share (navigator.share). Shown under every Lex reply, letter library, letter writer (no extra PDF), contract draft (replaced old copy button).
+- Will Writer (`frontend/src/WillWriter.js`, tile "Will Writer", req plus): E&W, Scotland, NI, other country (warning: local lawyer/notary). Answers + draft encrypted (db.wills, answers_enc/draft_enc). Endpoints GET/POST /api/wills, GET/DELETE /api/wills/{id}, POST /api/wills/{id}/generate (Sonnet 4.5), GET /api/wills/{id}/pdf. Deterministic jurisdiction signing block + instructions appended (no e-signing). Complexity flags → solicitor warning. draft_stale flag when answers change after drafting. Included in GDPR export + account deletion. Plus tier highlights list "Will Writer".
+- Tested: iteration_36 (backend 15/15, frontend 100%); minor follow-ups fixed (stale draft, duplicate contract copy button, Plus highlight).
