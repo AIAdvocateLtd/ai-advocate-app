@@ -908,3 +908,8 @@ Production redeploy required. All env vars unchanged.
 - Will Writer (`frontend/src/WillWriter.js`, tile "Will Writer", req plus): E&W, Scotland, NI, other country (warning: local lawyer/notary). Answers + draft encrypted (db.wills, answers_enc/draft_enc). Endpoints GET/POST /api/wills, GET/DELETE /api/wills/{id}, POST /api/wills/{id}/generate (Sonnet 4.5), GET /api/wills/{id}/pdf. Deterministic jurisdiction signing block + instructions appended (no e-signing). Complexity flags → solicitor warning. draft_stale flag when answers change after drafting. Included in GDPR export + account deletion. Plus tier highlights list "Will Writer".
 - Tested: iteration_36 (backend 15/15, frontend 100%); minor follow-ups fixed (stale draft, duplicate contract copy button, Plus highlight).
 - 2026-10-17: iOS Email button now uses the native share sheet (Mail is in it) instead of mailto — iOS PWA "switch apps?" prompt was printing the whole encoded URL. Android/desktop still use mailto. stripLexMarkdown converts table rows to "cell — cell".
+
+## 2026-10-22 — Lex reply action row simplified
+- Removed Read aloud and the PDF button under Lex replies. Row: Copy · Email · Share (phones) · Best & worst case (BarChart3 icon, was "Outcome ladder") · Their argument (Scale icon, was "Other side" 😈) · Solicitor check £49.
+- PDF on request: lex_system_prompt appends LEX_PDF_INSTRUCTION → Lex ends reply with [[PDF: Title]] when user asks for a PDF; frontend extractPdfTag (LexMarkdown.js) hides tag and shows gold "Download PDF" button (lex-pdf-{i}) → /api/pdf/inline. stripMarkers in stream handler preserves the tag.
+- Security audit requested by user was paused by the user — not yet run.

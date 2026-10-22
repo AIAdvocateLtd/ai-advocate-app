@@ -1041,7 +1041,15 @@ CONVERSATION MEMORY (CRITICAL):
         "legal_letter": "\n\nYou are now drafting a FORMAL LEGAL LETTER. Use proper structure (sender, recipient, date, subject, body, sign-off). Be firm but professional. Reference the relevant law.",
         "record": "\n\nYou are reviewing a RECORDED LEGAL INTERACTION (police/court transcript). Flag: rights violations, leading questions, things the user should NOT have said, suggested follow-up actions.",
     }
-    return _today_uk_line() + base + addons.get(category, "")
+    return _today_uk_line() + base + addons.get(category, "") + LEX_PDF_INSTRUCTION
+
+
+LEX_PDF_INSTRUCTION = (
+    "\n\nPDF REQUESTS: The app can turn your reply into a downloadable PDF. If the user asks for a PDF, a printable "
+    "or downloadable version of a letter, document or your answer, write the complete document in your reply, then put "
+    "this tag on its own line at the very end: [[PDF: short document title]]. Only add the tag when they ask for a PDF. "
+    "Never say you cannot create PDFs — tell them to tap the Download PDF button under your reply."
+)
 
 
 def _today_uk_line() -> str:

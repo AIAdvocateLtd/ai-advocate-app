@@ -5,7 +5,7 @@ import {
   MessageCircle, Mic, Folder, FileText, Gavel, Globe, Briefcase, Home as HomeIcon,
   Stethoscope, Scale, X, Send, Upload, Languages, LogOut, Check, ArrowLeft, Square, Play,
   Camera, MapPin, Phone, ExternalLink, Settings as SettingsIcon, Star, Building2, Image as ImageIcon,
-  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint, Sparkles, Volume2, ChevronDown, Paperclip, FileType, Mail
+  Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint, Sparkles, Volume2, ChevronDown, Paperclip, FileType, Mail, BarChart3
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
 import { setAppIconBadge } from "@/appBadge";
@@ -14,7 +14,7 @@ import { identify as identifyAnalytics, resetAnalytics, track } from "@/analytic
 import native, { isNative, hideSplash, openExternal as nativeOpenExternal } from "@/nativeBridge";
 import PWAInstallPrompt from "@/PWAInstallPrompt";
 import { CaseKeyDates, DeadlineEmailsRow } from "@/CaseKeyDates";
-import { renderLexMarkdown, stripLexMarkdown } from "@/LexMarkdown";
+import { renderLexMarkdown, stripLexMarkdown, extractPdfTag } from "@/LexMarkdown";
 import { ShareActions, ShareActionsRow } from "@/ShareActions";
 import WillWriterModal from "@/WillWriter";
 
@@ -1697,7 +1697,7 @@ function OutcomeLadderPanel({ ladder }) {
     <div data-testid="outcome-ladder-panel" style={{ marginTop: 10, background: "rgba(247,201,72,0.04)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 12 }}>
       {ladder?.headline && (
         <div style={{ fontSize: 13, color: "var(--gold)", fontWeight: 700, marginBottom: 10, fontFamily: "'Cinzel', serif", letterSpacing: "0.02em" }}>
-          🪜 {ladder.headline}
+          {ladder.headline}
         </div>
       )}
       <Step data={ladder?.worst_case} accent="#fca5a5" />
@@ -1716,8 +1716,8 @@ function DevilAdvocatePanel({ devil }) {
   return (
     <div data-testid="devil-advocate-panel" style={{ marginTop: 10, background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.35)", borderRadius: 12, padding: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <span style={{ fontSize: 18 }}>😈</span>
-        <div style={{ fontSize: 13, color: "#fca5a5", fontWeight: 700, fontFamily: "'Cinzel', serif" }}>What the other side will argue</div>
+        <Scale size={16} color="#fca5a5" />
+        <div style={{ fontSize: 13, color: "#fca5a5", fontWeight: 700, fontFamily: "'Cinzel', serif" }}>Their argument: what the other side will say</div>
       </div>
       {devil?.their_position_in_one_line && (
         <div style={{ background: "var(--bg-2)", borderLeft: "3px solid #fca5a5", borderRadius: 6, padding: "8px 10px", marginBottom: 10, fontSize: 13, color: "var(--text)", fontStyle: "italic" }}>
@@ -2199,7 +2199,9 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
           const i = s.indexOf(c);
           if (i >= 0 && i < earliest) earliest = i;
         }
-        return s.slice(0, earliest).trimEnd();
+        const tag = (s.match(/\[\[\s*PDF[^\]]*\]\]/i) || [""])[0];
+        const kept = s.slice(0, earliest).trimEnd();
+        return tag && !kept.includes(tag) ? `${kept}\n\n${tag}` : kept;
       };
 
       // Insert the placeholder Lex bubble immediately so the user sees "typing…"
@@ -2549,7 +2551,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
               ) : (
                 <>
                   {(() => {
-                    const meta = m.role === "lex" ? parseLexMetadata(m.content) : { body: m.content, confidence: null, sources: [], connectedTo: null };
+                    const meta = m.role === "lex" ? parseLexMetadata(extractPdfTag(m.content).body) : { body: m.content, confidence: null, sources: [], connectedTo: null };
                     return (
                       <>
                         {meta.connectedTo && (() => {
@@ -2694,21 +2696,24 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                   })()}
                   {m.role === "lex" && (
                     <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
-                      {/* 🔊 Read aloud — opt-in TTS for this reply (user request Feb 2026) */}
-                      <button data-testid={`read-aloud-${i}`}
-                        title={speakingIdx === i ? "Stop reading" : "Read this reply out loud"}
-                        onClick={() => speakMessage(i, stripLexMarkdown(parseLexMetadata(m.content).body))}
-                        style={{ background: speakingIdx === i ? "rgba(247,201,72,0.22)" : "transparent",
-                                 border: "1px solid var(--gold-deep)", color: "var(--gold)",
-                                 borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600,
-                                 display: "inline-flex", alignItems: "center", gap: 4 }}>
-                        <Volume2 size={12} /> {speakingIdx === i ? "Stop" : "Read aloud"}
-                      </button>
-
-                      <ShareActions text={parseLexMetadata(m.content).body} title="Lex's reply — AI Advocate" api={api} toast={aaToast} testIdPrefix={`msg-${i}`} />
+                      {(() => {
+                        const { body: noTag, pdfTitle } = extractPdfTag(m.content);
+                        const pdfBody = parseLexMetadata(noTag).body;
+                        return (
+                          <>
+                            {pdfTitle && (
+                              <button data-testid={`lex-pdf-${i}`} onClick={() => pdfInline({ title: pdfTitle, body: stripLexMarkdown(pdfBody), filename: `${pdfTitle.replace(/[^A-Za-z0-9]+/g, "_").slice(0, 60)}.pdf` }).catch(() => aaToast("Couldn't create the PDF — try again", "error"))}
+                                style={{ background: "var(--gold)", border: "1px solid var(--gold)", color: "#1a1300", borderRadius: 8, padding: "2px 12px", fontSize: 11, cursor: "pointer", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4, minHeight: 26 }}>
+                                <Download size={12} /> Download PDF
+                              </button>
+                            )}
+                            <ShareActions text={pdfBody} title={pdfTitle || "Lex's reply — AI Advocate"} api={api} toast={aaToast} showPdf={false} testIdPrefix={`msg-${i}`} />
+                          </>
+                        );
+                      })()}
 
                       {/* 🪜 Outcome Ladder — strategic on-demand structuring */}
-                      <button data-testid={`ladder-${i}`} title="See worst / likely / best outcomes"
+                      <button data-testid={`ladder-${i}`} title="See the best, likely and worst outcomes"
                         disabled={m._ladderBusy}
                         onClick={async () => {
                           if (m._ladder) {
@@ -2720,14 +2725,14 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                             const { data: r } = await api.post("/lex/outcome-ladder", { session_id: sessionId, language: lang, country });
                             setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _ladder: r.ladder, _ladderOpen: true, _ladderBusy: false } : mm));
                           } catch (e) {
-                            aaToast(e?.response?.data?.detail || "Couldn't build the outcome ladder", "error");
+                            aaToast(e?.response?.data?.detail || "Couldn't build the best & worst case", "error");
                             setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _ladderBusy: false } : mm));
                           }
                         }}
                         style={{ background: m._ladderOpen ? "rgba(247,201,72,0.18)" : "transparent",
                                  border: "1px solid var(--gold-deep)", color: "var(--gold)",
-                                 borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
-                        {m._ladderBusy ? "…" : m._ladderOpen ? "🪜 Hide outcomes" : "🪜 Outcome ladder"}
+                                 borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        {m._ladderBusy ? "…" : <><BarChart3 size={12} /> {m._ladderOpen ? "Hide best & worst case" : "Best & worst case"}</>}
                       </button>
 
                       {/* 😈 Devil's Advocate — what would the other side argue */}
@@ -2743,14 +2748,14 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                             const { data: r } = await api.post("/lex/devil-advocate", { session_id: sessionId, language: lang, country });
                             setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _devil: r.devil_advocate, _devilOpen: true, _devilBusy: false } : mm));
                           } catch (e) {
-                            aaToast(e?.response?.data?.detail || "Couldn't run devil's advocate", "error");
+                            aaToast(e?.response?.data?.detail || "Couldn't build their argument", "error");
                             setMessages(ms => ms.map((mm, ii) => ii === i ? { ...mm, _devilBusy: false } : mm));
                           }
                         }}
                         style={{ background: m._devilOpen ? "rgba(239,68,68,0.16)" : "transparent",
                                  border: "1px solid rgba(239,68,68,0.4)", color: "#fca5a5",
-                                 borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
-                        {m._devilBusy ? "…" : m._devilOpen ? "😈 Hide" : "😈 Other side"}
+                                 borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        {m._devilBusy ? "…" : <><Scale size={12} /> {m._devilOpen ? "Hide their argument" : "Their argument"}</>}
                       </button>
 
                       {/* 🎖 Solicitor Sanity Check — £49 one-off, routed to a Founding Firm */}

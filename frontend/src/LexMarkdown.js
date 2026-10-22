@@ -95,6 +95,7 @@ export function renderLexMarkdown(body, renderText = (t) => t) {
 export function stripLexMarkdown(body) {
   if (typeof body !== "string") return body;
   return body
+    .replace(/\[\[\s*PDF[^\]]*\]\]/gi, "")
     .replace(/^\s*(-{3,}|\*{3,}|_{3,})\s*$/gm, "")
     .replace(/^\s*#{1,6}\s+/gm, "")
     .replace(/^[ \t]*\|?[ \t]*:?-{2,}.*$/gm, "")
@@ -103,4 +104,13 @@ export function stripLexMarkdown(body) {
     .replace(/^\s*[-*]\s+/gm, "• ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+// Lex adds [[PDF: Title]] when the user asks for a PDF — strip it (wherever it is) and expose the title.
+const PDF_TAG_RE = /\[\[\s*PDF\s*:?\s*([^\]]*)\]\]/i;
+export function extractPdfTag(body) {
+  if (typeof body !== "string") return { body, pdfTitle: null };
+  const m = PDF_TAG_RE.exec(body);
+  if (!m) return { body: body.replace(/\[\[\s*PDF[^\]]*$/i, "").trimEnd(), pdfTitle: null };
+  return { body: body.replace(new RegExp(PDF_TAG_RE.source, "gi"), "").trimEnd(), pdfTitle: (m[1] || "").trim() || "AI Advocate document" };
 }
