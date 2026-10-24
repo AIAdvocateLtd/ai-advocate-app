@@ -10,7 +10,7 @@ export function useFormDraft(name, initial) {
     catch { return initial; }
   });
   const [restored] = useState(() => !!localStorage.getItem(key));
-  const dirty = Object.keys(initial).some(k => form[k] !== initial[k]);
+  const dirty = Object.keys(initial).some(k => JSON.stringify(form[k]) !== JSON.stringify(initial[k]));
 
   useEffect(() => {
     const id = setTimeout(() => {

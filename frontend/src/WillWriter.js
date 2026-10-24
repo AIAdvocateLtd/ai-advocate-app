@@ -1,7 +1,8 @@
 // Will Writer — guided questions → Lex drafts a will → PDF / email / share. Plus & Pro only.
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { X, ScrollText, Plus, Trash2, AlertTriangle, Pencil } from "lucide-react";
 import { ShareActionsRow } from "@/ShareActions";
+import { useFormDraft, DraftNotice } from "@/FormDrafts";
 
 const JURISDICTIONS = [
   { v: "ew", label: "England & Wales" }, { v: "scotland", label: "Scotland" },
@@ -48,9 +49,14 @@ const COMPLEXITY = [
 const label = { fontSize: 12, color: "var(--text-muted)", marginBottom: 4, display: "block" };
 
 function WillForm({ will, onSaved, api, toast }) {
-  const [jur, setJur] = useState(will?.jurisdiction || "ew");
-  const [country, setCountry] = useState(will?.country || "");
-  const [a, setA] = useState(will?.answers || { complexity: {} });
+  const initial = useMemo(() => ({
+    jur: will?.jurisdiction || "ew", country: will?.country || "", a: will?.answers || { complexity: {} },
+  }), [will]);
+  const [form, setForm, draft] = useFormDraft(`will_${will?.id || "new"}`, initial);
+  const { jur, country, a } = form;
+  const setJur = (v) => setForm(f => ({ ...f, jur: v }));
+  const setCountry = (v) => setForm(f => ({ ...f, country: v }));
+  const setA = (fn) => setForm(f => ({ ...f, a: fn(f.a) }));
   const [busy, setBusy] = useState("");
   const set = (k, v) => setA(p => ({ ...p, [k]: v }));
   const setFlag = (k) => setA(p => ({ ...p, complexity: { ...(p.complexity || {}), [k]: !(p.complexity || {})[k] } }));
@@ -60,6 +66,7 @@ function WillForm({ will, onSaved, api, toast }) {
     setBusy(andGenerate ? "gen" : "save");
     try {
       const { data } = await api.post("/wills", { id: will?.id, jurisdiction: jur, country, answers: a });
+      draft.discard();
       if (!andGenerate) { toast(data.draft_stale ? "Saved — redraft to update your will" : "Draft saved", "success"); onSaved(data, false); return; }
       const g = await api.post(`/wills/${data.id}/generate`);
       toast("Your will has been drafted", "success");
@@ -70,6 +77,7 @@ function WillForm({ will, onSaved, api, toast }) {
 
   return (
     <div data-testid="will-form">
+      <DraftNotice draft={draft} testid="will-draft-notice" />
       <span style={label}>Where do you live? (your will follows the law of this place)</span>
       <select className="input" data-testid="will-jurisdiction" value={jur} onChange={e => setJur(e.target.value)} style={{ marginBottom: 8 }}>
         {JURISDICTIONS.map(j => <option key={j.v} value={j.v}>{j.label}</option>)}

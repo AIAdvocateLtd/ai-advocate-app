@@ -7914,6 +7914,64 @@ async def cron_deadline_reminders(request: Request):
     asyncio.create_task(_job_deadline_reminder_emails())
     return {"ok": True, "queued": True}
 
+
+REVIEW_REQUEST_BATCH = 200
+
+def _skip_review_email(email: str) -> bool:
+    e = (email or "").lower()
+    return not e or "test" in e or "example" in e or e.endswith("@advocate.app") or e.endswith("@aiadvocate.co.uk")
+
+async def _job_review_request_emails() -> dict:
+    """Email each user once, a week after their first Lex chat, asking for a Trustpilot review."""
+    from email_helper import send_review_request
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    firsts = db.conversations.aggregate([
+        {"$group": {"_id": "$user_id", "first": {"$min": "$created_at"}}},
+        {"$match": {"first": {"$lte": cutoff}}},
+    ])
+    sent = 0
+    async for row in firsts:
+        if sent >= REVIEW_REQUEST_BATCH:
+            break
+        user = await db.users.find_one(
+            {"id": row["_id"], "deleted": {"$ne": True}, "email_verified": {"$ne": False},
+             "review_request_sent_at": {"$exists": False}},
+            {"_id": 0, "id": 1, "email": 1, "full_name": 1})
+        if not user or _skip_review_email(user.get("email")):
+            continue
+        # Claim first so overlapping runs can never double-send
+        claimed = await db.users.update_one({"id": user["id"], "review_request_sent_at": {"$exists": False}},
+                                            {"$set": {"review_request_sent_at": datetime.now(timezone.utc).isoformat()}})
+        if not claimed.modified_count:
+            continue
+        if await send_review_request(user["email"], user.get("full_name") or "", TRUSTPILOT_URL):
+            sent += 1
+        else:
+            await db.users.update_one({"id": user["id"]}, {"$unset": {"review_request_sent_at": ""}})
+    logger.info(f"[review-requests] sent={sent}")
+    return {"sent": sent}
+
+
+@api_router.post("/cron/review-requests")
+async def cron_review_requests(request: Request):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    secret = os.environ.get("WEBHOOK_CRON_SECRET") or ""
+    auth = request.headers.get("authorization") or ""
+    token = auth[7:] if auth.lower().startswith("bearer ") else ""
+    if not secret or not token or not _secrets.compare_digest(token, secret):
+        raise HTTPException(401, "Unauthorized")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid body")
+    run_id = request.headers.get("x-webhook-id") or (body or {}).get("run_id") or str(uuid.uuid4())
+    try:
+        await db.cron_runs.insert_one({"_id": f"review-requests:{run_id}", "at": datetime.now(timezone.utc).isoformat()})
+    except Exception:
+        return {"ok": True, "duplicate": True}
+    asyncio.create_task(_job_review_request_emails())
+    return {"ok": True, "queued": True}
+
 _DEADLINE_HINT_RE = re.compile(
     r"\d|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b|"
     r"\b(mon|tues|wednes|thurs|fri|satur|sun)day\b|\b(today|tomorrow|tonight|yesterday|week|weeks|month|months|year|years|days|"

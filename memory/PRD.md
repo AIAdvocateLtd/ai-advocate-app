@@ -950,3 +950,7 @@ Production redeploy required. All env vars unchanged.
 ## 2026-10-24 — Save form progress
 - New FormDrafts.js: useFormDraft(name, initial) autosaves to localStorage `aa_draft_<name>` (400ms debounce), DraftNotice ("restored" + Clear form), clearAllFormDrafts() called on logout and 401.
 - Wired into ET1AutoFillModal (aa_draft_et1) and LegalAidDraftTab (aa_draft_legal_aid). Draft discarded after successful generation.
+
+## 2026-10-24 — Will Writer autosave + Trustpilot review email
+- WillWriter.js WillForm now uses useFormDraft(`will_<id|new>`) for {jur,country,answers}; discarded after server save. FormDrafts dirty check now JSON-based.
+- Review request email: email_helper.send_review_request; server._job_review_request_emails (once per user, 7+ days after first conversation, verified & not deleted, skips test/example/@advocate.app/@aiadvocate.co.uk, max 200/run, claim-before-send). Cron `review-requests` 11:00 Europe/London → POST /api/cron/review-requests (WEBHOOK_CRON_SECRET). No opt-out (user decision). Users field: review_request_sent_at.

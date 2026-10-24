@@ -7,3 +7,11 @@ crons:
     endpoint: "{{BASE_URL}}/api/cron/deadline-reminders"
     method: POST
     enabled: true
+  - name: review-requests
+    description: "Emails each user once, a week after their first Lex chat, asking for a Trustpilot review (11am UK time)"
+    cron: "0 11 * * *"
+    timezone: "Europe/London"
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    endpoint: "{{BASE_URL}}/api/cron/review-requests"
+    method: POST
+    enabled: true

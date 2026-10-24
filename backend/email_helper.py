@@ -212,6 +212,21 @@ async def send_deadline_reminder(email: str, full_name: str, title: str, due_lab
     return await _send(email, f"⏰ Reminder: {title} is due {when}", html)
 
 
+async def send_review_request(email: str, full_name: str, trustpilot_url: str) -> bool:
+    name = _html.escape((full_name or "").strip().split(" ")[0] or "there")
+    html = _wrap(f"""
+      <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">How's Lex been for you, {name}?</h2>
+      <p>It's been about a week since you first asked Lex for help. I hope it made things a little clearer.</p>
+      <p>AI Advocate is a small UK company, and most people find us through word of mouth. If Lex helped, a quick review on Trustpilot would mean a lot. It takes under a minute and helps other people find free legal help when they need it.</p>
+      <p style="text-align:center; margin:24px 0;">
+        <a href="{trustpilot_url}" style="display:inline-block; background:#1a1300; color:#f7c948; text-decoration:none; padding:12px 28px; border-radius:8px; font-weight:700; font-size:14px;">&#9733; Leave a review on Trustpilot</a>
+      </p>
+      <p style="font-size:14px; line-height:1.6;">If something didn't work the way you hoped, I'd really like to know. Just reply to this email or write to <a href="mailto:support@aiadvocate.co.uk" style="color:#b8860b;">support@aiadvocate.co.uk</a>. I read every message.</p>
+      <p style="margin:18px 0 0 0;">Thank you,<br>Samuel Malick<br>Founder, AI Advocate Ltd.</p>
+    """, preview="Did Lex help? A quick Trustpilot review would mean a lot.")
+    return await _send(email, "Did Lex help? A quick favour", html)
+
+
 async def send_verify_email_link(email: str, full_name: str, verify_url: str) -> bool:
     """Sent immediately after signup. One-click link confirms the email is real.
 
