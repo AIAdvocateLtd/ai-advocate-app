@@ -921,3 +921,9 @@ Production redeploy required. All env vars unchanged.
 - PENDING: Google Search Console verification code from user (HTML tag method) → add meta to welcome.html. Suggest changing "An entire law firm. In your pocket." heading (conflicts with "not a law firm").
 - Note: python heredoc writes to /app/frontend/public sometimes blocked by harness ("/app is owned by the regression harness") — use search_replace/create_file instead.
 - 2026-10-24: Google Search Console HTML-tag verification meta added to welcome.html and index.html (value from GOOGLE_SITE_VERIFICATION secret, written into static HTML — public by design).
+
+## 2026-10-24 — SEO expansion
+- Added 8 new guides in /frontend/public/guides: free-legal-advice-uk, find-a-solicitor-near-me-uk, legal-aid-uk, employment-rights-uk, redundancy-pay-uk, workplace-discrimination-uk, flight-delay-compensation-uk, parking-fine-appeal-uk (each with Article/Breadcrumb/FAQ schema).
+- welcome.html: visible "Popular legal questions" links + visible FAQ (matches existing FAQPage schema); footer guide links extended.
+- guides/index.html, cross-links in old guides, sitemap.xml now 19 URLs.
+- GSC: sitemap submitted (pending first read); user requested indexing for main pages.

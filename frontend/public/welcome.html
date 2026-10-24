@@ -730,6 +730,34 @@
   </div>
 </section>
 
+<!-- ============ Popular questions + FAQ ============ -->
+<section id="faq" data-testid="landing-faq-section">
+  <div class="container" style="max-width:820px;">
+    <h2 style="text-align:center;">Popular legal questions</h2>
+    <p class="section-sub" style="text-align:center; margin-bottom:24px;">Free plain-English guides to the problems people search for most.</p>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin-bottom:40px;" data-testid="landing-popular-guides">
+      <a href="/guides/free-legal-advice-uk.html" data-testid="landing-guide-free-legal-advice-uk" style="display:block; border:1px solid var(--line); border-radius:12px; padding:12px 14px; color:var(--gold); text-decoration:none;">Free legal advice UK</a>
+      <a href="/guides/find-a-solicitor-near-me-uk.html" data-testid="landing-guide-find-a-solicitor-near-me-uk" style="display:block; border:1px solid var(--line); border-radius:12px; padding:12px 14px; color:var(--gold); text-decoration:none;">Find a solicitor near me</a>
+      <a href="/guides/employment-rights-uk.html" data-testid="landing-guide-employment-rights-uk" style="display:block; border:1px solid var(--line); border-radius:12px; padding:12px 14px; color:var(--gold); text-decoration:none;">Employment rights</a>
+      <a href="/guides/legal-aid-uk.html" data-testid="landing-guide-legal-aid-uk" style="display:block; border:1px solid var(--line); border-radius:12px; padding:12px 14px; color:var(--gold); text-decoration:none;">Can I get Legal Aid?</a>
+      <a href="/guides/unfair-dismissal-uk.html" data-testid="landing-guide-unfair-dismissal-uk" style="display:block; border:1px solid var(--line); border-radius:12px; padding:12px 14px; color:var(--gold); text-decoration:none;">Unfair dismissal</a>
+      <a href="/guides/redundancy-pay-uk.html" data-testid="landing-guide-redundancy-pay-uk" style="display:block; border:1px solid var(--line); border-radius:12px; padding:12px 14px; color:var(--gold); text-decoration:none;">Redundancy pay</a>
+      <a href="/guides/tenant-rights-eviction-uk.html" data-testid="landing-guide-tenant-rights-eviction-uk" style="display:block; border:1px solid var(--line); border-radius:12px; padding:12px 14px; color:var(--gold); text-decoration:none;">Tenant rights &amp; eviction</a>
+      <a href="/guides/flight-delay-compensation-uk.html" data-testid="landing-guide-flight-delay-compensation-uk" style="display:block; border:1px solid var(--line); border-radius:12px; padding:12px 14px; color:var(--gold); text-decoration:none;">Flight delay compensation</a>
+      <a href="/guides/parking-fine-appeal-uk.html" data-testid="landing-guide-parking-fine-appeal-uk" style="display:block; border:1px solid var(--line); border-radius:12px; padding:12px 14px; color:var(--gold); text-decoration:none;">Appeal a parking fine</a>
+    </div>
+    <h2 style="text-align:center;">Frequently asked questions</h2>
+    <div style="margin-top:20px;" data-testid="landing-faq-list">
+      <details data-testid="landing-faq-item-0" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">Is AI Advocate a real lawyer?</summary><p style="color:var(--text-dim); margin:10px 0 0;">No. AI Advocate is a legal-information assistant — not a law firm and not regulated by the SRA. It gives you instant, plain-English information about UK law and helps you draft letters and organise your case, but it is not a substitute for regulated legal advice from a qualified solicitor. For complex matters, we signpost you to Citizens Advice, Legal Aid Agency or an independent solicitor.</p></details>
+      <details data-testid="landing-faq-item-1" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">How much does AI Advocate cost?</summary><p style="color:var(--text-dim); margin:10px 0 0;">There is a free tier (one Lex question, no card required). Plus is £4.99/month for expanded Lex access using GPT. Pro is £9.99/month for unlimited Lex queries using Claude Sonnet, plus every premium feature including Contract Hub, Case Files, Lex Vault, Witness Builder and priority support. All UK VAT included. Cancel any time.</p></details>
+      <details data-testid="landing-faq-item-2" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">What areas of UK law does AI Advocate cover?</summary><p style="color:var(--text-dim); margin:10px 0 0;">Employment (unfair dismissal, discrimination, wages), housing (deposits, evictions, disrepair), family (divorce, child arrangements), consumer (refunds, faulty goods), small claims, debt, immigration, welfare benefits, personal injury basics, will drafting basics, and neighbour disputes. Primary training is England &amp; Wales law with Scotland and Northern Ireland variations flagged where relevant.</p></details>
+      <details data-testid="landing-faq-item-3" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">Is my data private and secure?</summary><p style="color:var(--text-dim); margin:10px 0 0;">Yes. Chat messages and case files are encrypted at rest. Lex Vault items are encrypted client-side with a PIN only you know — we cannot read them. We store data in EU-West MongoDB Atlas (UK-GDPR compliant). We never sell data to advertisers or data brokers. You can export or delete your data any time via Settings → Manage My Data.</p></details>
+      <details data-testid="landing-faq-item-4" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">What languages does AI Advocate support?</summary><p style="color:var(--text-dim); margin:10px 0 0;">11 languages: English (UK), Arabic, French, Spanish, Polish, Punjabi, Urdu, Bengali, Portuguese, Romanian and Somali. Lex understands questions in any supported language and can reply in the same language — legal terms are automatically kept in the original English legal term with a translated explanation.</p></details>
+      <details data-testid="landing-faq-item-5" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">Do I need to be in the UK to use AI Advocate?</summary><p style="color:var(--text-dim); margin:10px 0 0;">The app is primarily trained on UK law. You can use it from anywhere in the world, but for jurisdictions outside the UK we display a warning that legal answers may not fully apply to your country. If you need advice on non-UK matters, we recommend consulting a qualified lawyer in your jurisdiction.</p></details>
+    </div>
+  </div>
+</section>
+
 <!-- ============ Final CTA ============ -->
 <section style="text-align: center;">
   <div class="container">
@@ -779,6 +807,9 @@
         <a href="/guides/deposit-not-returned-uk.html">Deposit not returned</a>
         <a href="/guides/tenant-rights-eviction-uk.html">Tenant rights &amp; eviction</a>
         <a href="/guides/small-claims-consumer-refund-uk.html">Small claims &amp; refunds</a>
+        <a href="/guides/free-legal-advice-uk.html">Free legal advice</a>
+        <a href="/guides/find-a-solicitor-near-me-uk.html">Find a solicitor near me</a>
+        <a href="/guides/employment-rights-uk.html">Employment rights</a>
       </div>
       <div class="foot-col">
         <h4>Legal</h4>
