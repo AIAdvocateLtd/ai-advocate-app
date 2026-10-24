@@ -17,6 +17,7 @@ import { CaseKeyDates, DeadlineEmailsRow } from "@/CaseKeyDates";
 import { renderLexMarkdown, stripLexMarkdown, extractPdfTag } from "@/LexMarkdown";
 import { ShareActions, ShareActionsRow } from "@/ShareActions";
 import WillWriterModal from "@/WillWriter";
+import { useFormDraft, clearAllFormDrafts, DraftNotice } from "@/FormDrafts";
 import { TrustpilotPrompt, AdminTestimonialsCard } from "@/Reviews";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
@@ -113,6 +114,7 @@ api.interceptors.response.use(
     if (url.startsWith("/auth/")) return Promise.reject(error);
     // Token expired — boot to auth screen.
     localStorage.removeItem("aa_token");
+    clearAllFormDrafts();
     window.location.reload();
     return Promise.reject(error);
   }
@@ -12633,20 +12635,22 @@ function CostEstimateModal({ lang, country, onClose }) {
 // Two-step flow: (1) collect minimal user inputs → POST /forms/et1/draft →
 // (2) show structured result with download/print. Lex does the heavy lifting
 // (chat history extraction + claim type detection + statute citations).
+const ET1_EMPTY = {
+  full_name: "", address: "", postcode: "", phone: "", email: "", dob: "",
+  employer_name: "", employer_address: "",
+  job_title: "", employment_start_date: "", employment_end_date: "",
+  weekly_hours: "", gross_pay: "", net_pay: "", notice_period: "",
+  acas_certificate_number: "", acas_received_date: "",
+  extra_context: "",
+};
+
 function ET1AutoFillModal({ lang, country, onClose }) {
   const [step, setStep] = useState("input"); // input | result
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState(null);
   const scanInputRef = useRef(null);
-  const [form, setForm] = useState({
-    full_name: "", address: "", postcode: "", phone: "", email: "", dob: "",
-    employer_name: "", employer_address: "",
-    job_title: "", employment_start_date: "", employment_end_date: "",
-    weekly_hours: "", gross_pay: "", net_pay: "", notice_period: "",
-    acas_certificate_number: "", acas_received_date: "",
-    extra_context: "",
-  });
+  const [form, setForm, draft] = useFormDraft("et1", ET1_EMPTY);
   const [result, setResult] = useState(null);
 
   const scanForm = async (e) => {
@@ -12695,6 +12699,7 @@ function ET1AutoFillModal({ lang, country, onClose }) {
     try {
       const { data } = await api.post("/forms/et1/draft", { ...form, language: lang });
       setResult(data);
+      draft.discard();
       setStep("result");
     } catch (e) {
       aaToast(e?.response?.data?.detail || "Couldn't draft the ET1", "error");
@@ -12732,6 +12737,7 @@ function ET1AutoFillModal({ lang, country, onClose }) {
         <div style={{ padding: 20, overflowY: "auto", flex: 1 }}>
           {step === "input" && (
             <>
+              <DraftNotice draft={draft} testid="et1-draft-notice" />
               {/* OCR Scan-a-form entry point */}
               <input ref={scanInputRef} type="file" accept="image/*,application/pdf" capture="environment"
                      onChange={scanForm} style={{ display: "none" }} data-testid="et1-scan-input" />
@@ -13045,12 +13051,14 @@ function LegalAidEligibilityTab({ lang, country }) {
 
 
 // =============== TAB 2 — Draft Statement in Support ===============
+const LEGAL_AID_EMPTY = {
+  case_type: "civil", case_category: "", situation: "",
+  full_name: "", address: "", dob: "", nino: "",
+  monthly_income_gbp: "", savings_gbp: "", household_size: "1",
+};
+
 function LegalAidDraftTab({ lang, country }) {
-  const [form, setForm] = useState({
-    case_type: "civil", case_category: "", situation: "",
-    full_name: "", address: "", dob: "", nino: "",
-    monthly_income_gbp: "", savings_gbp: "", household_size: "1",
-  });
+  const [form, setForm, draft] = useFormDraft("legal_aid", LEGAL_AID_EMPTY);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
@@ -13069,6 +13077,7 @@ function LegalAidDraftTab({ lang, country }) {
         language: lang,
       });
       setResult(data);
+      draft.discard();
     } catch (e) {
       aaToast(e?.response?.data?.detail || "Couldn't draft the statement", "error");
     } finally { setBusy(false); }
@@ -13141,6 +13150,7 @@ function LegalAidDraftTab({ lang, country }) {
 
   return (
     <div>
+      <DraftNotice draft={draft} testid="legal-aid-draft-notice" />
       <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 12, lineHeight: 1.5 }}>
         Lex will draft a formal <strong>Statement in Support</strong> to attach to your official CIVAPP1 (civil) or CRM14 (criminal) form. It cites the right UK statutes and uses LAA-friendly language.
       </p>
@@ -16940,7 +16950,7 @@ function App() {
     }
     setStep("app");
   };
-  const onLogout = () => { localStorage.removeItem("aa_token"); setToken(null); setUser(null); setAuthHeader(null); clearSentryUser(); resetAnalytics(); setVerifyPendingEmail(""); setStep("auth"); };
+  const onLogout = () => { localStorage.removeItem("aa_token"); clearAllFormDrafts(); setToken(null); setUser(null); setAuthHeader(null); clearSentryUser(); resetAnalytics(); setVerifyPendingEmail(""); setStep("auth"); };
 
   // 📧 Email-verification state. Drives the EmailVerifyScreen render below.
   const [verifyPendingEmail, setVerifyPendingEmail] = useState("");

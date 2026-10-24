@@ -945,3 +945,8 @@ Production redeploy required. All env vars unchanged.
 
 ## 2026-10-24 — Mobile modal scroll fix
 - ET1, Will Writer, Legal Aid (and emergency card at App.js ~3392) modal-cards used inline maxHeight "92vh"/"94vh", which on phones is taller than the visible screen (vh includes browser bars) → header cut off, bottom unreachable. Changed to "92%"/"94%" of .modal-bg (which tracks the visual viewport). Rule: never use vh for modal-card heights.
+
+
+## 2026-10-24 — Save form progress
+- New FormDrafts.js: useFormDraft(name, initial) autosaves to localStorage `aa_draft_<name>` (400ms debounce), DraftNotice ("restored" + Clear form), clearAllFormDrafts() called on logout and 401.
+- Wired into ET1AutoFillModal (aa_draft_et1) and LegalAidDraftTab (aa_draft_legal_aid). Draft discarded after successful generation.
