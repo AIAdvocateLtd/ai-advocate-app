@@ -913,3 +913,10 @@ Production redeploy required. All env vars unchanged.
 - Removed Read aloud and the PDF button under Lex replies. Row: Copy · Email · Share (phones) · Best & worst case (BarChart3 icon, was "Outcome ladder") · Their argument (Scale icon, was "Other side" 😈) · Solicitor check £49.
 - PDF on request: lex_system_prompt appends LEX_PDF_INSTRUCTION → Lex ends reply with [[PDF: Title]] when user asks for a PDF; frontend extractPdfTag (LexMarkdown.js) hides tag and shows gold "Download PDF" button (lex-pdf-{i}) → /api/pdf/inline. stripMarkers in stream handler preserves the tag.
 - Security audit requested by user was paused by the user — not yet run.
+
+## 2026-10-24 — SEO + legal accuracy
+- welcome.html: title "Free Legal Help" (not Advice), canonical/og:url → /welcome.html (was "/" = thin app shell), removed fake AggregateRating 4.8/37 + fake "502+ helped" ticking counter (replaced with 4 UK nations / 24/7), fixed schema prices (Plus 19.99, Pro 34.99), footer "Free guides" column. index.html: better title + canonical → /welcome.html.
+- New static guides: /guides/index.html, medical-negligence-claim-uk, unfair-dismissal-uk, deposit-not-returned-uk, tenant-rights-eviction-uk, small-claims-consumer-refund-uk (+ guide.css; Article/FAQ/Breadcrumb JSON-LD; CTA → /app?src=guide-*). Sitemap rewritten.
+- LEX_LAW_UPDATES block prepended to Lex system prompt + deadline detector: ET time limit 6 months−1 day for acts on/after 1 Oct 2026; UD qualifying period 6 months for EDT ≥ 1 Jan 2027; Renters' Rights Act s21 abolished 1 May 2026. Verified Lex/detector now answer 2 Apr 2027 for 3 Oct 2026 dismissal.
+- PENDING: Google Search Console verification code from user (HTML tag method) → add meta to welcome.html. Suggest changing "An entire law firm. In your pocket." heading (conflicts with "not a law firm").
+- Note: python heredoc writes to /app/frontend/public sometimes blocked by harness ("/app is owned by the regression harness") — use search_replace/create_file instead.

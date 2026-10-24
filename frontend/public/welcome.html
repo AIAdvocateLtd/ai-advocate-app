@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>AI Advocate — AI Lawyer UK | Free Legal Advice in Seconds, 11 Languages</title>
+<title>AI Advocate — AI Lawyer UK | Free Legal Help in Seconds, 11 Languages</title>
 <meta name="description" content="AI lawyer for UK consumers. Instant answers on employment, housing, family, immigration &amp; consumer law. Draft solicitor-quality letters, organise your case, find free Legal Aid — all in plain English (11 languages). Not a substitute for a regulated solicitor.">
 <meta name="theme-color" content="#0a0a0a">
 <meta name="robots" content="index, follow">
-<meta name="keywords" content="AI lawyer UK, AI legal advice, free legal help UK, employment law app, tenant rights UK, housing law advice, unfair dismissal help, small claims court UK, AI solicitor alternative, legal aid UK, letter drafting app">
-<link rel="canonical" href="https://aiadvocate.co.uk/">
+<meta name="keywords" content="AI lawyer UK, AI legal help, free legal help UK, medical negligence claim UK, deposit not returned, employment law app, tenant rights UK, housing law advice, unfair dismissal help, small claims court UK, AI solicitor alternative, legal aid UK, letter drafting app">
+<link rel="canonical" href="https://aiadvocate.co.uk/welcome.html">
 
 <!-- PWA manifest — required for Google Play / PWABuilder install prompt on this landing page -->
 <link rel="manifest" href="/manifest.json">
@@ -20,8 +20,8 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="AI Advocate">
 <meta property="og:locale" content="en_GB">
-<meta property="og:url" content="https://aiadvocate.co.uk/">
-<meta property="og:title" content="AI Advocate — AI Lawyer UK | Free Legal Advice in 11 Languages">
+<meta property="og:url" content="https://aiadvocate.co.uk/welcome.html">
+<meta property="og:title" content="AI Advocate — AI Lawyer UK | Free Legal Help in 11 Languages">
 <meta property="og:description" content="Instant UK legal answers. Draft solicitor-quality letters, organise cases, find Legal Aid — all in plain English. Free tier available.">
 <meta property="og:image" content="https://aiadvocate.co.uk/icons/app-icon-1024.png">
 <meta property="og:image:alt" content="AI Advocate — Your AI Lawyer in Your Pocket">
@@ -64,7 +64,7 @@
       "@id": "https://aiadvocate.co.uk/#website",
       "url": "https://aiadvocate.co.uk",
       "name": "AI Advocate",
-      "description": "AI Lawyer for UK Consumers — Free Legal Advice in Seconds",
+      "description": "AI legal help for UK consumers — free plain-English legal answers in seconds",
       "publisher": { "@id": "https://aiadvocate.co.uk/#organization" },
       "inLanguage": "en-GB"
     },
@@ -98,24 +98,19 @@
         {
           "@type": "Offer",
           "name": "Plus",
-          "price": "4.99",
+          "price": "19.99",
           "priceCurrency": "GBP",
-          "description": "Monthly Plus subscription — GPT-powered"
+          "description": "Monthly Plus subscription"
         },
         {
           "@type": "Offer",
           "name": "Pro",
-          "price": "9.99",
+          "price": "34.99",
           "priceCurrency": "GBP",
-          "description": "Monthly Pro subscription — Claude Sonnet, unlimited queries"
+          "description": "Monthly Pro subscription"
         }
       ],
-      "publisher": { "@id": "https://aiadvocate.co.uk/#organization" },
-      "aggregateRating": {
-        "@type": "AggregateRating",
-        "ratingValue": "4.8",
-        "reviewCount": "37"
-      }
+      "publisher": { "@id": "https://aiadvocate.co.uk/#organization" }
     },
     {
       "@type": "FAQPage",
@@ -524,14 +519,12 @@
 <div class="container">
   <div class="stats">
     <div class="stat">
-      <div class="stat-num" id="stat-users" data-testid="stat-users-helped">500+</div>
-      <div class="stat-lbl">UK consumers helped</div>
+      <div class="stat-num" data-testid="stat-nations">4</div>
+      <div class="stat-lbl">UK nations covered</div>
     </div>
     <div class="stat">
-      <div class="stat-num" style="display:flex;align-items:center;justify-content:center;gap:6px;">
-        <span style="color:#f7c948;">★</span>4.8
-      </div>
-      <div class="stat-lbl">Avg. rating (37 reviews)</div>
+      <div class="stat-num" data-testid="stat-availability">24/7</div>
+      <div class="stat-lbl">Always available</div>
     </div>
     <div class="stat">
       <div class="stat-num">&lt;60s</div>
@@ -544,42 +537,6 @@
   </div>
 </div>
 
-<!-- Live-ticking counter — increments the "UK consumers helped" number slowly
-     over time so returning visitors see growth. Baseline persists in localStorage
-     so it never resets/decreases. Grows about +2/day so it feels alive but honest. -->
-<script>
-(function(){
-  try {
-    var LS_KEY = "aa_users_helped";
-    var LS_ANCHOR = "aa_users_anchor";
-    var BASE = 502;               // starting floor
-    var CAP  = 999;               // when we hit this we switch label to "999+"
-    var el = document.getElementById("stat-users");
-    if (!el) return;
-    // Anchor time is set on first visit — drift is measured from then, not from
-    // a hardcoded date, so nobody sees an unrealistic huge starting number.
-    var anchor = parseInt(localStorage.getItem(LS_ANCHOR) || "0", 10);
-    if (!anchor) { anchor = Date.now(); localStorage.setItem(LS_ANCHOR, String(anchor)); }
-    var stored = parseInt(localStorage.getItem(LS_KEY) || "0", 10);
-    var elapsedDays = Math.max(0, (Date.now() - anchor) / (1000 * 60 * 60 * 24));
-    var drift = Math.floor(elapsedDays * 2.4);  // ~+2-3 per day
-    var current = Math.max(stored, BASE + drift);
-    current = Math.min(current, CAP);
-    el.textContent = current >= CAP ? CAP + "+" : current + "+";
-    localStorage.setItem(LS_KEY, String(current));
-    // Optional live increment while the page is open — every ~4 minutes add 1
-    // (so a visitor lingering for 15 min sees the number nudge up once).
-    var tick = function(){
-      if (current >= CAP) return;
-      current = current + 1;
-      el.textContent = current >= CAP ? CAP + "+" : current + "+";
-      localStorage.setItem(LS_KEY, String(current));
-      setTimeout(tick, 220_000 + Math.random() * 120_000);
-    };
-    setTimeout(tick, 220_000 + Math.random() * 120_000);
-  } catch (e) { /* localStorage disabled — leave 500+ hardcoded */ }
-})();
-</script>
 
 <!-- ============ FEATURES ============ -->
 <section id="features">
@@ -645,7 +602,7 @@
       <div class="step">
         <div class="step-num">2</div>
         <h3>Get a clear answer</h3>
-        <p>Plain-English advice citing real UK law. Save the conversation. Share with a solicitor if you need one.</p>
+        <p>Plain-English answers citing real UK law. Save the conversation. Share with a solicitor if you need one.</p>
       </div>
       <div class="step">
         <div class="step-num">3</div>
@@ -812,6 +769,15 @@
         <a href="/for-firms">For Law Firms</a>
         <a href="/for-organisations">For Councils &amp; Charities</a>
         <a href="mailto:hello@aiadvocate.co.uk">Press / Partnerships</a>
+      </div>
+      <div class="foot-col">
+        <h4>Free guides</h4>
+        <a href="/guides/index.html">All legal guides</a>
+        <a href="/guides/medical-negligence-claim-uk.html">Medical negligence</a>
+        <a href="/guides/unfair-dismissal-uk.html">Unfair dismissal</a>
+        <a href="/guides/deposit-not-returned-uk.html">Deposit not returned</a>
+        <a href="/guides/tenant-rights-eviction-uk.html">Tenant rights &amp; eviction</a>
+        <a href="/guides/small-claims-consumer-refund-uk.html">Small claims &amp; refunds</a>
       </div>
       <div class="foot-col">
         <h4>Legal</h4>

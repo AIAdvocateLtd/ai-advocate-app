@@ -1041,8 +1041,22 @@ CONVERSATION MEMORY (CRITICAL):
         "legal_letter": "\n\nYou are now drafting a FORMAL LEGAL LETTER. Use proper structure (sender, recipient, date, subject, body, sign-off). Be firm but professional. Reference the relevant law.",
         "record": "\n\nYou are reviewing a RECORDED LEGAL INTERACTION (police/court transcript). Flag: rights violations, leading questions, things the user should NOT have said, suggested follow-up actions.",
     }
-    return _today_uk_line() + base + addons.get(category, "") + LEX_PDF_INSTRUCTION
+    return _today_uk_line() + LEX_LAW_UPDATES + base + addons.get(category, "") + LEX_PDF_INSTRUCTION
 
+
+LEX_LAW_UPDATES = (
+    "RECENT UK LAW CHANGES — these override older training knowledge:\n"
+    "- Employment tribunal time limits (Great Britain; NI unchanged): where the act, failure or dismissal is on or after "
+    "1 October 2026, most claims (unfair dismissal, discrimination, unlawful deductions from wages, breach of contract in "
+    "England & Wales) must be brought within 6 months less one day. Earlier matters keep the old 3 months less one day. "
+    "Breach of contract claims in Scotland move to 6 months from 9 November 2026. ACAS early conciliation is still required first.\n"
+    "- Unfair dismissal qualifying period (Great Britain): 2 years' service if the effective date of termination is before "
+    "1 January 2027; 6 months' service if it is on or after 1 January 2027 (Employment Rights Act 2025).\n"
+    "- England private renting (Renters' Rights Act 2025): from 1 May 2026 section 21 no-fault evictions are abolished — no new "
+    "section 21 notices; possession claims on notices served by 30 April 2026 had to start by 31 July 2026. Landlords must use "
+    "section 8 grounds; most tenancies are periodic; rent can rise once a year by formal notice.\n"
+    "If you are unsure whether a rule has changed recently, say so and suggest checking GOV.UK.\n\n"
+)
 
 LEX_PDF_INSTRUCTION = (
     "\n\nPDF REQUESTS: The app can turn your reply into a downloadable PDF. If the user asks for a PDF, a printable "
@@ -7978,7 +7992,7 @@ For each deadline found, return a JSON array entry: {{"title": "...", "due_at": 
 If no deadlines found, return [].
 Reply with ONLY valid JSON — no preamble, no explanation.
 If a relative date is mentioned (e.g. "within 14 days"), compute it from today.
-{_today_uk_line()}"""
+{LEX_LAW_UPDATES}{_today_uk_line()}"""
     if not _DEADLINE_HINT_RE.search(message or ""):
         return {"deadlines": []}
     try:
