@@ -17,6 +17,7 @@ import { CaseKeyDates, DeadlineEmailsRow } from "@/CaseKeyDates";
 import { renderLexMarkdown, stripLexMarkdown, extractPdfTag } from "@/LexMarkdown";
 import { ShareActions, ShareActionsRow } from "@/ShareActions";
 import WillWriterModal from "@/WillWriter";
+import { TrustpilotPrompt, AdminTestimonialsCard } from "@/Reviews";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
 // we hide all Subscribe / Upgrade buttons (and replace them with a web-billing notice).
@@ -996,6 +997,7 @@ function TasterLex({ lang, country, onClose, onSignupClick }) {
         message: question.trim(), device_id: deviceId, language: lang, country,
       });
       setAnswer(data.response);
+      if (data.taster_id) localStorage.setItem("aa_taster_id", data.taster_id);
       setAvailable(false);
     } catch (e2) {
       setErr(e2?.response?.data?.detail || "Lex is busy — try again");
@@ -2826,6 +2828,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
               )}
             </div>
           ))}
+          {!busy && <TrustpilotPrompt lexReplies={messages.filter(m => m.role === "lex").length} />}
           {busy && (
             <div className="bubble-lex aa-lex-typing" style={{ alignSelf: "flex-start", padding: "10px 14px", borderRadius: 14, display: "inline-flex", alignItems: "center", gap: 8 }}>
               <span className="aa-typing-dots"><span /><span /><span /></span>
@@ -7856,6 +7859,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             <AdminCommissionsCard />
             {/* 💰 OWNER ONLY — verify every STRIPE_PRICE_* env var resolves to the right amount */}
             <AdminStripePriceAuditCard />
+            <AdminTestimonialsCard api={api} toast={aaToast} />
             {/* 💷 OWNER ONLY — founder cost dashboard: MRR, Stripe fees, LLM burn, net margin */}
             <AdminFounderFinanceCard />
             {/* ✍️ OWNER ONLY — default founder signature for auto-fire Founding Firm Agreements */}
@@ -11922,6 +11926,16 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
   const tier = user.tier || "free";
   const TIER_RANK = { free: 0, plus: 1, pro: 2, yearly: 2, trial_pro: 2 };
   const hasTier = useCallback((req) => TIER_RANK[tier] >= TIER_RANK[req], [tier]);
+
+  // Save the visitor's free pre-signup answer into their chats
+  useEffect(() => {
+    const tid = localStorage.getItem("aa_taster_id");
+    if (!tid) return;
+    localStorage.removeItem("aa_taster_id");
+    api.post("/lex/taster/import", { taster_id: tid })
+      .then(r => { if (r.data?.imported) aaToast("Your free answer from Lex is saved in your chats"); })
+      .catch(() => {});
+  }, []);
 
   // Allow other components (Settings) to open the Subscribe modal with a preset plan
   useEffect(() => {

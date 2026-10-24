@@ -276,6 +276,16 @@
   .ask-note { font-size: 11.5px; color: var(--text-muted); margin-top: 10px; }
   @keyframes askIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
+  .tp-btn { display: inline-block; border: 1px solid var(--gold); color: var(--gold); padding: 10px 20px; border-radius: 999px; font-weight: 700; font-size: 13.5px; text-decoration: none; transition: background-color 0.2s, color 0.2s; }
+  .tp-btn:hover { background: var(--gold); color: #000; }
+  .reviews-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .review-card { background: var(--bg-card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  .review-stars { color: #00b67a; letter-spacing: 2px; font-size: 16px; }
+  .review-quote { color: var(--text); font-size: 14px; line-height: 1.6; margin: 10px 0 12px; }
+  .review-meta { font-size: 12px; color: var(--text-muted); }
+  .review-meta a { color: var(--gold); }
+  section[hidden], li[hidden] { display: none; }
+
   /* Hero CTA — waitlist form */
   .hero-cta {
     background: var(--bg-card); border: 1.5px solid var(--gold-deep);
@@ -524,7 +534,7 @@
       </div>
       <div id="ask-lex-status" class="ask-status" data-testid="hero-ask-lex-status" role="status"></div>
       <div id="ask-lex-answer" class="ask-answer" data-testid="hero-ask-lex-answer" hidden></div>
-      <a id="ask-lex-signup" class="cta-btn ask-signup" href="/app?src=landing-taster" data-testid="hero-ask-lex-signup" hidden>Create a free account to keep chatting →</a>
+      <a id="ask-lex-signup" class="cta-btn ask-signup" href="/app?src=landing-taster" data-testid="hero-ask-lex-signup" hidden>Create a free account — your answer is saved →</a>
       <div class="ask-note">General legal information, not legal advice. Don't include names or personal details.</div>
     </form>
 
@@ -688,6 +698,7 @@
           <li>Hearing notes &amp; transcription<sup>†</sup></li>
           <li>Deep Think for complex cases</li>
           <li>Priority legal research</li>
+          <li id="pro-standby" data-testid="pro-standby-item" hidden>Lawyer Standby network</li>
           <li>200 files</li>
         </ul>
         <div class="plan-foot">For serious legal matters. Yearly commitment unlocks £100 off.</div>
@@ -745,7 +756,7 @@
       <h3>Built with serious privacy and legal compliance</h3>
       <p style="color: var(--text-dim); font-size: 14px; margin: 0; max-width: 600px; display: inline-block;">
         AI Advocate is not a law firm and not a substitute for a qualified solicitor. For complex matters,
-        we signpost you to Citizens Advice, Legal Aid or an independent solicitor.
+        <span id="trust-referral" data-testid="trust-referral-text">we signpost you to Citizens Advice, Legal Aid or an independent solicitor.</span>
       </p>
       <div class="trust-grid">
         <div class="trust-item"><strong>UK GDPR</strong>Compliant</div>
@@ -753,6 +764,23 @@
         <div class="trust-item"><strong>No</strong>Data Selling</div>
         <div class="trust-item"><strong>Open</strong>Privacy Policy</div>
       </div>
+      <div style="margin-top:20px;">
+        <a href="https://www.trustpilot.com/review/aiadvocate.co.uk" target="_blank" rel="noopener" class="tp-btn" data-testid="trust-trustpilot-btn">★ Review us on Trustpilot</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Reviews (shown once 3+ Trustpilot reviews are added in Admin) ============ -->
+<section id="reviews" data-testid="landing-reviews-section" hidden>
+  <div class="container">
+    <div class="section-head">
+      <div class="eyebrow">Reviews</div>
+      <h2>What people say about Lex.</h2>
+    </div>
+    <div class="reviews-grid" id="reviews-grid" data-testid="landing-reviews-grid"></div>
+    <div style="text-align:center; margin-top:22px;">
+      <a href="https://www.trustpilot.com/review/aiadvocate.co.uk" target="_blank" rel="noopener" class="tp-btn" data-testid="reviews-trustpilot-link">See all reviews on Trustpilot →</a>
     </div>
   </div>
 </section>
@@ -842,6 +870,7 @@
         <h4>Legal</h4>
         <a href="/privacy.html">Privacy</a>
         <a href="/terms.html">Terms</a>
+        <a href="https://www.trustpilot.com/review/aiadvocate.co.uk" target="_blank" rel="noopener" data-testid="footer-trustpilot-link">Trustpilot reviews</a>
       </div>
     </div>
     <div class="foot-bottom">
@@ -905,12 +934,35 @@
             btn.disabled = false; status.className = 'ask-status err';
             status.textContent = (res.d && res.d.detail) || 'Lex is busy — please try again.'; return;
           }
+          if (res.d.taster_id) localStorage.setItem('aa_taster_id', res.d.taster_id);
           answer.innerHTML = render(res.d.response || ''); answer.hidden = false;
           status.textContent = ''; input.disabled = true; btn.disabled = true; signup.hidden = false;
         })
         .catch(function () { btn.disabled = false; btn.textContent = 'Ask Lex →'; status.className = 'ask-status err'; status.textContent = 'Connection problem — please try again.'; });
     });
   })();
+</script>
+
+<script>
+  // Live landing data: firm referrals + Trustpilot reviews
+  fetch('/api/public/landing').then(function (r) { return r.json(); }).then(function (d) {
+    if (d.firms_live) {
+      var t = document.getElementById('trust-referral');
+      if (t) t.textContent = "we'll connect you with a solicitor from our partner firms.";
+      var li = document.getElementById('pro-standby'); if (li) li.hidden = false;
+    }
+    var list = d.testimonials || [];
+    if (list.length < 3) return;
+    var esc = function (x) { return String(x || '').replace(/[&<>"]/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); };
+    document.getElementById('reviews-grid').innerHTML = list.map(function (r, i) {
+      return '<div class="review-card" data-testid="landing-review-' + i + '">' +
+        '<div class="review-stars" aria-label="' + r.stars + ' out of 5 stars">' + '★'.repeat(r.stars) + '<span style="color:#3a3a3a">' + '★'.repeat(5 - r.stars) + '</span></div>' +
+        '<p class="review-quote">“' + esc(r.quote) + '”</p>' +
+        '<div class="review-meta">' + esc(r.name) + (r.review_date ? ' · ' + esc(r.review_date) : '') +
+        ' · <a href="' + esc(r.link) + '" target="_blank" rel="noopener">Verified on Trustpilot</a></div></div>';
+    }).join('');
+    document.getElementById('reviews').hidden = false;
+  }).catch(function () {});
 </script>
 
 <script>

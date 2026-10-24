@@ -2429,7 +2429,13 @@ async def lex_taster(req: Request, data: TasterMessage):
         feature="lex_taster",
     )
 
-    return {"response": response, "model": "claude-haiku-4-5"}
+    taster_id = str(uuid.uuid4())
+    await db.taster_answers.insert_one({
+        "id": taster_id, "question": encrypt_text(text), "response": encrypt_text(response),
+        "language": data.language, "claimed_by": None, "created_at": now_iso,
+    })
+
+    return {"response": response, "model": "claude-haiku-4-5", "taster_id": taster_id}
 
 
 @api_router.get("/lex/taster/status")
@@ -16267,6 +16273,85 @@ async def evidence_invite_close(case_id: str, invite_id: str, user: dict = Depen
     if r.matched_count == 0:
         raise HTTPException(404, "Invite not found")
     return {"ok": True}
+
+
+# ==================== Taster import · Landing status · Testimonials ====================
+class TasterImport(BaseModel):
+    taster_id: str
+
+@api_router.post("/lex/taster/import")
+async def lex_taster_import(data: TasterImport, user: dict = Depends(get_user)):
+    """Save a visitor's free pre-signup answer into their new account's chat history."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    t = await db.taster_answers.find_one_and_update(
+        {"id": data.taster_id, "claimed_by": None, "created_at": {"$gte": cutoff}},
+        {"$set": {"claimed_by": user["id"]}},
+    )
+    if not t:
+        return {"imported": False}
+    session_id = str(uuid.uuid4())
+    await db.conversations.insert_one({
+        "id": str(uuid.uuid4()), "user_id": user["id"], "session_id": session_id,
+        "category": "ask_lex", "user_message": t["question"], "assistant_response": t["response"],
+        "language": t.get("language", "en-GB"), "model_used": "claude-haiku-4-5-20251001",
+        "deep_think": False, "deep_think_auto": False, "citations": [], "linked_case_id": None,
+        "created_at": t["created_at"],
+    })
+    return {"imported": True, "session_id": session_id}
+
+
+TRUSTPILOT_URL = "https://www.trustpilot.com/review/aiadvocate.co.uk"
+MIN_TESTIMONIALS_SHOWN = 3
+
+async def _firms_live() -> bool:
+    """True once at least one real firm has an active paid Stripe subscription."""
+    q = {"billing_status": "active", "stripe_subscription_id": {"$nin": [None, ""]}}
+    async for f in db.firm_accounts.find(q, {"_id": 0, "email": 1}):
+        email = (f.get("email") or "").lower()
+        if "test" in email or "example" in email or email.endswith("@advocate.app"):
+            continue
+        return True
+    return False
+
+@api_router.get("/public/landing")
+async def public_landing():
+    reviews = await db.testimonials.find({}, {"_id": 0}).sort("created_at", -1).to_list(12)
+    return {
+        "firms_live": await _firms_live(),
+        "trustpilot_url": TRUSTPILOT_URL,
+        "testimonials": reviews if len(reviews) >= MIN_TESTIMONIALS_SHOWN else [],
+    }
+
+class TestimonialIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=60)
+    stars: int = Field(5, ge=1, le=5)
+    quote: str = Field(..., min_length=5, max_length=400)
+    review_date: str = ""
+    link: str = ""
+
+@api_router.get("/admin/testimonials")
+async def admin_list_testimonials(_: dict = Depends(require_admin)):
+    items = await db.testimonials.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return {"items": items, "min_shown": MIN_TESTIMONIALS_SHOWN}
+
+@api_router.post("/admin/testimonials")
+async def admin_add_testimonial(data: TestimonialIn, _: dict = Depends(require_admin)):
+    link = data.link.strip()
+    if link and not link.startswith("https://") :
+        raise HTTPException(400, "Link must start with https://")
+    doc = {"id": str(uuid.uuid4()), "name": data.name.strip(), "stars": data.stars,
+           "quote": data.quote.strip(), "review_date": data.review_date.strip(),
+           "link": link or TRUSTPILOT_URL, "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.testimonials.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.delete("/admin/testimonials/{tid}")
+async def admin_delete_testimonial(tid: str, _: dict = Depends(require_admin)):
+    r = await db.testimonials.delete_one({"id": tid})
+    if not r.deleted_count:
+        raise HTTPException(404, "Not found")
+    return {"deleted": True}
 
 
 app.include_router(api_router)
