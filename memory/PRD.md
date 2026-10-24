@@ -927,3 +927,9 @@ Production redeploy required. All env vars unchanged.
 - welcome.html: visible "Popular legal questions" links + visible FAQ (matches existing FAQPage schema); footer guide links extended.
 - guides/index.html, cross-links in old guides, sitemap.xml now 19 URLs.
 - GSC: sitemap submitted (pending first read); user requested indexing for main pages.
+
+## 2026-10-24 — Landing page accuracy + Ask Lex box
+- welcome.html: removed AI model names from plans; fixed false "Deep Think (Opus 4.5)"; Plus "Unlimited (fair use, 100/day)" with fine print; "Hearing notes & transcription" + court-permission warning; removed Lawyer Standby (no firms live yet); trust copy now signposts Citizens Advice/Legal Aid/solicitor; headline "Legal help, in your pocket."; removed "solicitor-quality" & "cites case law" claims; softened overseas-law claim; schema OS=Web, free offer = 5 chats/day; pricing FAQ corrected.
+- Emoji feature icons replaced with inline gold SVG line icons.
+- New hero "Ask Lex" box using existing POST /api/lex/taster (1 free question per device/IP per 7 days, Haiku), shows answer + signup CTA; 429 -> "used" state.
+- Note: only the Read-aloud button under Lex replies was removed; Voice mode (Plus), Emergency Rights read-aloud and Whisper Mode still use TTS.

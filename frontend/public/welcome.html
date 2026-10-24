@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>AI Advocate — AI Lawyer UK | Free Legal Help in Seconds, 11 Languages</title>
-<meta name="description" content="AI lawyer for UK consumers. Instant answers on employment, housing, family, immigration &amp; consumer law. Draft solicitor-quality letters, organise your case, find free Legal Aid — all in plain English (11 languages). Not a substitute for a regulated solicitor.">
+<meta name="description" content="AI lawyer for UK consumers. Instant answers on employment, housing, family, immigration &amp; consumer law. Draft professional, ready-to-send letters, organise your case, find free Legal Aid — all in plain English (11 languages). Not a substitute for a regulated solicitor.">
 <meta name="theme-color" content="#0a0a0a">
 <meta name="robots" content="index, follow">
 <meta name="keywords" content="AI lawyer UK, AI legal help, free legal help UK, medical negligence claim UK, deposit not returned, employment law app, tenant rights UK, housing law advice, unfair dismissal help, small claims court UK, AI solicitor alternative, legal aid UK, letter drafting app">
 <link rel="canonical" href="https://aiadvocate.co.uk/welcome.html">
 <meta name="google-site-verification" content="BunLdluLS-mpfBNz1ujEyu6T194HAGEumFVLjPoAN-0">
 
-<!-- PWA manifest — required for Google Play / PWABuilder install prompt on this landing page -->
+<!-- PWA manifest — enables the install prompt on this landing page -->
 <link rel="manifest" href="/manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -23,7 +23,7 @@
 <meta property="og:locale" content="en_GB">
 <meta property="og:url" content="https://aiadvocate.co.uk/welcome.html">
 <meta property="og:title" content="AI Advocate — AI Lawyer UK | Free Legal Help in 11 Languages">
-<meta property="og:description" content="Instant UK legal answers. Draft solicitor-quality letters, organise cases, find Legal Aid — all in plain English. Free tier available.">
+<meta property="og:description" content="Instant UK legal answers. Draft professional letters, organise cases, find Legal Aid — all in plain English. Free tier available.">
 <meta property="og:image" content="https://aiadvocate.co.uk/icons/app-icon-1024.png">
 <meta property="og:image:alt" content="AI Advocate — Your AI Lawyer in Your Pocket">
 <meta name="twitter:card" content="summary_large_image">
@@ -58,7 +58,7 @@
         "@type": "PostalAddress",
         "addressCountry": "GB"
       },
-      "description": "AI Advocate is a UK-focused legal-information assistant that gives consumers instant, plain-English legal answers, drafts solicitor-quality letters and organises case files — as an affordable complement to regulated legal advice. AI Advocate is not a law firm and is not SRA regulated."
+      "description": "AI Advocate is a UK-focused legal-information assistant that gives consumers instant, plain-English legal answers, drafts professional letters and organises case files — as an affordable complement to regulated legal advice. AI Advocate is not a law firm and is not SRA regulated."
     },
     {
       "@type": "WebSite",
@@ -73,7 +73,7 @@
       "@type": "SoftwareApplication",
       "@id": "https://aiadvocate.co.uk/#software",
       "name": "AI Advocate",
-      "operatingSystem": "iOS, Android, Web",
+      "operatingSystem": "Web",
       "applicationCategory": "BusinessApplication",
       "applicationSubCategory": "LegalApplication",
       "url": "https://aiadvocate.co.uk",
@@ -84,7 +84,7 @@
         "Contract Hub — upload and analyse contracts",
         "Lex Vault — encrypted document storage",
         "Legal Aid Finder — free advisers near you",
-        "Letter Writer — solicitor-quality templates",
+        "Letter Writer — professional, ready-to-send letters",
         "Witness Builder — statement drafting",
         "11 languages"
       ],
@@ -94,7 +94,7 @@
           "name": "Free tier",
           "price": "0",
           "priceCurrency": "GBP",
-          "description": "1 Ask Lex question — no card required"
+          "description": "5 Lex chats a day — no card required"
         },
         {
           "@type": "Offer",
@@ -130,7 +130,7 @@
           "name": "How much does AI Advocate cost?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Free is £0 forever with 5 Lex chats a day, no card required. Plus is £19.99/month for unlimited Lex chats, unlimited letters, Contract Review and Court Prep. Pro is £34.99/month, or £319.99/year (save £100), for everything in Plus plus Deep Think, the Hearing Recorder and the Lawyer Standby network. One-off packs are also available from £4.99. All prices include UK VAT. Cancel any time."
+            "text": "Free is £0 forever with 5 Lex chats a day, no card required. Plus is £19.99/month for unlimited Lex chats (fair use), unlimited letters, Contract Review and Court Prep. Pro is £34.99/month, or £319.99/year (save £100), for everything in Plus plus Deep Think for complex cases, hearing notes and transcription, and priority legal research. One-off packs are also available from £4.99. All prices include UK VAT. Cancel any time."
           }
         },
         {
@@ -262,6 +262,20 @@
     max-width: 620px; margin: 0 auto 36px; line-height: 1.55;
   }
 
+  .ask-lex { max-width: 620px; margin: 0 auto 18px; text-align: left; }
+  .ask-lex textarea { width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.4); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; color: var(--text); font: inherit; font-size: 15px; resize: vertical; outline: none; transition: border-color 0.2s; }
+  .ask-lex textarea:focus { border-color: var(--gold); }
+  .ask-row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; gap: 10px; }
+  .ask-count { font-size: 12px; color: var(--text-muted); }
+  .ask-status { font-size: 13px; color: var(--text-dim); margin-top: 10px; min-height: 0; }
+  .ask-status.err { color: #fca5a5; }
+  .ask-answer { margin-top: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: rgba(0,0,0,0.35); font-size: 14.5px; line-height: 1.6; color: var(--text); max-height: 420px; overflow-y: auto; animation: askIn 0.35s ease; }
+  .ask-answer strong { color: var(--gold); }
+  .ask-signup { display: block; text-align: center; text-decoration: none; margin-top: 12px; color: #000; font-weight: 800; font-size: 14px; padding: 12px 22px; border-radius: 10px; background: linear-gradient(135deg, var(--gold), var(--gold-soft)); }
+  .ask-signup[hidden], .ask-answer[hidden] { display: none; }
+  .ask-note { font-size: 11.5px; color: var(--text-muted); margin-top: 10px; }
+  @keyframes askIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
   /* Hero CTA — waitlist form */
   .hero-cta {
     background: var(--bg-card); border: 1.5px solid var(--gold-deep);
@@ -350,7 +364,7 @@
     background: linear-gradient(135deg, rgba(247,201,72,0.20), rgba(247,201,72,0.05));
     border: 1px solid var(--gold-deep);
     display: flex; align-items: center; justify-content: center;
-    font-size: 22px; margin-bottom: 16px;
+    color: var(--gold); margin-bottom: 16px;
   }
   .feature h3 { font-family: 'Cinzel', serif; font-size: 18px; color: var(--gold); margin: 0 0 8px; font-weight: 600; }
   .feature p { font-size: 13.5px; color: var(--text-dim); margin: 0; line-height: 1.55; }
@@ -495,13 +509,28 @@
     <h1>The law in the<br><span class="gold-grad">palm of your hand.</span></h1>
     <p class="sub">
       Real-time legal answers, typically in under a minute. Letter drafting, court prep, evidence storage,
-      emergency rights — built for the UK, in any UK or international jurisdiction,
+      emergency rights — built for UK law, with general guidance for other countries,
       available in 11 languages.
     </p>
 
+    <!-- Ask Lex taster: one free question, no signup -->
+    <form id="ask-lex" class="hero-cta ask-lex" data-testid="hero-ask-lex-form" autocomplete="off">
+      <div class="hero-cta-title">ASK LEX A QUESTION — FREE, NO SIGN-UP</div>
+      <textarea id="ask-lex-input" data-testid="hero-ask-lex-input" maxlength="500" rows="3"
+        placeholder="e.g. My landlord won't return my deposit. What can I do?"></textarea>
+      <div class="ask-row">
+        <span id="ask-lex-count" class="ask-count">0/500</span>
+        <button type="submit" class="cta-btn" id="ask-lex-btn" data-testid="hero-ask-lex-submit">Ask Lex →</button>
+      </div>
+      <div id="ask-lex-status" class="ask-status" data-testid="hero-ask-lex-status" role="status"></div>
+      <div id="ask-lex-answer" class="ask-answer" data-testid="hero-ask-lex-answer" hidden></div>
+      <a id="ask-lex-signup" class="cta-btn ask-signup" href="/app?src=landing-taster" data-testid="hero-ask-lex-signup" hidden>Create a free account to keep chatting →</a>
+      <div class="ask-note">General legal information, not legal advice. Don't include names or personal details.</div>
+    </form>
+
     <!-- Sign up / Sign in — web app is live -->
     <div id="waitlist" class="hero-cta" style="border-color:#f7c948; padding:24px 22px;">
-      <div class="hero-cta-title" style="margin-bottom:14px;">⚡ THE APP IS LIVE — SIGN UP IN 30 SECONDS</div>
+      <div class="hero-cta-title" style="margin-bottom:14px;">THE APP IS LIVE — SIGN UP IN 30 SECONDS</div>
       <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center;">
         <a href="/app" class="cta-btn" data-testid="hero-signup-link"
            style="flex:1; min-width:140px; text-align:center; text-decoration:none; padding:14px 22px; font-size:15px;">
@@ -544,42 +573,42 @@
   <div class="container">
     <div class="section-head">
       <div class="eyebrow">What you can do</div>
-      <h2>An entire law firm. In your pocket.</h2>
-      <p class="section-sub">From tenancy disputes to immigration, employment claims to court prep — get clear, actionable answers backed by real UK law.</p>
+      <h2>Legal help, in your pocket.</h2>
+      <p class="section-sub">From tenancy disputes to immigration, employment claims to court prep — get clear, practical answers grounded in UK law.</p>
     </div>
     <div class="features">
       <div class="feature">
-        <div class="ico">⚖️</div>
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M5 21h14"/><path d="M3 7h18"/><path d="m6 7-3 7a3 3 0 0 0 6 0Z"/><path d="m18 7-3 7a3 3 0 0 0 6 0Z"/></svg></div>
         <h3>Ask Lex</h3>
-        <p>Your AI legal advocate, powered by GPT-5.2 and Claude Sonnet 4.5. Answers cite real UK statutes and case law. Available in 11 languages.</p>
+        <p>Your AI legal assistant. Plain-English answers that point you to the relevant UK law, so you know where you stand. Available in 11 languages.</p>
       </div>
       <div class="feature">
-        <div class="ico">🌍</div>
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18Z"/></svg></div>
         <h3>Travels with you</h3>
-        <p>Lex updates automatically to local law wherever you are in the world. Land in France? It detects the change and offers to switch jurisdiction — UK contract dispute, French rental row, US visa question, all in one app.</p>
+        <p>Abroad? Lex can switch to the country you're in and give general guidance on local law, clearly flagged as such. For anything serious overseas, it'll point you to a local lawyer.</p>
       </div>
       <div class="feature">
-        <div class="ico">✉️</div>
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg></div>
         <h3>Auto-Draft Letters</h3>
         <p>Section 21 challenges, deposit disputes, grievance letters, deposit return demands — drafted in seconds, ready to send.</p>
       </div>
       <div class="feature">
-        <div class="ico">📸</div>
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7.5 7H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-3.5Z"/><circle cx="12" cy="13" r="3.5"/></svg></div>
         <h3>Evidence Analysis</h3>
         <p>Upload photos or videos — Lex examines them, identifies issues, and tells you how they could support your case.</p>
       </div>
       <div class="feature">
-        <div class="ico">🏛️</div>
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V10"/><path d="M19 21V10"/><path d="M9.5 21V10"/><path d="M14.5 21V10"/><path d="m12 3 9 5H3Z"/></svg></div>
         <h3>Court Prep Mode</h3>
         <p>Mock cross-examinations. Practice your testimony. Lex acts as the opposing barrister so you walk in ready.</p>
       </div>
       <div class="feature">
-        <div class="ico">🛡️</div>
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6Z"/><path d="m9 12 2 2 4-4"/></svg></div>
         <h3>Emergency Rights</h3>
         <p>Stopped by police? Arrested? One tap reads you your rights aloud in your language — instantly, free, always.</p>
       </div>
       <div class="feature">
-        <div class="ico">🔒</div>
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
         <h3>Lex Vault</h3>
         <p>End-to-end encrypted storage for your legal evidence. Biometric-locked on supported devices (Face ID, Touch ID, Windows Hello, Android biometric). Yours, retained while your account is active — see Terms for retention.</p>
       </div>
@@ -626,49 +655,47 @@
       <div class="plan">
         <div class="plan-name">Free</div>
         <div class="plan-price">£0 <small>/forever</small></div>
-        <div class="ai-badge dim">⚡ Claude Haiku 4.5</div>
         <ul>
           <li>5 Lex chats / day</li>
           <li>1 photo evidence / month</li>
           <li>1 letter / month</li>
-          <li>Emergency Rights (always free)</li>
+          <li>Emergency Rights, read aloud (always free)</li>
           <li>Encrypted Vault</li>
-          <li>Read-aloud answers</li>
         </ul>
         <div class="plan-foot">No card. No trial limit. Just start.</div>
       </div>
       <div class="plan featured">
         <div class="plan-name">Plus</div>
         <div class="plan-price">£19.99 <small>/month</small></div>
-        <div class="ai-badge">✨ Powered by GPT-5.2</div>
         <ul>
-          <li>Unlimited Lex chats</li>
+          <li>Unlimited Lex chats<sup>*</sup></li>
           <li>15 photo evidence / month</li>
           <li>Unlimited letters</li>
           <li>Contract Review</li>
           <li>Court Prep mode</li>
-          <li>Voice in/out</li>
+          <li>Talk to Lex by voice</li>
           <li>50 files</li>
         </ul>
         <div class="plan-foot">Or get a Day Pass for £4.99, Letter Pack £9.99, Weekend £14.99, Crisis Pack £29.99 — pay only when you need it.</div>
       </div>
       <div class="plan plan-yearly">
-        <div class="badge-best">🏆 BEST VALUE</div>
+        <div class="badge-best">BEST VALUE</div>
         <div class="plan-name">Pro</div>
         <div class="plan-price">£34.99 <small>/month</small></div>
         <div class="yearly-line">or <strong>£319.99/year</strong> · save <strong>£100</strong></div>
-        <div class="ai-badge">🧠 Claude Sonnet 4.5 + Deep Think</div>
         <ul>
           <li>Everything in Plus</li>
-          <li>Hearing Recorder</li>
-          <li>Deep Think (Opus 4.5)</li>
-          <li>Priority RAG legal research</li>
-          <li>Lawyer Standby network</li>
+          <li>Hearing notes &amp; transcription<sup>†</sup></li>
+          <li>Deep Think for complex cases</li>
+          <li>Priority legal research</li>
           <li>200 files</li>
         </ul>
         <div class="plan-foot">For serious legal matters. Yearly commitment unlocks £100 off.</div>
       </div>
     </div>
+    <p class="pricing-fineprint" data-testid="pricing-fineprint" style="text-align:center; font-size:12px; color:var(--text-muted); max-width:640px; margin:22px auto 0; line-height:1.6;">
+      <sup>*</sup> Fair use: up to 100 Lex chats a day on Plus. <sup>†</sup> Never record a court or tribunal hearing without the court's permission — it's a criminal offence in the UK. All prices include UK VAT.
+    </p>
   </div>
 </section>
 
@@ -717,8 +744,8 @@
     <div class="trust">
       <h3>Built with serious privacy and legal compliance</h3>
       <p style="color: var(--text-dim); font-size: 14px; margin: 0; max-width: 600px; display: inline-block;">
-        AI Advocate is not a substitute for a qualified solicitor. For complex matters,
-        we'll connect you to a real lawyer in our network.
+        AI Advocate is not a law firm and not a substitute for a qualified solicitor. For complex matters,
+        we signpost you to Citizens Advice, Legal Aid or an independent solicitor.
       </p>
       <div class="trust-grid">
         <div class="trust-item"><strong>UK GDPR</strong>Compliant</div>
@@ -749,7 +776,7 @@
     <h2 style="text-align:center;">Frequently asked questions</h2>
     <div style="margin-top:20px;" data-testid="landing-faq-list">
       <details data-testid="landing-faq-item-0" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">Is AI Advocate a real lawyer?</summary><p style="color:var(--text-dim); margin:10px 0 0;">No. AI Advocate is a legal-information assistant — not a law firm and not regulated by the SRA. It gives you instant, plain-English information about UK law and helps you draft letters and organise your case, but it is not a substitute for regulated legal advice from a qualified solicitor. For complex matters, we signpost you to Citizens Advice, Legal Aid Agency or an independent solicitor.</p></details>
-      <details data-testid="landing-faq-item-1" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">How much does AI Advocate cost?</summary><p style="color:var(--text-dim); margin:10px 0 0;">Free is £0 forever with 5 Lex chats a day, no card required. Plus is £19.99/month for unlimited Lex chats, unlimited letters, Contract Review and Court Prep. Pro is £34.99/month, or £319.99/year (save £100), for everything in Plus plus Deep Think, the Hearing Recorder and the Lawyer Standby network. One-off packs are also available from £4.99. All prices include UK VAT. Cancel any time.</p></details>
+      <details data-testid="landing-faq-item-1" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">How much does AI Advocate cost?</summary><p style="color:var(--text-dim); margin:10px 0 0;">Free is £0 forever with 5 Lex chats a day, no card required. Plus is £19.99/month for unlimited Lex chats (fair use), unlimited letters, Contract Review and Court Prep. Pro is £34.99/month, or £319.99/year (save £100), for everything in Plus plus Deep Think for complex cases, hearing notes and transcription, and priority legal research. One-off packs are also available from £4.99. All prices include UK VAT. Cancel any time.</p></details>
       <details data-testid="landing-faq-item-2" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">What areas of UK law does AI Advocate cover?</summary><p style="color:var(--text-dim); margin:10px 0 0;">Employment (unfair dismissal, discrimination, wages), housing (deposits, evictions, disrepair), family (divorce, child arrangements), consumer (refunds, faulty goods), small claims, debt, immigration, welfare benefits, personal injury basics, will drafting basics, and neighbour disputes. Primary training is England &amp; Wales law with Scotland and Northern Ireland variations flagged where relevant.</p></details>
       <details data-testid="landing-faq-item-3" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">Is my data private and secure?</summary><p style="color:var(--text-dim); margin:10px 0 0;">Yes. Chat messages and case files are encrypted at rest. Lex Vault items are encrypted client-side with a PIN only you know — we cannot read them. We store data in EU-West MongoDB Atlas (UK-GDPR compliant). We never sell data to advertisers or data brokers. You can export or delete your data any time via Settings → Manage My Data.</p></details>
       <details data-testid="landing-faq-item-4" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">What languages does AI Advocate support?</summary><p style="color:var(--text-dim); margin:10px 0 0;">11 languages: English (UK), Arabic, French, Spanish, Polish, Punjabi, Urdu, Bengali, Portuguese, Romanian and Somali. Lex understands questions in any supported language and can reply in the same language — legal terms are automatically kept in the original English legal term with a translated explanation.</p></details>
@@ -763,14 +790,14 @@
   <div class="container">
     <h2>Get started in 30 seconds.</h2>
     <p class="section-sub" style="margin-bottom: 32px;">
-      The web app is live. Free tier — one Lex question on us, no card required.
+      Ask your first question free without signing up, then get 5 Lex chats a day on the free plan. No card required.
     </p>
     <div style="display:flex; gap:12px; flex-wrap:wrap; justify-content:center;">
       <a href="/app" class="nav-cta" style="display: inline-block;">Sign up free</a>
       <a href="/app" style="display: inline-block; background:transparent; color:var(--gold); border:1px solid var(--gold); padding: 9px 20px; border-radius: 24px; font-weight: 800; font-size: 13.5px; letter-spacing: 0.02em; text-decoration: none; transition: all 0.15s;">Sign in</a>
     </div>
     <div style="margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 14px; color: var(--text-muted); max-width: 580px; margin-left: auto; margin-right: auto;">
-      🎁 <strong style="color: var(--gold);">Need to help someone right now?</strong> Travelling family, friend in trouble, parent who's stuck?<br>
+      <strong style="color: var(--gold);">Need to help someone right now?</strong> Travelling family, friend in trouble, parent who's stuck?<br>
       <a href="/gift.html" data-testid="gift-cta-link" style="display:inline-block; margin-top: 12px; color: var(--gold); border: 1px solid var(--gold); padding: 10px 22px; border-radius: 999px; text-decoration: none; font-weight: 600;">Gift a Pack →</a>
     </div>
   </div>
@@ -833,6 +860,57 @@
       if (t) { e.preventDefault(); t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     });
   });
+</script>
+
+<script>
+  // Ask Lex taster — one free question per device, no signup
+  (function () {
+    var form = document.getElementById('ask-lex'); if (!form) return;
+    var input = document.getElementById('ask-lex-input'), btn = document.getElementById('ask-lex-btn');
+    var count = document.getElementById('ask-lex-count'), status = document.getElementById('ask-lex-status');
+    var answer = document.getElementById('ask-lex-answer'), signup = document.getElementById('ask-lex-signup');
+    var dev = localStorage.getItem('aa_device_id');
+    if (!dev) { dev = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random()); localStorage.setItem('aa_device_id', dev); }
+    var lang = (navigator.language || 'en-GB');
+    function used() {
+      input.disabled = true; btn.disabled = true;
+      status.className = 'ask-status';
+      status.textContent = "You've used your free question. Create a free account for 5 Lex chats a day.";
+      signup.hidden = false;
+    }
+    function render(md) {
+      var esc = md.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return esc.replace(/^#{1,6}\s*(.+)$/gm, '<strong>$1</strong>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/^\s*[-*]\s+/gm, '• ')
+        .replace(/\[\[PDF:[^\]]*\]\]/g, '')
+        .replace(/\n/g, '<br>');
+    }
+    input.addEventListener('input', function () { count.textContent = input.value.length + '/500'; });
+    fetch('/api/lex/taster/status?device_id=' + encodeURIComponent(dev))
+      .then(function (r) { return r.json(); }).then(function (d) { if (d && d.available === false) used(); }).catch(function () {});
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var q = input.value.trim();
+      if (q.length < 4) { status.className = 'ask-status err'; status.textContent = 'Please type a little more detail.'; return; }
+      btn.disabled = true; btn.textContent = 'Lex is thinking…';
+      status.className = 'ask-status'; status.textContent = 'Usually takes 10–20 seconds.';
+      fetch('/api/lex/taster', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: q, device_id: dev, language: lang, country: 'GB' }) })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
+        .then(function (res) {
+          btn.textContent = 'Ask Lex →';
+          if (!res.ok) {
+            if (res.status === 429) { used(); return; }
+            btn.disabled = false; status.className = 'ask-status err';
+            status.textContent = (res.d && res.d.detail) || 'Lex is busy — please try again.'; return;
+          }
+          answer.innerHTML = render(res.d.response || ''); answer.hidden = false;
+          status.textContent = ''; input.disabled = true; btn.disabled = true; signup.hidden = false;
+        })
+        .catch(function () { btn.disabled = false; btn.textContent = 'Ask Lex →'; status.className = 'ask-status err'; status.textContent = 'Connection problem — please try again.'; });
+    });
+  })();
 </script>
 
 <script>
