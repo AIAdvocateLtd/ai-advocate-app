@@ -179,7 +179,7 @@ export default function WillWriterModal({ api, toast, onUpsell, onClose }) {
 
   return (
     <div className="modal-bg" data-testid="will-writer-modal">
-      <div className="modal-card" style={{ padding: 0, display: "flex", flexDirection: "column", maxHeight: "92vh", maxWidth: 720 }}>
+      <div className="modal-card" style={{ padding: 0, display: "flex", flexDirection: "column", maxHeight: "92%", maxWidth: 720 }}>
         <div className="flex items-center justify-between" style={{ padding: "18px 20px 12px", borderBottom: "1px solid var(--line)" }}>
           <div>
             <h2 className="brand-font gold" style={{ fontSize: 20, margin: 0, display: "flex", alignItems: "center", gap: 8 }}><ScrollText size={20} /> Will Writer</h2>

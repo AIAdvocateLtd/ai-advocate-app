@@ -3389,7 +3389,7 @@ function EmergencyModal({ lang, country, user, onClose, onAddContact }) {
 
   return (
     <div className="modal-bg" data-testid="emergency-modal" style={{ background: "rgba(60,0,0,0.85)" }}>
-      <div className="modal-card" style={{ padding: 18, border: "2px solid #dc2626", maxHeight: "94vh", overflowY: "auto" }}>
+      <div className="modal-card" style={{ padding: 18, border: "2px solid #dc2626", maxHeight: "94%", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
           <h2 style={{ fontSize: 20, color: "#fca5a5", fontFamily: "Cinzel, serif", letterSpacing: "0.04em" }}>{t(lang, "emergencyTitle")}</h2>
           <button onClick={onClose} data-testid="emergency-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}>
@@ -12718,7 +12718,7 @@ function ET1AutoFillModal({ lang, country, onClose }) {
 
   return (
     <div className="modal-bg" data-testid="et1-modal">
-      <div className="modal-card" style={{ padding: 0, display: "flex", flexDirection: "column", maxHeight: "92vh", maxWidth: 720 }}>
+      <div className="modal-card" style={{ padding: 0, display: "flex", flexDirection: "column", maxHeight: "92%", maxWidth: 720 }}>
         <div className="flex items-center justify-between" style={{ padding: "18px 20px 12px", borderBottom: "1px solid var(--line)" }}>
           <div>
             <h2 className="brand-font gold" style={{ fontSize: 20, margin: 0 }}>📋 ET1 Auto-Fill</h2>
@@ -12956,7 +12956,7 @@ function LegalAidModal({ lang, country, onClose }) {
 
   return (
     <div className="modal-bg" data-testid="legal-aid-modal">
-      <div className="modal-card" style={{ padding: 0, display: "flex", flexDirection: "column", maxHeight: "92vh" }}>
+      <div className="modal-card" style={{ padding: 0, display: "flex", flexDirection: "column", maxHeight: "92%" }}>
         <div className="flex items-center justify-between" style={{ padding: "18px 20px 8px" }}>
           <h2 className="brand-font gold" style={{ fontSize: 20 }}>{t(lang, "legalAidTitle")}</h2>
           <button onClick={onClose} data-testid="legal-aid-close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={24} /></button>

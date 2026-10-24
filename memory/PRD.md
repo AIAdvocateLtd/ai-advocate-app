@@ -942,3 +942,6 @@ Production redeploy required. All env vars unchanged.
 - Free plan limits unchanged (user decision). Trustpilot: https://www.trustpilot.com/review/aiadvocate.co.uk
 - RESOLVED: SAMPLE_FIRMS seed removed; startup now runs purge_sample_lawfirms() (deletes law_firms with ".example." websites). Partner directory "All" tab shows a helpful empty state (Nearby tab = real Google Places).
 - Tested: iteration_37.json (100% backend/frontend).
+
+## 2026-10-24 — Mobile modal scroll fix
+- ET1, Will Writer, Legal Aid (and emergency card at App.js ~3392) modal-cards used inline maxHeight "92vh"/"94vh", which on phones is taller than the visible screen (vh includes browser bars) → header cut off, bottom unreachable. Changed to "92%"/"94%" of .modal-bg (which tracks the visual viewport). Rule: never use vh for modal-card heights.
