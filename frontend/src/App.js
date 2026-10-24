@@ -7300,7 +7300,13 @@ function LawyersModal({ lang, country, user, onClose, openAdvertise }) {
 
             <div style={{ overflowY: "auto", flex: 1 }}>
               {busy && <div style={{ textAlign: "center", padding: 24 }}><span className="spinner" /></div>}
-              {!busy && firms.length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>{t(lang, "noFirmsFound")}</p>}
+              {!busy && firms.length === 0 && tab === "all" && (
+                <p data-testid="partner-firms-empty" style={{ color: "var(--text-muted)", textAlign: "center", padding: 20, fontSize: 13, lineHeight: 1.6 }}>
+                  Our partner firm directory is launching soon. For now, use the Nearby tab to find real local solicitors, or search the{" "}
+                  <a href="https://solicitors.lawsociety.org.uk/" target="_blank" rel="noopener noreferrer" style={{ color: "var(--gold)" }}>Law Society's Find a Solicitor</a>.
+                </p>
+              )}
+              {!busy && firms.length === 0 && tab !== "all" && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>{t(lang, "noFirmsFound")}</p>}
               {firms.map(f => (
                 <button key={f.id} data-testid={`firm-${f.id}`} onClick={() => { setSelected(f); setSent(false); }} className="w-full"
                   style={{ background: "var(--bg-card)", border: f.sponsored ? "1px solid var(--gold)" : "1px solid var(--line)", borderRadius: 12, padding: 14, marginBottom: 10, color: "var(--text)", textAlign: "left", cursor: "pointer", position: "relative" }}>

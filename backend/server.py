@@ -5688,75 +5688,11 @@ def haversine_km(lat1, lon1, lat2, lon2):
     a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
     return 2 * R * math.asin(math.sqrt(a))
 
-SAMPLE_FIRMS = [
-    {"name": "Crown & Bench Solicitors", "country": "GB", "city": "London", "address": "12 Chancery Lane, London WC2A 1LF",
-     "phone": "+44 20 7946 0210", "email": "info@crownbench.co.uk", "website": "https://crownbench.example.co.uk",
-     "specialties": ["criminal", "court_prep", "ask_lex"], "rating": 4.8, "sponsored": True,
-     "description": "Top-tier criminal defence and litigation in central London. 30+ years experience.",
-     "lat": 51.5159, "lng": -0.1110},
-    {"name": "Hartwell Property Law", "country": "GB", "city": "Manchester", "address": "5 King Street, Manchester M2 4LQ",
-     "phone": "+44 161 234 5601", "email": "hello@hartwellprop.co.uk", "website": "https://hartwellprop.example.co.uk",
-     "specialties": ["property"], "rating": 4.6, "sponsored": False,
-     "description": "Residential & commercial property specialists. Tenancy disputes a strength.",
-     "lat": 53.4839, "lng": -2.2446},
-    {"name": "Mendez & Castillo Abogados", "country": "ES", "city": "Madrid", "address": "Calle Serrano 41, 28001 Madrid",
-     "phone": "+34 91 423 0099", "email": "contacto@mendezcastillo.es", "website": "https://mendezcastillo.example.es",
-     "specialties": ["immigration", "employment"], "rating": 4.7, "sponsored": True,
-     "description": "Bilingual Spanish/English firm — immigration, residency & expat services.",
-     "lat": 40.4254, "lng": -3.6885},
-    {"name": "Dubois Avocats", "country": "FR", "city": "Paris", "address": "8 Rue de Rivoli, 75004 Paris",
-     "phone": "+33 1 42 78 99 12", "email": "contact@dubois-avocats.fr", "website": "https://dubois-avocats.example.fr",
-     "specialties": ["employment", "court_prep"], "rating": 4.5, "sponsored": False,
-     "description": "Droit du travail et contentieux. English-speaking partners available.",
-     "lat": 48.8559, "lng": 2.3563},
-    {"name": "Schmidt & Partner Rechtsanwälte", "country": "DE", "city": "Berlin", "address": "Friedrichstraße 68, 10117 Berlin",
-     "phone": "+49 30 2017 4400", "email": "kanzlei@schmidt-partner.de", "website": "https://schmidt.example.de",
-     "specialties": ["property", "employment", "medical_negligence"], "rating": 4.6, "sponsored": False,
-     "description": "Full-service Kanzlei mit Schwerpunkt Arbeits- und Mietrecht.",
-     "lat": 52.5170, "lng": 13.3889},
-    {"name": "Nawalka & Wójcik Kancelaria", "country": "PL", "city": "Warsaw", "address": "ul. Marszałkowska 80, 00-517 Warszawa",
-     "phone": "+48 22 825 6677", "email": "biuro@nawalka.pl", "website": "https://nawalka.example.pl",
-     "specialties": ["immigration", "property"], "rating": 4.4, "sponsored": False,
-     "description": "Kancelaria z 20-letnim doświadczeniem. Specjalizacja: imigracja i nieruchomości.",
-     "lat": 52.2247, "lng": 21.0122},
-    {"name": "Rossi & Associati", "country": "IT", "city": "Rome", "address": "Via del Corso 320, 00186 Roma",
-     "phone": "+39 06 6789 1122", "email": "info@rossiassociati.it", "website": "https://rossiassociati.example.it",
-     "specialties": ["medical_negligence", "court_prep"], "rating": 4.7, "sponsored": True,
-     "description": "Studio specializzato in responsabilità medica e contenzioso civile.",
-     "lat": 41.9028, "lng": 12.4811},
-    {"name": "Lopes Advogados Lisboa", "country": "PT", "city": "Lisbon", "address": "Avenida da Liberdade 110, 1250-146 Lisboa",
-     "phone": "+351 21 099 4200", "email": "contacto@lopes-adv.pt", "website": "https://lopes.example.pt",
-     "specialties": ["immigration", "property"], "rating": 4.5, "sponsored": False,
-     "description": "Especialistas em direito imobiliário e vistos D7/Golden Visa.",
-     "lat": 38.7223, "lng": -9.1393},
-    {"name": "Khan & Associates", "country": "PK", "city": "Karachi", "address": "Shahrah-e-Faisal, Karachi 75350",
-     "phone": "+92 21 3456 7890", "email": "info@khanlaw.pk", "website": "https://khanlaw.example.pk",
-     "specialties": ["court_prep", "property", "ask_lex"], "rating": 4.3, "sponsored": False,
-     "description": "Comprehensive legal services across Sindh & Punjab.",
-     "lat": 24.8607, "lng": 67.0011},
-    {"name": "Sharma Legal Advisors", "country": "IN", "city": "Mumbai", "address": "Nariman Point, Mumbai 400021",
-     "phone": "+91 22 6634 1100", "email": "contact@sharmalegal.in", "website": "https://sharmalegal.example.in",
-     "specialties": ["medical_negligence", "employment", "property"], "rating": 4.6, "sponsored": True,
-     "description": "Boutique firm — medical negligence and employment disputes.",
-     "lat": 18.9252, "lng": 72.8231},
-    {"name": "Al-Rashid Legal Consultancy", "country": "AE", "city": "Dubai", "address": "Sheikh Zayed Road, Dubai",
-     "phone": "+971 4 359 2200", "email": "info@alrashidlegal.ae", "website": "https://alrashid.example.ae",
-     "specialties": ["immigration", "employment", "property"], "rating": 4.8, "sponsored": True,
-     "description": "Premier Middle East firm — Arabic & English. Expat & corporate law.",
-     "lat": 25.2048, "lng": 55.2708},
-    {"name": "Wong Chen & Partners", "country": "CN", "city": "Shanghai", "address": "Lujiazui, Pudong, Shanghai",
-     "phone": "+86 21 5878 9900", "email": "office@wongchen.cn", "website": "https://wongchen.example.cn",
-     "specialties": ["employment", "property"], "rating": 4.4, "sponsored": False,
-     "description": "国际业务 · 涉外劳动法和房地产纠纷.",
-     "lat": 31.2304, "lng": 121.5070},
-]
-
-async def ensure_lawfirm_seed():
-    if await db.law_firms.count_documents({}) == 0:
-        for f in SAMPLE_FIRMS:
-            doc = {**f, "id": str(uuid.uuid4()), "verified": True,
-                   "created_at": datetime.now(timezone.utc).isoformat()}
-            await db.law_firms.insert_one(doc)
+async def purge_sample_lawfirms():
+    """Remove the made-up demo firms that were seeded before launch."""
+    r = await db.law_firms.delete_many({"website": {"$regex": r"\.example\."}})
+    if r.deleted_count:
+        logger.info(f"Removed {r.deleted_count} sample law firms")
 
 @api_router.get("/lawfirms")
 async def list_lawfirms(country: Optional[str] = None, specialty: Optional[str] = None,
@@ -16399,8 +16335,7 @@ async def startup():
         logger.exception("Email-verification backfill failed (non-fatal)")
 
     try:
-        await ensure_lawfirm_seed()
-        logger.info("Law firm seed ensured")
+        await purge_sample_lawfirms()
     except Exception as e:
         logger.exception(f"Seed error: {e}")
     # Run the recycle-bin sweeper once at startup, then schedule periodic re-runs.

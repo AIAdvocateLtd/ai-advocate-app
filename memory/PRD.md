@@ -940,5 +940,5 @@ Production redeploy required. All env vars unchanged.
 - Frontend: Reviews.js (TrustpilotPrompt after 3 Lex replies, once ever; AdminTestimonialsCard in owner admin). Dashboard imports aa_taster_id on login.
 - welcome.html: hidden Reviews strip (shows at 3+), Trustpilot buttons (trust section, reviews, footer), Lawyer Standby + "connect you with a solicitor" auto-shown when firms_live.
 - Free plan limits unchanged (user decision). Trustpilot: https://www.trustpilot.com/review/aiadvocate.co.uk
-- OPEN RISK flagged to user: 12 made-up SAMPLE_FIRMS seeded into law_firms (verified=True) shown in lawyer directory.
+- RESOLVED: SAMPLE_FIRMS seed removed; startup now runs purge_sample_lawfirms() (deletes law_firms with ".example." websites). Partner directory "All" tab shows a helpful empty state (Nearby tab = real Google Places).
 - Tested: iteration_37.json (100% backend/frontend).
