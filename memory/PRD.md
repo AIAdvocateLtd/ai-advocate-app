@@ -920,3 +920,4 @@ Production redeploy required. All env vars unchanged.
 - LEX_LAW_UPDATES block prepended to Lex system prompt + deadline detector: ET time limit 6 months−1 day for acts on/after 1 Oct 2026; UD qualifying period 6 months for EDT ≥ 1 Jan 2027; Renters' Rights Act s21 abolished 1 May 2026. Verified Lex/detector now answer 2 Apr 2027 for 3 Oct 2026 dismissal.
 - PENDING: Google Search Console verification code from user (HTML tag method) → add meta to welcome.html. Suggest changing "An entire law firm. In your pocket." heading (conflicts with "not a law firm").
 - Note: python heredoc writes to /app/frontend/public sometimes blocked by harness ("/app is owned by the regression harness") — use search_replace/create_file instead.
+- 2026-10-24: Google Search Console HTML-tag verification meta added to welcome.html and index.html (value from GOOGLE_SITE_VERIFICATION secret, written into static HTML — public by design).
