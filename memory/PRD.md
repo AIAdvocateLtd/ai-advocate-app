@@ -933,3 +933,12 @@ Production redeploy required. All env vars unchanged.
 - Emoji feature icons replaced with inline gold SVG line icons.
 - New hero "Ask Lex" box using existing POST /api/lex/taster (1 free question per device/IP per 7 days, Haiku), shows answer + signup CTA; 429 -> "used" state.
 - Note: only the Read-aloud button under Lex replies was removed; Voice mode (Plus), Emergency Rights read-aloud and Whisper Mode still use TTS.
+
+## 2026-10-24 — Trustpilot reviews, auto firm referral promise, taster save
+- Backend (server.py, block before app.include_router): POST /api/lex/taster/import (claims db.taster_answers once, creates conversation), GET /api/public/landing {firms_live, trustpilot_url, testimonials (only if >=3)}, admin CRUD /api/admin/testimonials. firms_live = any non-test firm_accounts with billing_status=active + stripe_subscription_id (comped/trial firms don't count).
+- lex_taster now stores answer + returns taster_id; taster IP limit now uses X-Forwarded-For (_client_ip) — previously used ingress pod IP.
+- Frontend: Reviews.js (TrustpilotPrompt after 3 Lex replies, once ever; AdminTestimonialsCard in owner admin). Dashboard imports aa_taster_id on login.
+- welcome.html: hidden Reviews strip (shows at 3+), Trustpilot buttons (trust section, reviews, footer), Lawyer Standby + "connect you with a solicitor" auto-shown when firms_live.
+- Free plan limits unchanged (user decision). Trustpilot: https://www.trustpilot.com/review/aiadvocate.co.uk
+- OPEN RISK flagged to user: 12 made-up SAMPLE_FIRMS seeded into law_firms (verified=True) shown in lawyer directory.
+- Tested: iteration_37.json (100% backend/frontend).

@@ -1,5 +1,5 @@
 // Trustpilot review prompt (in Lex chat) + admin testimonials manager.
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Star, X, Trash2 } from "lucide-react";
 
 export const TRUSTPILOT_URL = "https://www.trustpilot.com/review/aiadvocate.co.uk";
@@ -8,10 +8,13 @@ const MIN_REPLIES = 3;
 
 export function TrustpilotPrompt({ lexReplies }) {
   const [done, setDone] = useState(() => localStorage.getItem(PROMPT_KEY) === "1");
-  if (done || lexReplies < MIN_REPLIES) return null;
+  const ref = useRef(null);
+  const show = !done && lexReplies >= MIN_REPLIES;
+  useEffect(() => { if (show) ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [show]);
+  if (!show) return null;
   const close = () => { localStorage.setItem(PROMPT_KEY, "1"); setDone(true); };
   return (
-    <div data-testid="trustpilot-prompt" style={{
+    <div ref={ref} data-testid="trustpilot-prompt" style={{
       margin: "12px 0", padding: "12px 14px", borderRadius: 12, border: "1px solid var(--gold-deep)",
       background: "rgba(247,201,72,0.06)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
     }}>
@@ -55,7 +58,13 @@ export function AdminTestimonialsCard({ api, toast }) {
     } catch (e) { toast(e?.response?.data?.detail?.[0]?.msg || e?.response?.data?.detail || "Couldn't add review", "error"); }
     finally { setBusy(false); }
   };
-  const remove = async (id) => { await api.delete(`/admin/testimonials/${id}`).catch(() => {}); load(); };
+  const remove = async (id) => {
+    if (!window.confirm("Remove this review from the landing page?")) return;
+    try { await api.delete(`/admin/testimonials/${id}`); toast("Review removed"); }
+    catch { toast("Couldn't remove review", "error"); }
+    load();
+  };
+  const canAdd = !busy && form.name.trim() && form.quote.trim().length >= 5;
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
   return (
@@ -72,8 +81,8 @@ export function AdminTestimonialsCard({ api, toast }) {
       <textarea style={{ ...input, minHeight: 70 }} placeholder="Review text (copy exactly)" maxLength={400} value={form.quote} onChange={set("quote")} data-testid="admin-testimonial-quote" />
       <input style={input} placeholder="Date, e.g. October 2026 (optional)" value={form.review_date} onChange={set("review_date")} data-testid="admin-testimonial-date" />
       <input style={input} placeholder="Link to this review on Trustpilot (optional)" value={form.link} onChange={set("link")} data-testid="admin-testimonial-link" />
-      <button onClick={add} disabled={busy || !form.name.trim() || form.quote.trim().length < 5} data-testid="admin-testimonial-add"
-        style={{ background: "var(--gold)", color: "#1a1300", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
+      <button onClick={add} disabled={!canAdd} data-testid="admin-testimonial-add"
+        style={{ background: "var(--gold)", color: "#1a1300", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, cursor: canAdd ? "pointer" : "not-allowed", opacity: canAdd ? 1 : 0.5 }}>
         Add review
       </button>
       <div style={{ marginTop: 14 }}>

@@ -2387,7 +2387,7 @@ async def lex_taster(req: Request, data: TasterMessage):
         raise HTTPException(400, "Free question must be 500 characters or less. Sign up for unlimited.")
 
     # IP fingerprint (in case device_id is rotated by the client)
-    ip = req.client.host if req.client else "0.0.0.0"
+    ip = _client_ip(req) or "0.0.0.0"
     fp_ip = f"taster_ip:{ip}"
     fp_dev = f"taster_dev:{data.device_id}"
     cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
@@ -2441,7 +2441,7 @@ async def lex_taster(req: Request, data: TasterMessage):
 @api_router.get("/lex/taster/status")
 async def lex_taster_status(req: Request, device_id: str):
     """Tell the client whether this device still has a free question left."""
-    ip = req.client.host if req.client else "0.0.0.0"
+    ip = _client_ip(req) or "0.0.0.0"
     cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     used = await db.taster_usage.count_documents({
         "$or": [{"key": f"taster_ip:{ip}"}, {"key": f"taster_dev:{device_id}"}],

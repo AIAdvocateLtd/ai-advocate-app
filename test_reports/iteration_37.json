@@ -1,0 +1,36 @@
+{
+  "summary": "Tested Trustpilot reviews, the 'connect you to a solicitor' switch driven by firms_live, saving the pre-signup taster answer into the account, admin testimonials, and the in-app Trustpilot prompt. Backend: 10/10 pytest pass (tests/test_iter37_reviews_taster.py). Frontend: every requested flow works end to end. Landing with 3 QA testimonials shows 3 cards (landing-review-0..2), each 'Verified on Trustpilot' link opens the Trustpilot URL in a new tab (target=_blank). With 0 testimonials the section is hidden (checked on mobile). trust-trustpilot-btn, footer-trustpilot-link and reviews-trustpilot-link all have the right href and target=_blank. firms_live=false hides pro-standby-item and shows the signpost text. Inserting a temporary active paid firm switched firms_live to true; the firm was removed afterwards. Hero Ask Lex returned a real answer, showed the signup CTA 'Create a free account — your answer is saved →' and stored aa_taster_id. Opening /app logged in fired POST /lex/taster/import (200), showed the toast 'Your free answer from Lex is saved in your chats' and cleared aa_taster_id. The chat appears in GET /lex/sessions, and a second import returns imported:false. Admin card in Settings: the add button is disabled when the form is empty, an http:// link shows the toast 'Link must start with https://', adding works and clears the form, and delete works. Non-admin and unauthenticated calls get 401/403. The Trustpilot prompt appeared only after the 3rd Lex reply. Its href is correct, dismissing it hides it and sets aa_tp_prompt_done=1. Cleanup: all QA Reviewer 1/2/3 and TEST_ testimonials deleted (strip hidden again), and the imported test conversation removed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/lex/taster (pre-existing)", "issue": "The per-IP limit uses req.client.host, which is the ingress pod IP (seen in taster_usage as taster_ip:10.6.131.141 and .142), not the visitor's IP. Two requests from the same client with different device_ids both got 200, so the per-IP limit does nothing; only the device_id limit, which the client can rotate, is effective. Unrelated visitors who share an ingress IP can also block each other. Fix: read the first X-Forwarded-For entry, or run uvicorn with --proxy-headers --forwarded-allow-ips='*'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "LexChat", "issues": ["The Trustpilot prompt renders under the last reply, but the chat does not auto-scroll to it, so users on long replies may never see it. Consider including it in the scroll-to-bottom effect."]},
+      {"screen": "Settings > AdminTestimonialsCard", "issues": ["When disabled, the 'Add review' button looks the same as when enabled: opacity only changes while busy and the cursor stays a pointer.", "Delete happens instantly with no confirmation, and errors are swallowed by .catch(() => {})."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter37_reviews_taster.py", "/app/test_reports/pytest/iter37.xml"],
+  "action_items": [
+    "(Optional, pre-existing) Fix the taster per-IP limit so it uses the real client IP from X-Forwarded-For.",
+    "(Minor) Auto-scroll LexChat when the TrustpilotPrompt appears.",
+    "(Minor) Add a disabled style to admin-testimonial-add, and a confirm step plus error toast to delete."
+  ],
+  "critical_code_review_comments": [
+    "Dashboard removes aa_taster_id from localStorage before POST /lex/taster/import finishes. If the request fails (network error or expired token), the saved answer is lost for good. Remove the key only after a 2xx response.",
+    "lex_taster_import is correct and atomic: find_one_and_update with claimed_by:None plus a 7-day cutoff. Question and response stay encrypted, which matches how /lex/sessions decrypts them.",
+    "public_landing has no _id leak, and the <3 testimonials gate is enforced on the server as well as the client.",
+    "_firms_live skips emails containing 'test' or 'example' or ending in @advocate.app. A genuine firm whose email contains 'test' (e.g. 'testamentlaw.co.uk') would be wrongly excluded. Consider an explicit is_test flag instead.",
+    "App.js is far over the 700-line guideline (more than 16k lines). The new Reviews.js split is a good pattern."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter37_reviews_taster.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Nothing persisted. Temporary TEST_ testimonials, a temporary firm_accounts doc (qa-tmp-firm) and the imported conversation were all removed. QA Reviewer 1/2/3 were deleted as requested. The admin account has one new Lex chat session about tenancy deposits from the prompt test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "To skip the app gates, set localStorage aa_terms=1, aa_cookie_consent=rejected, aa_lang=en-GB, and aa_token from POST /api/auth/login; otherwise the welcome-tour and terms modals block clicks. LexChat shows a UPL modal on first send; click 'I understand — continue to Lex'. The test user (test@advocate.app) is on the free plan; the admin is pro. The taster limit can be reset with db.taster_usage.deleteMany({})."
+}
