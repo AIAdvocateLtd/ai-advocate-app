@@ -4641,13 +4641,18 @@ function TransReplyBar({ lang, myLang, disabled, onSend }) {
 }
 
 // ---------- Letter Library Modal ----------
+const LETTER_EMPTY = { tpl_id: "", your_name: "", recipient: "", facts: "", letter: "" };
+
 function LetterLibraryModal({ lang, country, onClose }) {
   const [tpls, setTpls] = useState([]);
-  const [sel, setSel] = useState(null);
-  const [form, setForm] = useState({ your_name: "", recipient: "", facts: "" });
+  const [form, setForm, draft] = useFormDraft("letter", LETTER_EMPTY);
+  const sel = tpls.find(tp => tp.id === form.tpl_id) || null;
+  const letter = form.letter;
+  const setLetter = (v) => setForm(f => ({ ...f, letter: v }));
+  // Picking the same template keeps the draft; a different one starts fresh
+  const setSel = (tpl) => setForm(f => !tpl ? { ...f, tpl_id: "" }
+    : (f.tpl_id === tpl.id || (!f.tpl_id && !f.letter) ? { ...f, tpl_id: tpl.id } : { ...LETTER_EMPTY, tpl_id: tpl.id }));
   const [busy, setBusy] = useState(false);
-  const [letter, setLetter] = useState("");
-  const [letterId, setLetterId] = useState(null);
   const [search, setSearch] = useState("");
   // 🖊 In-document e-signature (optional, free, legally valid under ECA 2000)
   const [showSignPad, setShowSignPad] = useState(false);
@@ -4663,8 +4668,9 @@ function LetterLibraryModal({ lang, country, onClose }) {
   const generate = async () => {
     setBusy(true); setLetter("");
     try {
-      const { data } = await api.post("/letters/generate", { template_id: sel.id, language: lang, country, ...form });
-      setLetter(data.letter); setLetterId(data.id);
+      const { data } = await api.post("/letters/generate", { template_id: sel.id, language: lang, country,
+        your_name: form.your_name, recipient: form.recipient, facts: form.facts });
+      setLetter(data.letter);
     } catch (e) { aaToast(e?.response?.data?.detail || "Failed", "error"); }
     finally { setBusy(false); }
   };
@@ -4708,6 +4714,7 @@ function LetterLibraryModal({ lang, country, onClose }) {
             <button className="btn-ghost" onClick={() => setSel(null)} style={{ marginBottom: 10, padding: "6px 12px" }}>
               <ArrowLeft size={14} style={{ display: "inline", marginRight: 4 }} />Back
             </button>
+            <DraftNotice draft={draft} testid="letter-draft-notice" />
             <input className="input" data-testid="letter-name" placeholder={t(lang, "yourFullName")} value={form.your_name} onChange={(e) => setForm({ ...form, your_name: e.target.value })} style={{ marginBottom: 8 }} />
             <input className="input" data-testid="letter-recipient" placeholder={t(lang, "recipientNameAddr")} value={form.recipient} onChange={(e) => setForm({ ...form, recipient: e.target.value })} style={{ marginBottom: 8 }} />
             <textarea className="input" data-testid="letter-facts" rows={5} placeholder={t(lang, "letterFactsPlaceholder")} value={form.facts} onChange={(e) => setForm({ ...form, facts: e.target.value })} />
@@ -4717,8 +4724,9 @@ function LetterLibraryModal({ lang, country, onClose }) {
           </div>
         )}
 
-        {letter && (
+        {letter && sel && (
           <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
+            <DraftNotice draft={draft} testid="letter-result-draft-notice" />
             <div data-testid="letter-output" style={{ whiteSpace: "pre-wrap", fontSize: 13.5, color: "var(--text-dim)", lineHeight: 1.6,
                           background: "#0a0a0a", border: "1px solid var(--line)", borderRadius: 10, padding: 14 }}>{letter}</div>
 
@@ -4757,7 +4765,7 @@ function LetterLibraryModal({ lang, country, onClose }) {
                 style={{ flex: 1 }}>
                 <Download size={14} style={{ display: "inline", marginRight: 6 }} />Download PDF
               </button>
-              <button className="btn-ghost" onClick={() => { setLetter(""); setLetterId(null); setSignatureData(""); setShowSignPad(false); }} style={{ flex: 1 }}>{t(lang, "letterRedo")}</button>
+              <button className="btn-ghost" onClick={() => { setLetter(""); setSignatureData(""); setShowSignPad(false); }} style={{ flex: 1 }}>{t(lang, "letterRedo")}</button>
             </div>
             <ShareActionsRow text={letter} title={sel.title} api={api} toast={aaToast} showPdf={false} testIdPrefix="letter-lib" />
           </div>
