@@ -4288,6 +4288,21 @@ Output the FULL letter, properly formatted (sender block, date, recipient block,
     return {"id": rec["id"], "title": tpl["title"], "letter": letter}
 
 
+@api_router.get("/letters/mine")
+async def my_letters(user: dict = Depends(get_user)):
+    """Every letter Lex has written for this user (Letter Library + Letter Writer)."""
+    q = {"user_id": user["id"], "deleted_at": {"$in": [None, "", False]},
+         "$or": [{"kind": "letter"}, {"type": {"$in": ["letter", "legal_letter"]}}]}
+    out = []
+    async for f in db.legal_files.find(q, {"_id": 0}).sort("created_at", -1).limit(200):
+        body = f.get("letter") or f.get("content") or ""
+        if not body:
+            continue
+        title = f.get("title") or (f.get("filename") or "Letter").removesuffix(".txt")
+        out.append({"id": f["id"], "title": title, "letter": body, "created_at": f.get("created_at", "")})
+    return out
+
+
 # ==================== Voice (STT + TTS) ====================
 @api_router.post("/voice/transcribe")
 async def transcribe(audio: UploadFile = File(...), language: str = Form("en"), user: dict = Depends(get_user)):

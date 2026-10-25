@@ -18,6 +18,7 @@ import { renderLexMarkdown, stripLexMarkdown, extractPdfTag } from "@/LexMarkdow
 import { ShareActions, ShareActionsRow } from "@/ShareActions";
 import WillWriterModal from "@/WillWriter";
 import { useFormDraft, clearAllFormDrafts, DraftNotice } from "@/FormDrafts";
+import { MyLetters } from "@/MyLetters";
 import { TrustpilotPrompt, AdminTestimonialsCard } from "@/Reviews";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
@@ -4654,6 +4655,7 @@ function LetterLibraryModal({ lang, country, onClose }) {
     : (f.tpl_id === tpl.id || (!f.tpl_id && !f.letter) ? { ...f, tpl_id: tpl.id } : { ...LETTER_EMPTY, tpl_id: tpl.id }));
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
+  const [libTab, setLibTab] = useState("templates");
   // 🖊 In-document e-signature (optional, free, legally valid under ECA 2000)
   const [showSignPad, setShowSignPad] = useState(false);
   const [signatureData, setSignatureData] = useState("");
@@ -4684,6 +4686,17 @@ function LetterLibraryModal({ lang, country, onClose }) {
         </div>
 
         {!sel && (
+          <div className="flex gap-2" style={{ marginBottom: 12, flexShrink: 0 }}>
+            {[["templates", "Templates"], ["mine", "My letters"]].map(([k, label]) => (
+              <button key={k} onClick={() => setLibTab(k)} data-testid={`letter-lib-tab-${k}`}
+                className={libTab === k ? "btn-gold" : "btn-ghost"} style={{ flex: 1, padding: "8px 10px", fontSize: 13 }}>{label}</button>
+            ))}
+          </div>
+        )}
+
+        {!sel && libTab === "mine" && <MyLetters api={api} toast={aaToast} pdfInline={pdfInline} />}
+
+        {!sel && libTab === "templates" && (
           <>
             <input className="input" data-testid="letter-search" placeholder={t(lang, "searchTemplates")} value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 12, flexShrink: 0 }} />
             <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
@@ -4727,8 +4740,8 @@ function LetterLibraryModal({ lang, country, onClose }) {
         {letter && sel && (
           <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
             <DraftNotice draft={draft} testid="letter-result-draft-notice" />
-            <div data-testid="letter-output" style={{ whiteSpace: "pre-wrap", fontSize: 13.5, color: "var(--text-dim)", lineHeight: 1.6,
-                          background: "#0a0a0a", border: "1px solid var(--line)", borderRadius: 10, padding: 14 }}>{letter}</div>
+            <div data-testid="letter-output" style={{ fontSize: 13.5, color: "var(--text-dim)", lineHeight: 1.6,
+                          background: "#0a0a0a", border: "1px solid var(--line)", borderRadius: 10, padding: 14 }}>{renderLexMarkdown(letter)}</div>
 
             {/* 🖊 Optional canvas e-signature — drawn, embedded in PDF, legally valid under ECA 2000 */}
             <div data-testid="letter-sign-card" style={{ marginTop: 12, padding: 12, borderRadius: 12, background: "var(--bg-card)", border: "1px solid var(--gold-deep)" }}>
