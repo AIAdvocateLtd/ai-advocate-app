@@ -4303,6 +4303,23 @@ async def my_letters(user: dict = Depends(get_user)):
     return out
 
 
+class LetterRename(BaseModel):
+    title: str = Field(..., min_length=1, max_length=80)
+
+@api_router.patch("/letters/{letter_id}")
+async def rename_letter(letter_id: str, data: LetterRename, user: dict = Depends(get_user)):
+    title = data.title.strip()
+    if not title:
+        raise HTTPException(400, "Name can't be empty")
+    res = await db.legal_files.update_one(
+        {"id": letter_id, "user_id": user["id"], "deleted_at": {"$in": [None, "", False]},
+         "$or": [{"kind": "letter"}, {"type": {"$in": ["letter", "legal_letter"]}}]},
+        {"$set": {"title": title}})
+    if not res.matched_count:
+        raise HTTPException(404, "Letter not found")
+    return {"id": letter_id, "title": title}
+
+
 # ==================== Voice (STT + TTS) ====================
 @api_router.post("/voice/transcribe")
 async def transcribe(audio: UploadFile = File(...), language: str = Form("en"), user: dict = Depends(get_user)):

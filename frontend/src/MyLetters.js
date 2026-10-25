@@ -1,6 +1,6 @@
 // "My letters" — every letter Lex has written, re-download or delete.
 import React, { useEffect, useState } from "react";
-import { ArrowLeft, Download, Trash2, FileText } from "lucide-react";
+import { ArrowLeft, Download, Trash2, FileText, Pencil } from "lucide-react";
 import { ShareActionsRow } from "@/ShareActions";
 import { renderLexMarkdown, stripLexMarkdown } from "@/LexMarkdown";
 
@@ -9,9 +9,35 @@ const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("en-GB", { day: 
 export function MyLetters({ api, toast, pdfInline }) {
   const [items, setItems] = useState(null);
   const [open, setOpen] = useState(null);
+  const [editing, setEditing] = useState(null);
 
   const load = () => api.get("/letters/mine").then(r => setItems(r.data)).catch(() => setItems([]));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const rename = async (l, title) => {
+    title = title.trim();
+    setEditing(null);
+    if (!title || title === l.title) return;
+    try {
+      await api.patch(`/letters/${l.id}`, { title });
+      setItems(xs => xs.map(x => x.id === l.id ? { ...x, title } : x));
+      if (open?.id === l.id) setOpen(o => ({ ...o, title }));
+      toast("Letter renamed");
+    } catch (e) { toast(e?.response?.data?.detail?.[0]?.msg || e?.response?.data?.detail || "Couldn't rename", "error"); }
+  };
+
+  const titleEl = (l, style, testid) => editing === l.id ? (
+    <input autoFocus defaultValue={l.title} maxLength={80} data-testid={`${testid}-input`}
+      onBlur={(e) => rename(l, e.target.value)}
+      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setEditing(null); }}
+      onClick={(e) => e.stopPropagation()}
+      style={{ ...style, width: "100%", background: "rgba(0,0,0,0.4)", border: "1px solid var(--gold)", borderRadius: 6, padding: "4px 8px", fontFamily: "inherit" }} />
+  ) : <span style={style} data-testid={testid}>{l.title}</span>;
+
+  const renameBtn = (l) => (
+    <button onClick={(e) => { e.stopPropagation(); setEditing(l.id); }} aria-label="Rename letter" data-testid={`my-letter-rename-${l.id}`}
+      style={{ background: "transparent", border: "none", color: "var(--text-dim)", cursor: "pointer", padding: 6 }}><Pencil size={15} /></button>
+  );
 
   const download = (l) => pdfInline({ title: l.title, body: l.letter, filename: `${l.title.replace(/[^\w-]+/g, "_").slice(0, 60)}.pdf` });
   const remove = async (l) => {
@@ -30,7 +56,10 @@ export function MyLetters({ api, toast, pdfInline }) {
       <button className="btn-ghost" onClick={() => setOpen(null)} data-testid="my-letter-back" style={{ marginBottom: 10, padding: "6px 12px" }}>
         <ArrowLeft size={14} style={{ display: "inline", marginRight: 4 }} />My letters
       </button>
-      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--gold)", marginBottom: 4 }}>{open.title}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>{titleEl(open, { fontSize: 14, fontWeight: 700, color: "var(--gold)" }, "my-letter-title")}</div>
+        {editing !== open.id && renameBtn(open)}
+      </div>
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10 }}>{fmtDate(open.created_at)}</div>
       <div data-testid="my-letter-text" style={{ fontSize: 13.5, color: "var(--text-dim)", lineHeight: 1.6, background: "#0a0a0a", border: "1px solid var(--line)", borderRadius: 10, padding: 14 }}>{renderLexMarkdown(open.letter)}</div>
       <div className="flex gap-2" style={{ marginTop: 12 }}>
@@ -54,6 +83,12 @@ export function MyLetters({ api, toast, pdfInline }) {
       )}
       {items.map(l => (
         <div key={l.id} data-testid={`my-letter-${l.id}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", marginBottom: 6, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10 }}>
+          {editing === l.id ? (
+            <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 10, alignItems: "center" }}>
+              <FileText size={16} color="var(--gold)" style={{ flexShrink: 0 }} />
+              {titleEl(l, { fontSize: 13.5, color: "var(--text)" }, `my-letter-title-${l.id}`)}
+            </div>
+          ) : (
           <button onClick={() => setOpen(l)} data-testid={`my-letter-open-${l.id}`} style={{ flex: 1, minWidth: 0, display: "flex", gap: 10, alignItems: "center", background: "transparent", border: "none", color: "var(--text)", cursor: "pointer", textAlign: "left", padding: 0 }}>
             <FileText size={16} color="var(--gold)" style={{ flexShrink: 0 }} />
             <span style={{ minWidth: 0 }}>
@@ -61,6 +96,8 @@ export function MyLetters({ api, toast, pdfInline }) {
               <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{fmtDate(l.created_at)}</span>
             </span>
           </button>
+          )}
+          {editing !== l.id && renameBtn(l)}
           <button onClick={() => download(l)} aria-label="Download PDF" data-testid={`my-letter-pdf-${l.id}`} style={{ background: "transparent", border: "none", color: "var(--gold)", cursor: "pointer", padding: 6 }}><Download size={16} /></button>
           <button onClick={() => remove(l)} aria-label="Delete letter" data-testid={`my-letter-delete-${l.id}`} style={{ background: "transparent", border: "none", color: "#fca5a5", cursor: "pointer", padding: 6 }}><Trash2 size={16} /></button>
         </div>
