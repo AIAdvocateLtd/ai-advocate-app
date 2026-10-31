@@ -182,7 +182,7 @@ export default function ConveyancingModal({ api, toast, pdfInline, onUpsell, onC
 
   return (
     <div className="modal-bg" data-testid="conveyancing-modal" onClick={onClose}>
-      <div className="modal-card" onClick={e => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", maxHeight: "92%" }}>
+      <div className="modal-card" onClick={e => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", maxHeight: "92%", padding: "18px 18px calc(18px + env(safe-area-inset-bottom))" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexShrink: 0 }}>
           <h3 className="font-display" style={{ margin: 0, color: "var(--gold)", display: "flex", alignItems: "center", gap: 8 }}><Home size={18} />Conveyancing Companion</h3>
           <button onClick={onClose} data-testid="conveyancing-close" aria-label="Close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={20} /></button>

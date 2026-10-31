@@ -973,3 +973,8 @@ Production redeploy required. All env vars unchanged.
 - GET /api/admin/finance/summary (Stripe BalanceTransactions: monthly sales/refunds/fees/net last 12m, UK tax year 6 Apr totals, rolling 12m VAT vs £90k, warn ≥£75k in UI). GET /api/admin/finance/export?start&end → CSV for accountant. AdminFinance.js card in Settings owner section.
 - Landing: "All prices include UK VAT" → "Prices shown are the total you pay." (user believes not VAT registered). Terms keep "where applicable".
 - Recommended user use FreeAgent/Xero for bookkeeping/expenses/MTD; expenses + deadline reminders deliberately not built.
+
+## 2026-10-31 — Conveyancing Companion
+- Backend: /api/conveyancing CRUD (db.conveyancing: journey sell|buy, address, stages_done, notes, form_answers), POST /api/conveyancing/suggest (Claude Haiku; free users 3 total via users.conv_suggest_count, 402 after; Plus/Pro unlimited).
+- Frontend: Conveyancing.js + ConveyancingData.js (E&W sell 10 stages, buy 11 stages, TA6/TA10/TA7 sections with tips), tile "conveyancing" (free). Prominent not-legal-advice disclaimer; PDF of draft answers.
+- Tested iteration_38 (100%); padding fix applied after.
