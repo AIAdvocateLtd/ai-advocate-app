@@ -19,6 +19,7 @@ import { ShareActions, ShareActionsRow } from "@/ShareActions";
 import WillWriterModal from "@/WillWriter";
 import { useFormDraft, clearAllFormDrafts, DraftNotice } from "@/FormDrafts";
 import { MyLetters } from "@/MyLetters";
+import { AdminStripeResyncCard } from "@/AdminStripeResync";
 import { TrustpilotPrompt, AdminTestimonialsCard } from "@/Reviews";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
@@ -7889,6 +7890,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             {/* 💰 OWNER ONLY — verify every STRIPE_PRICE_* env var resolves to the right amount */}
             <AdminStripePriceAuditCard />
             <AdminTestimonialsCard api={api} toast={aaToast} />
+            <AdminStripeResyncCard api={api} toast={aaToast} />
             {/* 💷 OWNER ONLY — founder cost dashboard: MRR, Stripe fees, LLM burn, net margin */}
             <AdminFounderFinanceCard />
             {/* ✍️ OWNER ONLY — default founder signature for auto-fire Founding Firm Agreements */}

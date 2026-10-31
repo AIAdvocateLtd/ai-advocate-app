@@ -14355,6 +14355,39 @@ async def admin_users_recent(_: dict = Depends(require_admin), limit: int = 30, 
     return {"users": users}
 
 
+class AdminResyncIn(BaseModel):
+    email: str
+
+@api_router.post("/admin/users/resync-stripe")
+async def admin_resync_stripe(data: AdminResyncIn, _: dict = Depends(require_admin)):
+    """Re-read a user's live Stripe subscription and set their app plan to match."""
+    email = data.email.strip().lower()
+    user = await db.users.find_one({"email": email}, {"_id": 0, "id": 1, "tier": 1, "stripe_subscription_id": 1, "stripe_customer_id": 1})
+    if not user:
+        raise HTTPException(404, "No app account with that email")
+    subs = []
+    try:
+        if user.get("stripe_subscription_id"):
+            subs = [stripe.Subscription.retrieve(user["stripe_subscription_id"]).to_dict()]
+        else:
+            for c in stripe.Customer.list(email=email, limit=10).to_dict().get("data", []):
+                subs += stripe.Subscription.list(customer=c["id"], status="all", limit=10).to_dict().get("data", [])
+    except stripe.error.StripeError as e:
+        raise HTTPException(502, f"Stripe error: {e.user_message or str(e)}")
+    live = [s for s in subs if s.get("status") in ("active", "trialing", "past_due")]
+    if not live:
+        raise HTTPException(404, "No active Stripe subscription found for this email")
+    sub = live[0]
+    tier = next((PRICE_TO_TIER[i["price"]["id"]] for i in sub.get("items", {}).get("data", [])
+                 if (i.get("price") or {}).get("id") in PRICE_TO_TIER), None)
+    if not tier:
+        raise HTTPException(409, "Subscription price isn't one of the app's plans")
+    await db.users.update_one({"id": user["id"]}, {"$set": {
+        "tier": tier, "subscription_status": sub["status"], "stripe_subscription_id": sub["id"],
+        "stripe_customer_id": sub.get("customer"), "subscription_updated_at": datetime.now(timezone.utc).isoformat()}})
+    return {"ok": True, "email": email, "previous_tier": user.get("tier"), "tier": tier, "status": sub["status"]}
+
+
 @api_router.post("/admin/users/comp")
 async def admin_users_comp(data: CompUserPayload, admin: dict = Depends(require_admin)):
     """Grant the named user free Pro access for `days` days (0 = lifetime).
