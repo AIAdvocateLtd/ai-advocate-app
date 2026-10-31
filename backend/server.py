@@ -1,6 +1,6 @@
 """AI Advocate - Backend API"""
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Request, Header
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -14379,6 +14379,104 @@ async def admin_users_recent(_: dict = Depends(require_admin), limit: int = 30, 
          "trial_end_date": 1, "comp_pro_until": 1, "created_at": 1},
     ).sort("created_at", -1).limit(limit).to_list(limit)
     return {"users": users}
+
+
+VAT_THRESHOLD_GBP = 90000
+VAT_WARN_GBP = 75000
+
+def _uk_tax_year_start(d: datetime) -> datetime:
+    start = datetime(d.year, 4, 6, tzinfo=timezone.utc)
+    return start if d >= start else datetime(d.year - 1, 4, 6, tzinfo=timezone.utc)
+
+def _stripe_balance_txns(since: datetime, until: Optional[datetime] = None) -> list:
+    params = {"created": {"gte": int(since.timestamp()), **({"lt": int(until.timestamp())} if until else {})}, "limit": 100}
+    out = []
+    for t in stripe.BalanceTransaction.list(**params).auto_paging_iter():
+        out.append(t.to_dict())
+        if len(out) >= 5000:
+            break
+    return out
+
+def _is_sale(t: dict) -> bool:
+    return t.get("type") in ("charge", "payment")
+
+def _is_refund(t: dict) -> bool:
+    return t.get("type") in ("refund", "payment_refund")
+
+@api_router.get("/admin/finance/summary")
+async def admin_finance_summary(_: dict = Depends(require_admin)):
+    """Income from Stripe by month (last 12 months), current UK tax year totals and VAT threshold check."""
+    now = datetime.now(timezone.utc)
+    since = min(_uk_tax_year_start(now), (now.replace(day=1) - timedelta(days=335)).replace(day=1, hour=0, minute=0, second=0, microsecond=0))
+    try:
+        txns = await asyncio.to_thread(_stripe_balance_txns, since)
+    except stripe.error.StripeError as e:
+        raise HTTPException(400, f"Stripe error: {e.user_message or str(e)}")
+    months, tax_year = {}, {"sales": 0.0, "refunds": 0.0, "fees": 0.0}
+    rolling_cut = now - timedelta(days=365)
+    rolling, ty_start = 0.0, _uk_tax_year_start(now)
+    for t in txns:
+        when = datetime.fromtimestamp(t["created"], tz=timezone.utc)
+        m = months.setdefault(when.strftime("%Y-%m"), {"month": when.strftime("%Y-%m"), "sales": 0.0, "refunds": 0.0, "fees": 0.0})
+        if t.get("type") in ("stripe_fee", "fee"):
+            m["fees"] += abs(t["amount"]) / 100.0
+            if when >= ty_start:
+                tax_year["fees"] += abs(t["amount"]) / 100.0
+            continue
+        if not (_is_sale(t) or _is_refund(t)):
+            continue
+        gross, fee = t["amount"] / 100.0, (t.get("fee") or 0) / 100.0
+        key = "sales" if _is_sale(t) else "refunds"
+        m[key] += abs(gross); m["fees"] += fee
+        if when >= ty_start:
+            tax_year[key] += abs(gross); tax_year["fees"] += fee
+        if when >= rolling_cut:
+            rolling += gross
+    rows = sorted(months.values(), key=lambda r: r["month"], reverse=True)[:12]
+    for r in rows + [tax_year]:
+        r["net"] = round(r["sales"] - r["refunds"] - r["fees"], 2)
+        for k in ("sales", "refunds", "fees"):
+            r[k] = round(r[k], 2)
+    rolling = round(rolling, 2)
+    return {
+        "months": rows,
+        "tax_year": {**tax_year, "label": f"{ty_start.year}/{str(ty_start.year + 1)[-2:]}", "from": ty_start.date().isoformat()},
+        "vat": {"rolling_12m_sales": rolling, "threshold": VAT_THRESHOLD_GBP, "warn_at": VAT_WARN_GBP,
+                "pct": round(min(rolling / VAT_THRESHOLD_GBP * 100, 100), 1), "warning": rolling >= VAT_WARN_GBP},
+        "currency": "GBP",
+    }
+
+@api_router.get("/admin/finance/export")
+async def admin_finance_export(start: str, end: str, _: dict = Depends(require_admin)):
+    """CSV of every Stripe sale, refund and fee between two dates (inclusive), for the accountant."""
+    import csv, io
+    try:
+        s = datetime.fromisoformat(start).replace(tzinfo=timezone.utc)
+        e = datetime.fromisoformat(end).replace(tzinfo=timezone.utc) + timedelta(days=1)
+    except ValueError:
+        raise HTTPException(400, "Dates must be YYYY-MM-DD")
+    if e <= s or (e - s).days > 800:
+        raise HTTPException(400, "Choose a date range of up to about 2 years")
+    try:
+        txns = await asyncio.to_thread(_stripe_balance_txns, s, e)
+    except stripe.error.StripeError as ex:
+        raise HTTPException(400, f"Stripe error: {ex.user_message or str(ex)}")
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Date", "Type", "Description", "Gross (GBP)", "Stripe fee (GBP)", "Net (GBP)", "Available on", "Stripe ID"])
+    for t in sorted(txns, key=lambda x: x["created"]):
+        if t.get("type") in ("payout", "transfer"):
+            continue
+        w.writerow([
+            datetime.fromtimestamp(t["created"], tz=timezone.utc).strftime("%Y-%m-%d"),
+            t.get("reporting_category") or t.get("type"), t.get("description") or "",
+            f'{t["amount"] / 100:.2f}', f'{(t.get("fee") or 0) / 100:.2f}', f'{t["net"] / 100:.2f}',
+            datetime.fromtimestamp(t["available_on"], tz=timezone.utc).strftime("%Y-%m-%d") if t.get("available_on") else "",
+            t.get("id"),
+        ])
+    fname = f"ai-advocate-stripe-{start}-to-{end}.csv"
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 PLAN_PRICE_GBP = {"plus": 19.99, "pro": 34.99, "yearly": 319.99}

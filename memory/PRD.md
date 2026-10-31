@@ -968,3 +968,8 @@ Production redeploy required. All env vars unchanged.
 - New send_subscription_thanks on checkout.session.completed (once per sub via thanks_sent_for_sub) incl. support contact. Welcome email already includes support@ contact.
 - Frontend: AdminSubscribers.js (Settings → owner section, above Re-sync card).
 - Happy-path Stripe calls NOT testable in preview (no Stripe test mode); error paths + UI verified.
+
+## 2026-10-31 — Money (admin finance)
+- GET /api/admin/finance/summary (Stripe BalanceTransactions: monthly sales/refunds/fees/net last 12m, UK tax year 6 Apr totals, rolling 12m VAT vs £90k, warn ≥£75k in UI). GET /api/admin/finance/export?start&end → CSV for accountant. AdminFinance.js card in Settings owner section.
+- Landing: "All prices include UK VAT" → "Prices shown are the total you pay." (user believes not VAT registered). Terms keep "where applicable".
+- Recommended user use FreeAgent/Xero for bookkeeping/expenses/MTD; expenses + deadline reminders deliberately not built.
