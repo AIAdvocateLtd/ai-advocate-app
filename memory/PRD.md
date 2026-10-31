@@ -961,3 +961,10 @@ Production redeploy required. All env vars unchanged.
 ## 2026-10-31 — Stripe SDK v15 fix
 - stripe 15.x StripeObject has no .get(). Fixed: stripe.Subscription.retrieve(...).to_dict() in stripe_webhook (checkout.session.completed tier lookup) and in plan-change endpoint (~line 4583, previously 500 "Could not change plan"). Checkout tier now defaults from session metadata.plan before price lookup (previously silently defaulted Pro buyers to Plus).
 - RULE: always .to_dict() Stripe objects before using .get().
+
+## 2026-10-31 — Paying subscribers admin + subscription emails
+- GET /api/admin/subscribers (users with stripe_subscription_id & paying status; monthly_gbp estimate). POST /api/admin/subscribers/{user_id}/action: cancel_period_end | undo_cancel | cancel_refund (cancel + refund latest charge, suppress webhook cancel email) | change_plan (proration) | pause (pause_collection void → tier free, subscription_plan kept) | resume | resync. Every action emails send_subscription_update. Stripe errors → 400 (Cloudflare swallows 502 bodies).
+- Webhook subscription.updated now stores subscription_plan, subscription_paused (tier free while paused), cancel_at_period_end, current_period_end. subscription.deleted skips email if suppress_cancel_email.
+- New send_subscription_thanks on checkout.session.completed (once per sub via thanks_sent_for_sub) incl. support contact. Welcome email already includes support@ contact.
+- Frontend: AdminSubscribers.js (Settings → owner section, above Re-sync card).
+- Happy-path Stripe calls NOT testable in preview (no Stripe test mode); error paths + UI verified.

@@ -5501,9 +5501,23 @@ async def stripe_webhook(request: Request):
                 "subscription_started_at": now_iso,
             }})
             logger.info(f"Subscription activated for user {user_id} on tier={tier}")
+            if sub_id:
+                # Thank-you email, once per subscription (webhooks can retry)
+                u = await db.users.find_one_and_update(
+                    {"id": user_id, "thanks_sent_for_sub": {"$ne": sub_id}},
+                    {"$set": {"thanks_sent_for_sub": sub_id}}, projection={"_id": 0, "email": 1, "full_name": 1})
+                if u:
+                    try:
+                        from email_helper import send_subscription_thanks
+                        await send_subscription_thanks(u["email"], u.get("full_name") or "", tier)
+                    except Exception as e:
+                        logger.warning(f"Subscription thank-you email failed for {user_id}: {e}")
     elif etype == "customer.subscription.deleted":
         customer_id = obj.get("customer")
         if customer_id:
+            suppress = await db.users.find_one_and_update(
+                {"stripe_customer_id": customer_id, "suppress_cancel_email": True},
+                {"$unset": {"suppress_cancel_email": ""}}, projection={"_id": 0, "id": 1})
             # Downgrade consumer if matching user
             consumer_res = await db.users.update_one(
                 {"stripe_customer_id": customer_id},
@@ -5529,7 +5543,7 @@ async def stripe_webhook(request: Request):
                 from email_helper import send_cancellation_email
                 from datetime import datetime as _dt
                 ended_on = _dt.now(timezone.utc).strftime("%d %B %Y")
-                if consumer_res.modified_count > 0:
+                if consumer_res.modified_count > 0 and not suppress:
                     u = await db.users.find_one({"stripe_customer_id": customer_id}, {"_id": 0, "email": 1, "full_name": 1})
                     if u:
                         await send_cancellation_email(u["email"], u.get("full_name") or "", "user", ended_on, "Subscription cancelled via Stripe")
@@ -5567,6 +5581,18 @@ async def stripe_webhook(request: Request):
                 consumer_update["tier"] = "free"
             elif new_consumer_tier and status_val == "active":
                 consumer_update["tier"] = new_consumer_tier
+        if new_consumer_tier:
+            consumer_update["subscription_plan"] = new_consumer_tier
+        # Paused billing = free plan until resumed
+        paused = bool(obj.get("pause_collection"))
+        consumer_update["subscription_paused"] = paused
+        if paused:
+            consumer_update["tier"] = "free"
+        consumer_update["cancel_at_period_end"] = bool(obj.get("cancel_at_period_end"))
+        period_end = obj.get("current_period_end") or next(
+            (i.get("current_period_end") for i in (obj.get("items") or {}).get("data", []) if i.get("current_period_end")), None)
+        if period_end:
+            consumer_update["current_period_end"] = datetime.fromtimestamp(period_end, tz=timezone.utc).isoformat()
         if customer_id:
             await db.users.update_one({"stripe_customer_id": customer_id}, {"$set": consumer_update})
             # Update firm if it matches
@@ -14355,6 +14381,106 @@ async def admin_users_recent(_: dict = Depends(require_admin), limit: int = 30, 
     return {"users": users}
 
 
+PLAN_PRICE_GBP = {"plus": 19.99, "pro": 34.99, "yearly": 319.99}
+PAYING_STATUSES = ["active", "trialing", "past_due", "unpaid", "incomplete"]
+
+@api_router.get("/admin/subscribers")
+async def admin_list_subscribers(_: dict = Depends(require_admin)):
+    """Every consumer with a Stripe subscription that hasn't ended."""
+    q = {"stripe_subscription_id": {"$nin": [None, ""]}, "subscription_status": {"$in": PAYING_STATUSES}}
+    proj = {"_id": 0, "id": 1, "email": 1, "full_name": 1, "tier": 1, "subscription_status": 1, "subscription_started_at": 1,
+            "stripe_customer_id": 1, "stripe_subscription_id": 1, "cancel_at_period_end": 1, "current_period_end": 1,
+            "subscription_paused": 1, "subscription_plan": 1}
+    items = await db.users.find(q, proj).sort("subscription_started_at", -1).to_list(500)
+    monthly = 0.0
+    for u in items:
+        plan = u.get("subscription_plan") or u.get("tier")
+        u["plan"] = plan
+        if not u.get("subscription_paused") and u.get("subscription_status") == "active" and plan in PLAN_PRICE_GBP:
+            monthly += PLAN_PRICE_GBP[plan] / (12 if plan == "yearly" else 1)
+    return {"items": items, "count": len(items), "monthly_gbp": round(monthly, 2)}
+
+
+class SubscriberAction(BaseModel):
+    action: Literal["cancel_period_end", "undo_cancel", "cancel_refund", "change_plan", "pause", "resume", "resync"]
+    plan: Optional[Literal["plus", "pro", "yearly"]] = None
+
+@api_router.post("/admin/subscribers/{user_id}/action")
+async def admin_subscriber_action(user_id: str, data: SubscriberAction, admin: dict = Depends(require_admin)):
+    from email_helper import send_subscription_update, PLAN_LABELS
+    u = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not u or not u.get("stripe_subscription_id"):
+        raise HTTPException(404, "Subscriber not found")
+    if data.action == "resync":
+        return await admin_resync_stripe(AdminResyncIn(email=u["email"]), admin)
+    sid, now = u["stripe_subscription_id"], datetime.now(timezone.utc)
+    upd, mail = {"subscription_updated_at": now.isoformat()}, None
+    try:
+        sub = stripe.Subscription.retrieve(sid).to_dict()
+        item = sub["items"]["data"][0]
+        end_ts = sub.get("current_period_end") or item.get("current_period_end")
+        end_label = datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%d %B %Y") if end_ts else "the end of your billing period"
+        if data.action == "cancel_period_end":
+            stripe.Subscription.modify(sid, cancel_at_period_end=True)
+            upd["cancel_at_period_end"] = True
+            mail = ("Your subscription will end on " + end_label,
+                    f"We've cancelled your AI Advocate subscription as requested. You keep full access until <strong>{end_label}</strong>, and you won't be charged again.")
+        elif data.action == "undo_cancel":
+            stripe.Subscription.modify(sid, cancel_at_period_end=False)
+            upd["cancel_at_period_end"] = False
+            mail = ("Your subscription will continue", "Your AI Advocate subscription is no longer set to cancel. It will renew as normal.")
+        elif data.action == "cancel_refund":
+            charges = stripe.Charge.list(customer=sub["customer"], limit=5).to_dict().get("data", [])
+            charge = next((c for c in charges if c.get("paid") and not c.get("refunded")), None)
+            await db.users.update_one({"id": user_id}, {"$set": {"suppress_cancel_email": True}})
+            stripe.Subscription.cancel(sid)
+            refunded = 0.0
+            if charge:
+                r = stripe.Refund.create(charge=charge["id"]).to_dict()
+                refunded = (r.get("amount") or 0) / 100.0
+            upd.update({"subscription_status": "canceled", "tier": "free", "subscription_ended_at": now.isoformat(),
+                        "cancel_at_period_end": False})
+            body = "Your AI Advocate subscription has been cancelled and your access to paid features has ended."
+            if refunded:
+                body += f" We've refunded <strong>£{refunded:.2f}</strong> to your card. It usually appears within 5–10 working days."
+            mail = ("Your subscription has been cancelled" + (" and refunded" if refunded else ""), body)
+        elif data.action == "change_plan":
+            price = {"plus": STRIPE_PRICE_PLUS, "pro": STRIPE_PRICE_PRO, "yearly": STRIPE_PRICE_YEARLY_PRO}.get(data.plan or "")
+            if not price:
+                raise HTTPException(400, "Choose a plan")
+            if item["price"]["id"] == price:
+                raise HTTPException(400, "They're already on that plan")
+            stripe.Subscription.modify(sid, items=[{"id": item["id"], "price": price}], proration_behavior="create_prorations")
+            upd.update({"tier": data.plan, "subscription_plan": data.plan})
+            mail = ("Your plan has changed to " + PLAN_LABELS[data.plan].split(" (")[0],
+                    f"Your AI Advocate plan is now <strong>{PLAN_LABELS[data.plan]}</strong>, effective immediately. Any difference in price is adjusted automatically on your next bill.")
+        elif data.action == "pause":
+            stripe.Subscription.modify(sid, pause_collection={"behavior": "void"})
+            plan = next((t for p, t in PRICE_TO_TIER.items() if p and p == item["price"]["id"]), u.get("tier"))
+            upd.update({"subscription_paused": True, "subscription_plan": plan, "tier": "free"})
+            mail = ("Your subscription is paused",
+                    "We've paused your AI Advocate subscription. You won't be charged while it's paused, and your account uses the free plan until it's resumed. All your saved cases, letters and files are kept safe.")
+        elif data.action == "resume":
+            stripe.Subscription.modify(sid, pause_collection="")
+            plan = u.get("subscription_plan") or PRICE_TO_TIER.get(item["price"]["id"]) or "plus"
+            upd.update({"subscription_paused": False, "tier": plan})
+            mail = ("Your subscription is active again",
+                    f"Your AI Advocate {PLAN_LABELS.get(plan, 'subscription')} is active again, and billing resumes from your next payment date.")
+    except HTTPException:
+        raise
+    except stripe.error.StripeError as e:
+        await db.users.update_one({"id": user_id}, {"$unset": {"suppress_cancel_email": ""}})
+        raise HTTPException(400, f"Stripe error: {e.user_message or str(e)}")
+    await db.users.update_one({"id": user_id}, {"$set": upd})
+    if mail:
+        try:
+            await send_subscription_update(u["email"], u.get("full_name") or "", mail[0], mail[1])
+        except Exception as e:
+            logger.warning(f"Subscriber update email failed for {user_id}: {e}")
+    logger.info(f"[admin] subscriber {u['email']} action={data.action} plan={data.plan}")
+    return {"ok": True, "action": data.action}
+
+
 class AdminResyncIn(BaseModel):
     email: str
 
@@ -14373,7 +14499,7 @@ async def admin_resync_stripe(data: AdminResyncIn, _: dict = Depends(require_adm
             for c in stripe.Customer.list(email=email, limit=10).to_dict().get("data", []):
                 subs += stripe.Subscription.list(customer=c["id"], status="all", limit=10).to_dict().get("data", [])
     except stripe.error.StripeError as e:
-        raise HTTPException(502, f"Stripe error: {e.user_message or str(e)}")
+        raise HTTPException(400, f"Stripe error: {e.user_message or str(e)}")
     live = [s for s in subs if s.get("status") in ("active", "trialing", "past_due")]
     if not live:
         raise HTTPException(404, "No active Stripe subscription found for this email")
@@ -14382,8 +14508,14 @@ async def admin_resync_stripe(data: AdminResyncIn, _: dict = Depends(require_adm
                  if (i.get("price") or {}).get("id") in PRICE_TO_TIER), None)
     if not tier:
         raise HTTPException(409, "Subscription price isn't one of the app's plans")
+    paused = bool(sub.get("pause_collection"))
+    item0 = (sub.get("items", {}).get("data") or [{}])[0]
+    end_ts = sub.get("current_period_end") or item0.get("current_period_end")
     await db.users.update_one({"id": user["id"]}, {"$set": {
-        "tier": tier, "subscription_status": sub["status"], "stripe_subscription_id": sub["id"],
+        "tier": "free" if paused else tier, "subscription_plan": tier, "subscription_paused": paused,
+        "cancel_at_period_end": bool(sub.get("cancel_at_period_end")),
+        **({"current_period_end": datetime.fromtimestamp(end_ts, tz=timezone.utc).isoformat()} if end_ts else {}),
+        "subscription_status": sub["status"], "stripe_subscription_id": sub["id"],
         "stripe_customer_id": sub.get("customer"), "subscription_updated_at": datetime.now(timezone.utc).isoformat()}})
     return {"ok": True, "email": email, "previous_tier": user.get("tier"), "tier": tier, "status": sub["status"]}
 

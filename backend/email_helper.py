@@ -321,6 +321,40 @@ async def send_password_reset(email: str, reset_link: str) -> bool:
     return await _send(email, "Reset your AI Advocate password", html)
 
 
+PLAN_LABELS = {"plus": "Plus (£19.99/month)", "pro": "Pro (£34.99/month)", "yearly": "Pro Yearly (£319.99/year)"}
+
+
+async def send_subscription_thanks(email: str, full_name: str, tier: str) -> bool:
+    name = _html.escape((full_name or "").strip().split(" ")[0] or "there")
+    plan = PLAN_LABELS.get(tier, "your new plan")
+    html = _wrap(f"""
+      <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">Thank you, {name}</h2>
+      <p>Thank you for subscribing to <strong>AI Advocate {plan}</strong>. It genuinely means a lot. Your upgrade is active now, so everything in your plan is ready to use.</p>
+      <p style="text-align:center; margin:22px 0;">
+        <a href="https://aiadvocate.co.uk/app" style="display:inline-block; background:#1a1300; color:#f7c948; text-decoration:none; padding:12px 28px; border-radius:8px; font-weight:700; font-size:14px;">Open AI Advocate</a>
+      </p>
+      <p style="background:#fff8e1; border-left:3px solid #f7c948; padding:12px 14px; border-radius:6px; font-size:14px; line-height:1.6;">
+        <strong style="color:#b8860b;">Need help?</strong> If anything isn't working, you have a question about your plan or billing, or there's any way we can help, just reply to this email or write to <a href="mailto:support@aiadvocate.co.uk" style="color:#b8860b;">support@aiadvocate.co.uk</a>. A real person reads every message.
+      </p>
+      <p style="font-size:13px; color:#555;">Your receipt comes separately from Stripe. You can manage or cancel your subscription any time in the app under Settings.</p>
+      <p style="margin:18px 0 0 0;">Samuel Malick<br>Founder, AI Advocate Ltd.</p>
+    """, preview="Your upgrade is active. Here's how to reach us if you need anything.")
+    return await _send(email, f"Thank you for subscribing, {name}" if name != "there" else "Thank you for subscribing", html)
+
+
+async def send_subscription_update(email: str, full_name: str, headline: str, body: str) -> bool:
+    """Short confirmation when the owner changes a subscriber's plan or billing."""
+    name = _html.escape((full_name or "").strip().split(" ")[0] or "there")
+    html = _wrap(f"""
+      <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">{_html.escape(headline)}</h2>
+      <p>Hi {name},</p>
+      <p>{body}</p>
+      <p style="font-size:14px; line-height:1.6;">If you have any questions, or this doesn't look right, just reply to this email or write to <a href="mailto:support@aiadvocate.co.uk" style="color:#b8860b;">support@aiadvocate.co.uk</a> and we'll sort it.</p>
+      <p style="margin:18px 0 0 0;">Samuel Malick<br>Founder, AI Advocate Ltd.</p>
+    """, preview=headline)
+    return await _send(email, headline, html)
+
+
 async def send_cancellation_email(email: str, name: str = "", account_kind: str = "user",
                                   ended_on: str = "", reason: str = "") -> bool:
     """Send a branded confirmation when a subscription / trial is cancelled or revoked.
