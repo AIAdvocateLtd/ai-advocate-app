@@ -16644,6 +16644,104 @@ async def admin_delete_testimonial(tid: str, _: dict = Depends(require_admin)):
     return {"deleted": True}
 
 
+# ==================== Conveyancing Companion ====================
+CONV_FREE_SUGGESTIONS = 3
+
+class ConvCreate(BaseModel):
+    journey: Literal["sell", "buy"]
+    address: str = Field("", max_length=200)
+
+class ConvUpdate(BaseModel):
+    address: Optional[str] = Field(None, max_length=200)
+    stages_done: Optional[List[str]] = None
+    notes: Optional[dict] = None
+    form_answers: Optional[dict] = None
+
+class ConvSuggest(BaseModel):
+    form: Literal["TA6", "TA10", "TA7"]
+    section: str = Field(..., max_length=120)
+    question: str = Field(..., max_length=600)
+    facts: str = Field(..., min_length=3, max_length=2500)
+
+async def _conv_owned(cid: str, user: dict) -> dict:
+    doc = await db.conveyancing.find_one({"id": cid, "user_id": user["id"]}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Not found")
+    return doc
+
+@api_router.get("/conveyancing")
+async def conv_list(user: dict = Depends(get_user)):
+    items = await db.conveyancing.find({"user_id": user["id"]}, {"_id": 0}).sort("updated_at", -1).to_list(20)
+    used = int(user.get("conv_suggest_count") or 0)
+    unlimited = TIER_ORDER.get(user_to_public(user)["tier"], 0) >= 1
+    return {"items": items, "suggestions_left": None if unlimited else max(CONV_FREE_SUGGESTIONS - used, 0)}
+
+@api_router.post("/conveyancing")
+async def conv_create(data: ConvCreate, user: dict = Depends(get_user)):
+    if await db.conveyancing.count_documents({"user_id": user["id"]}) >= 20:
+        raise HTTPException(400, "You can track up to 20 moves")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {"id": str(uuid.uuid4()), "user_id": user["id"], "journey": data.journey, "address": data.address.strip(),
+           "stages_done": [], "notes": {}, "form_answers": {}, "created_at": now, "updated_at": now}
+    await db.conveyancing.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.patch("/conveyancing/{cid}")
+async def conv_update(cid: str, data: ConvUpdate, user: dict = Depends(get_user)):
+    await _conv_owned(cid, user)
+    upd = {k: v for k, v in data.model_dump().items() if v is not None}
+    if len(str(upd)) > 100_000:
+        raise HTTPException(400, "Too much text")
+    upd["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.conveyancing.update_one({"id": cid}, {"$set": upd})
+    return await _conv_owned(cid, user)
+
+@api_router.delete("/conveyancing/{cid}")
+async def conv_delete(cid: str, user: dict = Depends(get_user)):
+    await _conv_owned(cid, user)
+    await db.conveyancing.delete_one({"id": cid})
+    return {"deleted": True}
+
+@api_router.post("/conveyancing/suggest")
+async def conv_suggest(data: ConvSuggest, user: dict = Depends(get_user)):
+    """Lex suggests clear, honest wording for one section of a seller's property form."""
+    unlimited = TIER_ORDER.get(user_to_public(user)["tier"], 0) >= 1
+    if not unlimited:
+        res = await db.users.update_one(
+            {"id": user["id"], "$or": [{"conv_suggest_count": {"$lt": CONV_FREE_SUGGESTIONS}}, {"conv_suggest_count": {"$exists": False}}]},
+            {"$inc": {"conv_suggest_count": 1}})
+        if not res.modified_count:
+            raise HTTPException(402, "You've used your 3 free form suggestions. Upgrade to Plus for unlimited help with your property forms.")
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+    system = (
+        "You help home sellers in England and Wales complete the Law Society's TA6 (Property Information), "
+        "TA10 (Fittings and Contents) and TA7 (Leasehold Information) forms. Given one form section, its question and the "
+        "seller's own facts, write suggested wording they could use. Rules: be strictly honest and accurate; never suggest "
+        "hiding, minimising or omitting anything; if the seller is unsure, suggest saying what they know and 'not known' for the rest "
+        "rather than guessing; point out documents they should attach (e.g. certificates, guarantees, building control sign-off); "
+        "flag anything that could lead to a misrepresentation claim later. Use plain English, British spelling. Reply in exactly this format:\n"
+        "**Suggested wording**\n<the wording, written in the first person as the seller>\n\n"
+        "**Check before you submit**\n- <2–4 short bullet points>\n\n"
+        "Do not add any other sections. This is general information, not legal advice."
+    )
+    prompt = f"Form: {data.form}\nSection: {data.section}\nQuestion: {data.question}\n\nSeller's facts:\n{data.facts}"
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"conv-{uuid.uuid4()}", system_message=system
+                       ).with_model("anthropic", "claude-haiku-4-5-20251001").with_params(max_tokens=700)
+        text = await chat.send_message(UserMessage(text=prompt))
+    except Exception:
+        if not unlimited:
+            await db.users.update_one({"id": user["id"]}, {"$inc": {"conv_suggest_count": -1}})
+        logger.exception("Conveyancing suggestion failed")
+        raise HTTPException(503, "Lex is busy. Please try again in a moment.")
+    left = None
+    if not unlimited:
+        u = await db.users.find_one({"id": user["id"]}, {"_id": 0, "conv_suggest_count": 1})
+        left = max(CONV_FREE_SUGGESTIONS - int(u.get("conv_suggest_count") or 0), 0)
+    return {"suggestion": text, "suggestions_left": left}
+
+
 app.include_router(api_router)
 
 # 🤝 Partner Programme — referral attribution + monthly commission ledger.

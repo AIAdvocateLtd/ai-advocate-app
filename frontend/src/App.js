@@ -22,6 +22,7 @@ import { MyLetters } from "@/MyLetters";
 import { AdminStripeResyncCard } from "@/AdminStripeResync";
 import { AdminSubscribersCard } from "@/AdminSubscribers";
 import { AdminFinanceCard } from "@/AdminFinance";
+import ConveyancingModal from "@/Conveyancing";
 import { TrustpilotPrompt, AdminTestimonialsCard } from "@/Reviews";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
@@ -12131,6 +12132,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     { id: "letter", label: t(lang, "letterLibrary"), Icon: LetterIcon, req: "free" },
     { id: "et1", label: "ET1 Auto-Fill", sub: "Employment Tribunal claim", Icon: ContractIcon, req: "free", isNew: true },
     { id: "will", label: "Will Writer", sub: "Draft your will", Icon: DraftIcon, req: "plus", isNew: true },
+    { id: "conveyancing", label: "Conveyancing", sub: "Buying or selling a home", Icon: PropertyIcon, req: "free", isNew: true },
     { id: "immigration", label: t(lang, "immigration"), Icon: ImmigrationIcon, cat: "immigration", req: "plus" },
     { id: "employment", label: t(lang, "employment"), Icon: EmploymentIcon, cat: "employment", req: "plus" },
     { id: "property", label: t(lang, "property"), Icon: PropertyIcon, cat: "property", req: "plus" },
@@ -12161,6 +12163,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
     else if (tile.id === "courtroom") setModal({ type: "courtroom" });
     else if (tile.id === "et1") setModal({ type: "et1" });
     else if (tile.id === "will") setModal({ type: "will" });
+    else if (tile.id === "conveyancing") setModal({ type: "conveyancing" });
     else if (tile.id === "ask_lex") setModal({ type: "chat", title: t(lang, "askLex"), category: tile.cat });
     else setModal({ type: "chat", title: tile.label, category: tile.cat });
   };
@@ -12400,6 +12403,7 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
       {modal?.type === "cost" && <CostEstimateModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "hearing" && <HearingRecorderModal lang={lang} country={country} onClose={() => setModal(null)} />}
       {modal?.type === "et1" && <ET1AutoFillModal lang={lang} country={country} onClose={() => setModal(null)} />}
+      {modal?.type === "conveyancing" && <ConveyancingModal api={api} toast={aaToast} pdfInline={pdfInline} onUpsell={() => { setModal(null); setSubPreset("plus"); setShowSub(true); }} onClose={() => setModal(null)} />}
       {modal?.type === "will" && <WillWriterModal api={api} toast={aaToast} onUpsell={() => { setModal(null); setSubPreset("plus"); setShowSub(true); }} onClose={() => setModal(null)} />}
       {/* Legacy "hearing" tile id removed — merged into "record" via RecordHub. The
           modal route above stays for any external aa:open-modal events that still target it. */}
