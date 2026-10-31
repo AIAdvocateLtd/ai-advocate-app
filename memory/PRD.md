@@ -978,3 +978,4 @@ Production redeploy required. All env vars unchanged.
 - Backend: /api/conveyancing CRUD (db.conveyancing: journey sell|buy, address, stages_done, notes, form_answers), POST /api/conveyancing/suggest (Claude Haiku; free users 3 total via users.conv_suggest_count, 402 after; Plus/Pro unlimited).
 - Frontend: Conveyancing.js + ConveyancingData.js (E&W sell 10 stages, buy 11 stages, TA6/TA10/TA7 sections with tips), tile "conveyancing" (free). Prominent not-legal-advice disclaimer; PDF of draft answers.
 - Tested iteration_38 (100%); padding fix applied after.
+- 2026-10-31: Conveyancing additions — LR_JOBS (DJP deceased joint owner, TR1/AP1/ID1 transfer of equity gift, AP1 name change, Property Alert) shown in Companion list view; "Moving day" tab (15-item checklist stored in stages_done with "md:" prefix, printable PDF); new guide /guides/selling-your-home-legal-steps-uk.html (index, sitemap=20 URLs, landing popular links).

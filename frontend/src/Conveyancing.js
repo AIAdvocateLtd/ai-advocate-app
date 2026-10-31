@@ -1,7 +1,7 @@
 // Conveyancing Companion: buying/selling stage tracker + help with the seller's property forms.
 import React, { useEffect, useState } from "react";
-import { X, Home, ArrowLeft, Check, ChevronDown, Sparkles, Trash2, Download, AlertTriangle } from "lucide-react";
-import { SELL_STAGES, BUY_STAGES, FORMS, DISCLAIMER } from "@/ConveyancingData";
+import { X, Home, ArrowLeft, Check, ChevronDown, Sparkles, Trash2, Download, AlertTriangle, Printer, Landmark, ChevronRight } from "lucide-react";
+import { SELL_STAGES, BUY_STAGES, FORMS, DISCLAIMER, MOVING_CHECKLIST, LR_JOBS } from "@/ConveyancingData";
 import { renderLexMarkdown } from "@/LexMarkdown";
 
 const card = { background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 12, padding: 12, marginBottom: 8 };
@@ -118,11 +118,61 @@ function SellerForms({ move, update, suggest, pdfInline }) {
   );
 }
 
+function MovingDay({ move, done, toggle, pdfInline }) {
+  const ticked = MOVING_CHECKLIST.filter(c => done.has(`md:${c.key}`)).length;
+  const print = () => pdfInline({
+    title: "Moving day checklist", subtitle: move.address || undefined,
+    body: MOVING_CHECKLIST.map(c => `- [${done.has(`md:${c.key}`) ? "x" : " "}] ${c.text}`).join("\n"),
+    filename: "moving-day-checklist.pdf",
+  });
+  return (
+    <div data-testid="conv-moving-day">
+      <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 10 }}>The week before completion · {ticked} of {MOVING_CHECKLIST.length} done</div>
+      {MOVING_CHECKLIST.map(c => {
+        const on = done.has(`md:${c.key}`);
+        return (
+          <button key={c.key} onClick={() => toggle(`md:${c.key}`)} data-testid={`conv-md-${c.key}`}
+            style={{ ...card, width: "100%", display: "flex", gap: 10, alignItems: "flex-start", textAlign: "left", cursor: "pointer", color: on ? "var(--text-dim)" : "var(--text)", fontSize: 13 }}>
+            <span style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0, marginTop: 1, border: `1.5px solid ${on ? "var(--gold)" : "var(--line)"}`, background: on ? "var(--gold)" : "transparent", display: "grid", placeItems: "center" }}>
+              {on && <Check size={12} color="#1a1300" />}
+            </span>
+            <span style={{ textDecoration: on ? "line-through" : "none" }}>{c.text}</span>
+          </button>
+        );
+      })}
+      <button onClick={print} className="btn-ghost" data-testid="conv-md-print" style={{ width: "100%", marginTop: 6 }}>
+        <Printer size={14} style={{ display: "inline", marginRight: 6 }} />Print checklist (PDF)
+      </button>
+    </div>
+  );
+}
+
+function LrJobView({ job, back }) {
+  const box = (title, items) => (
+    <div style={card}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--gold)", marginBottom: 6 }}>{title}</div>
+      {items}
+    </div>
+  );
+  return (
+    <div style={{ overflowY: "auto", flex: 1, minHeight: 0, fontSize: 13, color: "var(--text-dim)", lineHeight: 1.55 }} data-testid={`conv-lr-${job.key}`}>
+      <button className="btn-ghost" onClick={back} data-testid="conv-lr-back" style={{ marginBottom: 10, padding: "6px 12px" }}><ArrowLeft size={14} style={{ display: "inline", marginRight: 4 }} />Back</button>
+      <h4 style={{ margin: "0 0 8px", color: "var(--text)", fontSize: 15 }}>{job.title}</h4>
+      <p style={{ margin: "0 0 10px" }}><strong style={{ color: "var(--text)" }}>When to use this:</strong> {job.when}</p>
+      {box("Check first", <p style={{ margin: 0 }}>{job.check}</p>)}
+      {box("Step by step", <ol style={{ margin: 0, paddingLeft: 18 }}>{job.steps.map(st => <li key={st} style={{ marginBottom: 6 }}>{st}</li>)}</ol>)}
+      {box("Watch out for", <ul style={{ margin: 0, paddingLeft: 18 }}>{job.watch.map(w => <li key={w}>{w}</li>)}</ul>)}
+      <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Download the official forms free from GOV.UK (search for the form name). Forms and fees change, so check GOV.UK before sending. This is general information, not legal advice. If in doubt, ask a solicitor or conveyancer.</div>
+    </div>
+  );
+}
+
 function MoveView({ move, update, remove, back, suggest, pdfInline }) {
   const [tab, setTab] = useState("stages");
   const stages = move.journey === "sell" ? SELL_STAGES : BUY_STAGES;
   const done = new Set(move.stages_done || []);
   const toggle = (k) => update({ stages_done: done.has(k) ? [...done].filter(x => x !== k) : [...done, k] });
+  const stagesDone = stages.filter(s => done.has(s.key)).length;
   return (
     <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }} data-testid="conv-move-view">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -132,18 +182,16 @@ function MoveView({ move, update, remove, back, suggest, pdfInline }) {
       <input defaultValue={move.address} placeholder="Property address (optional)" maxLength={200} data-testid="conv-address"
         onBlur={(e) => e.target.value !== move.address && update({ address: e.target.value })}
         style={{ ...area, minHeight: 0, marginBottom: 8, fontWeight: 600 }} />
-      <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 10 }}>{move.journey === "sell" ? "Selling" : "Buying"} · {done.size} of {stages.length} stages done</div>
+      <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 10 }}>{move.journey === "sell" ? "Selling" : "Buying"} · {stagesDone} of {stages.length} stages done</div>
       <div style={{ height: 5, background: "#1a1a1a", borderRadius: 99, marginBottom: 12, overflow: "hidden" }}>
-        <div style={{ width: `${(done.size / stages.length) * 100}%`, height: "100%", background: "var(--gold)", transition: "width 0.3s" }} />
+        <div style={{ width: `${(stagesDone / stages.length) * 100}%`, height: "100%", background: "var(--gold)", transition: "width 0.3s" }} />
       </div>
-      {move.journey === "sell" && (
-        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-          {[["stages", "Stages"], ["forms", "Seller's forms"]].map(([k, l]) => (
-            <button key={k} onClick={() => setTab(k)} className={tab === k ? "btn-gold" : "btn-ghost"} data-testid={`conv-tab-${k}`} style={{ flex: 1, padding: "8px 10px", fontSize: 13 }}>{l}</button>
-          ))}
-        </div>
-      )}
-      {tab === "stages"
+      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        {[["stages", "Stages"], ...(move.journey === "sell" ? [["forms", "Seller's forms"]] : []), ["moving", "Moving day"]].map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)} className={tab === k ? "btn-gold" : "btn-ghost"} data-testid={`conv-tab-${k}`} style={{ flex: 1, padding: "8px 6px", fontSize: 12.5 }}>{l}</button>
+        ))}
+      </div>
+      {tab === "moving" ? <MovingDay move={move} done={done} toggle={toggle} pdfInline={pdfInline} /> : tab === "stages"
         ? stages.map((s, i) => <StageItem key={s.key} s={s} i={i} done={done.has(s.key)} note={(move.notes || {})[s.key]}
             onToggle={() => toggle(s.key)} onNote={(v) => update({ notes: { ...(move.notes || {}), [s.key]: v } })} />)
         : <SellerForms move={move} update={update} suggest={suggest} pdfInline={pdfInline} />}
@@ -158,6 +206,7 @@ export default function ConveyancingModal({ api, toast, pdfInline, onUpsell, onC
   const load = () => api.get("/conveyancing").then(r => { setMoves(r.data.items); setLeft(r.data.suggestions_left); }).catch(() => setMoves([]));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const move = moves?.find(m => m.id === openId);
+  const [lrJob, setLrJob] = useState(null);
 
   const create = async (journey) => {
     try { const { data } = await api.post("/conveyancing", { journey }); setMoves(ms => [data, ...ms]); setOpenId(data.id); }
@@ -187,7 +236,7 @@ export default function ConveyancingModal({ api, toast, pdfInline, onUpsell, onC
           <h3 className="font-display" style={{ margin: 0, color: "var(--gold)", display: "flex", alignItems: "center", gap: 8 }}><Home size={18} />Conveyancing Companion</h3>
           <button onClick={onClose} data-testid="conveyancing-close" aria-label="Close" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer" }}><X size={20} /></button>
         </div>
-        {move ? <MoveView move={move} update={update} remove={remove} back={() => setOpenId(null)} suggest={suggest} pdfInline={pdfInline} /> : (
+        {lrJob ? <LrJobView job={lrJob} back={() => setLrJob(null)} /> : move ? <MoveView move={move} update={update} remove={remove} back={() => setOpenId(null)} suggest={suggest} pdfInline={pdfInline} /> : (
           <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
             <Disclaimer />
             <p style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.55, marginTop: 0 }}>Follow every stage of your sale or purchase in plain English, keep notes, and get help wording your seller's property forms. For England and Wales.</p>
@@ -202,10 +251,16 @@ export default function ConveyancingModal({ api, toast, pdfInline, onUpsell, onC
               return (
                 <button key={m.id} onClick={() => setOpenId(m.id)} data-testid={`conv-move-${m.id}`} style={{ ...card, width: "100%", textAlign: "left", cursor: "pointer", color: "var(--text)" }}>
                   <div style={{ fontSize: 13.5, fontWeight: 600 }}>{m.address || (m.journey === "sell" ? "My sale" : "My purchase")}</div>
-                  <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{m.journey === "sell" ? "Selling" : "Buying"} · {(m.stages_done || []).length} of {total} stages done</div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{m.journey === "sell" ? "Selling" : "Buying"} · {(m.stages_done || []).filter(k => !k.startsWith("md:")).length} of {total} stages done</div>
                 </button>
               );
             })}
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--gold)", margin: "18px 0 8px", display: "flex", alignItems: "center", gap: 6 }}><Landmark size={14} />Simple Land Registry jobs you can do yourself</div>
+            {LR_JOBS.map(j => (
+              <button key={j.key} onClick={() => setLrJob(j)} data-testid={`conv-lr-open-${j.key}`} style={{ ...card, width: "100%", textAlign: "left", cursor: "pointer", color: "var(--text)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 13.5 }}>
+                <span>{j.title}</span><ChevronRight size={15} color="var(--text-muted)" />
+              </button>
+            ))}
           </div>
         )}
       </div>

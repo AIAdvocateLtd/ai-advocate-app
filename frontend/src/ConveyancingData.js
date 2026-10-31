@@ -103,4 +103,65 @@ export const FORMS = {
   ]},
 };
 
+export const MOVING_CHECKLIST = [
+  { key: "removals", text: "Removals or van booked for completion day, with a confirmed time" },
+  { key: "post", text: "Royal Mail post redirection set up (takes 5 working days)" },
+  { key: "utilities", text: "Gas, electricity, water and broadband providers told your moving date" },
+  { key: "council", text: "Council tax told at both the old and new address" },
+  { key: "insurance", text: "Home insurance arranged for the new home (buyers: from exchange)" },
+  { key: "bank", text: "Address updated with your bank, employer, GP, dentist, DVLA and HMRC" },
+  { key: "school", text: "Schools, nurseries and childcare told, if relevant" },
+  { key: "subscriptions", text: "Deliveries and subscriptions moved to the new address" },
+  { key: "meters", text: "Meter readings photographed on completion day (old and new home)" },
+  { key: "keys", text: "Keys, fobs, alarm codes and garage remotes collected or handed to the agent" },
+  { key: "manuals", text: "Appliance manuals, boiler details and guarantees left in a kitchen drawer (sellers)" },
+  { key: "ta10", text: "Fittings left or taken exactly as agreed on the TA10" },
+  { key: "bins", text: "Bin collection day and stopcock location noted (or left for the buyer)" },
+  { key: "clean", text: "Property left clean and empty, with photos taken as you leave" },
+  { key: "essentials", text: "First-night box packed: kettle, chargers, bedding, documents, medication" },
+];
+
+export const LR_JOBS = [
+  { key: "deceased", title: "Remove a deceased joint owner's name",
+    when: "You owned the home jointly with someone who has died, and you want the register to show you as the only owner.",
+    check: "This only works this simply if you owned it as 'joint tenants'. Check the register: if it has a 'Form A' restriction, you were 'tenants in common', the share passes under their will or intestacy, and you'll usually need a solicitor.",
+    steps: [
+      "Download your title register from GOV.UK ('Get information about property and land', £7) and check how it's owned.",
+      "Get an official copy of the death certificate (a certified copy from a solicitor also works).",
+      "Fill in form DJP (Removing a deceased joint proprietor). It's short: the property, the deceased's name and the date of death.",
+      "Post the form and the death certificate to HM Land Registry's Citizen Centre. There is no fee.",
+      "You'll receive an updated register showing you as sole owner, usually within a few weeks.",
+    ],
+    watch: ["If there's a mortgage, tell the lender separately", "If the sole owner has died, this is different: the executors handle it (form AS1), and a solicitor is recommended"] },
+  { key: "gift", title: "Gift a share of your home (transfer of equity)",
+    when: "Adding a partner to the title, or giving all or part of your home to a family member, without selling it.",
+    check: "If there's a mortgage, the lender must agree, and most lenders insist on a solicitor. This route is realistic only where there's no mortgage.",
+    steps: [
+      "Decide how you'll own it together: 'joint tenants' (shares pass automatically on death) or 'tenants in common' (fixed shares you can leave in a will). Consider a declaration of trust to record shares.",
+      "Fill in form TR1 (Transfer of whole of registered title) to transfer to yourselves jointly, or to the new owner. Everyone involved signs, each in front of an independent adult witness.",
+      "Fill in form AP1 (Change the register) to apply for the update.",
+      "Anyone not represented by a conveyancer must prove their identity on form ID1, verified in person by a solicitor or conveyancer (they charge a small fee).",
+      "Pay the HM Land Registry fee (Scale 2: use the fee calculator on GOV.UK) and send TR1, AP1 and the ID forms.",
+    ],
+    watch: ["Stamp Duty can apply if the new owner takes on part of a mortgage", "Gifts can affect Capital Gains Tax and Inheritance Tax (the 7-year rule), so speak to a tax adviser", "Gifting to avoid care fees or creditors can be challenged"] },
+  { key: "name", title: "Change your name on the title",
+    when: "You've married, divorced or changed your name by deed poll and the register still shows your old name.",
+    check: "You don't have to update it straight away, but it avoids delays when you later sell or remortgage.",
+    steps: [
+      "Get a certified copy of the evidence: marriage or civil partnership certificate, decree absolute or final order, or enrolled deed poll.",
+      "Fill in form AP1 (Change the register) and say you're updating your name.",
+      "Send AP1 and the evidence to HM Land Registry. There is no fee.",
+    ],
+    watch: ["Tell your mortgage lender too", "Keep the certified copy, because originals are returned only if you ask"] },
+  { key: "alert", title: "Protect your home with a free Property Alert",
+    when: "Anyone, especially if the property is empty, rented out or mortgage-free (these are targeted by fraudsters).",
+    check: "It's free and takes 5 minutes. You'll be emailed if anyone applies to change the register for your property.",
+    steps: [
+      "Search 'HM Land Registry Property Alert' on GOV.UK and create an account.",
+      "Add up to 10 properties by address or title number.",
+      "If you get an alert you don't recognise, call HM Land Registry's fraud line immediately.",
+    ],
+    watch: ["An alert doesn't block changes by itself. Owners not living at the property can also add a restriction (form RQ) for extra protection"] },
+];
+
 export const DISCLAIMER = "This is general information to help you understand the process. It is not legal advice, and AI Advocate is not a law firm. Always check your answers and documents with your solicitor or licensed conveyancer, who is responsible for your transaction.";
