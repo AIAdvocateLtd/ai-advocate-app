@@ -4580,7 +4580,7 @@ async def create_checkout(data: CheckoutRequest, request: Request, user: dict = 
     existing_sub_id = user.get("stripe_subscription_id")
     if existing_sub_id:
         try:
-            sub = stripe.Subscription.retrieve(existing_sub_id)
+            sub = stripe.Subscription.retrieve(existing_sub_id).to_dict()
             if sub and sub.get("status") in ("active", "trialing", "past_due"):
                 current_price_id = sub["items"]["data"][0]["price"]["id"]
                 if current_price_id == price_id:
@@ -5477,20 +5477,19 @@ async def stripe_webhook(request: Request):
         sub_id = obj.get("subscription")
         # Determine tier from the line items if possible (else from metadata.plan)
         tier = "plus"
+        meta_plan = (obj.get("metadata") or {}).get("plan")
+        if meta_plan in ("plus", "pro", "yearly"):
+            tier = meta_plan
         try:
             if sub_id:
-                sub = stripe.Subscription.retrieve(sub_id)
+                sub = stripe.Subscription.retrieve(sub_id).to_dict()
                 for item in (sub.get("items") or {}).get("data", []):
                     pid = (item.get("price") or {}).get("id")
                     if pid in PRICE_TO_TIER:
                         tier = PRICE_TO_TIER[pid]
                         break
-            else:
-                plan = (obj.get("metadata") or {}).get("plan")
-                if plan in ("plus", "pro", "yearly"):
-                    tier = plan
         except Exception:
-            logger.exception("Could not resolve tier from subscription; defaulting to plus")
+            logger.exception("Could not resolve tier from subscription; using checkout metadata")
         if user_id:
             await db.users.update_one({"id": user_id}, {"$set": {
                 "subscription_status": "active",

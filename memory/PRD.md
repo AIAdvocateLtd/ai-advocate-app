@@ -957,3 +957,7 @@ Production redeploy required. All env vars unchanged.
 - Letter Library (LetterLibraryModal) autosave: useFormDraft("letter") stores {tpl_id, your_name, recipient, facts, letter}; reopening returns to same template or finished letter; different template starts fresh; cleared on logout.
 - My Letters (2026-10-25): GET /api/letters/mine (legal_files kind=letter or type letter/legal_letter, not deleted). MyLetters.js tab in Letter Library: list, view (markdown rendered), PDF via /pdf/inline, copy/email, delete = soft delete DELETE /legal-files/{id} (Recycle Bin 30 days). Library letter output now renders markdown.
 - Rename letters (2026-10-25): PATCH /api/letters/{id} {title<=80}; pencil in My letters list + view, inline edit (Enter/blur saves, Esc cancels).
+
+## 2026-10-31 — Stripe SDK v15 fix
+- stripe 15.x StripeObject has no .get(). Fixed: stripe.Subscription.retrieve(...).to_dict() in stripe_webhook (checkout.session.completed tier lookup) and in plan-change endpoint (~line 4583, previously 500 "Could not change plan"). Checkout tier now defaults from session metadata.plan before price lookup (previously silently defaulted Pro buyers to Plus).
+- RULE: always .to_dict() Stripe objects before using .get().
