@@ -5488,6 +5488,8 @@ async def stripe_webhook(request: Request):
                     if pid in PRICE_TO_TIER:
                         tier = PRICE_TO_TIER[pid]
                         break
+        except stripe.error.InvalidRequestError as e:
+            logger.warning(f"Subscription {sub_id} not found in Stripe ({e}); using checkout metadata")
         except Exception:
             logger.exception("Could not resolve tier from subscription; using checkout metadata")
         if user_id:
