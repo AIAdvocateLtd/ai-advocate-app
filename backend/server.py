@@ -69,6 +69,7 @@ if SENTRY_DSN:
     )
 
 from app_crypto import encrypt_text, decrypt_text, encrypt_bytes, decrypt_bytes, is_enabled as crypto_enabled  # noqa: E402
+from deadline_calc import build_deadline_block  # noqa: E402
 from lex_lessons import lessons_block as _lessons_block, refresh_if_stale as _lessons_refresh_if_stale  # noqa: E402
 from rag import build_rag_context, is_enabled as rag_enabled, get_usage as rag_get_usage  # noqa: E402
 
@@ -2056,6 +2057,13 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         {"_id": 0, "user_message": 1, "assistant_response": 1, "created_at": 1},
     ).sort("created_at", 1).to_list(length=12)
 
+    # 📅 Exact deadline maths — LLM extracts the dates, Python calculates them.
+    try:
+        _ctx = "\n".join(decrypt_text(d.get("user_message")) or "" for d in history_docs[-3:])
+        system_msg = system_msg + await build_deadline_block(data.message, _ctx, EMERGENT_LLM_KEY)
+    except Exception as e:
+        logger.warning(f"Deadline block failed: {e}")
+
     initial_messages = [{"role": "system", "content": system_msg}]
     for doc in history_docs:
         try:
@@ -2278,6 +2286,13 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
         {"user_id": user["id"], "session_id": session_id},
         {"_id": 0, "user_message": 1, "assistant_response": 1, "created_at": 1},
     ).sort("created_at", 1).to_list(length=12)
+    # 📅 Exact deadline maths — LLM extracts the dates, Python calculates them.
+    try:
+        _ctx = "\n".join(decrypt_text(d.get("user_message")) or "" for d in history_docs[-3:])
+        system_msg = system_msg + await build_deadline_block(data.message, _ctx, EMERGENT_LLM_KEY)
+    except Exception as e:
+        logger.warning(f"Deadline block failed: {e}")
+
     messages = [{"role": "system", "content": system_msg}]
     for doc in history_docs:
         try:
@@ -16775,7 +16790,7 @@ async def conv_suggest(data: ConvSuggest, user: dict = Depends(get_user)):
 
 
 # 🧠 Lex learning loop — feedback → AI-drafted lessons → founder approval → every Lex prompt.
-from lex_lessons import build_router as _build_lessons_router, refresh_lessons as _refresh_lessons  # noqa: E402
+from lex_lessons import build_router as _build_lessons_router, refresh_lessons as _refresh_lessons, seed_fact_packs as _seed_fact_packs  # noqa: E402
 from rag import _tavily_search as _rag_tavily_search  # noqa: E402
 _lessons_router, _job_lex_learning = _build_lessons_router(
     db, get_user, require_admin, encrypt_text, decrypt_text, EMERGENT_LLM_KEY, _today_uk_line, _rag_tavily_search)
@@ -16832,6 +16847,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     try:
+        await _seed_fact_packs(db)
         await _refresh_lessons(db)
     except Exception:
         logger.exception("Lex lessons cache load failed (non-fatal)")

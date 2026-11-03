@@ -1001,3 +1001,8 @@ Production redeploy required. All env vars unchanged.
 - Frontend: LexFeedback.js (thumbs + Report wrong under each Lex reply), AdminLexLessons.js ("Lex's Brain" card in Admin).
 - Tested iteration_40 (100%). Preview cron reconcile pending; prod syncs on deploy.
 - Known minor: stream fallback still logs primary model id.
+
+## Immigration fact pack + deadline calculator
+- lex_lessons.seed_fact_packs: 13 GOV.UK-sourced immigration rules (spouse £29k/£18.6k, English levels, Skilled Worker £41,700/B2, earned settlement status Nov 2026, ILR 28 days/£3,226, citizenship absences 450/90 & 270/90, fees £1,709+£130, IHS £1,035/£776, 3C/overstay 14 days, visitor switching, Graduate 2y→18m from 1 Jan 2027, eVisas). Live without approval (founder choice), seeded once via db.seeds_applied "immigration_pack_v1"; editable in Lex's Brain.
+- backend/deadline_calc.py: Haiku 4.5 extracts dated events → Python computes exact dates (ET 3m/6m less a day + ACAS s207B extension, citizenship after ILR, ILR 28-day window, visa expiry/14-day, s8 grounds 1/1A/8 incl. 12-month protection, limitation 6y E&W/5y Scotland/3y PI, benefits MR & SSCS1 1 month/13 months). Injected into /lex/chat + stream system prompt. Only runs when message has legal + date hints.
+- Verified by unit calcs + live Lex chats (Sonnet 5.5 quoted Fri 30 April 2027 exactly; spouse/visitor answers used fact pack).

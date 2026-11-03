@@ -1,7 +1,7 @@
 // Admin: Lex's Brain — approve AI-drafted lessons that Lex follows on every answer.
 import React, { useEffect, useState } from "react";
 
-const SOURCE = { report: "Customer report", thumbs_down: "Thumbs-down", law_watch: "Law change check", manual: "Added by you" };
+const SOURCE = { report: "Customer report", thumbs_down: "Thumbs-down", law_watch: "Law change check", manual: "Added by you", fact_pack: "Fact pack" };
 const btn = (bg, col) => ({ background: bg, color: col, border: "1px solid var(--gold-deep)", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" });
 
 function LessonRow({ l, onAct }) {

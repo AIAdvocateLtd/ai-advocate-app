@@ -109,6 +109,61 @@ async def _existing_lessons_text(db) -> str:
     return "\n".join(f"- {r['text']}" for r in rows) or "(none)"
 
 
+IMMIGRATION_PACK_V1 = [
+    ("Spouse/partner visa financial requirement: new applications need at least £29,000 a year gross (usually combined income "
+     "of the couple; same figure with or without children). Couples first granted under the old rules before 11 April 2024 keep "
+     "the £18,600 rules when extending on that route. If the British/settled partner receives certain disability or carer's "
+     "benefits, the income threshold does not apply (adequate maintenance instead).", "https://www.gov.uk/uk-family-visa/proof-income-partner"),
+    ("Spouse/partner visa English: currently A1 for the first visa, A2 for the extension, and B1 plus the Life in the UK test for "
+     "settlement — earned-settlement reforms may raise these, so tell users to check GOV.UK before applying.", "https://www.gov.uk/uk-family-visa/knowledge-of-english"),
+    ("Skilled Worker visa (sponsorship certificates from 22 July 2025): salary must be at least £41,700 a year or the job's going "
+     "rate, whichever is higher. Lower options: £33,400 for new entrants, Immigration Salary List jobs and STEM PhDs; £37,500 for "
+     "relevant non-STEM PhDs. Many health and education roles have a £25,000 floor (full going rate still required).", "https://www.gov.uk/skilled-worker-visa/your-job"),
+    ("Skilled Worker, Scale-up and High Potential Individual visas: new applications from 8 January 2026 need English at B2. "
+     "People extending a Skilled Worker visa first granted under the B1 requirement stay at B1.", "https://www.gov.uk/government/publications/english-language-requirement-levels-for-immigration-applications"),
+    ("Settlement (ILR) — CURRENT LAW: most routes (e.g. Skilled Worker, spouse/partner) still lead to ILR after 5 years; long "
+     "residence is 10 years. On 2 November 2026 the Home Secretary announced 'earned settlement' making 10 years the standard "
+     "(5 years for some higher earners and public-service workers), with rule changes from December 2026 phased in during 2027. "
+     "It is not law until the Immigration Rules take effect — never tell users the 10-year rule already applies to them; flag "
+     "possible transitional protection and suggest a regulated adviser.", "https://www.gov.uk/government/news/home-secretary-unveils-new-rules-for-migrants-settling-in-the-uk"),
+    ("ILR timing and fee: apply no earlier than 28 days before completing the qualifying period (earlier applications can be "
+     "refused). ILR fee is £3,226 per person from 8 April 2026; ILR applicants do not pay the Immigration Health Surcharge.", "https://www.gov.uk/government/publications/visa-regulations-revised-table"),
+    ("British citizenship absences (naturalisation): no more than 450 days outside the UK in the 5-year period and no more than "
+     "90 days in the final 12 months. Spouse/civil partner route: 3 years, max 270 days absent, max 90 in the last 12 months. "
+     "Small excesses can be disregarded at Home Office discretion. Applicants also need the Life in the UK test and English at "
+     "B1 (unless exempt).", "https://www.gov.uk/government/publications/form-an-guidance/form-an-guidance-accessible"),
+    ("British citizenship fee: adult naturalisation costs £1,709 plus a £130 citizenship ceremony fee (£1,839 total). Child "
+     "registration is £1,000. The application fee is not refunded if refused.", "https://www.gov.uk/government/publications/fees-for-citizenship-applications"),
+    ("Immigration Health Surcharge: £1,035 per year for most applicants; £776 per year for students, their dependants, Youth "
+     "Mobility Scheme applicants and under-18s.", "https://www.gov.uk/healthcare-immigration-application/how-much-pay"),
+    ("Visa expiry and overstaying: if someone applies to extend or switch BEFORE their permission expires, their existing "
+     "permission and conditions continue while it is decided and any appeal is pending (section 3C Immigration Act 1971). There is "
+     "NO general grace period — from the day after expiry they are an overstayer. A late application made within 14 days may only "
+     "be accepted if there was a good reason beyond their control. Overstaying can lead to future refusals and re-entry bans, so "
+     "recommend urgent regulated advice.", "https://www.gov.uk/government/publications/applications-from-overstayers-non-family-routes"),
+    ("Switching visas inside the UK: visitors cannot switch to Skilled Worker, Student or most other routes from inside the UK — "
+     "they must leave and apply from abroad (very limited family exceptions). Many other visa holders can switch in-country if "
+     "they meet the new route's rules; always check the specific route's 'switch to this visa' page on GOV.UK.", "https://www.gov.uk/skilled-worker-visa/switch-to-this-visa"),
+    ("Graduate visa: applications made on or before 31 December 2026 get 2 years; applications made on or after 1 January 2027 "
+     "get 18 months. The application date, not the decision date, decides which applies.", "https://www.gov.uk/graduate-visa"),
+    ("Proof of status: the UK has replaced most physical documents (BRPs) with eVisas — people prove their status online via "
+     "their UKVI account and share codes; advise users to keep their UKVI account details up to date.", "https://www.gov.uk/evisa"),
+]
+
+
+async def seed_fact_packs(db) -> None:
+    if await db.seeds_applied.find_one({"_id": "immigration_pack_v1"}):
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    for text, url in IMMIGRATION_PACK_V1:
+        await db.lex_lessons.insert_one({
+            "id": str(uuid.uuid4()), "text": text, "category": "immigration", "why": f"Fact pack · {url}",
+            "status": "approved", "source": "fact_pack", "source_ref": "immigration_pack_v1",
+            "created_at": now, "approved_at": now,
+        })
+    await db.seeds_applied.insert_one({"_id": "immigration_pack_v1", "at": now})
+
+
 def build_router(db, get_user, require_admin, encrypt_text, decrypt_text, api_key, today_line, tavily_search):
     router = APIRouter()
 
