@@ -54,15 +54,11 @@ export function AdminLexLessonsCard({ api, toast, prompt, confirm }) {
 
   const pending = (data?.lessons || []).filter(l => l.status === "pending");
   const live = (data?.lessons || []).filter(l => l.status === "approved");
-  const s = data?.stats_30d || {};
   return (
     <div data-testid="admin-lex-lessons-card" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginTop: 14 }}>
       <div style={{ fontWeight: 700, color: "var(--gold)", marginBottom: 4 }}>Lex's Brain</div>
       <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10 }}>
-        Lessons Lex follows on every answer. Customer and law-change lessons wait for your approval; fact packs are live.
-      </div>
-      <div data-testid="lex-feedback-stats" style={{ fontSize: 12, color: "var(--text)", marginBottom: 10 }}>
-        Last 30 days: <b>{s.up || 0}</b> helpful · <b>{s.down || 0}</b> not helpful · <b>{s.wrong || 0}</b> reported wrong
+        Lessons Lex follows on every answer. Law-change lessons wait for your approval; fact packs and lessons you add are live.
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
         <button data-testid="lesson-add-btn" onClick={add} style={btn("var(--gold)", "#0a0a0a")}>Add a lesson</button>

@@ -23,7 +23,6 @@ import { AdminStripeResyncCard } from "@/AdminStripeResync";
 import { AdminSubscribersCard } from "@/AdminSubscribers";
 import { AdminFinanceCard } from "@/AdminFinance";
 import { AdminLexLessonsCard } from "@/AdminLexLessons";
-import { LexFeedback } from "@/LexFeedback";
 import ConveyancingModal from "@/Conveyancing";
 import { TrustpilotPrompt, AdminTestimonialsCard } from "@/Reviews";
 
@@ -2797,9 +2796,6 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                       </button>
 
                       <SavedRemindersNote items={m.savedReminders} idx={i} />
-                      <LexFeedback api={api} toast={aaToast} prompt={aaPrompt} sessionId={sessionId} idx={i}
-                        answer={m.content}
-                        question={(messages.slice(0, i).reverse().find(x => x.role !== "lex") || {}).content || ""} />
 
                       {/* 🎖 Solicitor Sanity Check — £49 one-off, routed to a Founding Firm */}
                       <SanityGate soon={

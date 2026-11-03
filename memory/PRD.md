@@ -1013,3 +1013,5 @@ Production redeploy required. All env vars unchanged.
 - Auto reminders: _save_auto_reminders saves every future calculated date (source "lex_auto", deduped per user/title/date in any status); returned as saved_reminders in /lex/chat and stream done event; SavedRemindersNote shows under Lex reply; reminders/detect card only if nothing calculated. Existing 7/3/1-day email cron sends emails.
 - Tested iteration_41 (backend 11/11; UI pass); follow-up fixes: repeat-question detect conflict, dedupe any status, en-GB/Europe/London dates, TOPIC_RE word boundaries, admin copy.
 - Not built: hard delete for reminders (users mark done).
+
+## 2026-11-03 — Removed thumbs up/down + Report wrong answer from Lex replies (founder: unprofessional; support email used instead). Backend /lex/feedback kept unused. Admin feedback stats line removed.
