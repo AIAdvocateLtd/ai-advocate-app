@@ -22,6 +22,8 @@ import { MyLetters } from "@/MyLetters";
 import { AdminStripeResyncCard } from "@/AdminStripeResync";
 import { AdminSubscribersCard } from "@/AdminSubscribers";
 import { AdminFinanceCard } from "@/AdminFinance";
+import { AdminLexLessonsCard } from "@/AdminLexLessons";
+import { LexFeedback } from "@/LexFeedback";
 import ConveyancingModal from "@/Conveyancing";
 import { TrustpilotPrompt, AdminTestimonialsCard } from "@/Reviews";
 
@@ -2779,6 +2781,10 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                                  borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
                         {m._devilBusy ? "…" : <><Scale size={12} /> {m._devilOpen ? "Hide their argument" : "Their argument"}</>}
                       </button>
+
+                      <LexFeedback api={api} toast={aaToast} prompt={aaPrompt} sessionId={sessionId} idx={i}
+                        answer={m.content}
+                        question={(messages.slice(0, i).reverse().find(x => x.role !== "lex") || {}).content || ""} />
 
                       {/* 🎖 Solicitor Sanity Check — £49 one-off, routed to a Founding Firm */}
                       <SanityGate soon={
@@ -7915,6 +7921,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             <AdminStripePriceAuditCard />
             <AdminTestimonialsCard api={api} toast={aaToast} />
             <AdminSubscribersCard api={api} toast={aaToast} />
+            <AdminLexLessonsCard api={api} toast={aaToast} prompt={aaPrompt} />
             <AdminFinanceCard api={api} toast={aaToast} />
             <AdminStripeResyncCard api={api} toast={aaToast} />
             {/* 💷 OWNER ONLY — founder cost dashboard: MRR, Stripe fees, LLM burn, net margin */}

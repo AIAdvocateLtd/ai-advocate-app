@@ -69,6 +69,7 @@ if SENTRY_DSN:
     )
 
 from app_crypto import encrypt_text, decrypt_text, encrypt_bytes, decrypt_bytes, is_enabled as crypto_enabled  # noqa: E402
+from lex_lessons import lessons_block as _lessons_block  # noqa: E402
 from rag import build_rag_context, is_enabled as rag_enabled, get_usage as rag_get_usage  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
@@ -1041,7 +1042,7 @@ CONVERSATION MEMORY (CRITICAL):
         "legal_letter": "\n\nYou are now drafting a FORMAL LEGAL LETTER. Use proper structure (sender, recipient, date, subject, body, sign-off). Be firm but professional. Reference the relevant law.",
         "record": "\n\nYou are reviewing a RECORDED LEGAL INTERACTION (police/court transcript). Flag: rights violations, leading questions, things the user should NOT have said, suggested follow-up actions.",
     }
-    return _today_uk_line() + LEX_LAW_UPDATES + base + addons.get(category, "") + LEX_PDF_INSTRUCTION
+    return _today_uk_line() + LEX_LAW_UPDATES + _lessons_block() + base + addons.get(category, "") + LEX_PDF_INSTRUCTION
 
 
 LEX_LAW_UPDATES = (
@@ -1085,23 +1086,23 @@ def _date_anchor() -> str:
 
 # ==================== Tier-based Lex Brain Routing ====================
 # Hybrid Claude + GPT-5 strategy (user pref: strategy A):
-#   Free        → Claude Haiku 4.5  (cheap, fast paralegal-grade)
+#   Free        → Claude Haiku 5.5  (cheap, fast paralegal-grade)
 #   Plus        → OpenAI GPT-5.2    (conversational primary)
-#   Pro / Yearly → Claude Sonnet 4.5 (legal-reasoning specialist)
-#   Pro + Deep Think → Claude Sonnet 4.5 with extended token budget
+#   Pro / Yearly → Claude Sonnet 5.5 (legal-reasoning specialist)
+#   Pro + Deep Think → Claude Sonnet 5.5 with extended token budget
 # If GPT-5 is unavailable for any reason, the lex_chat fallback path swaps in
 # Sonnet 4.5 so the user is never blocked.
 def lex_model_for_tier(tier: str, deep_think: bool = False) -> tuple:
     """Returns (provider, model_id, max_tokens) for the given tier."""
     if tier in ("pro", "yearly", "trial_pro"):
         if deep_think:
-            return ("anthropic", "claude-sonnet-4-5-20250929", 3500)
-        return ("anthropic", "claude-sonnet-4-5-20250929", 1400)
+            return ("anthropic", "claude-sonnet-5-5", 3500)
+        return ("anthropic", "claude-sonnet-5-5", 1400)
     if tier == "plus":
         # GPT-5.2 for conversational flow on Plus.
         return ("openai", "gpt-5.2", 1400)
     # free → Haiku for cost/speed. Fall back to Sonnet if Haiku id is rejected.
-    return ("anthropic", "claude-haiku-4-5-20251001", 1200)
+    return ("anthropic", "claude-haiku-5-5", 1200)
 
 
 # 🧠 Smart Deep-Think auto-router (Pro tier only).
@@ -1296,6 +1297,8 @@ async def verify_turnstile(token: Optional[str], request: Optional[Request] = No
 LLM_RATES_GBP_PER_1M = {
     # (provider, model_id) → (input_£_per_1M, output_£_per_1M)
     ("anthropic", "claude-haiku-4-5-20251001"): (0.90, 4.40),
+    ("anthropic", "claude-haiku-5-5"): (0.90, 4.40),
+    ("anthropic", "claude-sonnet-5-5"): (1.75, 8.80),
     ("anthropic", "claude-sonnet-4-5-20251001"): (2.65, 13.20),
     ("openai", "gpt-5.2"): (2.65, 13.20),
     ("openai", "gpt-5-2"): (2.65, 13.20),
@@ -1933,7 +1936,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
                 data.deep_think = False
                 deep_think_auto = False
             else:
-                raise HTTPException(429, f"Deep Think monthly limit reached ({used_dt}/{limit_dt}). Disable Deep Think for unlimited Sonnet 4.5 chats this month, or upgrade to Yearly Pro for 50/mo.")
+                raise HTTPException(429, f"Deep Think monthly limit reached ({used_dt}/{limit_dt}). Disable Deep Think for unlimited Sonnet 5.5 chats this month, or upgrade to Yearly Pro for 50/mo.")
 
     # Daily quota for chat
     ok, used, limit = await check_quota_and_increment(user["id"], tier, "lex_chat", "daily")
@@ -2183,7 +2186,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                 data.deep_think = False
                 deep_think_auto = False
             else:
-                raise HTTPException(429, f"Deep Think monthly limit reached ({used_dt}/{limit_dt}). Disable Deep Think for unlimited Sonnet 4.5 chats this month, or upgrade to Yearly Pro for 50/mo.")
+                raise HTTPException(429, f"Deep Think monthly limit reached ({used_dt}/{limit_dt}). Disable Deep Think for unlimited Sonnet 5.5 chats this month, or upgrade to Yearly Pro for 50/mo.")
     ok, used, limit = await check_quota_and_increment(user["id"], tier, "lex_chat", "daily")
     if not ok:
         raise HTTPException(429, f"Daily limit reached ({used}/{limit} Lex messages on Free). Upgrade to Plus for unlimited.")
@@ -5671,7 +5674,7 @@ async def get_tiers():
              "highlights": ["Unlimited Lex chats", "15 photo evidences / month",
                             "Unlimited letters", "Will Writer (England, Wales, Scotland & NI)", "Contract Review", "Court Prep modes",
                             "Voice in/out", "Practice Mode", "50 files", "Hey Lex wake word",
-                            "Claude Sonnet 4.5 brain"]},
+                            "Claude Sonnet 5.5 brain"]},
             {"id": "pro", "name": "Pro", "price_gbp": 34.99, "period": "month",
              "highlights": ["Everything in Plus", "Outcome Predictor + Contract Drafter + Negotiate",
                             "Live Hearing Recorder", "Live Legal Assist (3 sessions/day)",
@@ -16768,7 +16771,36 @@ async def conv_suggest(data: ConvSuggest, user: dict = Depends(get_user)):
     return {"suggestion": text, "suggestions_left": left}
 
 
+# 🧠 Lex learning loop — feedback → AI-drafted lessons → founder approval → every Lex prompt.
+from lex_lessons import build_router as _build_lessons_router, refresh_lessons as _refresh_lessons  # noqa: E402
+from rag import _tavily_search as _rag_tavily_search  # noqa: E402
+_lessons_router, _job_lex_learning = _build_lessons_router(
+    db, get_user, require_admin, encrypt_text, decrypt_text, EMERGENT_LLM_KEY, _today_uk_line, _rag_tavily_search)
+
+
+@api_router.post("/cron/lex-learning")
+async def cron_lex_learning(request: Request):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    secret = os.environ.get("WEBHOOK_CRON_SECRET") or ""
+    auth = request.headers.get("authorization") or ""
+    token = auth[7:] if auth.lower().startswith("bearer ") else ""
+    if not secret or not token or not _secrets.compare_digest(token, secret):
+        raise HTTPException(401, "Unauthorized")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid body")
+    run_id = request.headers.get("x-webhook-id") or (body or {}).get("run_id") or str(uuid.uuid4())
+    try:
+        await db.cron_runs.insert_one({"_id": f"lex-learning:{run_id}", "at": datetime.now(timezone.utc).isoformat()})
+    except Exception:
+        return {"ok": True, "duplicate": True}
+    asyncio.create_task(_job_lex_learning())
+    return {"ok": True, "queued": True}
+
+
 app.include_router(api_router)
+app.include_router(_lessons_router, prefix="/api")
 
 # 🤝 Partner Programme — referral attribution + monthly commission ledger.
 # Keeps the B2B partner code separated from the consumer code path.
@@ -16796,6 +16828,10 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
+    try:
+        await _refresh_lessons(db)
+    except Exception:
+        logger.exception("Lex lessons cache load failed (non-fatal)")
     # 📧 One-time backfill: grandfather every existing account as
     # email_verified=True. This means anyone who signed up before this feature
     # rolled out is not retroactively locked out. New email/password signups

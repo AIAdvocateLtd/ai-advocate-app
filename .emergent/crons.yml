@@ -15,3 +15,11 @@ crons:
     endpoint: "{{BASE_URL}}/api/cron/review-requests"
     method: POST
     enabled: true
+  - name: lex-learning
+    description: "Weekly: drafts new Lex lessons from thumbs-down answers and UK law changes for founder approval"
+    cron: "0 7 * * 1"
+    timezone: "Europe/London"
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    endpoint: "{{BASE_URL}}/api/cron/lex-learning"
+    method: POST
+    enabled: true
