@@ -985,3 +985,10 @@ Production redeploy required. All env vars unchanged.
 - Frontend: SanityGate in App.js shows disabled "Solicitor check · Coming soon" in Lex chat and a muted "Coming soon" note in Letter analyser; auto-reverts to £49 buttons once an eligible firm exists.
 - Trustpilot review strip: kept at 3+ reviews threshold (founder decision). TrustBox badge not added.
 - Tested iteration_39 (100%).
+
+## Lex date drift + citizenship accuracy fix
+- Customer report: Deep Think said "British by summer 2025" and "apply 2-4 months after ILR" (wrong).
+- Fix: _date_anchor() prefixes today's date to every user turn sent to the LLM (/lex/chat, /lex/chat/stream and their fallbacks), so long chats/RAG context can't bury the date.
+- LEX_LAW_UPDATES now includes naturalisation timing (12 months after ILR; spouse exception; Feb 2025 good-character guidance for irregular-arrival refugees).
+- Verified via curl: same question now returns 12-month rule with correct years.
+- Referral programme: founder deferred (prefers low payout; recommended "free Plus month only after friend pays, capped").

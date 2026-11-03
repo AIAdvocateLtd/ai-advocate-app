@@ -1055,6 +1055,11 @@ LEX_LAW_UPDATES = (
     "- England private renting (Renters' Rights Act 2025): from 1 May 2026 section 21 no-fault evictions are abolished — no new "
     "section 21 notices; possession claims on notices served by 30 April 2026 had to start by 31 July 2026. Landlords must use "
     "section 8 grounds; most tenancies are periodic; rent can rise once a year by formal notice.\n"
+    "- British citizenship by naturalisation (British Nationality Act 1981): you normally must have held ILR / settled status for "
+    "at least 12 months before applying, plus 5 years' UK residence and the absence limits. Exception: spouses/civil partners of "
+    "British citizens can apply as soon as they get ILR (3 years' residence). Never tell someone to apply sooner than this. "
+    "Refugees who arrived irregularly may face good-character refusals under Home Office guidance from February 2025 — flag this "
+    "and recommend a regulated immigration adviser (OISC or solicitor).\n"
     "If you are unsure whether a rule has changed recently, say so and suggest checking GOV.UK.\n\n"
 )
 
@@ -1071,6 +1076,12 @@ def _today_uk_line() -> str:
     today = datetime.now(ZoneInfo("Europe/London")).strftime("%A %d %B %Y")
     return (f"TODAY'S DATE: {today} (UK time). Use this for ALL date calculations, deadlines and limitation periods. "
             "If the user mentions a month or day without a year, assume the next upcoming occurrence from today.\n\n")
+
+def _date_anchor() -> str:
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo("Europe/London"))
+    return (f"[System note, do not repeat: today is {now.strftime('%A %d %B %Y')}. The current year is {now.year}. "
+            f"Every date, year or season you give must be on or after today unless it is clearly in the past.]\n\n")
 
 # ==================== Tier-based Lex Brain Routing ====================
 # Hybrid Claude + GPT-5 strategy (user pref: strategy A):
@@ -2061,7 +2072,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     ).with_model(provider, model_id).with_params(max_tokens=max_tok)
 
     try:
-        response = await chat.send_message(UserMessage(text=data.message))
+        response = await chat.send_message(UserMessage(text=_date_anchor() + data.message))
     except Exception as e:
         # If Haiku model fails (e.g. id changed), fall back to Sonnet 4.5 so user is never blocked
         logger.warning(f"Primary model {model_id} failed, falling back to Sonnet 4.5: {e}")
@@ -2072,7 +2083,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
                 system_message=system_msg,
                 initial_messages=initial_messages if len(initial_messages) > 1 else None,
             ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2048)
-            response = await chat.send_message(UserMessage(text=data.message))
+            response = await chat.send_message(UserMessage(text=_date_anchor() + data.message))
         except Exception as e2:
             logger.exception("Lex chat error (both primary + fallback)")
             raise HTTPException(500, f"AI error: {str(e2)}")
@@ -2270,7 +2281,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
             if ar: messages.append({"role": "assistant", "content": ar})
         except Exception:
             continue
-    messages.append({"role": "user", "content": data.message})
+    messages.append({"role": "user", "content": _date_anchor() + data.message})
 
     async def event_stream():
         # 1) Emit metadata event first so the UI can show citations + session_id immediately
@@ -2310,7 +2321,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                 chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=system_msg,
                                initial_messages=messages[:-1] if len(messages) > 1 else None
                                ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2048)
-                fallback_resp = await chat.send_message(UserMessage(text=data.message))
+                fallback_resp = await chat.send_message(UserMessage(text=_date_anchor() + data.message))
                 full_text_parts = [fallback_resp]
                 # Emit the whole thing as one token chunk for the UI
                 yield f"data: {_json.dumps({'type':'token','text':fallback_resp})}\n\n"
