@@ -1,0 +1,41 @@
+{
+  "summary": "Tested the new fact packs (employment/housing/family/benefits for all UK nations) and deadline reminders saved automatically from Lex chat. Backend: 11/11 pytest tests pass (test_iter41_factpacks_reminders.py). Deadline maths unit tests: ENG ET 31 Oct 2026 -> 30 Apr 2027, NI 2 Nov 2026 -> 1 Feb 2027 (LRA), Wales s173 1 Nov 2026 -> 1 May 2027. GET /api/admin/lex-lessons fact_pack counts are exactly immigration 13, employment 8, housing 5, family 5, benefits 6. POST /api/lex/chat returns saved_reminders: ACAS (2027-04-30), LRA (2027-02-01), Wales 'Landlord's notice ends' (2027-05-01). No-date questions return []. Repeating a question in the same session creates no duplicate (1 pending doc in DB). The stream done event includes saved_reminders (visa 2027-03-15). Fact packs are used in answers: UC £424.90 and Scotland divorce 1 year/2 years. UI (mobile 390): admin Lex chat stream shows saved-reminders-1 'Saved to your Reminders / Contact ACAS (tribunal time limit) — Fri, 30 Apr 2027'. Thumbs/report and 'Solicitor check · Coming soon' still show. The Reminders modal lists the reminder and 'Mark done' removes it. Lex's Brain card shows Live lessons (37) with 'Fact pack' labels. Found one real UX bug: when the same dated question is repeated, the reminders/detect fallback shows a conflicting 'Deadline detected' card.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "_save_auto_reminders", "issue": "Dedupe only checks status 'pending'. If the user marks a reminder done or dismissed and then asks the same dated question again, the reminder is created again. This may be intended, but flagging it."},
+      {"endpoint": "/api/reminders", "issue": "There is no DELETE endpoint or delete action. The only way to remove a reminder is PATCH status=done/dismissed. The founder asked that users can 'delete in Reminders'."},
+      {"endpoint": "lex_lessons.TOPIC_RE", "issue": "The regexes are very broad, with no word boundaries. 'rent' matches 'parent', 'current' and 'different'. 'contact' (e.g. 'contact ACAS') pulls in the family pack. 'work' and 'pay' pull in employment. The last 3 messages of context are also scanned. Result: several packs are often injected, which makes prompts bigger. Add \\b boundaries."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Lex chat - repeated dated question", "issue": "If the same dated question is asked again in a session, the backend correctly saves nothing (dedupe), so saved_reminders=[]. The frontend then falls back to POST /reminders/detect, which renders a 'Deadline detected' card (deadline-card-N) for 'Contact ACAS early conciliation ...' due 4/29/2027 11:59:59 PM. This conflicts with the calculated date (30 Apr 2027). The card also has an 'Add to reminders' button that would create a duplicate reminder with a different date.", "selector": "[data-testid^='deadline-card-'], [data-testid^='add-deadline-']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Reminders modal", "issues": ["There is no 'Delete' button, only '✓ Mark done'. Yet the saved-reminders note says 'You can delete them in Reminders'.", "Dates use toLocaleString() with no en-GB locale or Europe/London timeZone, so a UTC browser shows 'Due 4/30/2027, 8:00:00 AM' (US format, and 8am instead of 9am UK)."]},
+      {"screen": "SavedRemindersNote", "issue_note": "toLocaleDateString has no timeZone:'Europe/London'. Users far west of UTC (e.g. UTC-10) would see the previous day.", "issues": ["Add timeZone: 'Europe/London' to the date formatting"]},
+      {"screen": "Admin Lex's Brain", "issues": ["The fact-pack meta line repeats the label: 'Fact pack · employment · Fact pack · https://...' (the source label plus why='Fact pack · url').", "The card subtitle says 'Nothing goes live until you approve it', but fact packs are live without approval."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter41_factpacks_reminders.py", "/app/test_reports/pytest/pytest_iter41.xml"],
+  "action_items": [
+    "Stop the reminders/detect fallback from showing a conflicting card when the deadline calculator already worked out dates. Have the backend return a flag (e.g. deadlines_calculated:true, or return existing matching reminders with existing:true), and have the frontend skip /reminders/detect when the flag is set.",
+    "Add a real Delete action in the Reminders modal (and a DELETE /api/reminders/{id} endpoint, or PATCH dismissed), or change the 'You can delete them in Reminders' text.",
+    "Format reminder dates with en-GB and timeZone 'Europe/London' in the Reminders modal and SavedRemindersNote.",
+    "Optional: add \\b word boundaries to TOPIC_RE, and remove the duplicate 'Fact pack' label in the Admin card."
+  ],
+  "critical_code_review_comments": [
+    "The deadline maths in deadline_calc.py is correct for the tested cases. Dates are computed in Python, and the LLM only extracts facts.",
+    "_save_auto_reminders has a find-then-insert race: two concurrent requests could both insert. Add a unique index on (user_id,title,due_at,status) or use an upsert.",
+    "Fact packs live in the in-process _cache. This is the same multi-worker staleness caveat as iteration 40.",
+    "server.py is 17k lines. Splitting it is long overdue."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter41_factpacks_reminders.py"],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "90% (all requested flows pass; 1 UX bug with the repeated-question detect fallback)"},
+  "seed_data_creation": "None. All lex_auto reminders created for the admin during testing were deleted by id (pytest teardown plus a manual delete of db41deea...).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "UI login: go to /app (not /, which redirects to /welcome.html), set localStorage aa_token (from POST /api/auth/login access_token) plus aa_terms/aa_welcomed/aa_uk_scope_ack/aa_lex_upl_ack=1, aa_cookie_consent=essential, sessionStorage aa_splash_seen=1 and aa_skip_marketing=1, then goto /app again. Lex: tile-ask_lex -> chat-input/send-btn. Reminders: tile-reminders -> reminders-modal, rem-{id}, done-{id}. Admin card: settings-btn -> admin-lex-lessons-card. Use the admin account for chat (Pro). Clean up lex_auto reminders by id."
+}

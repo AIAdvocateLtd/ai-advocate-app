@@ -49,16 +49,17 @@ async def refresh_lessons(db) -> None:
 
 
 TOPIC_RE = {
-    "immigration": re.compile(r"visa|ilr|indefinite leave|settle|citizen|naturalis|home office|asylum|refugee|overstay|"
-                              r"immigra|passport|brp|evisa|sponsor|graduate route|spouse visa|partner visa", re.I),
-    "employment": re.compile(r"employ|job|work|dismiss|sacked|fired|redundan|tribunal|acas|lra|wage|salary|pay\b|sick|"
-                             r"maternity|paternity|holiday|notice period|boss|contract of employment|discriminat", re.I),
-    "housing": re.compile(r"landlord|tenan|rent|evict|deposit|lease|section 8|section 21|section 173|notice to (quit|leave)|"
-                          r"housing|flat|mould|damp|repair|letting|occupation contract", re.I),
-    "family": re.compile(r"divorce|separat|marri|spouse|civil partner|child|custody|contact|maintenance|cms|"
-                         r"mediation|miam|family court|financial order", re.I),
-    "benefits": re.compile(r"benefit|universal credit|\buc\b|pip|esa|dwp|jobseeker|pension credit|child benefit|"
-                           r"carer|disability payment|adp|reconsideration|sanction|benefit cap|two.child", re.I),
+    "immigration": re.compile(r"\b(visas?|ilr|indefinite leave|settle(d|ment)|citizen\w*|naturalis\w*|home office|asylum|"
+                              r"refugees?|overstay\w*|immigra\w*|passports?|brp|evisa|sponsor\w*|graduate route)\b", re.I),
+    "employment": re.compile(r"\b(employ\w*|jobs?|dismiss\w*|sacked|fired|redundan\w*|tribunal|acas|lra|wages?|salary|"
+                             r"sick pay|ssp|maternity|paternity|holiday pay|annual leave|notice period|boss|manager|workplace|"
+                             r"discriminat\w*|minimum wage|living wage)\b", re.I),
+    "housing": re.compile(r"\b(landlords?|tenan\w*|rent(s|ed|ing|al)?|evict\w*|deposits?|lease|section (8|21|173)|"
+                          r"notice to (quit|leave)|housing|mould|damp|repairs?|letting agent|occupation contract)\b", re.I),
+    "family": re.compile(r"\b(divorc\w*|separat\w*|marri\w*|civil partner\w*|custody|child arrangements?|"
+                         r"child maintenance|cms|mediation|miam|family court|financial order|ex-?(wife|husband|partner))\b", re.I),
+    "benefits": re.compile(r"\b(benefits?|universal credit|uc|pip|esa|dwp|jobseeker\w*|pension credit|child benefit|"
+                           r"carer'?s allowance|disability payment|adp|reconsideration|sanction\w*|benefit cap|two.child)\b", re.I),
 }
 
 

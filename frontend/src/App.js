@@ -155,9 +155,9 @@ function SavedRemindersNote({ items, idx }) {
          borderRadius: 10, padding: "8px 10px", fontSize: 12, color: "var(--text)", marginBottom: 4 }}>
       <div style={{ color: "var(--gold)", fontWeight: 700, marginBottom: 4 }}>Saved to your Reminders</div>
       {items.map(r => (
-        <div key={r.id}>{r.title} — <b>{new Date(r.due_at).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</b></div>
+        <div key={r.id}>{r.title} — <b>{new Date(r.due_at).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "Europe/London" })}</b></div>
       ))}
-      <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>We'll email you 7, 3 and 1 day before. You can delete them in Reminders.</div>
+      <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>We'll email you 7, 3 and 1 day before. You can mark them done in Reminders.</div>
     </div>
   );
 }
@@ -6912,7 +6912,7 @@ function RemindersModal({ lang, onClose }) {
                 </div>
                 {r.description && <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>{r.description}</div>}
                 <div style={{ fontSize: 11, color: urgent ? "#fca5a5" : "var(--text-muted)", marginTop: 6 }}>
-                  Due {due.toLocaleString()} · {daysOut > 0 ? `${daysOut}d left` : `${-daysOut}d overdue`}
+                  Due {due.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "Europe/London" })} · {daysOut > 0 ? `${daysOut}d left` : `${-daysOut}d overdue`}
                 </div>
                 <button className="btn-ghost" onClick={() => markDone(r.id)} data-testid={`done-${r.id}`} style={{ marginTop: 8, padding: "4px 10px", fontSize: 11 }}>
                   ✓ {t(lang, "reminderMarkDone")}

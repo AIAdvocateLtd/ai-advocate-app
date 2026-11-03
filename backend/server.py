@@ -7847,7 +7847,9 @@ async def _save_auto_reminders(user: dict, session_id: str, items: list) -> list
     saved = []
     for title, d in items[:6]:
         due = reminder_due_iso(d)
-        if await db.reminders.find_one({"user_id": user["id"], "title": title, "due_at": due, "status": "pending"}):
+        existing = await db.reminders.find_one({"user_id": user["id"], "title": title, "due_at": due}, {"_id": 0, "id": 1})
+        if existing:
+            saved.append({"id": existing["id"], "title": title, "due_at": due})
             continue
         doc = {"id": str(uuid.uuid4()), "user_id": user["id"], "case_id": None, "session_id": session_id,
                "title": title, "description": "Worked out by Lex from the dates you gave. Check with a regulated adviser.",

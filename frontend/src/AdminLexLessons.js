@@ -9,7 +9,7 @@ function LessonRow({ l, onAct }) {
     <div data-testid={`lesson-${l.id}`} style={{ borderTop: "1px solid var(--line)", padding: "10px 0" }}>
       <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>{l.text}</div>
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-        {SOURCE[l.source] || l.source} · {l.category}{l.why ? ` · ${l.why}` : ""}
+        {SOURCE[l.source] || l.source} · {l.category}{l.why ? ` · ${l.why.replace(/^Fact pack · /, "")}` : ""}
       </div>
       <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
         {l.status === "pending" && <button data-testid={`lesson-approve-${l.id}`} onClick={() => onAct(l, "approved")} style={btn("var(--gold)", "#0a0a0a")}>Approve</button>}
@@ -59,7 +59,7 @@ export function AdminLexLessonsCard({ api, toast, prompt, confirm }) {
     <div data-testid="admin-lex-lessons-card" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginTop: 14 }}>
       <div style={{ fontWeight: 700, color: "var(--gold)", marginBottom: 4 }}>Lex's Brain</div>
       <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10 }}>
-        Lessons Lex follows on every answer. Nothing goes live until you approve it.
+        Lessons Lex follows on every answer. Customer and law-change lessons wait for your approval; fact packs are live.
       </div>
       <div data-testid="lex-feedback-stats" style={{ fontSize: 12, color: "var(--text)", marginBottom: 10 }}>
         Last 30 days: <b>{s.up || 0}</b> helpful · <b>{s.down || 0}</b> not helpful · <b>{s.wrong || 0}</b> reported wrong
