@@ -1,6 +1,8 @@
 """Lex learning loop: feedback -> AI-drafted lessons -> founder approval -> injected into every Lex prompt."""
 import asyncio
+import difflib
 import json
+import time
 import logging
 import re
 import uuid
@@ -14,14 +16,22 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 logger = logging.getLogger(__name__)
 LESSON_MODEL = ("anthropic", "claude-sonnet-5-5")
 MAX_LESSONS_IN_PROMPT = 80
-_cache = {"block": ""}
+_cache = {"block": "", "at": 0.0}
+_job_lock = asyncio.Lock()
+REPORTS_PER_USER_PER_DAY = 10
 
 
 def lessons_block() -> str:
     return _cache["block"]
 
 
+async def refresh_if_stale(db, max_age: int = 300) -> None:
+    if time.time() - _cache["at"] > max_age:
+        await refresh_lessons(db)
+
+
 async def refresh_lessons(db) -> None:
+    _cache["at"] = time.time()
     rows = await db.lex_lessons.find({"status": "approved"}, {"_id": 0, "text": 1}) \
         .sort("approved_at", -1).to_list(MAX_LESSONS_IN_PROMPT)
     if not rows:
@@ -78,10 +88,13 @@ DRAFT_SYSTEM = (
 
 async def _insert_drafts(db, drafts: list, source: str, source_ref: Optional[str] = None) -> int:
     n = 0
+    existing = [r["text"].lower() for r in await db.lex_lessons.find(
+        {"status": {"$in": ["approved", "pending"]}}, {"_id": 0, "text": 1}).to_list(500)]
     for d in drafts[:5]:
         text = d["lesson"].strip()[:600]
-        if await db.lex_lessons.find_one({"text": text}):
+        if any(difflib.SequenceMatcher(None, text.lower(), e).ratio() > 0.7 for e in existing):
             continue
+        existing.append(text.lower())
         await db.lex_lessons.insert_one({
             "id": str(uuid.uuid4()), "text": text, "category": (d.get("category") or "general")[:40],
             "why": (d.get("why") or "")[:600], "status": "pending", "source": source, "source_ref": source_ref,
@@ -115,6 +128,12 @@ def build_router(db, get_user, require_admin, encrypt_text, decrypt_text, api_ke
         await db.lex_feedback.update_one({"id": fb_id}, {"$set": {"processed": True}})
 
     async def weekly_job():
+        if _job_lock.locked():
+            return
+        async with _job_lock:
+            await _weekly_job_inner()
+
+    async def _weekly_job_inner():
         try:
             since = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
             downs = await db.lex_feedback.find(
@@ -149,6 +168,11 @@ def build_router(db, get_user, require_admin, encrypt_text, decrypt_text, api_ke
     async def lex_feedback(data: FeedbackIn, user: dict = Depends(get_user)):
         if data.rating not in ("up", "down", "wrong"):
             raise HTTPException(400, "Invalid rating")
+        if data.rating == "wrong":
+            since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+            if await db.lex_feedback.count_documents(
+                    {"user_id": user["id"], "rating": "wrong", "created_at": {"$gte": since}}) >= REPORTS_PER_USER_PER_DAY:
+                raise HTTPException(429, "Thanks — you've sent a lot of reports today. Please try again tomorrow.")
         fb_id = str(uuid.uuid4())
         await db.lex_feedback.insert_one({
             "id": fb_id, "user_id": user["id"], "session_id": data.session_id, "rating": data.rating,

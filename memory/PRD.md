@@ -992,3 +992,12 @@ Production redeploy required. All env vars unchanged.
 - LEX_LAW_UPDATES now includes naturalisation timing (12 months after ILR; spouse exception; Feb 2025 good-character guidance for irregular-arrival refugees).
 - Verified via curl: same question now returns 12-month rule with correct years.
 - Referral programme: founder deferred (prefers low payout; recommended "free Plus month only after friend pays, capped").
+
+## Model upgrade + Lex learning loop
+- Models: Free → claude-haiku-5-5, Pro/Yearly/Deep Think → claude-sonnet-5-5, Plus unchanged (gpt-5.2). Sonnet 4.5 remains fallback.
+- Learning loop (backend/lex_lessons.py): POST /api/lex/feedback (up/down/wrong; wrong = Sonnet 5.5 drafts pending lesson; 10 reports/user/day cap).
+  Admin: GET/POST /api/admin/lex-lessons, PATCH/DELETE /{id}, POST /run-now. Weekly cron lex-learning (Mon 7am UK) drafts lessons from thumbs-down + Tavily law-change search (gov.uk, legislation.gov.uk, lawgazette). Fuzzy dedup + job lock.
+  Approved lessons cached (refresh on change + every 5 min) and injected into lex_system_prompt after LEX_LAW_UPDATES.
+- Frontend: LexFeedback.js (thumbs + Report wrong under each Lex reply), AdminLexLessons.js ("Lex's Brain" card in Admin).
+- Tested iteration_40 (100%). Preview cron reconcile pending; prod syncs on deploy.
+- Known minor: stream fallback still logs primary model id.

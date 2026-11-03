@@ -22,7 +22,7 @@ function LessonRow({ l, onAct }) {
   );
 }
 
-export function AdminLexLessonsCard({ api, toast, prompt }) {
+export function AdminLexLessonsCard({ api, toast, prompt, confirm }) {
   const [data, setData] = useState(null);
   const load = () => api.get("/admin/lex-lessons").then(r => setData(r.data)).catch(() => toast("Couldn't load Lex lessons", "error"));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -33,7 +33,10 @@ export function AdminLexLessonsCard({ api, toast, prompt }) {
         const text = await prompt({ title: "Edit lesson", defaultValue: l.text, confirmLabel: "Save" });
         if (!text || !text.trim()) return;
         await api.patch(`/admin/lex-lessons/${l.id}`, { text });
-      } else if (action === "delete") await api.delete(`/admin/lex-lessons/${l.id}`);
+      } else if (action === "delete") {
+        if (!(await confirm({ title: "Remove lesson?", message: "Lex will stop following this rule straight away.", danger: true, confirmLabel: "Remove" }))) return;
+        await api.delete(`/admin/lex-lessons/${l.id}`);
+      }
       else await api.patch(`/admin/lex-lessons/${l.id}`, { status: action });
       load();
     } catch { toast("Couldn't update lesson", "error"); }
@@ -67,9 +70,9 @@ export function AdminLexLessonsCard({ api, toast, prompt }) {
       </div>
       <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text)", marginTop: 12 }}>Waiting for your approval ({pending.length})</div>
       {pending.length === 0 && <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "6px 0" }}>Nothing to review.</div>}
-      {pending.map(l => <LessonRow key={l.id} l={l} onAct={act} />)}
+      <div style={{ maxHeight: 420, overflowY: "auto" }}>{pending.map(l => <LessonRow key={l.id} l={l} onAct={act} />)}</div>
       <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text)", marginTop: 14 }}>Live lessons ({live.length})</div>
-      {live.map(l => <LessonRow key={l.id} l={l} onAct={act} />)}
+      <div style={{ maxHeight: 420, overflowY: "auto" }}>{live.map(l => <LessonRow key={l.id} l={l} onAct={act} />)}</div>
     </div>
   );
 }

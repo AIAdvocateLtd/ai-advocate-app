@@ -69,7 +69,7 @@ if SENTRY_DSN:
     )
 
 from app_crypto import encrypt_text, decrypt_text, encrypt_bytes, decrypt_bytes, is_enabled as crypto_enabled  # noqa: E402
-from lex_lessons import lessons_block as _lessons_block  # noqa: E402
+from lex_lessons import lessons_block as _lessons_block, refresh_if_stale as _lessons_refresh_if_stale  # noqa: E402
 from rag import build_rag_context, is_enabled as rag_enabled, get_usage as rag_get_usage  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
@@ -1954,6 +1954,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     provider, model_id, max_tok = lex_model_for_tier(tier, deep_think=data.deep_think)
 
     session_id = data.session_id or str(uuid.uuid4())
+    await _lessons_refresh_if_stale(db)
     base_system_msg = lex_system_prompt(reply_language, data.country, data.category, user.get("jurisdiction"))
 
     # 🧠 Cross-session memory — give Lex a one-line summary of OTHER recent cases
@@ -2087,6 +2088,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
                 initial_messages=initial_messages if len(initial_messages) > 1 else None,
             ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2048)
             response = await chat.send_message(UserMessage(text=_date_anchor() + data.message))
+            provider, model_id = "anthropic", "claude-sonnet-4-5-20250929"
         except Exception as e2:
             logger.exception("Lex chat error (both primary + fallback)")
             raise HTTPException(500, f"AI error: {str(e2)}")
@@ -2200,6 +2202,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
 
     provider, model_id, max_tok = lex_model_for_tier(tier, deep_think=data.deep_think)
     session_id = data.session_id or str(uuid.uuid4())
+    await _lessons_refresh_if_stale(db)
     base_system_msg = lex_system_prompt(reply_language, data.country, data.category, user.get("jurisdiction"))
 
     # Cross-session memory (same as non-streaming)

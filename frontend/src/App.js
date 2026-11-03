@@ -7921,7 +7921,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             <AdminStripePriceAuditCard />
             <AdminTestimonialsCard api={api} toast={aaToast} />
             <AdminSubscribersCard api={api} toast={aaToast} />
-            <AdminLexLessonsCard api={api} toast={aaToast} prompt={aaPrompt} />
+            <AdminLexLessonsCard api={api} toast={aaToast} prompt={aaPrompt} confirm={aaConfirm} />
             <AdminFinanceCard api={api} toast={aaToast} />
             <AdminStripeResyncCard api={api} toast={aaToast} />
             {/* 💷 OWNER ONLY — founder cost dashboard: MRR, Stripe fees, LLM burn, net margin */}

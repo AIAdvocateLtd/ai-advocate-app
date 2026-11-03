@@ -1,0 +1,42 @@
+{
+  "summary": "Tested Lex model switch + Lex learning loop end-to-end (backend pytest 14 tests + Playwright UI on mobile/desktop). Free tier Lex chat returns model claude-haiku-5-5 (/api/lex/chat and /api/lex/chat/stream meta event); DB conversations.model_used=claude-haiku-5-5, no 'Primary model failed' fallbacks in logs. Feedback endpoint: 401/403 without auth, 400 invalid rating, 'wrong' drafts a pending lesson (source=report) in ~5s. Admin lex-lessons: list/stats, add (400 if <10 chars), approve, edit, remove, invalid status 400, 404 unknown id, non-admin 403. Approved lesson PINEAPPLE-42 injected into prompt -> Lex replied 'The test code word is PINEAPPLE-42' (then deleted). Cron /api/cron/lex-learning 401 without/with bad bearer, 200 queued with secret. UI: thumbs/flag buttons under every Lex reply, thumbs-up toast + all three disabled, Report wrong opens aa-prompt and shows 'Reported' + toast; Admin 'Lex's Brain' card approve/edit/add/remove/run-now all work. Regression: sanity-soon-{i} shows 'Solicitor check · Coming soon'; Lex says 'It is 2026. Today is Tuesday 3 November 2026', next tax year 6 April 2027 (correct).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "cron schedule", "issue": "/app/.emergent/cron/webhook-crons only schedules deadline-reminders and review-requests. There is NO weekly lex-learning cron registered, so the weekly job never runs automatically (only 'Check for new lessons now' does)."},
+      {"endpoint": "lex_lessons._insert_drafts / weekly_job", "issue": "Dedup is exact-text only and there is no lock on weekly_job. Running cron + run-now together (or two runs) produces near-duplicate pending lessons (e.g. two almost identical 'Crime and Policing Act 2026 ... 6 November 2026' law_watch lessons are now in the pending queue)."},
+      {"endpoint": "POST /api/lex/feedback", "issue": "No rate limit: every 'wrong' rating spawns a Sonnet 5.5 LLM call, so cost can be abused. Question/answer text comes from the client and is trusted, not looked up from the stored conversation."},
+      {"endpoint": "POST /api/lex/chat (+stream)", "issue": "When the primary model fails and the Sonnet 4.5 fallback answers, response 'model', model_used and cost tracking still record the primary model_id. Observability is wrong."},
+      {"endpoint": "lessons cache", "issue": "Approved lessons live in an in-process _cache. With more than one uvicorn worker or pod in production, approve/remove only refreshes the worker that handled the request, so other workers keep serving stale lessons until they restart."},
+      {"endpoint": "DELETE /api/admin/lex-lessons/{id}", "issue": "Returns 200 for ids that do not exist (no 404)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "LexFeedback", "issue": "In the first Playwright run on mobile, clicking lex-thumb-up-1 straight after the reply rendered (without scrolling it into view) did nothing: no feedback request, no toast. After scroll_into_view it worked every time. Possibly flaky or a re-render race. Low priority.", "selector": "[data-testid=lex-thumb-up-{i}]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin Lex's Brain", "issues": ["Reject/Remove act instantly with no confirm or undo. Removing a live lesson is a one-click destructive action.", "With many pending lessons the card gets very long inside the Settings modal. Consider collapsing it or capping its height."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter40_lex_learning.py", "/app/test_reports/pytest/pytest_iter40.xml"],
+  "action_items": [
+    "Register the weekly lex-learning webhook cron (e.g. Monday 07:00 -> POST /api/cron/lex-learning). It is currently missing from webhook-crons.",
+    "Add a lock or 'already running' guard to weekly_job, and use fuzzier dedup (normalised text or similarity) to avoid near-duplicate pending lessons.",
+    "Rate-limit /api/lex/feedback 'wrong' reports per user per day.",
+    "Report the actual model used when the fallback fires.",
+    "Optional: refresh the lessons cache from the DB on a TTL so multi-worker prod stays consistent. Add a confirm before Remove."
+  ],
+  "critical_code_review_comments": [
+    "lex_lessons.py is clean and small. Approval gating works: pending lessons are not injected and only status=approved goes into _cache.",
+    "Fallback path model reporting is incorrect (see minor).",
+    "In-memory cache is not safe across multiple workers."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter40_lex_learning.py"],
+  "success_rate": {"backend": "100% (14/14; the stream test first failed on my wrong assertion, fixed: model is in the 'meta' event)", "frontend": "100%"},
+  "seed_data_creation": "Created TEST_iter40 user (email_verified set via mongo), 5 feedback rows, 1 drafted lesson, 2 TEST_ lessons. All deleted by id. My cron + run-now triggers also drafted a few law_watch pending lessons that can't be told apart from existing ones, so they were left (pending now: 9 law_watch + 1 report). test@advocate.app hit its 5/5 free daily Lex limit today because of these tests.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "test@advocate.app hits the free daily limit (5) fast. For UI chat, sign up a TEST_ user and set users.email_verified=true in mongo (otherwise lex 403). UI login: localStorage aa_token + aa_terms/aa_welcomed/aa_uk_scope_ack/aa_lex_upl_ack=1, aa_cookie_consent=essential, sessionStorage aa_splash_seen=1. Lex via tile-ask_lex. Admin card is in the Settings modal (settings-btn) -> admin-lex-lessons-card. Stream model is in the data:{type:'meta'} event, not 'done'."
+}
