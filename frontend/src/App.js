@@ -148,6 +148,20 @@ const aaToast = (msg, type = "success") => {
   __aaUI.toast(msg, type);
 };
 
+function SavedRemindersNote({ items, idx }) {
+  if (!items || !items.length) return null;
+  return (
+    <div data-testid={`saved-reminders-${idx}`} style={{ width: "100%", background: "rgba(247,201,72,0.08)", border: "1px solid var(--gold-deep)",
+         borderRadius: 10, padding: "8px 10px", fontSize: 12, color: "var(--text)", marginBottom: 4 }}>
+      <div style={{ color: "var(--gold)", fontWeight: 700, marginBottom: 4 }}>Saved to your Reminders</div>
+      {items.map(r => (
+        <div key={r.id}>{r.title} — <b>{new Date(r.due_at).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</b></div>
+      ))}
+      <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>We'll email you 7, 3 and 1 day before. You can delete them in Reminders.</div>
+    </div>
+  );
+}
+
 // Solicitor Sanity Check is only purchasable once at least one eligible law firm is live.
 let __sanityAvail = null;
 function SanityGate({ children, soon }) {
@@ -2250,7 +2264,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         if (displayed >= visible.length) {
           if (streamDone) {
             setMessages(ms => ms.map((mm, idx) => idx === lexMsgIndex
-              ? { ...mm, content: visible, _typing: false, connectedSessionId: finalDone?.connected_session_id || null }
+              ? { ...mm, content: visible, _typing: false, connectedSessionId: finalDone?.connected_session_id || null, savedReminders: finalDone?.saved_reminders || [] }
               : mm));
             return;
           }
@@ -2324,7 +2338,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
       }
       const fd = new FormData();
       fd.append("message", text); fd.append("language", lang); fd.append("country", country);
-      api.post("/reminders/detect", fd).then(r => {
+      if (!(finalDone?.saved_reminders || []).length) api.post("/reminders/detect", fd).then(r => {
         const dls = r.data?.deadlines || [];
         if (dls.length) setMessages(m => [...m, { role: "deadlines", content: "", at: new Date().toISOString(), deadlines: dls }]);
       }).catch(() => {});
@@ -2344,7 +2358,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         });
         setSessionId(data.session_id);
         const fullText = data.response;
-        const lexMsg = { role: "lex", content: "", _fullContent: fullText, at: new Date().toISOString(), model: data.model, replyLang: data.reply_language, connectedSessionId: data.connected_session_id || null, citations: data.citations || [], _typing: true };
+        const lexMsg = { role: "lex", content: "", _fullContent: fullText, at: new Date().toISOString(), model: data.model, replyLang: data.reply_language, connectedSessionId: data.connected_session_id || null, citations: data.citations || [], savedReminders: data.saved_reminders || [], _typing: true };
         setMessages(m => [...m, lexMsg]);
         let revealed = 0;
         const step = 30;
@@ -2782,6 +2796,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                         {m._devilBusy ? "…" : <><Scale size={12} /> {m._devilOpen ? "Hide their argument" : "Their argument"}</>}
                       </button>
 
+                      <SavedRemindersNote items={m.savedReminders} idx={i} />
                       <LexFeedback api={api} toast={aaToast} prompt={aaPrompt} sessionId={sessionId} idx={i}
                         answer={m.content}
                         question={(messages.slice(0, i).reverse().find(x => x.role !== "lex") || {}).content || ""} />

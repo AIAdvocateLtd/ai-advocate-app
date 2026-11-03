@@ -16,7 +16,7 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 logger = logging.getLogger(__name__)
 LESSON_MODEL = ("anthropic", "claude-sonnet-5-5")
 MAX_LESSONS_IN_PROMPT = 80
-_cache = {"block": "", "at": 0.0}
+_cache = {"block": "", "packs": {}, "at": 0.0}
 _job_lock = asyncio.Lock()
 REPORTS_PER_USER_PER_DAY = 10
 
@@ -32,14 +32,44 @@ async def refresh_if_stale(db, max_age: int = 300) -> None:
 
 async def refresh_lessons(db) -> None:
     _cache["at"] = time.time()
-    rows = await db.lex_lessons.find({"status": "approved"}, {"_id": 0, "text": 1}) \
-        .sort("approved_at", -1).to_list(MAX_LESSONS_IN_PROMPT)
+    rows = await db.lex_lessons.find({"status": "approved"}, {"_id": 0, "text": 1, "source": 1, "category": 1}) \
+        .sort("approved_at", -1).to_list(300)
+    packs: dict = {}
+    for r in rows:
+        if r.get("source") == "fact_pack":
+            packs.setdefault(r.get("category") or "general", []).append(r["text"])
+    _cache["packs"] = packs
+    rows = [r for r in rows if r.get("source") != "fact_pack"][:MAX_LESSONS_IN_PROMPT]
     if not rows:
         _cache["block"] = ""
         return
     lines = "\n".join(f"- {r['text']}" for r in rows)
     _cache["block"] = ("CONFIRMED LESSONS (checked by AI Advocate's review team — always follow these, "
                        "they override your training knowledge):\n" + lines + "\n\n")
+
+
+TOPIC_RE = {
+    "immigration": re.compile(r"visa|ilr|indefinite leave|settle|citizen|naturalis|home office|asylum|refugee|overstay|"
+                              r"immigra|passport|brp|evisa|sponsor|graduate route|spouse visa|partner visa", re.I),
+    "employment": re.compile(r"employ|job|work|dismiss|sacked|fired|redundan|tribunal|acas|lra|wage|salary|pay\b|sick|"
+                             r"maternity|paternity|holiday|notice period|boss|contract of employment|discriminat", re.I),
+    "housing": re.compile(r"landlord|tenan|rent|evict|deposit|lease|section 8|section 21|section 173|notice to (quit|leave)|"
+                          r"housing|flat|mould|damp|repair|letting|occupation contract", re.I),
+    "family": re.compile(r"divorce|separat|marri|spouse|civil partner|child|custody|contact|maintenance|cms|"
+                         r"mediation|miam|family court|financial order", re.I),
+    "benefits": re.compile(r"benefit|universal credit|\buc\b|pip|esa|dwp|jobseeker|pension credit|child benefit|"
+                           r"carer|disability payment|adp|reconsideration|sanction|benefit cap|two.child", re.I),
+}
+
+
+def fact_pack_block(message: str, context: str = "") -> str:
+    text = f"{message}\n{context}"
+    picked = [cat for cat, rx in TOPIC_RE.items() if rx.search(text)]
+    lines = [t for cat in picked for t in _cache.get("packs", {}).get(cat, [])]
+    if not lines:
+        return ""
+    return ("\n\nVERIFIED UK FACTS (current as of the date above — use these exactly; if the user's UK nation is unclear "
+            "and the rules differ, ask or give each nation's rule):\n- " + "\n- ".join(lines) + "\n")
 
 
 class FeedbackIn(BaseModel):
@@ -151,17 +181,25 @@ IMMIGRATION_PACK_V1 = [
 ]
 
 
+from fact_packs import EMPLOYMENT_PACK_V1, HOUSING_PACK_V1, FAMILY_PACK_V1, BENEFITS_PACK_V1  # noqa: E402
+
+PACKS = {"immigration_pack_v1": ("immigration", None), "employment_pack_v1": ("employment", EMPLOYMENT_PACK_V1),
+         "housing_pack_v1": ("housing", HOUSING_PACK_V1), "family_pack_v1": ("family", FAMILY_PACK_V1),
+         "benefits_pack_v1": ("benefits", BENEFITS_PACK_V1)}
+
+
 async def seed_fact_packs(db) -> None:
-    if await db.seeds_applied.find_one({"_id": "immigration_pack_v1"}):
-        return
     now = datetime.now(timezone.utc).isoformat()
-    for text, url in IMMIGRATION_PACK_V1:
-        await db.lex_lessons.insert_one({
-            "id": str(uuid.uuid4()), "text": text, "category": "immigration", "why": f"Fact pack · {url}",
-            "status": "approved", "source": "fact_pack", "source_ref": "immigration_pack_v1",
-            "created_at": now, "approved_at": now,
-        })
-    await db.seeds_applied.insert_one({"_id": "immigration_pack_v1", "at": now})
+    for pack_id, (category, items) in PACKS.items():
+        if await db.seeds_applied.find_one({"_id": pack_id}):
+            continue
+        for text, url in (items or IMMIGRATION_PACK_V1):
+            await db.lex_lessons.insert_one({
+                "id": str(uuid.uuid4()), "text": text, "category": category, "why": f"Fact pack · {url}",
+                "status": "approved", "source": "fact_pack", "source_ref": pack_id,
+                "created_at": now, "approved_at": now,
+            })
+        await db.seeds_applied.insert_one({"_id": pack_id, "at": now})
 
 
 def build_router(db, get_user, require_admin, encrypt_text, decrypt_text, api_key, today_line, tavily_search):

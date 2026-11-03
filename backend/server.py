@@ -69,8 +69,8 @@ if SENTRY_DSN:
     )
 
 from app_crypto import encrypt_text, decrypt_text, encrypt_bytes, decrypt_bytes, is_enabled as crypto_enabled  # noqa: E402
-from deadline_calc import build_deadline_block  # noqa: E402
-from lex_lessons import lessons_block as _lessons_block, refresh_if_stale as _lessons_refresh_if_stale  # noqa: E402
+from deadline_calc import build_deadlines, reminder_due_iso  # noqa: E402
+from lex_lessons import fact_pack_block as _fact_pack_block, lessons_block as _lessons_block, refresh_if_stale as _lessons_refresh_if_stale  # noqa: E402
 from rag import build_rag_context, is_enabled as rag_enabled, get_usage as rag_get_usage  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
@@ -2058,9 +2058,11 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     ).sort("created_at", 1).to_list(length=12)
 
     # 📅 Exact deadline maths — LLM extracts the dates, Python calculates them.
+    auto_reminders = []
     try:
         _ctx = "\n".join(decrypt_text(d.get("user_message")) or "" for d in history_docs[-3:])
-        system_msg = system_msg + await build_deadline_block(data.message, _ctx, EMERGENT_LLM_KEY)
+        _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, user.get("jurisdiction"))
+        system_msg = system_msg + _fact_pack_block(data.message, _ctx) + _dl_block
     except Exception as e:
         logger.warning(f"Deadline block failed: {e}")
 
@@ -2147,6 +2149,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         "model": model_id,
         "deep_think_auto": deep_think_auto,
         "connected_session_id": connected_session_id,
+        "saved_reminders": await _save_auto_reminders(user, session_id, auto_reminders),
         "citations": citations,
     }
 
@@ -2287,9 +2290,11 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
         {"_id": 0, "user_message": 1, "assistant_response": 1, "created_at": 1},
     ).sort("created_at", 1).to_list(length=12)
     # 📅 Exact deadline maths — LLM extracts the dates, Python calculates them.
+    auto_reminders = []
     try:
         _ctx = "\n".join(decrypt_text(d.get("user_message")) or "" for d in history_docs[-3:])
-        system_msg = system_msg + await build_deadline_block(data.message, _ctx, EMERGENT_LLM_KEY)
+        _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, user.get("jurisdiction"))
+        system_msg = system_msg + _fact_pack_block(data.message, _ctx) + _dl_block
     except Exception as e:
         logger.warning(f"Deadline block failed: {e}")
 
@@ -2385,7 +2390,8 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
             logger.exception("Failed to persist streamed conversation — user already saw the response")
 
         # Final event with metadata that needed the full text to compute
-        yield f"data: {_json.dumps({'type':'done','connected_session_id':connected_session_id,'full_text':full_text,'deep_think_auto':deep_think_auto})}\n\n"
+        saved_rem = await _save_auto_reminders(user, session_id, auto_reminders)
+        yield f"data: {_json.dumps({'type':'done','connected_session_id':connected_session_id,'full_text':full_text,'deep_think_auto':deep_think_auto,'saved_reminders':saved_rem})}\n\n"
 
     return StreamingResponse(
         event_stream(),
@@ -7836,6 +7842,22 @@ Please:
     return rec
 
 # ==================== LIMITATION-PERIOD REMINDERS ====================
+async def _save_auto_reminders(user: dict, session_id: str, items: list) -> list:
+    """Auto-save Lex-calculated deadlines as reminders (deduped per user/title/date)."""
+    saved = []
+    for title, d in items[:6]:
+        due = reminder_due_iso(d)
+        if await db.reminders.find_one({"user_id": user["id"], "title": title, "due_at": due, "status": "pending"}):
+            continue
+        doc = {"id": str(uuid.uuid4()), "user_id": user["id"], "case_id": None, "session_id": session_id,
+               "title": title, "description": "Worked out by Lex from the dates you gave. Check with a regulated adviser.",
+               "due_at": due, "kind": "deadline", "status": "pending", "source": "lex_auto",
+               "created_at": datetime.now(timezone.utc).isoformat()}
+        await db.reminders.insert_one(doc)
+        saved.append({"id": doc["id"], "title": title, "due_at": due})
+    return saved
+
+
 @api_router.post("/reminders")
 async def create_reminder(data: ReminderCreate, user: dict = Depends(get_user)):
     rid = str(uuid.uuid4())
