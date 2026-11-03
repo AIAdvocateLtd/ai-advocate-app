@@ -146,6 +146,19 @@ const aaToast = (msg, type = "success") => {
   __aaUI.toast(msg, type);
 };
 
+// Solicitor Sanity Check is only purchasable once at least one eligible law firm is live.
+let __sanityAvail = null;
+function SanityGate({ children, soon }) {
+  const [ok, setOk] = useState(__sanityAvail);
+  useEffect(() => {
+    if (__sanityAvail !== null) return;
+    api.get("/sanity-checks/availability")
+      .then(r => { __sanityAvail = !!r.data?.available; setOk(__sanityAvail); })
+      .catch(() => setOk(false));
+  }, []);
+  return ok ? children : soon;
+}
+
 function AAConfirmHost() {
   const [c, setC] = useState(null);   // { message, title, danger, confirmLabel, cancelLabel, resolve }
   const [p, setP] = useState(null);   // { message, title, defaultValue, placeholder, confirmLabel, cancelLabel, resolve }
@@ -2768,6 +2781,13 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                       </button>
 
                       {/* 🎖 Solicitor Sanity Check — £49 one-off, routed to a Founding Firm */}
+                      <SanityGate soon={
+                        <button data-testid={`sanity-soon-${i}`} disabled title="Solicitor reviews are coming soon"
+                          style={{ background: "transparent", border: "1px dashed var(--line)", color: "var(--text-muted)",
+                                   borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "not-allowed", fontWeight: 600, opacity: 0.7 }}>
+                          Solicitor check · Coming soon
+                        </button>
+                      }>
                       <button data-testid={`sanity-${i}`} title="Get a real UK solicitor to verify this answer (£49)"
                         onClick={async () => {
                           if (!aaConfirm("Get a real UK solicitor to review and verify this Lex answer? £49 one-off · 24-hour turnaround · response emailed to you the moment a verified law firm completes the review.")) return;
@@ -2788,6 +2808,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                                  borderRadius: 8, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
                         {m._sanityBusy ? "…" : "🎖 Solicitor check · £49"}
                       </button>
+                      </SanityGate>
 
                       {/* 👥 Invite a witness about this — pre-fills context from the chat turn.
                           Only available when the chat is linked to a case (caseId). */}
@@ -15366,6 +15387,12 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
                 </div>
 
                 {/* 👩‍⚖ £49 Solicitor Sanity Check — inline upsell, shown at the exact moment users are most anxious about pressing Send. */}
+                <SanityGate soon={
+                  <div data-testid="letter-sanity-soon" style={{ marginTop: 12, padding: "10px 14px", border: "1px dashed var(--line)",
+                       borderRadius: 12, color: "var(--text-muted)", fontSize: 12.5, opacity: 0.8 }}>
+                    Solicitor review of your reply · <b>Coming soon</b>
+                  </div>
+                }>
                 <div data-testid="letter-sanity-upsell" style={{
                   marginTop: 12, padding: "12px 14px",
                   background: "linear-gradient(135deg, rgba(247,201,72,0.10), rgba(247,201,72,0.02))",
@@ -15395,6 +15422,7 @@ function LetterReaderModal({ lang, country, onClose, initialDoc = null }) {
                     Get £49 review →
                   </button>
                 </div>
+                </SanityGate>
 
                 {/* ⚠ "What happens if I do nothing?" — protective loss-aversion simulator */}
                 {!nothingSim && (

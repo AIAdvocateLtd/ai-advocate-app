@@ -5135,6 +5135,19 @@ class SanityCheckCreate(BaseModel):
     country: str = "GB"
 
 
+SANITY_ELIGIBLE_FIRM_Q = {
+    "deleted_at": {"$in": [None, ""]},
+    "billing_status": {"$in": ["active", "trial", "comp"]},
+    "billing_tier": {"$in": ["premium", "practice", "founding"]},
+}
+
+
+@api_router.get("/sanity-checks/availability")
+async def sanity_check_availability():
+    n = await db.firm_accounts.count_documents(SANITY_ELIGIBLE_FIRM_Q)
+    return {"available": n > 0}
+
+
 @api_router.post("/sanity-checks/create-and-checkout")
 async def sanity_check_create(data: SanityCheckCreate, request: Request, user: dict = Depends(get_user)):
     """Creates a pending_payment SanityCheck row + Stripe one-off checkout URL.
@@ -5142,6 +5155,8 @@ async def sanity_check_create(data: SanityCheckCreate, request: Request, user: d
     a Founding Firm with capacity."""
     if not stripe.api_key:
         raise HTTPException(503, "Stripe not configured")
+    if not await db.firm_accounts.count_documents(SANITY_ELIGIBLE_FIRM_Q):
+        raise HTTPException(503, "Solicitor Sanity Check is coming soon — no charge has been made.")
 
     question = (data.question or "").strip()
     lex_answer = (data.lex_answer or "").strip()
