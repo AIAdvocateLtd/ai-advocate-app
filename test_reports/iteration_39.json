@@ -1,0 +1,20 @@
+{
+  "summary": "Brief verification of the Solicitor Sanity Check 'Coming soon' gate. Backend: GET /api/sanity-checks/availability -> {available:false}; POST /api/sanity-checks/create-and-checkout (authenticated test@advocate.app) -> 503 'Solicitor Sanity Check is coming soon — no charge has been made.' Frontend: logged in as test@advocate.app, opened Ask Lex via dashboard tile, asked 'Can my landlord keep my deposit?'. Under Lex's answer the disabled button data-testid=sanity-soon-1 'Solicitor check · Coming soon' rendered (disabled=true); no sanity-{i} gold button and no '£49' text anywhere. Clicking it did nothing (URL unchanged, no create-and-checkout / Stripe request fired). 'Their argument' button still renders. 0 console errors, no crash.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [],
+  "action_items": [
+    "(Before going live) In the live sanity-{i} onClick, `if (!aaConfirm(...)) return;` — aaConfirm returns a Promise, so `!promise` is always false and the confirm dialog is bypassed; use `if (!(await aaConfirm(...))) return;`. Not reachable today because the gate hides it.",
+    "(Before going live) SANITY_ELIGIBLE_FIRM_Q only matches billing_status/billing_tier set by Stripe webhooks. Comped/trial firms (e.g. founder.demo@aiadvocate.co.uk uses tier/trial_tier/trial_until, no billing_* fields) will never make the feature available. Decide if that's intended."
+  ],
+  "critical_code_review_comments": [
+    "SanityGate module cache (__sanityAvail) is only set after the request resolves, so 2 GET /availability calls fire when several messages mount at once. Harmless; could cache the promise instead.",
+    "SanityGate caches availability for the whole page session, so once firms sign up, existing sessions keep showing 'Coming soon' until reload. Acceptable."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None. No Stripe sessions or firm accounts created (503 returned before any DB insert).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "UI login: set localStorage aa_token + aa_terms/aa_welcomed/aa_uk_scope_ack/aa_lex_upl_ack=1, aa_cookie_consent=essential, sessionStorage aa_splash_seen=1, goto '/'. For free users, bottom-nav 'nav-lex' opens the subscribe modal (hasAccess false); use dashboard 'tile-ask_lex' to open chat (chat-input / send-btn). The Lex answer index was 1 (sanity-soon-1)."
+}

@@ -979,3 +979,9 @@ Production redeploy required. All env vars unchanged.
 - Frontend: Conveyancing.js + ConveyancingData.js (E&W sell 10 stages, buy 11 stages, TA6/TA10/TA7 sections with tips), tile "conveyancing" (free). Prominent not-legal-advice disclaimer; PDF of draft answers.
 - Tested iteration_38 (100%); padding fix applied after.
 - 2026-10-31: Conveyancing additions — LR_JOBS (DJP deceased joint owner, TR1/AP1/ID1 transfer of equity gift, AP1 name change, Property Alert) shown in Companion list view; "Moving day" tab (15-item checklist stored in stages_done with "md:" prefix, printable PDF); new guide /guides/selling-your-home-legal-steps-uk.html (index, sitemap=20 URLs, landing popular links).
+
+## 2026-06 — Solicitor Sanity Check "Coming soon" gate
+- Backend: GET /api/sanity-checks/availability ({available} = any eligible firm_accounts: active/trial/comp + premium/practice/founding). create-and-checkout returns 503 when none — no Stripe session created.
+- Frontend: SanityGate in App.js shows disabled "Solicitor check · Coming soon" in Lex chat and a muted "Coming soon" note in Letter analyser; auto-reverts to £49 buttons once an eligible firm exists.
+- Trustpilot review strip: kept at 3+ reviews threshold (founder decision). TrustBox badge not added.
+- Tested iteration_39 (100%).
