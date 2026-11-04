@@ -2581,7 +2581,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                     <div key={di} style={{ marginBottom: 6 }}>
                       <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>{dl.title}</div>
                       <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>
-                        Due {new Date(dl.due_at).toLocaleString()}
+                        Due {new Date(dl.due_at).toLocaleString(document.documentElement.lang || "en-GB")}
                       </div>
                       <button data-testid={`add-deadline-${i}-${di}`} onClick={() => addDeadlineAsReminder(dl, di)} disabled={dl._added}
                         style={{ background: dl._added ? "var(--bg-card)" : "var(--gold)", color: dl._added ? "var(--text-muted)" : "#1a1300",
@@ -2872,7 +2872,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                   )}
                   {m.at && (
                     <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2, padding: "0 6px" }} data-testid={`ts-${i}`}>
-                      {new Date(m.at).toLocaleString()}
+                      {new Date(m.at).toLocaleString(document.documentElement.lang || "en-GB")}
                     </div>
                   )}
                 </>
@@ -4237,7 +4237,7 @@ function CourtroomModal({ lang, country, onClose }) {
                       display: "flex", alignItems: "center", gap: 8,
                     }}>
                       <Check size={14} />
-                      <span>Session saved · {advice.length} turn{advice.length === 1 ? "" : "s"} · started {lStartedAtRef.current ? new Date(lStartedAtRef.current).toLocaleString() : "just now"}</span>
+                      <span>Session saved · {advice.length} turn{advice.length === 1 ? "" : "s"} · started {lStartedAtRef.current ? new Date(lStartedAtRef.current).toLocaleString(document.documentElement.lang || "en-GB") : "just now"}</span>
                     </div>
                     <button data-testid="export-live-pdf" onClick={async () => {
                       try {
@@ -4528,7 +4528,7 @@ function PastSessionsBrowser() {
                   style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600 }}>
-                      {new Date(s.first_at).toLocaleString()}
+                      {new Date(s.first_at).toLocaleString(document.documentElement.lang || "en-GB")}
                     </div>
                     <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 2 }}>
                       {s.count} turn{s.count === 1 ? "" : "s"} · ID {s.session_id.slice(0, 8)}
@@ -5467,7 +5467,7 @@ function FilesModal({ lang, onClose }) {
                 <button onClick={() => setOpen(f)} className="w-full" data-testid={`file-${f.id}`}
                         style={{ flex: 1, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 14, color: "var(--text)", textAlign: "left", cursor: "pointer" }}>
                   <div style={{ color: "var(--gold)", fontWeight: 600 }}>{f.filename || f.type}</div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{new Date(f.created_at).toLocaleString()}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{new Date(f.created_at).toLocaleString(document.documentElement.lang || "en-GB")}</div>
                 </button>
                 <button data-testid={`file-delete-${f.id}`} title="Delete file" disabled={busy}
                         onClick={(e) => removeFile(f.id, e)}
@@ -6565,7 +6565,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
             <button className="btn-ghost" onClick={() => setOpen(null)} style={{ marginBottom: 12, padding: "6px 12px", fontSize: 13 }}><ArrowLeft size={14} /> {t(lang, "backToList")}</button>
             <h3 style={{ color: "var(--gold)", marginBottom: 4 }}>{open.name}</h3>
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 14 }}>
-              {t(lang, "timestamp")}: {new Date(open.created_at).toLocaleString()}
+              {t(lang, "timestamp")}: {new Date(open.created_at).toLocaleString(document.documentElement.lang || "en-GB")}
             </div>
             <div className="flex gap-2" style={{ marginBottom: 14, flexWrap: "wrap" }}>
               <button className="btn-ghost" onClick={rename} data-testid="rename-case-btn" style={{ flex: 1, fontSize: 12 }}>{t(lang, "renameCase")}</button>
@@ -6739,7 +6739,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
                   </div>
                 )}
                 <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6 }}>
-                  {new Date(it.timestamp_utc || it.created_at).toLocaleString()}
+                  {new Date(it.timestamp_utc || it.created_at).toLocaleString(document.documentElement.lang || "en-GB")}
                   {it.location && ` · 📍 ${it.location}`}
                   {it.sha256 && ` · sha256:${it.sha256.slice(0,8)}…`}
                 </div>
@@ -6814,7 +6814,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
                               {ev.title}
                             </div>
                             <div style={{ fontSize: 10, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-                              {ev.at ? new Date(ev.at).toLocaleString() : ""}
+                              {ev.at ? new Date(ev.at).toLocaleString(document.documentElement.lang || "en-GB") : ""}
                             </div>
                           </div>
                           {ev.kind === "lex_turn" && (
@@ -6914,7 +6914,7 @@ function RemindersModal({ lang, onClose }) {
                 </div>
                 {r.description && <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>{r.description}</div>}
                 <div style={{ fontSize: 11, color: urgent ? "#fca5a5" : "var(--text-muted)", marginTop: 6 }}>
-                  Due {due.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "Europe/London" })} · {daysOut > 0 ? `${daysOut}d left` : `${-daysOut}d overdue`}
+                  Due {due.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "Europe/London" })} · {Math.abs(daysOut)} {daysOut > 0 ? "days left" : "days overdue"}
                 </div>
                 <button className="btn-ghost" onClick={() => markDone(r.id)} data-testid={`done-${r.id}`} style={{ marginTop: 8, padding: "4px 10px", fontSize: 11 }}>
                   ✓ {t(lang, "reminderMarkDone")}
@@ -9246,7 +9246,7 @@ function AdminSuggestionsCard({ lang }) {
                   {item.user_email || "(anonymous)"}
                 </button>
                 <span style={{ color: "var(--text-muted)", fontSize: 10 }}>
-                  {item.created_at ? new Date(item.created_at).toLocaleString() : ""}
+                  {item.created_at ? new Date(item.created_at).toLocaleString(document.documentElement.lang || "en-GB") : ""}
                 </span>
               </div>
               <div style={{ color: "var(--text)", fontSize: 13, lineHeight: 1.4, marginBottom: 8, whiteSpace: "pre-wrap" }}>
@@ -10238,7 +10238,7 @@ function AdminFounderSignatureCard() {
       ) : state.is_set ? (
         <div style={{ background: "#fff", border: "1px solid var(--line)", borderRadius: 8, padding: 10, marginBottom: 10, textAlign: "center" }}>
           <img src={state.data_url} alt="Saved signature" style={{ maxHeight: 80, maxWidth: "100%" }} data-testid="founder-sig-preview" />
-          <div style={{ fontSize: 10, color: "#666", marginTop: 6 }}>Saved {state.saved_at ? new Date(state.saved_at).toLocaleString() : ""}</div>
+          <div style={{ fontSize: 10, color: "#666", marginTop: 6 }}>Saved {state.saved_at ? new Date(state.saved_at).toLocaleString(document.documentElement.lang || "en-GB") : ""}</div>
         </div>
       ) : null}
 
@@ -12593,7 +12593,7 @@ function CostEstimateModal({ lang, country, onClose }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
           <div style={{ color: isAA ? "var(--gold)" : "var(--text)", fontWeight: 700, fontSize: 14 }}>{c.label}</div>
           <div style={{ color: isAA ? "var(--gold)" : "var(--text)", fontSize: 16, fontWeight: 700, textAlign: "right" }}>
-            {totalLow === totalHigh ? `£${totalLow.toLocaleString()}` : `£${totalLow.toLocaleString()} – £${totalHigh.toLocaleString()}`}
+            {totalLow === totalHigh ? `£${totalLow.toLocaleString(document.documentElement.lang || "en-GB")}` : `£${totalLow.toLocaleString(document.documentElement.lang || "en-GB")} – £${totalHigh.toLocaleString(document.documentElement.lang || "en-GB")}`}
           </div>
         </div>
         {(c.pros || []).slice(0, 3).map((p, i) => (
@@ -12648,7 +12648,7 @@ function CostEstimateModal({ lang, country, onClose }) {
               <>
                 <div style={{ textAlign: "center", margin: "8px 0 12px" }}>
                   <div style={{ color: "var(--text-muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>Likely solicitor fee</div>
-                  <div style={{ color: "var(--gold)", fontSize: 32, fontWeight: 700, marginTop: 4 }}>£{r.low_estimate_gbp?.toLocaleString()} – £{r.high_estimate_gbp?.toLocaleString()}</div>
+                  <div style={{ color: "var(--gold)", fontSize: 32, fontWeight: 700, marginTop: 4 }}>£{r.low_estimate_gbp?.toLocaleString(document.documentElement.lang || "en-GB")} – £{r.high_estimate_gbp?.toLocaleString(document.documentElement.lang || "en-GB")}</div>
                   <div style={{ color: "var(--text-dim)", fontSize: 12, marginTop: 2 }}>+ court fees ≈ £{r.court_fees_gbp || 0}</div>
                   {r.postcode_region && r.postcode_multiplier !== 1.0 && (
                     <div data-testid="cost-region-badge" style={{ display: "inline-block", marginTop: 6, padding: "3px 10px", background: "rgba(247,201,72,0.12)", border: "1px solid var(--gold-deep)", borderRadius: 10, color: "var(--gold)", fontSize: 10.5, fontWeight: 600, letterSpacing: "0.04em" }}>
@@ -12677,7 +12677,7 @@ function CostEstimateModal({ lang, country, onClose }) {
                   <div style={{ color: "var(--text-dim)", marginTop: 4 }}>{r.ai_advocate_saving}</div>
                   {r.aa_pro_saving_vs_solicitor_gbp > 0 && (
                     <div data-testid="cost-saving-banner" style={{ marginTop: 8, padding: 8, background: "rgba(34,197,94,0.10)", borderRadius: 8, color: "#86efac", fontSize: 12.5 }}>
-                      💷 Save ≈ £{r.aa_pro_saving_vs_solicitor_gbp.toLocaleString()} ({r.aa_pro_saving_percent}%) vs full solicitor.
+                      💷 Save ≈ £{r.aa_pro_saving_vs_solicitor_gbp.toLocaleString(document.documentElement.lang || "en-GB")} ({r.aa_pro_saving_percent}%) vs full solicitor.
                     </div>
                   )}
                 </div>
@@ -15660,7 +15660,7 @@ function StatsWall({ lang }) {
     api.get("/stats/public").then(r => setS(r.data)).catch(() => {});
   }, []);
   if (!s) return null;
-  const fmt = (n) => (n || 0).toLocaleString();
+  const fmt = (n) => (n || 0).toLocaleString(document.documentElement.lang || "en-GB");
   const items = [
     { label: t(lang, "statsPeopleHelped"), value: fmt(s.users_helped_total) },
     { label: t(lang, "statsCasesTracked"), value: fmt(s.cases_active) },

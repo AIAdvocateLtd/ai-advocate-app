@@ -1,0 +1,60 @@
+{
+  "summary": "Tested the auto-translate feature on mobile (390x844) with the admin and test user accounts, plus the static pages. WORKING: in-app switching to Spanish, Polish, Arabic, French and Chinese (with the html lang/dir change; Arabic sets dir=rtl). Translated: Home tiles, bottom nav, Reminders, Cases, Vault, Lawyers, Conveyancing, Letter Reader, ET1, Settings for the non-admin user (0 English leftovers), placeholders (chat-input 'Pregunta lo que sea…' and 'اسأل ليكس…', vault PIN, letter search, landing hero textarea). The picker keeps its native names (data-no-translate works). Switching back to English restores every string with no Arabic/Polish leftovers and no reload. 7 quick switches in a row: 0 DOM mutations while idle afterwards (no loop), event loop latency 0.1ms, no console errors or page errors. Lex chat in Spanish mode: the user and Lex bubbles (msg-user-0/msg-lex-1 have data-no-translate) are NOT altered and the UI around them is Spanish; POST /api/lex/chat works through the UI. Landing /welcome.html: landing-lang-picker shows native names; choosing Français reloads the page in French with 0 English leftovers; ?lang=de-DE works; the guide /guides/unfair-dismissal-uk.html follows the saved language (French h1). Hero is 2 lines in es/fr/de/ar/hi/zh on desktop and mobile (3 lines in pl and en on mobile). /terms.html and /privacy.html in German show the 'English version applies' note. In-app TermsScreen shows terms-translation-note in es and ar and hides it in en. Restored both admin and test@advocate.app profile language to en-GB at the end (verified with /api/auth/me). GAPS: see the issues below.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/legal/terms?language=xx", "issue": "Returns 'note' always in English ('Summary in your language. The full English version is the legally authoritative text.', server.py:4276). It shows in English on the Spanish/Arabic Terms screen, and it is not in the dictionaries."},
+      {"endpoint": "Subscription plans (server.py ~5695-5700)", "issue": "Plan feature strings come from the backend and are not in the dictionaries, so the paywall shows English in every language: 'View 31 templates', '3 files', 'Emergency rights (always free)', 'Read-Aloud rights (20 / day)', '15 photo evidences / month', 'Court Prep modes', 'Will Writer (England, Wales, Scotland & NI)', and the button 'Subscribe — £19.99/mo'."},
+      {"endpoint": "Letter templates API", "issue": "All 31 letter template titles (e.g. 'Letter Before Action (Money Owed)', 'Formal Complaint Against the Police') and most category labels ('MONEY', 'WORK', 'POLICE') stay English in the Letter Library for es/pl/ar. This is the worst offender."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Static pages CSS (welcome.html, guides, terms/privacy)", "issue": "Arabic/Urdu letters are spaced apart on the landing page. Measured on welcome.html?lang=ar-IQ: 24 elements with Arabic text have letter-spacing != 0 (.eyebrow 1.8px, .stat-lbl 1.1px, .hero-cta-title 0.65px, h1 -0.34px, .nav-cta, .cta-btn). The in-app index.css has the :lang(ar) letter-spacing:0 !important fix, but the static pages and /i18n/auto.js do not. Fix: inject the same :lang(ar),:lang(ur),:lang(hi) *{letter-spacing:0!important} rule in auto.js (or in each page's CSS).", "selector": ".eyebrow, .stat-lbl, .hero-cta-title, h1", "priority": "HIGH"},
+      {"component": "Will Writer (WillWriter.js:194) + Home tile", "issue": "The 'Will Writer' title stays English in every language (the es dictionary maps it to itself). The subtitle 'Answer a few questions · Lex drafts your will · print, sign & witness' never translates: the JSX uses &amp;, so the extracted key does not match the rendered '&'.", "selector": "[data-testid='tile-will']", "priority": "MEDIUM"},
+      {"component": "Lex chat action buttons (App.js:2778, 2801)", "issue": "'Best & worst case' / 'Hide best & worst case' and 'Their argument' / 'Hide their argument' are inside JSX ternaries. The extractor misses them, so they stay English.", "selector": "msg action buttons", "priority": "MEDIUM"},
+      {"component": "Lex chat footer", "issue": "'not a law firm' (bold span in the middle of a sentence) stays English: the dictionary value for es equals the key. The message timestamp uses US format ('11/4/2026, 12:34:44 AM') instead of the locale format.", "selector": "chat footer", "priority": "LOW"},
+      {"component": "Conveyancing modal title", "issue": "Shows mixed language: 'Transmisión de Propiedad Companion'.", "selector": "conveyancing modal h2", "priority": "LOW"},
+      {"component": "Settings <select> dropdowns", "issue": "SELECT/OPTION are in SKIP_TAGS, so the Country options (United Kingdom, Spain, France…) and the UK legal-system options ('England (Housing Act, England & W…') stay English in every language.", "selector": "[data-testid='settings-modal'] select", "priority": "MEDIUM"},
+      {"component": "Reminders card", "issue": "The date and overdue text is built with a variable and stays English: 'Sat, 17 Oct 2026 · 17d overdue' (pl, ar).", "selector": "[data-testid='reminders-modal']", "priority": "LOW"},
+      {"component": "Contracts hub", "issue": "'💾 My saved contracts (' stays English (sentence with a variable).", "selector": "contracts modal", "priority": "LOW"},
+      {"component": "Letter Library in RTL", "issue": "In Arabic the template rows are left-aligned and in English, so the layout looks broken in RTL.", "selector": "[data-testid^='letter-tpl-']", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Static pages without auto.js", "issue": "The customer-facing pages for-organisations.html (linked from the landing nav), reset.html (password reset from email), gift.html and track.html do not include /i18n/auto.js, so they never translate.", "affected_selectors": ["/for-organisations", "/reset.html", "/gift.html", "/track.html"]},
+      {"flow": "Firm Portal", "issue": "FirmPortal.js / FirmSign.jsx are in the extractor's SKIP_FILES, so the firm-facing portal (paying B2B customers) stays fully English. Admin pages are skipped too (acceptable)."}
+    ],
+    "design_issues": [
+      {"screen": "Landing mobile nav (390px)", "issues": ["Polish: the 'Zarejestruj się' CTA overflows past the right edge.", "Arabic: the 'إنشاء حساب' CTA wraps into a cramped 2-line pill."]},
+      {"screen": "Home Tip of the Day (es)", "issues": ["Raw markdown asterisks are shown: '**Derecho de portabilidad de datos:** ...'."]},
+      {"screen": "Guides (fr)", "issues": ["Dates in the guide text stay English ('1 October 2026', '1 January 2027')."]},
+      {"screen": "Terms/privacy static pages (de)", "issues": ["Some paragraphs stay English, e.g. 'manipulate sponsored placement based on Lex's recommendations…', 'we generate and store a non-cryptographic, pseudonymous identifier…', 'lodge a complaint with the ICO at', 'TLS 1.3 in transit. Bcrypt for passwords…'."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "HIGH: Add the Arabic/Urdu/Hindi letter-spacing:0 !important override to the static pages (inject it from /i18n/auto.js when the lang is ar/ur/hi). The landing and guides currently space Arabic letters apart.",
+    "Translate the backend-sourced strings: letter template titles and categories (31), subscription plan feature bullets and the Subscribe button, and the /api/legal/terms 'note'. Either add them to the extractor or localise them on the server.",
+    "Make the extractor handle JSX HTML entities (&amp; → &) and string literals inside JSX ternaries ('Best & worst case', 'Their argument', the Will Writer subtitle).",
+    "Translate 'Will Writer', and fix the 'not a law firm' entries where the dictionary value equals the key.",
+    "Translate <option> text in selects (the country and legal-system dropdowns in Settings). The auto-translator skips SELECT/OPTION.",
+    "Add /i18n/auto.js to for-organisations.html, reset.html, gift.html and track.html.",
+    "Consider including FirmPortal in the extraction (customer-facing for firms).",
+    "Minor: format the reminders date and 'Nd overdue' text and the chat timestamps with the locale; fix the 'Companion' leftover in the Conveyancing title; fix the landing mobile CTA overflow in Polish; strip ** markdown in Tip of the Day."
+  ],
+  "critical_code_review_comments": [
+    "autoTranslate.js: the design is sound (dictionary lookup only, WeakMap restore, observer guarded by state.dict, no loop seen). However translateAttrs skips the PUNCT_PREFIX fallback, and SELECT/OPTION are skipped entirely, so dropdown options never translate.",
+    "Dictionaries hold about 150-330 junk code-fragment keys per language (e.g. ') : t(lang,', '(display-mode: standalone)', and code comments). They are harmless but bloat the ~410KB JSON fetched on each language switch. Tighten the CODEY filter in i18n_extract.py.",
+    "auto.js (static pages): the MutationObserver handles only addedNodes. Text changed by later JS (characterData) will not translate.",
+    "server._translate_email: max_tokens=8000 with a single-shot LLM call. A very long HTML email could be cut off and still pass the '<' in body check, so a broken HTML email would be sent. It also adds up to 45s of latency per send and has no caching. Consider validating that the closing </html> tag is present and falling back to English if not.",
+    "Arabic text looked disjointed in screenshots even where letter-spacing is 0. That part is a test-container font artifact (no Arabic font installed), not an app bug. The landing letter-spacing issue above is real (measured via computed styles)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend only; Lex chat verified via UI)", "frontend": "~80% — core switching, restore, RTL, placeholders, picker, landing/guides/terms notes work; gaps are backend-sourced strings, select options, entity/ternary extraction misses, static-page Arabic letter-spacing"},
+  "test_credentials": "admin@aiadvocate.co.uk / AdminLex2026!, test@advocate.app / Test12345! (both restored to language en-GB at end)",
+  "seed_data_creation": "None. One Lex chat message was sent from the admin account (Section 21 question) — it creates a chat session as normal usage.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Login: POST /api/auth/login -> set localStorage aa_token + aa_terms/aa_welcomed/aa_uk_scope_ack/aa_lex_upl_ack=1, aa_cookie_consent=essential, sessionStorage aa_splash_seen=1 & aa_skip_marketing=1, then goto /app. The profile language (server) overrides localStorage aa_lang, so switch the language in-app: lang-toggle-btn -> lang-{code} -> lang-ok-btn. Modals slide up, so use locator.dispatch_event('click') rather than click(). Language is saved via PATCH /api/auth/preferences {language}. The onboarding TermsScreen shows only when logged out with cleared storage (lang-modal -> terms-modal, terms-lang-btn). Useful English-leftover detector: load /i18n/{lang}.json and flag visible text nodes that are not among the dictionary values. Restore both accounts to en-GB after testing.",
+  "rca of the issue": "Leftover English has 5 root causes. (1) Backend-sourced strings (letter templates, plan features, the legal note) are never in the frontend-extracted dictionary. (2) The extractor misses JSX entities (&amp;) and literals inside ternaries. (3) autoTranslate skips SELECT/OPTION. (4) Sentences built with variables. (5) Some dictionary entries equal the English key ('Will Writer', 'not a law firm'). The Arabic spaced-letters problem on static pages comes from welcome.html's letter-spacing rules (eyebrow/stat-lbl/hero-cta-title) not being reset for :lang(ar)/:lang(ur). The app's index.css:333 has the reset, the static pages do not."
+}

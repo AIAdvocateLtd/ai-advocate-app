@@ -3,6 +3,7 @@
 Usage: python3 /app/scripts/i18n_extract.py  -> writes /app/scripts/i18n_source.json
 Re-run after adding new screens, then run i18n_translate.py.
 """
+import html as _html
 import json
 import re
 from html.parser import HTMLParser
@@ -36,15 +37,17 @@ def keep(s: str) -> bool:
 def from_js(text: str) -> set:
     out = set()
     for m in re.finditer(r"[>}]([^<>{}`]+?)(?=[<{])", text):
-        seg = re.sub(r"^[.,;:·—–\-)\s]+", "", " ".join(m.group(1).split()))
+        seg = _html.unescape(" ".join(m.group(1).split()))
+        seg = re.sub(r"^[.,;:·—–\-)\s]+", "", seg)
+        seg = re.sub(r"[\s(:]+$", "", seg)
         if keep(seg) and not re.search(r"[;=]|&&|\|\||\)\s*$", seg):
             out.add(seg)
-    for m in re.finditer(r"\"((?:[^\"\\\n]|\\.){2,1200})\"|'((?:[^'\\\n]|\\.){2,1200})'|`([^`$\\]{2,1200})`", text):
-        s = next(g for g in m.groups() if g is not None)
-        s = s.replace("\\'", "'").replace('\\"', '"').replace("\\n", " ")
-        s = " ".join(s.split())
-        if keep(s):
-            out.add(s)
+    for rx in (r'"((?:[^"\\\n]|\\.){0,1200})"', r"'((?:[^'\\\n]|\\.){0,1200})'", r"`([^`$\\]{0,1200})`"):
+        for m in re.finditer(rx, text):
+            s = m.group(1).replace("\\'", "'").replace('\\"', '"').replace("\\n", " ")
+            s = " ".join(s.split())
+            if keep(s):
+                out.add(s)
     return out
 
 

@@ -331,3 +331,4 @@ a { color: var(--gold); text-decoration: none; }
 
 /* Arabic, Urdu and Hindi scripts break when letters are spaced apart */
 :lang(ar), :lang(ar) *, :lang(ur), :lang(ur) *, :lang(hi), :lang(hi) * { letter-spacing: 0 !important; }
+[dir="rtl"] [style*="text-align: left"] { text-align: right !important; }

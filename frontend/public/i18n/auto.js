@@ -2,7 +2,7 @@
 (function () {
   var SUPPORTED = ["en-GB", "es-ES", "fr-FR", "ar-IQ", "pl-PL", "de-DE", "hi-IN", "ur-PK", "it-IT", "pt-PT", "zh-CN"];
   var RTL = ["ar-IQ", "ur-PK"];
-  var SKIP = { SCRIPT: 1, STYLE: 1, TEXTAREA: 1, INPUT: 1, CODE: 1, PRE: 1, NOSCRIPT: 1, SELECT: 1, OPTION: 1 };
+  var SKIP = { SCRIPT: 1, STYLE: 1, TEXTAREA: 1, INPUT: 1, CODE: 1, PRE: 1, NOSCRIPT: 1 };
   var ATTRS = ["placeholder", "title", "aria-label", "alt"];
   var dict = null;
 
@@ -31,6 +31,7 @@
     var key = raw.replace(/\s+/g, " ").trim();
     var hit = dict[key];
     if (!hit) { var m = key.match(/^([.,;:·—–\-)\s]+)(.+)$/); if (m && dict[m[2]]) hit = m[1] + dict[m[2]]; }
+    if (!hit) { var e = key.match(/^(.+?)([\s(:]+)$/); if (e && dict[e[1]]) hit = dict[e[1]] + e[2]; }
     if (!hit || (node.parentElement && skipped(node.parentElement))) return;
     node.nodeValue = raw.match(/^\s*/)[0] + hit + raw.match(/\s*$/)[0];
   }
@@ -67,6 +68,9 @@
     wirePicker(lang);
     if (lang === "en-GB") return;
     document.documentElement.lang = lang;
+    var st = document.createElement("style");
+    st.textContent = ":lang(ar) *, :lang(ur) *, :lang(hi) *, :lang(ar), :lang(ur), :lang(hi) { letter-spacing: 0 !important; }";
+    document.head.appendChild(st);
     if (RTL.indexOf(lang) >= 0) document.documentElement.dir = "rtl";
     fetch("/i18n/" + lang + ".json").then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {

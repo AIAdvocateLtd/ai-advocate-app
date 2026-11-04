@@ -1,7 +1,7 @@
 // Auto-translates every piece of the app's own UI text into the selected language.
 // Only text that exists in the pre-built dictionary (/i18n/{lang}.json, generated from the app's
 // source code) is ever replaced, so customers' own content is never sent anywhere or altered.
-const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "TEXTAREA", "INPUT", "CODE", "PRE", "NOSCRIPT", "SELECT"]);
+const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "TEXTAREA", "INPUT", "CODE", "PRE", "NOSCRIPT"]);
 const ATTRS = ["placeholder", "title", "aria-label", "alt"];
 const state = { lang: "en-GB", dict: null, observer: null, orig: new WeakMap(), origAttr: new WeakMap() };
 const cache = {};
@@ -18,7 +18,9 @@ const PUNCT_PREFIX = /^([.,;:·—–\-)\s]+)(.+)$/;
 const lookup = (key) => {
   if (state.dict[key]) return state.dict[key];
   const m = key.match(PUNCT_PREFIX);
-  return m && state.dict[m[2]] ? m[1] + state.dict[m[2]] : null;
+  if (m && state.dict[m[2]]) return m[1] + state.dict[m[2]];
+  const e = key.match(/^(.+?)([\s(:]+)$/);
+  return e && state.dict[e[1]] ? state.dict[e[1]] + e[2] : null;
 };
 
 function translateText(node) {
