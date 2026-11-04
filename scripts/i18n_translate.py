@@ -43,6 +43,16 @@ SPLIT_PAIRS = {
 
 
 GLOSSARY = {
+    "days left": {"es-ES": "días restantes", "fr-FR": "jours restants", "pl-PL": "dni pozostało", "de-DE": "Tage übrig",
+                  "ur-PK": "دن باقی", "it-IT": "giorni rimasti", "pt-PT": "dias restantes", "ar-IQ": "أيام متبقية",
+                  "hi-IN": "दिन शेष", "zh-CN": "天剩余"},
+    "days overdue": {"es-ES": "días de retraso", "fr-FR": "jours de retard", "pl-PL": "dni po terminie", "de-DE": "Tage überfällig",
+                     "ur-PK": "دن تاخیر", "it-IT": "giorni di ritardo", "pt-PT": "dias em atraso", "ar-IQ": "أيام متأخرة",
+                     "hi-IN": "दिन देरी", "zh-CN": "天逾期"},
+    "not a law firm": {"es-ES": "no es un despacho de abogados", "fr-FR": "pas un cabinet d'avocats", "pl-PL": "nie jest kancelarią prawną",
+                       "de-DE": "keine Anwaltskanzlei", "ur-PK": "قانونی فرم نہیں", "it-IT": "non è uno studio legale",
+                       "pt-PT": "não é um escritório de advogados", "ar-IQ": "ليست شركة محاماة", "hi-IN": "कोई लॉ फ़र्म नहीं",
+                       "zh-CN": "不是律师事务所"},
     "Will Writer": {"es-ES": "Redactor de Testamentos", "fr-FR": "Rédacteur de testament", "pl-PL": "Kreator testamentu",
                     "de-DE": "Testament-Assistent", "ur-PK": "وصیت نامہ رائٹر", "it-IT": "Redattore di testamento",
                     "pt-PT": "Redator de Testamento", "ar-IQ": "كاتب الوصية", "hi-IN": "वसीयत लेखक", "zh-CN": "遗嘱撰写"},

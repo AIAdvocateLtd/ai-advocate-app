@@ -29,7 +29,7 @@ def keep(s: str) -> bool:
         return False
     if CODEY.search(s) or re.search(r"function |\]\.|\.map\(|\(\s*$|^[,\]\)]\s*[\],\)]|failed$|^App |_\w+:", s):
         return False
-    if " " not in s and not re.fullmatch(r"[A-Z][a-z]+[!?.:]?", s):
+    if " " not in s and not re.fullmatch(r"[A-Z][a-z]+[!?.:…]?", s):
         return False
     return True
 
@@ -40,7 +40,7 @@ def from_js(text: str) -> set:
         seg = _html.unescape(" ".join(m.group(1).split()))
         seg = re.sub(r"^[.,;:·—–\-)\s]+", "", seg)
         seg = re.sub(r"[\s(:]+$", "", seg)
-        if keep(seg) and not re.search(r"[;=]|&&|\|\||\)\s*$", seg):
+        if keep(seg) and not re.search(r"[;=]|&&|\|\|", seg):
             out.add(seg)
     for rx in (r'"((?:[^"\\\n]|\\.){0,1200})"', r"'((?:[^'\\\n]|\\.){0,1200})'", r"`([^`$\\]{0,1200})`"):
         for m in re.finditer(rx, text):
@@ -85,9 +85,13 @@ def main():
             if f.name in SKIP_HTML or f in seen:
                 continue
             seen.add(f)
+            raw = f.read_text(errors="ignore")
             p = _P()
-            p.feed(f.read_text(errors="ignore"))
+            p.feed(raw)
             strings |= p.out
+            for sc in re.findall(r"<script(?![^>]*src=)[^>]*>(.*?)</script>", raw, re.S):
+                if "application/ld+json" not in sc[:200]:
+                    strings |= {x for x in from_js(sc) if not x.startswith("//")}
     be = Path("/app/backend")
     for m in re.finditer(r'HTTPException\(\s*\d+\s*,\s*(?:detail\s*=\s*)?"([^"{}\n]{4,300})"', (be / "server.py").read_text()):
         if WORD.search(m.group(1)):
