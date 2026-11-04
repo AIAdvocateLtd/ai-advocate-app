@@ -100,6 +100,28 @@ def _wrap(html_body: str, preview: str = "", kind: str = "user") -> str:
 </body></html>"""
 
 
+# Optional hooks set by server.py at startup: resolve a recipient's app language, and translate an email.
+_lang_resolver = None
+_translator = None
+
+
+def set_email_translation(resolver, translator) -> None:
+    global _lang_resolver, _translator
+    _lang_resolver, _translator = resolver, translator
+
+
+async def _localise(to_email: str, subject: str, html: str):
+    if not (_lang_resolver and _translator):
+        return subject, html
+    try:
+        lang = await _lang_resolver(to_email)
+        if lang and not lang.startswith("en"):
+            return await _translator(lang, subject, html)
+    except Exception as e:
+        logger.warning(f"[email-translate-fail] {to_email}: {e!r}")
+    return subject, html
+
+
 _UNDELIVERABLE_DOMAINS = {"example.com", "example.org", "example.net", "test.com", "advocate.app"}
 
 
@@ -117,6 +139,7 @@ async def _send(to_email: str, subject: str, html: str, attachments: Optional[li
     if domain in _UNDELIVERABLE_DOMAINS or domain.endswith((".test", ".invalid", ".example", ".local")):
         logger.info(f"[email-skip] {to_email} | {subject!r} (reserved test domain)")
         return False
+    subject, html = await _localise(to_email, subject, html)
     try:
         resend.api_key = api_key
         params = {

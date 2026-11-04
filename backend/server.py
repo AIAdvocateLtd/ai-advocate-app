@@ -16868,8 +16868,29 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
+async def _email_lang_for(email: str):
+    u = await db.users.find_one({"email": (email or "").lower()}, {"_id": 0, "language": 1})
+    return (u or {}).get("language")
+
+
+async def _translate_email(lang: str, subject: str, html: str):
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"email-i18n-{uuid.uuid4()}", system_message=(
+        f"Translate this transactional email from AI Advocate (a UK legal-help app) into the language with code {lang}. "
+        "Keep ALL HTML tags, attributes, inline styles, links/URLs, email addresses, names, dates, prices and the brand names "
+        "'AI Advocate' and 'Lex' exactly unchanged; translate only human-readable text. Reply with the subject on the first "
+        "line, then a line containing only ===, then the full translated HTML. No commentary."
+    )).with_model("anthropic", "claude-haiku-4-5-20251001").with_params(max_tokens=8000)
+    out = await asyncio.wait_for(chat.send_message(UserMessage(text=f"{subject}\n===\n{html}")), timeout=45)
+    head, sep, body = (out or "").partition("\n===\n")
+    if not sep or "<" not in body:
+        return subject, html
+    return head.strip() or subject, body.strip()
+
+
 @app.on_event("startup")
 async def startup():
+    from email_helper import set_email_translation
+    set_email_translation(_email_lang_for, _translate_email)
     try:
         await _seed_fact_packs(db)
         await _refresh_lessons(db)

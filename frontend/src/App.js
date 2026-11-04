@@ -8,6 +8,7 @@ import {
   Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint, Sparkles, Volume2, ChevronDown, Paperclip, FileType, Mail, BarChart3
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
+import { setAutoTranslateLang } from "@/autoTranslate";
 import { setAppIconBadge } from "@/appBadge";
 import { setSentryUser, clearSentryUser } from "@/sentry";
 import { identify as identifyAnalytics, resetAnalytics, track } from "@/analytics";
@@ -399,7 +400,7 @@ function LanguagePicker({ initial, onConfirm, lang }) {
     <div className="modal-bg" data-testid="lang-modal">
       <div className="modal-card" style={{ padding: 20 }}>
         <h2 className="brand-font gold" style={{ fontSize: 22, marginTop: 6 }}>{t(lang, "selectLanguage")}</h2>
-        <div style={{ overflowY: "auto", maxHeight: "60vh", marginTop: 10 }}>
+        <div data-no-translate="" style={{ overflowY: "auto", maxHeight: "60vh", marginTop: 10 }}>
           {LANGS.map(l => (
             <button key={l.code} onClick={() => setSel(l.code)}
               data-testid={`lang-${l.code}`}
@@ -410,7 +411,7 @@ function LanguagePicker({ initial, onConfirm, lang }) {
                 marginBottom: 6, color: "var(--text)", textAlign: "left", cursor: "pointer"
               }}>
               <Flag cc={l.cc} size={22} alt={l.name} />
-              <span style={{ flex: 1, marginLeft: 4 }}>{l.name}</span>
+              <span lang={l.code} style={{ flex: 1, marginLeft: 4 }}>{l.name}</span>
               <span style={{ color: "var(--text-muted)", fontSize: 13 }}>({l.code})</span>
             </button>
           ))}
@@ -463,6 +464,11 @@ function TermsScreen({ lang, onAccept, onDecline, onChangeLang }) {
         <p style={{ color: "var(--text-dim)", fontSize: 13, flexShrink: 0 }}>
           {t(lang, "effectiveDate", { date: dateStr })}
         </p>
+        {!lang.startsWith("en") && (
+          <p data-testid="terms-translation-note" style={{ color: "var(--text-muted)", fontSize: 11, flexShrink: 0, marginTop: 2, fontStyle: "italic" }}>
+            Translations are provided for convenience. If a translation differs from the English version, the English version applies.
+          </p>
+        )}
         {note && (
           <p style={{ color: "var(--gold-soft)", fontSize: 11, flexShrink: 0, marginTop: 4, fontStyle: "italic" }}>
             {note}
@@ -2632,7 +2638,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                           );
                         })()}
                         <div className={m.role === "user" ? "bubble-user" : "bubble-lex"}
-                             data-testid={`msg-${m.role}-${i}`}
+                             data-testid={`msg-${m.role}-${i}`} data-no-translate=""
                              style={{ padding: "10px 14px", borderRadius: 14, maxWidth: "82%", whiteSpace: m.role === "user" ? "pre-wrap" : "normal", lineHeight: 1.5, fontSize: 14 }}>
                           {m.role === "lex"
                             ? renderLexMarkdown(meta.body, (txt, k) => (Array.isArray(m.citations) && m.citations.length > 0
@@ -16904,7 +16910,7 @@ function App() {
     }
   }, []);
 
-  useEffect(() => { localStorage.setItem("aa_lang", lang); document.documentElement.dir = RTL_LANGS.includes(lang) ? "rtl" : "ltr"; }, [lang]);
+  useEffect(() => { localStorage.setItem("aa_lang", lang); document.documentElement.dir = RTL_LANGS.includes(lang) ? "rtl" : "ltr"; document.documentElement.lang = lang; setAutoTranslateLang(lang); }, [lang]);
   useEffect(() => { localStorage.setItem("aa_country", country); }, [country]);
 
   // Bootstrap

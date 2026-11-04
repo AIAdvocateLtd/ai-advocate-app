@@ -328,3 +328,6 @@ a { color: var(--gold); text-decoration: none; }
   0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(247,201,72,0.55); }
   50% { transform: scale(1.06); box-shadow: 0 0 70px rgba(247,201,72,0.9); }
 }
+
+/* Arabic, Urdu and Hindi scripts break when letters are spaced apart */
+:lang(ar), :lang(ar) *, :lang(ur), :lang(ur) *, :lang(hi), :lang(hi) * { letter-spacing: 0 !important; }

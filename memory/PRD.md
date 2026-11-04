@@ -1015,3 +1015,12 @@ Production redeploy required. All env vars unchanged.
 - Not built: hard delete for reminders (users mark done).
 
 ## 2026-11-03 — Removed thumbs up/down + Report wrong answer from Lex replies (founder: unprofessional; support email used instead). Backend /lex/feedback kept unused. Admin feedback stats line removed.
+
+## Whole-app auto-translation (11 languages)
+- scripts/i18n_extract.py pulls app wording from frontend/src/*.js (skips admin/firm files + i18n.js), public HTML pages (welcome, guides, terms, privacy), server.py HTTPException messages, deadline_calc reminder titles, and i18n.js English fallbacks (scripts/i18n_fallback.json) → scripts/i18n_source.json.
+- scripts/i18n_translate.py (Haiku 4.5, numbered-line format, resumable) → frontend/public/i18n/{lang}.json. Run per lang in background: `cd /app/backend && setsid nohup python3 /app/scripts/i18n_translate.py es-ES ... &`.
+- Runtime: src/autoTranslate.js (MutationObserver; exact-match dictionary only, so user content is never sent or changed; skips [data-no-translate], inputs, chat bubbles, Lex markdown, language picker). Static pages use public/i18n/auto.js + landing nav picker #aa-lang-picker (aa_lang localStorage / ?lang= / browser language).
+- Emails: email_helper._localise translates subject+HTML via Haiku when the recipient user's language isn't English (hooks set in server startup).
+- Terms/privacy: "English version applies" note (app terms screen + terms.html/privacy.html).
+- RULE FOR FUTURE AGENTS: after adding/changing UI text, re-run extract + translate so new wording is translated.
+- Known limits: sentences built with {variables} mid-sentence aren't matched; Lex replies are already in the user's language.
