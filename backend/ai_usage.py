@@ -15,6 +15,7 @@ _feature = contextvars.ContextVar("ai_feature", default="unknown")
 _request_id = contextvars.ContextVar("ai_request_id", default=None)
 _user = contextvars.ContextVar("ai_user", default=(None, None))
 _attempt = contextvars.ContextVar("ai_attempt", default="primary")
+_site = contextvars.ContextVar("ai_call_site", default="")
 _state = {"db": None, "rates": {}, "default_rate": (2.50, 12.00), "installed": False}
 TAVILY_GBP_PER_CREDIT = 0.0063  # estimate (~$0.008/credit pay-as-you-go); confirm against your Tavily plan
 _UUIDISH = re.compile(r"^[0-9a-f]{8,}(-[0-9a-f]{4,})*$|^\d+$", re.I)
@@ -36,8 +37,10 @@ def set_user(user: dict) -> None:
         _user.set((user.get("id"), user.get("tier")))
 
 
-def mark_fallback() -> None:
+def mark_fallback(call_site: str = "") -> None:
     _attempt.set("fallback")
+    if call_site:
+        _site.set(call_site)
 
 
 def _cost(provider: str, model: str, tin: int, tout: int):
@@ -62,7 +65,8 @@ def record(*, provider: str, model_requested: str, model_actual: str = None, inp
     if db is None:
         return
     try:
-        if provider == "tavily":
+        no_tokens = provider == "tavily" or (cost_source or "").startswith("unpriced_audio")
+        if no_tokens:
             tokens_in, tokens_out = 0, 0
         measured = tokens_in is not None and tokens_out is not None
         tin = tokens_in if measured else max(1, input_chars // 4)
@@ -74,11 +78,11 @@ def record(*, provider: str, model_requested: str, model_actual: str = None, inp
         uid, tier = _user.get()
         doc = {
             "schema": SCHEMA, "ts": datetime.now(timezone.utc).isoformat(), "request_id": _request_id.get(),
-            "user_id": uid, "tier": tier, "feature": _feature.get(), "call_site": call_site,
+            "user_id": uid, "tier": tier, "feature": _feature.get(), "call_site": call_site or _site.get(),
             "provider": provider, "model": model_actual, "model_requested": model_requested, "model_actual": model_actual,
             "attempt": _attempt.get(), "status": status, "latency_ms": int(latency_ms),
             "input_chars": int(input_chars), "output_chars": int(output_chars),
-            "tokens_in": tin, "tokens_out": tout, "tokens_source": ("not_applicable" if provider == "tavily" else "provider") if measured else "estimated_chars_div_4",
+            "tokens_in": tin, "tokens_out": tout, "tokens_source": ("not_applicable" if no_tokens else "provider") if measured else "estimated_chars_div_4",
             "cost_gbp": cost_gbp, "cost_source": cost_source, "units": units or None,
         }
         asyncio.get_running_loop().create_task(_insert(doc))

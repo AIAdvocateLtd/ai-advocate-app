@@ -1,0 +1,35 @@
+{
+  "summary": "I tested the Stage 1 repair: chat memory (last 12 exchanges), the central AI usage meter, and fallback attribution. Backend and UI were both checked. All requested checks passed. I sent 4 Lex messages in total, within the 6-message budget: 2 on desktop and 2 on mobile at 390px, all fictional (Mr Grey). In both chats the replies streamed and Lex recalled Mr Grey when asked 'What is my landlord called?'. The /lex/chat/stream endpoint returned 200 and the layout was unchanged on both screen sizes, with no horizontal overflow on mobile. Login and logout work, and logout clears the stored token. The Settings and plan screen loads. The Deep Think toggle shows for the Pro admin (4/30). The Finance, Subscribers, Lex's Brain (lessons), Founder cost dashboard and live 24h AI spend cards all render, with no 5xx responses and no page errors. GET /api/admin/llm-spend?hours=2 matches the database exactly (17 calls, £0.100257, rounded to £0.10). In db.llm_usage, each new lex_chat_stream main-reply row has schema=2, call_site lex_stream, model_actual claude-sonnet-5-5, tokens_source provider, attempt primary and status ok. Rows from the same request share one request_id. Tavily rows are recorded with call_site legal_research, tokens_source not_applicable and 1 credit (£0.0063). The fields across all schema-2 rows contain sizes and counts only, never message text. No rows without a schema field were written after 10:40, so there is no double counting. Running test_stage1_memory_usage.py gave 11/11 passed. The new smoke suite gave 9/9 passed: auth, llm-spend plus its admin-only guard, and empty payloads to letters/generate, legal-letter, document/analyze, lex/chat and lex/chat/stream. Each empty payload got a 4xx (422 for the JSON endpoints) and none returned a 500. These calls cost nothing.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "ai_usage._wrap_audio (Whisper/TTS rows)", "issue": "Audio rows have tokens_in=1 and tokens_source='estimated_chars_div_4' even though tokens don't apply to audio. They should be tokens 0/0 with tokens_source 'not_applicable', the same as Tavily. Cost is correctly 0 with cost_source unpriced_audio."},
+      {"endpoint": "/api/lex/chat/stream fallback", "issue": "When streaming fails and the LlmChat fallback runs, the fallback row's call_site is '' rather than 'lex_stream', because the session_id is a UUID that _call_site drops. Feature and attempt=fallback are still correct. I checked this by reading the code only and did not force a failure."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Settings > Admin Finance card", "issues": ["The accountant export date range uses the browser's own date picker rather than the shadcn calendar. This was already there before this change and is outside this task."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter44_stage1_smoke.py", "/app/backend/tests/test_stage1_memory_usage.py", "/app/test_reports/pytest/iter44_results.xml"],
+  "action_items": [
+    "Optional: in ai_usage._wrap_audio, pass tokens_in=0 and tokens_out=0 (or mark the row not_applicable) so audio rows don't claim estimated tokens.",
+    "Optional: set call_site='lex_stream' on the streaming fallback LlmChat call, for example by giving it a session_id prefixed 'lex_stream-' or by passing an explicit call_site."
+  ],
+  "critical_code_review_comments": [
+    "chat_memory.load_recent_history filters on user_id and session_id, sorts by created_at descending, takes 12, applies the 24k budget while always keeping the newest 4, then reverses into chronological order. This looks correct, and the omitted count is total minus kept.",
+    "There is one direct litellm.acompletion call (the stream) and it records itself. Every other AI call goes through LlmChat, OpenAISpeechToText or OpenAITextToSpeech, which are all patched. Tavily is recorded in rag._tavily_search. I found no unmetered AI client in the backend.",
+    "Rows from LlmChat (classify, deadlines, letters) can only estimate tokens (characters divided by 4), because LlmChat doesn't return provider token counts. Only the streaming call has provider tokens. This is a known limitation.",
+    "If the stream fails after some tokens have already gone out, the fallback sends the whole reply again, so the user sees duplicated text. This was already there and is not a regression.",
+    "server.py is over 17k lines, well past the 700-line guideline."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter44_stage1_smoke.py"],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "100%"},
+  "seed_data_creation": "No seed data. The 4 fictional Lex messages created 2 new admin conversations, both mentioning Mr Grey. Opening the bottom 'nav-lex' button by mistake started voice mode, which made 2 Whisper transcription calls in headless mode at £0 cost.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "To log in through the UI: set localStorage aa_lang, aa_cookie_consent, aa_welcomed and aa_lex_upl_ack. Click 'Sign in' on the landing page, click OK on the language screen, then tick agree-checkbox and age-gate-checkbox and press accept-terms-btn. Fill email-input and password-input and press auth-submit-btn. Close the 'I understand — continue' geo notice. Open Ask Lex with data-testid tile-ask_lex. Do NOT use nav-lex, which opens voice mode. The selector [data-testid^=msg-assistant-] didn't match, so read the reply text from lex-chat-modal instead. Admin cards are inside the settings-modal, and the spend strip is under admin-founder-finance-card. Message budget used this run: 4 of 6."
+}

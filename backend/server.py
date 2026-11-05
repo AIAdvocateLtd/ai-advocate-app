@@ -2080,7 +2080,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     except Exception as e:
         # If Haiku model fails (e.g. id changed), fall back to Sonnet 4.5 so user is never blocked
         logger.warning(f"Primary model {model_id} failed, falling back to Sonnet 4.5: {e}")
-        ai_usage.mark_fallback()
+        ai_usage.mark_fallback("lex_chat")
         try:
             chat = LlmChat(
                 api_key=EMERGENT_LLM_KEY,
@@ -2336,7 +2336,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                             output_chars=len("".join(full_text_parts)), status="error", call_site="lex_stream",
                             latency_ms=(time.monotonic() - _t_stream) * 1000)
             _stream_recorded = True
-            ai_usage.mark_fallback()
+            ai_usage.mark_fallback("lex_stream")
             # Non-streaming fallback so user is never blocked
             try:
                 chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=system_msg,
