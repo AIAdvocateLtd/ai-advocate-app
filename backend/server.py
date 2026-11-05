@@ -5,7 +5,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os, logging, uuid, jwt, bcrypt, base64, io, tempfile, re, asyncio, json, secrets as _secrets
+import os, logging, uuid, jwt, bcrypt, base64, io, tempfile, re, asyncio, json, time, secrets as _secrets
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Literal, Tuple
@@ -563,6 +563,7 @@ async def get_user(creds: HTTPAuthorizationCredentials = Depends(security), requ
                 import sentry_sdk as _ss
                 _ss.set_user({"id": user.get("id"), "email": user.get("email"), "tier": user.get("tier")})
             except Exception: pass
+        ai_usage.set_user(user)
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(401, "Token expired")
@@ -1301,6 +1302,7 @@ LLM_RATES_GBP_PER_1M = {
     ("anthropic", "claude-haiku-5-5"): (0.90, 4.40),
     ("anthropic", "claude-sonnet-5-5"): (1.75, 8.80),
     ("anthropic", "claude-sonnet-4-5-20251001"): (2.65, 13.20),
+    ("anthropic", "claude-sonnet-4-5-20250929"): (2.65, 13.20),
     ("openai", "gpt-5.2"): (2.65, 13.20),
     ("openai", "gpt-5-2"): (2.65, 13.20),
     ("openai", "gpt-5"): (2.65, 13.20),
@@ -1332,6 +1334,17 @@ def _estimate_llm_cost_gbp(provider: str, model_id: str,
     out_tok = max(1, output_chars // 4)
     return (in_tok * rate[0] + out_tok * rate[1]) / 1_000_000
 
+import ai_usage  # noqa: E402
+import chat_memory  # noqa: E402
+ai_usage.install(db, LLM_RATES_GBP_PER_1M)
+
+
+@app.middleware("http")
+async def _ai_usage_request_context(request: Request, call_next):
+    ai_usage.begin_request(request.url.path)
+    return await call_next(request)
+
+
 async def _record_llm_call(
     user_id: Optional[str], tier: Optional[str],
     provider: str, model_id: str,
@@ -1343,19 +1356,8 @@ async def _record_llm_call(
     try:
         in_chars = len(input_text or "")
         out_chars = len(output_text or "")
-        cost = _estimate_llm_cost_gbp(provider, model_id, in_chars, out_chars)
-        await db.llm_usage.insert_one({
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "user_id": user_id,
-            "tier": tier,
-            "provider": provider,
-            "model": model_id,
-            "feature": feature,
-            "input_chars": in_chars,
-            "output_chars": out_chars,
-            "cost_gbp": round(cost, 6),
-        })
-        return cost
+        # Rows are now written by ai_usage (one per actual AI call) — no insert here, so nothing is double-counted.
+        return _estimate_llm_cost_gbp(provider, model_id, in_chars, out_chars)
     except Exception as e:
         logger.warning(f"LLM usage tracking failed (non-fatal): {e}")
         return 0.0
@@ -2052,31 +2054,19 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     # We pull the last 12 turns for this user+session, decrypt them, and seed
     # LlmChat's initial_messages. This is what makes Lex feel like a real
     # ongoing conversation instead of forgetting after every question.
-    history_docs = await db.conversations.find(
-        {"user_id": user["id"], "session_id": session_id},
-        {"_id": 0, "user_message": 1, "assistant_response": 1, "created_at": 1},
-    ).sort("created_at", 1).to_list(length=12)
+    history_ex, history_omitted = await chat_memory.load_recent_history(db, user["id"], session_id, decrypt_text)
+    system_msg = system_msg + chat_memory.history_note(history_omitted)
 
     # 📅 Exact deadline maths — LLM extracts the dates, Python calculates them.
     auto_reminders = []
     try:
-        _ctx = "\n".join(decrypt_text(d.get("user_message")) or "" for d in history_docs[-3:])
+        _ctx = "\n".join(ex["user"] for ex in history_ex[-3:])
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, user.get("jurisdiction"))
         system_msg = system_msg + _fact_pack_block(data.message, _ctx) + _dl_block
     except Exception as e:
         logger.warning(f"Deadline block failed: {e}")
 
-    initial_messages = [{"role": "system", "content": system_msg}]
-    for doc in history_docs:
-        try:
-            um = decrypt_text(doc.get("user_message"))
-            ar = decrypt_text(doc.get("assistant_response"))
-            if um:
-                initial_messages.append({"role": "user", "content": um})
-            if ar:
-                initial_messages.append({"role": "assistant", "content": ar})
-        except Exception:
-            continue  # skip un-decryptable rows rather than crash the request
+    initial_messages = [{"role": "system", "content": system_msg}] + chat_memory.to_messages(history_ex)
 
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
@@ -2090,6 +2080,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     except Exception as e:
         # If Haiku model fails (e.g. id changed), fall back to Sonnet 4.5 so user is never blocked
         logger.warning(f"Primary model {model_id} failed, falling back to Sonnet 4.5: {e}")
+        ai_usage.mark_fallback()
         try:
             chat = LlmChat(
                 api_key=EMERGENT_LLM_KEY,
@@ -2285,28 +2276,18 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
             logger.warning(f"Doc-context build failed: {e}")
 
     # Load chat history
-    history_docs = await db.conversations.find(
-        {"user_id": user["id"], "session_id": session_id},
-        {"_id": 0, "user_message": 1, "assistant_response": 1, "created_at": 1},
-    ).sort("created_at", 1).to_list(length=12)
+    history_ex, history_omitted = await chat_memory.load_recent_history(db, user["id"], session_id, decrypt_text)
+    system_msg = system_msg + chat_memory.history_note(history_omitted)
     # 📅 Exact deadline maths — LLM extracts the dates, Python calculates them.
     auto_reminders = []
     try:
-        _ctx = "\n".join(decrypt_text(d.get("user_message")) or "" for d in history_docs[-3:])
+        _ctx = "\n".join(ex["user"] for ex in history_ex[-3:])
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, user.get("jurisdiction"))
         system_msg = system_msg + _fact_pack_block(data.message, _ctx) + _dl_block
     except Exception as e:
         logger.warning(f"Deadline block failed: {e}")
 
-    messages = [{"role": "system", "content": system_msg}]
-    for doc in history_docs:
-        try:
-            um = decrypt_text(doc.get("user_message"))
-            ar = decrypt_text(doc.get("assistant_response"))
-            if um: messages.append({"role": "user", "content": um})
-            if ar: messages.append({"role": "assistant", "content": ar})
-        except Exception:
-            continue
+    messages = [{"role": "system", "content": system_msg}] + chat_memory.to_messages(history_ex)
     messages.append({"role": "user", "content": _date_anchor() + data.message})
 
     async def event_stream():
@@ -2314,6 +2295,9 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
         yield f"data: {_json.dumps({'type':'meta','session_id':session_id,'citations':citations,'model':model_id,'reply_language':reply_language})}\n\n"
 
         full_text_parts: List[str] = []
+        _stream_usage: dict = {}
+        _stream_recorded = False
+        _t_stream = time.monotonic()
         try:
             # LiteLLM with stream=True. Routes through the Emergent proxy when
             # api_key starts with sk-emergent-, mirroring LlmChat._execute_completion.
@@ -2323,6 +2307,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                 "api_key": EMERGENT_LLM_KEY,
                 "max_tokens": max_tok,
                 "stream": True,
+                "stream_options": {"include_usage": True},
             }
             if EMERGENT_LLM_KEY.startswith("sk-emergent-"):
                 params["api_base"] = get_integration_proxy_url() + "/llm"
@@ -2330,6 +2315,11 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
 
             response = await litellm.acompletion(**params)
             async for chunk in response:
+                _u = getattr(chunk, "usage", None)
+                if _u and getattr(_u, "prompt_tokens", None):
+                    _stream_usage.update(tin=_u.prompt_tokens, tout=getattr(_u, "completion_tokens", None))
+                if getattr(chunk, "model", None):
+                    _stream_usage["model"] = chunk.model
                 try:
                     delta = chunk.choices[0].delta
                     token = getattr(delta, "content", None)
@@ -2342,6 +2332,11 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                     continue
         except Exception:
             logger.exception("Streaming completion failed — falling back to non-streaming sonnet 4.5")
+            ai_usage.record(provider=provider, model_requested=model_id, input_chars=sum(len(str(m["content"])) for m in messages),
+                            output_chars=len("".join(full_text_parts)), status="error", call_site="lex_stream",
+                            latency_ms=(time.monotonic() - _t_stream) * 1000)
+            _stream_recorded = True
+            ai_usage.mark_fallback()
             # Non-streaming fallback so user is never blocked
             try:
                 chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=system_msg,
@@ -2356,6 +2351,13 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                 yield f"data: {_json.dumps({'type':'error','message':str(e2)})}\n\n"
                 yield f"data: {_json.dumps({'type':'done'})}\n\n"
                 return
+
+        if not _stream_recorded:
+            ai_usage.record(provider=provider, model_requested=model_id, model_actual=_stream_usage.get("model"),
+                            input_chars=sum(len(str(m["content"])) for m in messages),
+                            output_chars=len("".join(full_text_parts)), tokens_in=_stream_usage.get("tin"),
+                            tokens_out=_stream_usage.get("tout"), call_site="lex_stream",
+                            latency_ms=(time.monotonic() - _t_stream) * 1000)
 
         # Assemble full response and resolve [CONNECTED_TO: #N]
         full_text = "".join(full_text_parts)

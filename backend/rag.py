@@ -22,6 +22,7 @@ returns an empty context. Lex is never blocked.
 from __future__ import annotations
 
 import os
+import time
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -125,8 +126,16 @@ async def _tavily_search(
         payload["include_domains"] = include_domains
 
     try:
+        import ai_usage
+        _t0 = time.monotonic()
         async with httpx.AsyncClient(timeout=8.0) as client:
             r = await client.post(TAVILY_ENDPOINT, json=payload)
+            _ok = r.status_code == 200
+            _credits = (2 if search_depth == "advanced" else 1) if _ok else 0
+            ai_usage.record(provider="tavily", model_requested=f"search-{search_depth}", call_site="legal_research",
+                            status="ok" if _ok else "error", latency_ms=(time.monotonic() - _t0) * 1000,
+                            cost_gbp=round(_credits * ai_usage.TAVILY_GBP_PER_CREDIT, 6),
+                            cost_source="estimated_tavily_credit_rate", units={"credits": _credits})
             if r.status_code != 200:
                 logger.warning("Tavily %s: %s", r.status_code, r.text[:200])
                 return []
