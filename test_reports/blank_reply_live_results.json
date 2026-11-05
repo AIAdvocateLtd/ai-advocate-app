@@ -1,0 +1,194 @@
+{
+ "cost_gbp": 0.3203,
+ "lex_rows": [
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 0,
+   "tokens_out": 619,
+   "output_chars": 1776,
+   "cost_gbp": 0.007271
+  },
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "length",
+   "reasoning_tokens": 0,
+   "tokens_out": 1200,
+   "output_chars": 3472,
+   "cost_gbp": 0.010345
+  },
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "",
+   "attempt": "primary",
+   "finish_reason": "length",
+   "reasoning_tokens": 0,
+   "tokens_out": 1200,
+   "output_chars": 3375,
+   "cost_gbp": 0.010345
+  },
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "length",
+   "reasoning_tokens": 0,
+   "tokens_out": 1200,
+   "output_chars": 2001,
+   "cost_gbp": 0.010261
+  },
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "length",
+   "reasoning_tokens": 0,
+   "tokens_out": 1200,
+   "output_chars": 1559,
+   "cost_gbp": 0.009387
+  },
+  {
+   "model_requested": "gpt-5.2",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 0,
+   "tokens_out": 1022,
+   "output_chars": 4320,
+   "cost_gbp": 0.023081
+  },
+  {
+   "model_requested": "gpt-5.2",
+   "call_site": "",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 0,
+   "tokens_out": 607,
+   "output_chars": 2531,
+   "cost_gbp": 0.016927
+  },
+  {
+   "model_requested": "claude-sonnet-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 999,
+   "tokens_out": 2161,
+   "output_chars": 3115,
+   "cost_gbp": 0.028868
+  },
+  {
+   "model_requested": "claude-sonnet-5-5",
+   "call_site": "",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 877,
+   "tokens_out": 2080,
+   "output_chars": 3224,
+   "cost_gbp": 0.028155
+  },
+  {
+   "model_requested": "claude-sonnet-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 980,
+   "tokens_out": 2275,
+   "output_chars": 3390,
+   "cost_gbp": 0.029871
+  }
+ ],
+ "passed": 10,
+ "total": 11,
+ "results": [
+  {
+   "case": "free_simple_stream",
+   "chars": 2023,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "free_complex_stream",
+   "chars": 3541,
+   "blank": false,
+   "cut_note": true,
+   "ending_markers": false,
+   "pass": true
+  },
+  {
+   "case": "free_complex_regular",
+   "chars": 3447,
+   "blank": false,
+   "cut_note": true,
+   "ending_markers": false,
+   "pass": true
+  },
+  {
+   "case": "free_welsh_stream",
+   "chars": 2070,
+   "blank": false,
+   "cut_note": true,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "free_urdu_stream",
+   "chars": 1627,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": false,
+   "pass": true
+  },
+  {
+   "case": "plus_complex_stream",
+   "chars": 4320,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "plus_regular",
+   "chars": 2533,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "pro_simple_stream",
+   "error": "ReadError('')",
+   "pass": false
+  },
+  {
+   "case": "pro_complex_stream",
+   "chars": 3116,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "pro_complex_regular",
+   "chars": 3225,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "deep_think_stream",
+   "chars": 3634,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  }
+ ]
+}

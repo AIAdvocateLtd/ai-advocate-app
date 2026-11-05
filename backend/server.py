@@ -73,6 +73,7 @@ from deadline_calc import build_deadlines, reminder_due_iso  # noqa: E402
 from lex_lessons import fact_pack_block as _fact_pack_block, lessons_block as _lessons_block, refresh_if_stale as _lessons_refresh_if_stale  # noqa: E402
 from rag import build_rag_context, research as rag_research, _looks_like_legal_question, is_enabled as rag_enabled, get_usage as rag_get_usage  # noqa: E402
 import lex_safety  # noqa: E402
+import lex_output  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
 # 🛡️ Resilience config to prevent Sentry NetworkTimeout crashes on transient Atlas hiccups.
@@ -872,6 +873,22 @@ async def check_quota_and_increment(user_id: str, tier: str, feature: str, perio
         upsert=True,
     )
     return True, current + 1, limit
+
+async def refund_quota(user_id: str, feature: str, period: str = "daily") -> None:
+    """Gives back one use when the AI failed to deliver an answer."""
+    bucket = datetime.now(timezone.utc).strftime("%Y-%m-%d" if period == "daily" else "%Y-%m")
+    await db.usage.update_one({"user_id": user_id, "bucket": bucket, "feature": feature, "count": {"$gt": 0}},
+                              {"$inc": {"count": -1}})
+
+
+async def _refund_lex(user_id: str, deep_think_used: bool) -> None:
+    try:
+        await refund_quota(user_id, "lex_chat", "daily")
+        if deep_think_used:
+            await refund_quota(user_id, "deep_think", "monthly")
+    except Exception as e:
+        logger.warning(f"quota refund failed: {e!r}")
+
 
 async def get_quota_remaining(user_id: str, tier: str, feature: str, period: str = "daily") -> Optional[int]:
     """Peek quota — returns remaining count WITHOUT incrementing. None = unlimited.
@@ -1970,6 +1987,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
 
     # Tier-based brain routing
     provider, model_id, max_tok = lex_model_for_tier(tier, deep_think=data.deep_think)
+    gen_max, gen_extra = lex_output.gen_params(model_id, max_tok, data.deep_think)
 
     session_id = data.session_id or str(uuid.uuid4())
     await _lessons_refresh_if_stale(db)
@@ -2039,12 +2057,16 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         session_id=session_id,
         system_message=system_msg,
         initial_messages=initial_messages if len(initial_messages) > 1 else None,
-    ).with_model(provider, model_id).with_params(max_tokens=max_tok)
+    ).with_model(provider, model_id).with_params(max_tokens=gen_max, **gen_extra)
 
+    finish = None
     try:
         response = await chat.send_message(UserMessage(text=_date_anchor() + data.message))
+        finish = (getattr(chat, "_aiu_usage", None) or (None,) * 5)[3]
+        if lex_output.is_blank(response):
+            raise lex_output.BlankReply(f"blank reply (finish_reason={finish})")
     except Exception as e:
-        # If Haiku model fails (e.g. id changed), fall back to Sonnet 4.5 so user is never blocked
+        # Primary failed or returned nothing — fall back to Sonnet 4.5 so user is never blocked
         logger.warning(f"Primary model {model_id} failed, falling back to Sonnet 4.5: {e}")
         ai_usage.mark_fallback("lex_chat")
         try:
@@ -2055,10 +2077,16 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
                 initial_messages=initial_messages if len(initial_messages) > 1 else None,
             ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2048)
             response = await chat.send_message(UserMessage(text=_date_anchor() + data.message))
+            finish = (getattr(chat, "_aiu_usage", None) or (None,) * 5)[3]
             provider, model_id = "anthropic", "claude-sonnet-4-5-20250929"
-        except Exception as e2:
+            if lex_output.is_blank(response):
+                raise lex_output.BlankReply("fallback returned a blank reply")
+        except Exception:
             logger.exception("Lex chat error (both primary + fallback)")
-            raise HTTPException(500, f"AI error: {str(e2)}")
+            await _refund_lex(user["id"], bool(data.deep_think))
+            raise HTTPException(503, lex_output.FAILED_MSG)
+    if finish == "length":
+        response = lex_safety.append_cut_note(response, reply_language)
 
     response, safety_rep = _lex_finalize(response, citations, research, risk, reply_language, data.message, juris)
 
@@ -2174,6 +2202,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
             reply_language = detected
 
     provider, model_id, max_tok = lex_model_for_tier(tier, deep_think=data.deep_think)
+    gen_max, gen_extra = lex_output.gen_params(model_id, max_tok, data.deep_think)
     session_id = data.session_id or str(uuid.uuid4())
     await _lessons_refresh_if_stale(db)
     base_system_msg = lex_system_prompt(reply_language, data.country, data.category, user.get("jurisdiction"))
@@ -2238,6 +2267,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
         full_text_parts: List[str] = []
         _stream_usage: dict = {}
         _stream_recorded = False
+        _need_fallback = False
         _t_stream = time.monotonic()
         try:
             # LiteLLM with stream=True. Routes through the Emergent proxy when
@@ -2246,9 +2276,10 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                 "model": model_id,
                 "messages": messages,
                 "api_key": EMERGENT_LLM_KEY,
-                "max_tokens": max_tok,
+                "max_tokens": gen_max,
                 "stream": True,
                 "stream_options": {"include_usage": True},
+                **gen_extra,
             }
             if EMERGENT_LLM_KEY.startswith("sk-emergent-"):
                 params["api_base"] = get_integration_proxy_url() + "/llm"
@@ -2258,10 +2289,14 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
             async for chunk in response:
                 _u = getattr(chunk, "usage", None)
                 if _u and getattr(_u, "prompt_tokens", None):
-                    _stream_usage.update(tin=_u.prompt_tokens, tout=getattr(_u, "completion_tokens", None))
+                    _det = getattr(_u, "completion_tokens_details", None)
+                    _stream_usage.update(tin=_u.prompt_tokens, tout=getattr(_u, "completion_tokens", None),
+                                         reasoning=getattr(_det, "reasoning_tokens", None) if _det else None)
                 if getattr(chunk, "model", None):
                     _stream_usage["model"] = chunk.model
                 try:
+                    if getattr(chunk.choices[0], "finish_reason", None):
+                        _stream_usage["finish"] = chunk.choices[0].finish_reason
                     delta = chunk.choices[0].delta
                     token = getattr(delta, "content", None)
                     if token:
@@ -2277,6 +2312,20 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                             output_chars=len("".join(full_text_parts)), status="error", call_site="lex_stream",
                             latency_ms=(time.monotonic() - _t_stream) * 1000)
             _stream_recorded = True
+            _need_fallback = True
+
+        if not _stream_recorded:
+            ai_usage.record(provider=provider, model_requested=model_id, model_actual=_stream_usage.get("model"),
+                            input_chars=sum(len(str(m["content"])) for m in messages),
+                            output_chars=len("".join(full_text_parts)), tokens_in=_stream_usage.get("tin"),
+                            tokens_out=_stream_usage.get("tout"), call_site="lex_stream",
+                            latency_ms=(time.monotonic() - _t_stream) * 1000,
+                            finish_reason=_stream_usage.get("finish"), reasoning_tokens=_stream_usage.get("reasoning"))
+            if lex_output.is_blank("".join(full_text_parts)):
+                logger.warning(f"Blank streamed reply from {model_id} (finish={_stream_usage.get('finish')}) — using fallback")
+                _need_fallback = True
+
+        if _need_fallback:
             ai_usage.mark_fallback("lex_stream")
             # Non-streaming fallback so user is never blocked
             try:
@@ -2284,21 +2333,21 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                                initial_messages=messages[:-1] if len(messages) > 1 else None
                                ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2048)
                 fallback_resp = await chat.send_message(UserMessage(text=_date_anchor() + data.message))
+                if lex_output.is_blank(fallback_resp):
+                    raise lex_output.BlankReply("fallback returned a blank reply")
+                _stream_usage["finish"] = (getattr(chat, "_aiu_usage", None) or (None,) * 5)[3]
+                _stream_usage["served_model"] = "claude-sonnet-4-5-20250929"
                 full_text_parts = [fallback_resp]
                 # Emit the whole thing as one token chunk for the UI
                 yield f"data: {_json.dumps({'type':'token','text':fallback_resp})}\n\n"
-            except Exception as e2:
+            except Exception:
                 logger.exception("Streaming fallback also failed")
-                yield f"data: {_json.dumps({'type':'error','message':str(e2)})}\n\n"
+                await _refund_lex(user["id"], bool(data.deep_think))
+                yield f"data: {_json.dumps({'type':'error','message':lex_output.FAILED_MSG})}\n\n"
                 yield f"data: {_json.dumps({'type':'done'})}\n\n"
                 return
-
-        if not _stream_recorded:
-            ai_usage.record(provider=provider, model_requested=model_id, model_actual=_stream_usage.get("model"),
-                            input_chars=sum(len(str(m["content"])) for m in messages),
-                            output_chars=len("".join(full_text_parts)), tokens_in=_stream_usage.get("tin"),
-                            tokens_out=_stream_usage.get("tout"), call_site="lex_stream",
-                            latency_ms=(time.monotonic() - _t_stream) * 1000)
+        if _stream_usage.get("finish") == "length":
+            full_text_parts.append("\n\n" + lex_safety.note("cut", reply_language))
 
         # Assemble full response, run citation/research checks, resolve [CONNECTED_TO: #N]
         full_text, safety_rep = _lex_finalize("".join(full_text_parts), citations, research, risk, reply_language,
@@ -9548,6 +9597,10 @@ async def _run_stripe_price_audit() -> dict:
     return {"rows": rows, "summary": summary}
 
 
+_LEX_REPLY_Q = {"feature": {"$in": ["lex_chat", "lex_chat_stream"]},
+                "model_requested": {"$in": ["claude-haiku-5-5", "claude-sonnet-5-5", "gpt-5.2", "claude-sonnet-4-5-20250929"]}}
+
+
 @api_router.get("/admin/llm-spend")
 async def admin_llm_spend(_: dict = Depends(_check_admin_user), hours: int = 24):
     """Returns total estimated LLM spend (£) over the last N hours, plus the
@@ -9597,6 +9650,11 @@ async def admin_llm_spend(_: dict = Depends(_check_admin_user), hours: int = 24)
         "total_gbp": total_gbp,
         "calls": calls,
         "cost_basis": basis,
+        "lex_reply_health": {
+            "replies": await db.llm_usage.count_documents({"ts": {"$gte": cutoff}, **_LEX_REPLY_Q, "status": "ok"}),
+            "blank": await db.llm_usage.count_documents({"ts": {"$gte": cutoff}, **_LEX_REPLY_Q, "status": "ok", "output_chars": 0}),
+            "cut_off": await db.llm_usage.count_documents({"ts": {"$gte": cutoff}, **_LEX_REPLY_Q, "finish_reason": "length"}),
+        },
         "cost_basis_note": ("measured = provider-reported tokens × our rate table; estimated = tokenizer estimate "
                             "(conservative) × rate table; flat_rate = research credits / unpriced audio. All £ figures "
                             "use our rate table, not the provider invoice."),

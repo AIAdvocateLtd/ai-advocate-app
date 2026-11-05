@@ -125,6 +125,19 @@ NOTES = {
         "pt": "Nota: não consegui consultar fontes oficiais atualizadas para esta resposta, por isso baseia-se em conhecimentos jurídicos gerais. Confirme os pontos principais junto de uma fonte oficial ou de um consultor qualificado antes de agir.",
         "zh": "提示：本回答未能查阅最新的官方来源，因此基于一般法律知识。采取行动前，请通过官方来源或合格顾问核实关键要点。",
     },
+    "cut": {
+        "en": "This answer was cut short. Reply \"continue\" and Lex will finish it.",
+        "es": "Esta respuesta se ha cortado. Responda \"continuar\" y Lex la terminará.",
+        "fr": "Cette réponse a été coupée. Répondez « continuer » et Lex la terminera.",
+        "ar": "انقطعت هذه الإجابة. اكتب \"تابع\" وسيكملها Lex.",
+        "pl": "Ta odpowiedź została ucięta. Napisz „kontynuuj”, a Lex ją dokończy.",
+        "de": "Diese Antwort wurde abgeschnitten. Antworten Sie mit „weiter“ und Lex schreibt sie zu Ende.",
+        "hi": "यह उत्तर बीच में कट गया। \"जारी रखें\" लिखें और Lex इसे पूरा करेगा।",
+        "ur": "یہ جواب ادھورا رہ گیا۔ \"جاری رکھیں\" لکھیں اور Lex اسے مکمل کرے گا۔",
+        "it": "Questa risposta è stata interrotta. Rispondi \"continua\" e Lex la completerà.",
+        "pt": "Esta resposta foi interrompida. Responda \"continuar\" e o Lex termina-a.",
+        "zh": "此回答被截断了。回复“继续”，Lex 会把它写完。",
+    },
     "citations": {
         "en": "Source check: some legal references in this answer could not be matched to a source the app retrieved, so unmatched links or numbers were removed. Check any case or section on legislation.gov.uk or caselaw.nationalarchives.gov.uk before relying on it.",
         "es": "Verificación de fuentes: algunas referencias legales de esta respuesta no coinciden con una fuente obtenida por la app, por lo que se eliminaron los enlaces o números no verificados. Compruebe cualquier caso o artículo en legislation.gov.uk o caselaw.nationalarchives.gov.uk antes de confiar en él.",
@@ -143,6 +156,10 @@ NOTES = {
 
 def note(kind: str, language: str) -> str:
     return NOTES[kind].get((language or "en")[:2].lower(), NOTES[kind]["en"])
+
+
+def append_cut_note(text: str, language: str) -> str:
+    return (text or "").rstrip() + "\n\n" + note("cut", language)
 
 
 _CUTS = ("[CONFIDENCE:", "[SOURCES:", "[CONNECTED_TO:", "[[PDF:", "\nDisclaimer:", "\n**Disclaimer")

@@ -87,7 +87,8 @@ def _call_site(session_id: str) -> str:
 def record(*, provider: str, model_requested: str, model_actual: str = None, input_chars: int = 0,
            output_chars: int = 0, tokens_in: int = None, tokens_out: int = None, latency_ms: int = 0,
            status: str = "ok", call_site: str = "", cost_gbp: float = None, cost_source: str = None,
-           units: dict = None, input_text: str = None, output_text: str = None, n_messages: int = 1) -> None:
+           units: dict = None, input_text: str = None, output_text: str = None, n_messages: int = 1,
+           finish_reason: str = None, reasoning_tokens: int = None) -> None:
     db = _state["db"]
     if db is None:
         return
@@ -116,6 +117,7 @@ def record(*, provider: str, model_requested: str, model_actual: str = None, inp
             "tokens_in": tin, "tokens_out": tout, "tokens_source": ("not_applicable" if no_tokens else "provider") if measured else ESTIMATE_SOURCE,
             "measured": bool(measured and not no_tokens),
             "cost_gbp": cost_gbp, "cost_source": cost_source, "units": units or None,
+            "finish_reason": finish_reason, "reasoning_tokens": reasoning_tokens,
         }
         asyncio.get_running_loop().create_task(_insert(doc))
     except Exception as e:
@@ -151,7 +153,10 @@ def install(db, rates: dict) -> None:
         resp = await orig_exec(self, messages)
         try:
             u = getattr(resp, "usage", None)
-            self._aiu_usage = (getattr(u, "prompt_tokens", None), getattr(u, "completion_tokens", None), getattr(resp, "model", None))
+            det = getattr(u, "completion_tokens_details", None)
+            self._aiu_usage = (getattr(u, "prompt_tokens", None), getattr(u, "completion_tokens", None), getattr(resp, "model", None),
+                               getattr(resp.choices[0], "finish_reason", None) if getattr(resp, "choices", None) else None,
+                               getattr(det, "reasoning_tokens", None) if det else None)
         except Exception:
             self._aiu_usage = None
         return resp
@@ -173,11 +178,12 @@ def install(db, rates: dict) -> None:
             record(provider=self.provider, model_requested=self.model, input_chars=in_chars, status="error",
                    latency_ms=(time.monotonic() - t0) * 1000, call_site=site, input_text=in_text, n_messages=len(msgs) + 1)
             raise
-        tin, tout, model_actual = (getattr(self, "_aiu_usage", None) or (None, None, None))
+        tin, tout, model_actual, finish, reasoning = (getattr(self, "_aiu_usage", None) or (None,) * 5)
         out_text = out if isinstance(out, str) else ""
         record(provider=self.provider, model_requested=self.model, model_actual=model_actual, input_chars=in_chars,
                output_chars=len(out_text), tokens_in=tin, tokens_out=tout, latency_ms=(time.monotonic() - t0) * 1000,
-               call_site=site, input_text=in_text, output_text=out_text, n_messages=len(msgs) + 1)
+               call_site=site, input_text=in_text, output_text=out_text, n_messages=len(msgs) + 1,
+               finish_reason=finish, reasoning_tokens=reasoning)
         return out
 
     LlmChat.send_message = send_message

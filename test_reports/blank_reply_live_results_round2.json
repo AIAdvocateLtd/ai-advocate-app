@@ -1,0 +1,86 @@
+{
+ "cost_gbp": 0.0988,
+ "lex_rows": [
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "length",
+   "reasoning_tokens": 0,
+   "tokens_out": 1200,
+   "output_chars": 3328,
+   "cost_gbp": 0.010482
+  },
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "",
+   "attempt": "primary",
+   "finish_reason": "length",
+   "reasoning_tokens": 0,
+   "tokens_out": 1200,
+   "output_chars": 3507,
+   "cost_gbp": 0.010482
+  },
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "length",
+   "reasoning_tokens": 0,
+   "tokens_out": 1200,
+   "output_chars": 2011,
+   "cost_gbp": 0.010398
+  },
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "length",
+   "reasoning_tokens": 0,
+   "tokens_out": 1200,
+   "output_chars": 2387,
+   "cost_gbp": 0.009524
+  }
+ ],
+ "passed": 4,
+ "total": 5,
+ "results": [
+  {
+   "case": "free_complex_stream",
+   "chars": 3397,
+   "blank": false,
+   "cut_note": true,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "free_complex_regular",
+   "chars": 3576,
+   "blank": false,
+   "cut_note": true,
+   "ending_markers": false,
+   "pass": true
+  },
+  {
+   "case": "free_welsh_stream",
+   "chars": 2080,
+   "blank": false,
+   "cut_note": true,
+   "ending_markers": false,
+   "pass": true
+  },
+  {
+   "case": "free_urdu_stream",
+   "chars": 2455,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "pro_simple_stream",
+   "error": "HTTPStatusError(\"Client error '401 Unauthorized' for url 'https://ai-law-guide-1.preview.emergentagent.com/api/lex/chat/stream'\\nFor more information check: https://developer.mozilla.org/en-US/docs/We",
+   "pass": false
+  }
+ ]
+}

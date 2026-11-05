@@ -15,6 +15,7 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 logger = logging.getLogger(__name__)
 LESSON_MODEL = ("anthropic", "claude-sonnet-5-5")
+from lex_output import gen_params  # noqa: E402
 MAX_LESSONS_IN_PROMPT = 80
 _cache = {"block": "", "packs": {}, "at": 0.0}
 _job_lock = asyncio.Lock()
@@ -103,8 +104,9 @@ def _parse_json_list(raw: str) -> list:
 
 
 async def _llm(api_key: str, system: str, prompt: str) -> str:
+    _gen = gen_params(LESSON_MODEL[1], 1500)
     chat = LlmChat(api_key=api_key, session_id=f"lessons-{uuid.uuid4()}", system_message=system) \
-        .with_model(*LESSON_MODEL).with_params(max_tokens=1500)
+        .with_model(*LESSON_MODEL).with_params(max_tokens=_gen[0], **_gen[1])
     return await chat.send_message(UserMessage(text=prompt))
 
 
