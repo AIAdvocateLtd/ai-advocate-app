@@ -2312,7 +2312,8 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
             finalDone = payload;
             // If `done` arrived before any tokens (rare error path), make sure
             // we still surface the full_text the backend computed.
-            if (!assembled && payload.full_text) assembled = payload.full_text;
+            // The server's final text includes citation/research safety checks, so it replaces the raw tokens.
+            if (payload.full_text) assembled = payload.full_text;
           } else if (payload.type === "error") {
             throw new Error(payload.message || "stream error");
           }

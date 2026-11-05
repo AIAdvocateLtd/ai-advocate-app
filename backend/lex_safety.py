@@ -49,7 +49,10 @@ async def build_cross_memory(db, user: dict, session_id: str, decrypt: Callable)
 # ---------------------------------------------------------------- risk + research availability
 HIGH_RISK_RE = re.compile(
     r"\b(evict\w*|possession|bailiff\w*|homeless\w*|section (8|21|173)|notice to (quit|leave)|dismiss\w*|sacked|fired|"
-    r"tribunal|redundan\w*|deport\w*|removal|asylum|overstay\w*|visa|ilr|indefinite leave|refus\w*|arrest\w*|charged|"
+    r"locked (me )?out|lock(ed|ing)? me out|changed the locks?|kick(ed|ing)? (me|us) out|thr(ew|own) (me|us) out|"
+    r"(made|making) (me|us) leave|(belongings|things|stuff) (on|in|into) the street|illegal(ly)? evict\w*|"
+    r"tribunal|redundan\w*|deport\w*|removal|asylum|overstay\w*|visa|ilr|indefinite leave|"
+    r"refus\w* (my |the |our )?(visa|asylum|leave|application|claim|benefit|entry|settlement|citizenship)|arrest\w*|charged|"
     r"police|court|hearing|summons|injunction|deadline|time limit|limitation|appeal|domestic abuse|non-molestation|"
     r"custody|child arrangements|social services|bankrupt\w*|ccj|county court judgment|enforcement|repossess\w*|"
     r"prosecut\w*|criminal|offence|bail|prison|sentenc\w*|harass\w*|discriminat\w*)\b", re.I)

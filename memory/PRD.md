@@ -1034,3 +1034,12 @@ Production redeploy required. All env vars unchanged.
 - Tests: backend/tests/test_stage1_memory_usage.py (11/11), iteration_44 (100%). Test AI spend ~£0.16.
 - Not covered: /app/scripts translation runs (offline tooling); audio rows unpriced (no duration).
 - Stage 2+ NOT started — awaiting founder approval.
+
+## Stage 2 legal research & reliability (2026-11-05, preview only, NOT deployed) — full details: memory/stage2_report.md
+- Cross-chat memory OFF unless LEX_CROSS_MEMORY_ENABLED=1 + user.memory_consent.cross_chat (code kept in lex_safety.py). Lex 2.0 memory plan: memory/lex2_memory_proposal.md
+- Token usage now measured from provider for LlmChat calls; estimates use calibrated tokenizer (labelled); admin llm-spend cost_basis.
+- rag.research() status detection; research-failure prompt + localised backstop note; citation/URL verification; UK nation conflict detection; deadline calc bank holidays/unknown nation/no-date guidance.
+- 25 fact-pack/law-watch rows flagged needs_review in preview DB (no text changes).
+- Tests: unit 44/44, live 26/26, iteration_45 (lock-out risk gap fixed). Spend ≈ £1.21.
+- Stage 3+ NOT started — awaiting founder approval. Backlog note: Haiku 5.5 hidden reasoning tokens can exhaust max_tokens (empty reply seen in calibration).
+

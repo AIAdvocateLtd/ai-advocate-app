@@ -124,6 +124,10 @@ def test_risk_levels():
     assert ls.risk_level("My landlord served a section 21 notice", None) == "high"
     assert ls.risk_level("What does 'force majeure' mean in a contract?", None) == "low"
     assert ls.risk_level("anything", "immigration") == "high"
+    assert ls.risk_level("My landlord changed the locks and put my belongings on the street", "property") == "high"
+    assert ls.risk_level("my landlord kicked me out last night", None) == "high"
+    assert ls.risk_level("the Home Office refused my visa application", None) == "high"
+    assert ls.risk_level("my landlord is refusing to return my deposit", None) == "low"
 
 
 # ------------------------------------------------------------------ research failure detection
