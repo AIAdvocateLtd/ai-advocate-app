@@ -88,3 +88,10 @@ Script: backend/tests/free_tier_output_check.py -> /app/test_reports/free_tier_o
 Fix options for approval: (1) disable hidden thinking for standard Lex chat (keep for Deep Think with a bigger budget);
 (2) detect empty/length -> retry once / continue, show "answer cut short" message instead of blank; (3) refund the quota on
 failed replies; (4) apply same check to other Claude 5.5 call sites. Investigation cost ≈ £0.25.
+
+## Blank-reply investigation round 2 (read-only, 2026-11-05)
+- Thinking disabled via extra_body: works for Haiku 5.5 (simple Q: 0 reasoning, 771 tokens, complete); IGNORED by Sonnet 5.5 (still 1400/1400 reasoning, blank).
+- Sonnet 5.5 effort low @1400: 1132 reasoning, 728 chars, cut off. Thinking budget 1024 @2600: 1196 reasoning, complete (budget is soft). Budget 1500 @3500: complete.
+- Lesson drafting (lex_lessons LESSON_MODEL sonnet-5-5, 1500) is also exposed.
+- Stage 2 finalize can add a note to an empty reply (masks a blank). Stage 1 history (up to 24k chars) not the cause (blank also with no history) but larger prompts don't help.
+- Production: prod llm_usage only logs regular /lex/chat (stream unlogged pre-Stage 1), with output_chars — privacy-safe frequency source. Deployer read-only check requested.
