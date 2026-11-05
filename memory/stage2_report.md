@@ -71,3 +71,20 @@ re-verified live (quota_exhausted, note shown in UI, confidence not HIGH). Pre-e
 AI testing cost (rate-table estimate): ~£1.16 metered + ~£0.05 calibration ≈ £1.21.
 Remaining limitations: high-risk "no definitive conclusions" is prompt-enforced (backstop note + confidence downgrade are deterministic);
 [SOURCES:] tail may list law Lex cited from knowledge; non-English "verified" claim detection is English-only.
+
+## PRIORITY BUG CHECK — empty / cut-off Lex replies (2026-11-05, investigation only, nothing changed)
+Script: backend/tests/free_tier_output_check.py -> /app/test_reports/free_tier_output_check.json
+- Free (claude-haiku-5-5, max_tokens 1200, real Lex system prompt, streaming): 10 fictional questions -> 9 EMPTY
+  (all 1200 tokens spent on hidden reasoning, finish_reason=length), 1 cut off (537 reasoning + 1993 chars, no end markers).
+  Simple question still truncated. Reproduced end-to-end on preview /lex/chat AND /lex/chat/stream as test@advocate.app:
+  HTTP 200 with response "" (blank), conversation saved blank, and the message still counts against the Free 5/day quota
+  (check_quota_and_increment runs before the AI call).
+- Pro (claude-sonnet-5-5, 1400): complex question -> EMPTY (1400/1400 reasoning). Deep Think (3500): 2323 reasoning, cut off.
+- Plus (gpt-5.2, 1400): complete, 0 reasoning tokens — not affected.
+- With thinking disabled (extra_body thinking disabled): Haiku 0 reasoning, 3442 visible chars, but 1200 still cuts a complex answer.
+  Haiku at 4000: 2621 reasoning + complete answer. reasoning_effort param rejected by proxy.
+- No code detects empty or finish_reason=length; no fallback triggers (fallback only on exceptions).
+- Preview history: 6 of 39 Sonnet 5.5 replies lack end markers (possible truncation). Production not inspected.
+Fix options for approval: (1) disable hidden thinking for standard Lex chat (keep for Deep Think with a bigger budget);
+(2) detect empty/length -> retry once / continue, show "answer cut short" message instead of blank; (3) refund the quota on
+failed replies; (4) apply same check to other Claude 5.5 call sites. Investigation cost ≈ £0.25.

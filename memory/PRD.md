@@ -1041,5 +1041,6 @@ Production redeploy required. All env vars unchanged.
 - rag.research() status detection; research-failure prompt + localised backstop note; citation/URL verification; UK nation conflict detection; deadline calc bank holidays/unknown nation/no-date guidance.
 - 25 fact-pack/law-watch rows flagged needs_review in preview DB (no text changes).
 - Tests: unit 44/44, live 26/26, iteration_45 (lock-out risk gap fixed). Spend ≈ £1.21.
-- Stage 3+ NOT started — awaiting founder approval. Backlog note: Haiku 5.5 hidden reasoning tokens can exhaust max_tokens (empty reply seen in calibration).
+- Stage 3+ NOT started — awaiting founder approval.
+- PRIORITY BUG (confirmed, not fixed): Claude 5.5 hidden reasoning uses the whole output cap -> blank Lex replies for Free (9/10 tests) and complex Pro questions; quota still consumed. Plus/GPT-5.2 fine. See stage2_report.md bottom. Awaiting founder approval to fix.
 
