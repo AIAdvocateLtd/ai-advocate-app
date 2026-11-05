@@ -71,7 +71,8 @@ if SENTRY_DSN:
 from app_crypto import encrypt_text, decrypt_text, encrypt_bytes, decrypt_bytes, is_enabled as crypto_enabled  # noqa: E402
 from deadline_calc import build_deadlines, reminder_due_iso  # noqa: E402
 from lex_lessons import fact_pack_block as _fact_pack_block, lessons_block as _lessons_block, refresh_if_stale as _lessons_refresh_if_stale  # noqa: E402
-from rag import build_rag_context, is_enabled as rag_enabled, get_usage as rag_get_usage  # noqa: E402
+from rag import build_rag_context, research as rag_research, _looks_like_legal_question, is_enabled as rag_enabled, get_usage as rag_get_usage  # noqa: E402
+import lex_safety  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
 # 🛡️ Resilience config to prevent Sentry NetworkTimeout crashes on transient Atlas hiccups.
@@ -1901,6 +1902,20 @@ async def update_prefs(data: dict, user: dict = Depends(get_user)):
     return user_to_public(fresh)
 
 # ==================== Lex Chat ====================
+def _lex_finalize(text: str, citations: list, research: dict, risk: str, language: str, message: str, juris: dict):
+    """Citation/research honesty checks on the final answer. Stores counts only (no answer text)."""
+    try:
+        out, rep = lex_safety.finalize_answer(text or "", citations=citations, sources=research.get("sources") or [],
+                                              research_status=research.get("status"), risk=risk, language=language,
+                                              legal_question=_looks_like_legal_question(message))
+    except Exception as e:
+        logger.warning(f"lex finalize failed (answer unchanged): {e!r}")
+        return text, {"error": True}
+    return out, {k: rep[k] for k in ("removed_markers", "unsupported_markers", "urls_removed", "urls_rerouted",
+                                     "notes_added", "risk", "research_status")} | {
+        "unverified_case_refs": len(rep["unverified_case_refs"]), "jurisdiction_conflict": bool(juris.get("conflict"))}
+
+
 @api_router.post("/lex/chat")
 async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     pub = user_to_public(user)
@@ -1960,75 +1975,23 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     await _lessons_refresh_if_stale(db)
     base_system_msg = lex_system_prompt(reply_language, data.country, data.category, user.get("jurisdiction"))
 
-    # 🧠 Cross-session memory — give Lex a one-line summary of OTHER recent cases
-    # the user has discussed, so it can spot connections (e.g. "the contract you
-    # reviewed last week has a clause relevant to your deposit case").
-    # Only injects if the user has 2+ prior sessions distinct from the current one.
-    cross_sessions_indexed = []  # [{n, session_id, topic, category}] for #N → session_id lookup
-    try:
-        cross_pipeline = [
-            {"$match": {"user_id": user["id"], "session_id": {"$ne": session_id}}},
-            {"$sort": {"created_at": -1}},
-            {"$group": {
-                "_id": "$session_id",
-                "first_message": {"$last": "$user_message"},  # oldest = first turn of that case
-                "category": {"$first": "$category"},
-                "last_at": {"$first": "$created_at"},
-            }},
-            {"$sort": {"last_at": -1}},
-            {"$limit": 4},
-        ]
-        n = 0
-        async for s in db.conversations.aggregate(cross_pipeline):
-            try:
-                txt = decrypt_text(s.get("first_message")) or ""
-                if txt:
-                    topic = txt[:90].replace("\n", " ").strip()
-                    if len(txt) > 90:
-                        topic += "…"
-                    n += 1
-                    cross_sessions_indexed.append({
-                        "n": n,
-                        "session_id": s["_id"],
-                        "topic": topic,
-                        "category": s.get("category") or "ask_lex",
-                    })
-            except Exception:
-                continue
-    except Exception:
-        cross_sessions_indexed = []
-
-    if cross_sessions_indexed:
-        lines = [f"#{c['n']} [{c['category']}] {c['topic']}" for c in cross_sessions_indexed]
-        cross_memory_block = (
-            "\n\nRECENT CASES THIS USER HAS DISCUSSED WITH YOU (other chat threads):\n"
-            + "\n".join(lines)
-            + "\n\nCROSS-CASE CONNECTION RULE:\n"
-              "If the user's NEW question shares a SPECIFIC entity with any case in the list above — "
-              "the same company/employer name, the same landlord, the same person, the same property address, "
-              "the same contract, or the same incident date — you MUST acknowledge it and you MUST output the "
-              "[CONNECTED_TO: #N short topic] marker, where N is the number from the list above.\n"
-              "Example: list contains '#1 [ask_lex] My landlord Acme wont return my deposit'. "
-              "New question: 'My employer Acme also fired me.' → Same company Acme → "
-              "OUTPUT: [CONNECTED_TO: #1 Acme deposit dispute]\n"
-              "Also briefly mention the connection IN the answer body (e.g. 'This is the same Acme we discussed earlier about your deposit — there may be strategic synergy in pursuing both claims.').\n"
-              "If there is no shared specific entity, OMIT the [CONNECTED_TO:] line entirely. Never force a link."
-        )
-        system_msg = base_system_msg + cross_memory_block
-    else:
-        system_msg = base_system_msg
+    cross_memory_block, cross_sessions_indexed = await lex_safety.build_cross_memory(db, user, session_id, decrypt_text)
+    system_msg = base_system_msg + cross_memory_block
 
     # 📚 RAG: pull live legislation / case-law / web context relevant to this question.
     # Gracefully skipped if TAVILY_API_KEY is not configured. Total budget: 2 Tavily
     # calls (one filtered to authority domains, one general). The retrieved snippets
     # are appended to the system prompt and Lex is told to cite numbered sources.
     citations: List[dict] = []
+    research = {"status": "unavailable", "sources": []}
     try:
-        rag_block, citations = await build_rag_context(data.message, country=data.country or "GB", db=db)
-        if rag_block:
-            system_msg = system_msg + rag_block
+        research = await rag_research(data.message, country=data.country or "GB", db=db)
+        citations = research["citations"]
+        system_msg = system_msg + research["block"]
     except Exception as e:
         logger.warning(f"RAG context build failed (continuing without): {e}")
+    risk = lex_safety.risk_level(data.message, data.category)
+    system_msg = system_msg + lex_safety.research_block(research["status"], risk, lex_safety.topics_of(data.message))
 
     # 📂 If this chat is tied to a Case File, prepend the case summary + recent
     # items to the system message so Lex sees the user's whole legal situation
@@ -2059,9 +2022,12 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
 
     # 📅 Exact deadline maths — LLM extracts the dates, Python calculates them.
     auto_reminders = []
+    juris = {"conflict": False}
     try:
         _ctx = "\n".join(ex["user"] for ex in history_ex[-3:])
-        _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, user.get("jurisdiction"))
+        juris = lex_safety.assess_jurisdiction(data.message, _ctx, user.get("jurisdiction"), data.country, data.category)
+        system_msg = system_msg + juris["block"]
+        _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
         system_msg = system_msg + _fact_pack_block(data.message, _ctx) + _dl_block
     except Exception as e:
         logger.warning(f"Deadline block failed: {e}")
@@ -2094,6 +2060,8 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
             logger.exception("Lex chat error (both primary + fallback)")
             raise HTTPException(500, f"AI error: {str(e2)}")
 
+    response, safety_rep = _lex_finalize(response, citations, research, risk, reply_language, data.message, juris)
+
     # Save conversation (sensitive content encrypted at rest). Citations are stored
     # as plaintext metadata so chat history can re-render the pills on reload.
     await db.conversations.insert_one({
@@ -2108,6 +2076,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         "deep_think": data.deep_think,
         "deep_think_auto": deep_think_auto,
         "citations": citations,
+        "safety_checks": safety_rep,
         "linked_case_id": data.case_id or None,  # 💬 attach to case if continuing a Case File
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
@@ -2142,6 +2111,8 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         "connected_session_id": connected_session_id,
         "saved_reminders": await _save_auto_reminders(user, session_id, auto_reminders),
         "citations": citations,
+        "research_status": research["status"],
+        "jurisdiction_check": bool(juris.get("conflict")),
     }
 
 
@@ -2207,53 +2178,20 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
     await _lessons_refresh_if_stale(db)
     base_system_msg = lex_system_prompt(reply_language, data.country, data.category, user.get("jurisdiction"))
 
-    # Cross-session memory (same as non-streaming)
-    cross_sessions_indexed = []
-    try:
-        cross_pipeline = [
-            {"$match": {"user_id": user["id"], "session_id": {"$ne": session_id}}},
-            {"$sort": {"created_at": -1}},
-            {"$group": {"_id": "$session_id", "first_message": {"$last": "$user_message"},
-                        "category": {"$first": "$category"}, "last_at": {"$first": "$created_at"}}},
-            {"$sort": {"last_at": -1}}, {"$limit": 4},
-        ]
-        n = 0
-        async for s in db.conversations.aggregate(cross_pipeline):
-            try:
-                txt = decrypt_text(s.get("first_message")) or ""
-                if txt:
-                    topic = txt[:90].replace("\n", " ").strip()
-                    if len(txt) > 90: topic += "…"
-                    n += 1
-                    cross_sessions_indexed.append({"n": n, "session_id": s["_id"], "topic": topic, "category": s.get("category") or "ask_lex"})
-            except Exception:
-                continue
-    except Exception:
-        cross_sessions_indexed = []
-    if cross_sessions_indexed:
-        lines = [f"#{c['n']} [{c['category']}] {c['topic']}" for c in cross_sessions_indexed]
-        cross_memory_block = (
-            "\n\nRECENT CASES THIS USER HAS DISCUSSED WITH YOU (other chat threads):\n"
-            + "\n".join(lines)
-            + "\n\nCROSS-CASE CONNECTION RULE:\n"
-              "If the user's NEW question shares a SPECIFIC entity with any case in the list above — "
-              "the same company/employer name, the same landlord, the same person, the same property address, "
-              "the same contract, or the same incident date — you MUST acknowledge it and you MUST output the "
-              "[CONNECTED_TO: #N short topic] marker, where N is the number from the list above.\n"
-              "If there is no shared specific entity, OMIT the [CONNECTED_TO:] line entirely. Never force a link."
-        )
-        system_msg = base_system_msg + cross_memory_block
-    else:
-        system_msg = base_system_msg
+    cross_memory_block, cross_sessions_indexed = await lex_safety.build_cross_memory(db, user, session_id, decrypt_text)
+    system_msg = base_system_msg + cross_memory_block
 
     # RAG
     citations: List[dict] = []
+    research = {"status": "unavailable", "sources": []}
     try:
-        rag_block, citations = await build_rag_context(data.message, country=data.country or "GB", db=db)
-        if rag_block:
-            system_msg = system_msg + rag_block
+        research = await rag_research(data.message, country=data.country or "GB", db=db)
+        citations = research["citations"]
+        system_msg = system_msg + research["block"]
     except Exception as e:
         logger.warning(f"RAG context build failed (continuing without): {e}")
+    risk = lex_safety.risk_level(data.message, data.category)
+    system_msg = system_msg + lex_safety.research_block(research["status"], risk, lex_safety.topics_of(data.message))
 
     # 📂 If this chat is tied to a Case File, prepend the case summary + recent
     # items to the system message so Lex sees the user's whole legal situation
@@ -2280,9 +2218,12 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
     system_msg = system_msg + chat_memory.history_note(history_omitted)
     # 📅 Exact deadline maths — LLM extracts the dates, Python calculates them.
     auto_reminders = []
+    juris = {"conflict": False}
     try:
         _ctx = "\n".join(ex["user"] for ex in history_ex[-3:])
-        _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, user.get("jurisdiction"))
+        juris = lex_safety.assess_jurisdiction(data.message, _ctx, user.get("jurisdiction"), data.country, data.category)
+        system_msg = system_msg + juris["block"]
+        _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
         system_msg = system_msg + _fact_pack_block(data.message, _ctx) + _dl_block
     except Exception as e:
         logger.warning(f"Deadline block failed: {e}")
@@ -2292,7 +2233,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
 
     async def event_stream():
         # 1) Emit metadata event first so the UI can show citations + session_id immediately
-        yield f"data: {_json.dumps({'type':'meta','session_id':session_id,'citations':citations,'model':model_id,'reply_language':reply_language})}\n\n"
+        yield f"data: {_json.dumps({'type':'meta','session_id':session_id,'citations':citations,'model':model_id,'reply_language':reply_language,'research_status':research['status']})}\n\n"
 
         full_text_parts: List[str] = []
         _stream_usage: dict = {}
@@ -2359,8 +2300,9 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                             tokens_out=_stream_usage.get("tout"), call_site="lex_stream",
                             latency_ms=(time.monotonic() - _t_stream) * 1000)
 
-        # Assemble full response and resolve [CONNECTED_TO: #N]
-        full_text = "".join(full_text_parts)
+        # Assemble full response, run citation/research checks, resolve [CONNECTED_TO: #N]
+        full_text, safety_rep = _lex_finalize("".join(full_text_parts), citations, research, risk, reply_language,
+                                              data.message, juris)
         connected_session_id = None
         try:
             m = re.search(r"\[CONNECTED_TO:\s*#(\d+)", full_text, re.IGNORECASE)
@@ -2385,6 +2327,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                 "deep_think": data.deep_think,
                 "deep_think_auto": deep_think_auto,
                 "citations": citations,
+                "safety_checks": safety_rep,
                 "linked_case_id": data.case_id or None,  # 💬 attach to case (streamed path)
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
@@ -9640,10 +9583,23 @@ async def admin_llm_spend(_: dict = Depends(_check_admin_user), hours: int = 24)
         row["email"] = (u or {}).get("email") or uid
         row["tier"] = (u or {}).get("tier") or "—"
         row["spend"] = round(row["spend"], 2)
+    by_basis = await db.llm_usage.aggregate([
+        {"$match": {"ts": {"$gte": cutoff}}},
+        {"$group": {"_id": "$tokens_source", "spend": {"$sum": "$cost_gbp"}, "calls": {"$sum": 1}}},
+    ]).to_list(20)
+    basis = {"measured": {"spend": 0.0, "calls": 0}, "estimated": {"spend": 0.0, "calls": 0}, "flat_rate": {"spend": 0.0, "calls": 0}}
+    for r in by_basis:
+        k = "measured" if r["_id"] == "provider" else "flat_rate" if r["_id"] == "not_applicable" else "estimated"
+        basis[k]["spend"] = round(basis[k]["spend"] + (r["spend"] or 0), 4)
+        basis[k]["calls"] += r["calls"]
     return {
         "hours": hours,
         "total_gbp": total_gbp,
         "calls": calls,
+        "cost_basis": basis,
+        "cost_basis_note": ("measured = provider-reported tokens × our rate table; estimated = tokenizer estimate "
+                            "(conservative) × rate table; flat_rate = research credits / unpriced audio. All £ figures "
+                            "use our rate table, not the provider invoice."),
         "threshold_gbp": threshold,
         "over_threshold": total_gbp >= threshold,
         "by_model": [{"provider": r["_id"]["provider"], "model": r["_id"]["model"],

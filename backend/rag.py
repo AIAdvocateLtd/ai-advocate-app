@@ -33,6 +33,7 @@ import httpx
 logger = logging.getLogger("rag")
 
 TAVILY_ENDPOINT = "https://api.tavily.com/search"
+QUOTA_STATUS_CODES = (402, 429, 432, 433)  # rate limit / plan or pay-as-you-go limit reached
 
 # Official UK legal sources — Tavily is told to *prefer* these so case law /
 # statutes outrank random blog spam.
@@ -102,17 +103,17 @@ async def _increment_usage(db, n: int = 1) -> None:
         logger.warning("Failed to increment Tavily usage counter: %s", e)
 
 
-async def _tavily_search(
+async def _tavily_search_ex(
     query: str,
     *,
     include_domains: Optional[List[str]] = None,
     max_results: int = 3,
     search_depth: str = "basic",
-) -> List[Dict]:
-    """One Tavily API call. Returns list of {title, url, content} dicts."""
+):
+    """One Tavily API call. Returns (results, status) — status: ok | not_configured | quota_exhausted | unavailable."""
     key = _get_key()
     if not key:
-        return []
+        return [], "not_configured"
 
     payload = {
         "api_key": key,
@@ -138,7 +139,7 @@ async def _tavily_search(
                             cost_source="estimated_tavily_credit_rate", units={"credits": _credits})
             if r.status_code != 200:
                 logger.warning("Tavily %s: %s", r.status_code, r.text[:200])
-                return []
+                return [], ("quota_exhausted" if r.status_code in QUOTA_STATUS_CODES else "unavailable")
             data = r.json()
             results = data.get("results", []) or []
             out = []
@@ -148,10 +149,14 @@ async def _tavily_search(
                     "url": (item.get("url") or "").strip(),
                     "content": (item.get("content") or "").strip(),
                 })
-            return out
+            return out, "ok"
     except Exception as e:
         logger.warning("Tavily call failed: %s", e)
-        return []
+        return [], "unavailable"
+
+
+async def _tavily_search(query: str, **kw) -> List[Dict]:
+    return (await _tavily_search_ex(query, **kw))[0]
 
 
 def _looks_like_legal_question(text: str) -> bool:
@@ -179,26 +184,22 @@ def _format_block(label: str, items: List[Dict], start_index: int = 1) -> str:
 
 
 async def build_rag_context(message: str, country: str = "GB", db=None):
-    """
-    Returns a tuple `(prompt_block, citations)` where:
-      • `prompt_block` is the citation-tagged context string appended to Lex's
-        system prompt (or "" if RAG is disabled / smalltalk / monthly cap hit).
-      • `citations` is a list of {n, title, url, source} dicts so the frontend
-        can render `[1] [2]` markers as clickable links to the source URL.
+    r = await research(message, country=country, db=db)
+    return r["block"], r["citations"]
 
-    Pass `db` (the Motor database handle) to enable usage-cap protection.
-    """
-    if not is_enabled():
-        return ("", [])
+
+async def research(message: str, country: str = "GB", db=None) -> Dict:
+    """Returns {status, block, citations, sources}. status: ok | not_needed | not_configured |
+    quota_exhausted | unavailable | no_results. `sources` keeps snippets for server-side citation checks."""
+    res = {"status": "not_needed", "block": "", "citations": [], "sources": []}
     if not _looks_like_legal_question(message):
-        return ("", [])
-
-    # 🚧 Usage cap — never exceed the configured monthly cap.
+        return res
+    if not is_enabled():
+        return {**res, "status": "not_configured"}
     if db is not None and not await _under_cap(db):
         logger.info("Tavily monthly cap reached — serving Lex without RAG this turn.")
-        return ("", [])
+        return {**res, "status": "quota_exhausted"}
 
-    # Bias query toward jurisdiction for better UK / Scotland / NI hits.
     jurisdiction_hint = ""
     cc = (country or "GB").upper()
     if cc in ("GB", "UK", "ENG", "WAL"):
@@ -207,43 +208,23 @@ async def build_rag_context(message: str, country: str = "GB", db=None):
         jurisdiction_hint = " Scotland law"
     elif cc == "NIR":
         jurisdiction_hint = " Northern Ireland law"
-
     base_q = f"{message.strip()[:280]}{jurisdiction_hint}"
 
-    calls_made = 0
     try:
-        official_task = _tavily_search(
-            base_q,
-            include_domains=AUTHORITY_DOMAINS,
-            max_results=3,
-            search_depth="basic",
-        )
-        web_task = _tavily_search(
-            base_q,
-            include_domains=None,
-            max_results=2,
-            search_depth="basic",
-        )
-        # Whole RAG budget hard-capped at ~9s so a slow Tavily call never tanks
-        # Lex's perceived response time.
-        official, web = await asyncio.wait_for(
-            asyncio.gather(official_task, web_task), timeout=9.0
-        )
-        calls_made = 2  # we attempted 2 search credits regardless of result count
+        (official, s1), (web, s2) = await asyncio.wait_for(asyncio.gather(
+            _tavily_search_ex(base_q, include_domains=AUTHORITY_DOMAINS, max_results=3, search_depth="basic"),
+            _tavily_search_ex(base_q, include_domains=None, max_results=2, search_depth="basic"),
+        ), timeout=9.0)
     except asyncio.TimeoutError:
         logger.warning("Tavily RAG block timed out — continuing without grounding.")
-        return ("", [])
+        return {**res, "status": "unavailable"}
     except Exception as e:
         logger.warning("RAG gather failed: %s", e)
-        return ("", [])
+        return {**res, "status": "unavailable"}
+    await _increment_usage(db, sum(1 for st in (s1, s2) if st == "ok"))
 
-    # Count the credits we actually consumed (Tavily charges per call attempted,
-    # not per result returned).
-    if calls_made:
-        await _increment_usage(db, calls_made)
-
-    # Dedupe by URL — web search will sometimes return the same authority hit.
     seen = set()
+
     def dedupe(items):
         out = []
         for it in items:
@@ -253,36 +234,30 @@ async def build_rag_context(message: str, country: str = "GB", db=None):
                 out.append(it)
         return out
 
-    official = dedupe(official)
-    web = dedupe(web)
-
+    official, web = dedupe(official), dedupe(web)
     if not official and not web:
-        return ("", [])
+        failed = {s1, s2} - {"ok"}
+        status = ("quota_exhausted" if "quota_exhausted" in failed else "unavailable") if failed else "no_results"
+        return {**res, "status": status}
 
-    blocks = []
-    citations = []
-    next_idx = 1
-    if official:
-        blocks.append(_format_block("OFFICIAL UK LEGAL SOURCES (statute / case law)", official, start_index=next_idx))
-        for it in official:
-            citations.append({"n": next_idx, "title": it.get("title") or "(untitled)", "url": it.get("url") or "", "source": "official"})
+    blocks, citations, sources, next_idx = [], [], [], 1
+    for label, items, kind in (("OFFICIAL UK LEGAL SOURCES (statute / case law)", official, "official"),
+                               ("SUPPORTING WEB SOURCES", web, "web")):
+        if not items:
+            continue
+        blocks.append(_format_block(label, items, start_index=next_idx))
+        for it in items:
+            citations.append({"n": next_idx, "title": it.get("title") or "(untitled)", "url": it.get("url") or "", "source": kind})
+            sources.append({"n": next_idx, "title": it.get("title") or "", "content": it.get("content") or ""})
             next_idx += 1
-    if web:
-        blocks.append(_format_block("SUPPORTING WEB SOURCES", web, start_index=next_idx))
-        for it in web:
-            citations.append({"n": next_idx, "title": it.get("title") or "(untitled)", "url": it.get("url") or "", "source": "web"})
-            next_idx += 1
-
     body = "\n\n".join(blocks)
-
-    return (
-        (
-            "\n\n=== LIVE LEGAL RESEARCH (retrieved just now) ===\n"
-            f"{body}\n\n"
-            "USE THESE SOURCES: Ground your answer in the material above. When you state "
-            "a rule, cite the source like [1] or [2] matching the numbered list. If the "
-            "retrieved material does NOT cover the user's question, say so and give your "
-            "best general guidance — never invent a citation."
-        ),
-        citations,
+    block = (
+        "\n\n=== LIVE LEGAL RESEARCH (retrieved just now) ===\n"
+        f"{body}\n\n"
+        "USE THESE SOURCES: Ground your answer in the material above. When you state "
+        "a rule, cite the source like [1] or [2] matching the numbered list — only numbers 1 to "
+        f"{next_idx - 1} exist. Only cite a number if that source actually says what you are claiming. If the "
+        "retrieved material does NOT cover the user's question, say so and give your "
+        "best general guidance — never invent a citation, case, section or URL."
     )
+    return {"status": "ok", "block": block, "citations": citations, "sources": sources}

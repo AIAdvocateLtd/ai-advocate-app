@@ -17,6 +17,13 @@ _user = contextvars.ContextVar("ai_user", default=(None, None))
 _attempt = contextvars.ContextVar("ai_attempt", default="primary")
 _site = contextvars.ContextVar("ai_call_site", default="")
 _state = {"db": None, "rates": {}, "default_rate": (2.50, 12.00), "installed": False}
+# Estimator calibrated 5 Nov 2026 against provider-measured prompt tokens (see /app/memory/stage2_token_calibration.md):
+# Claude 5.5 counts ~1.3-1.6x the o200k tokenizer for English/legal/JSON, ~1.9x Welsh, ~2.3x Urdu/Arabic; GPT-5.2 ~1.0x.
+TOKEN_FACTORS = {"anthropic": 1.7, "openai": 1.05, "gemini": 1.3}
+NON_LATIN_FACTOR = {"anthropic": 2.4, "openai": 1.1, "gemini": 1.5}
+PER_MESSAGE_OVERHEAD = 8
+ESTIMATE_SOURCE = "estimated_tokenizer_v2"
+_enc = {}
 TAVILY_GBP_PER_CREDIT = 0.0063  # estimate (~$0.008/credit pay-as-you-go); confirm against your Tavily plan
 _UUIDISH = re.compile(r"^[0-9a-f]{8,}(-[0-9a-f]{4,})*$|^\d+$", re.I)
 
@@ -43,8 +50,28 @@ def mark_fallback(call_site: str = "") -> None:
         _site.set(call_site)
 
 
-def _cost(provider: str, model: str, tin: int, tout: int):
+def estimate_tokens(chars_or_text, provider: str, n_messages: int = 1) -> int:
+    """Conservative token estimate when the provider did not report usage."""
+    if isinstance(chars_or_text, int):
+        base, non_latin = chars_or_text / 4, 0.0
+    else:
+        text = chars_or_text or ""
+        try:
+            if "e" not in _enc:
+                import tiktoken
+                _enc["e"] = tiktoken.get_encoding("o200k_base")
+            base = len(_enc["e"].encode(text, disallowed_special=()))
+        except Exception:
+            base = len(text) / 4
+        non_latin = sum(1 for ch in text if ord(ch) > 0x24F) / max(1, len(text))
+    table = NON_LATIN_FACTOR if non_latin > 0.3 else TOKEN_FACTORS
+    return int(base * table.get(provider, 1.7) + 0.999) + PER_MESSAGE_OVERHEAD * max(0, n_messages)
+
+
+def _cost(provider: str, model: str, tin: int, tout: int, alt_model: str = None):
     rate = _state["rates"].get((provider, model))
+    if rate is None and alt_model:
+        rate = _state["rates"].get((provider, alt_model))
     if rate is None:
         rate = _state["default_rate"]
     return round((tin * rate[0] + tout * rate[1]) / 1_000_000, 6)
@@ -60,7 +87,7 @@ def _call_site(session_id: str) -> str:
 def record(*, provider: str, model_requested: str, model_actual: str = None, input_chars: int = 0,
            output_chars: int = 0, tokens_in: int = None, tokens_out: int = None, latency_ms: int = 0,
            status: str = "ok", call_site: str = "", cost_gbp: float = None, cost_source: str = None,
-           units: dict = None) -> None:
+           units: dict = None, input_text: str = None, output_text: str = None, n_messages: int = 1) -> None:
     db = _state["db"]
     if db is None:
         return
@@ -69,12 +96,16 @@ def record(*, provider: str, model_requested: str, model_actual: str = None, inp
         if no_tokens:
             tokens_in, tokens_out = 0, 0
         measured = tokens_in is not None and tokens_out is not None
-        tin = tokens_in if measured else max(1, input_chars // 4)
-        tout = tokens_out if measured else max(0, output_chars // 4)
+        if measured:
+            tin, tout = tokens_in, tokens_out
+        else:
+            tin = max(1, estimate_tokens(input_text if input_text is not None else int(input_chars), provider, n_messages))
+            tout = estimate_tokens(output_text if output_text is not None else int(output_chars), provider, 0) \
+                if (output_text or output_chars) else 0
         model_actual = model_actual or model_requested
         if cost_gbp is None:
-            cost_gbp = _cost(provider, model_actual, tin, tout) if status == "ok" else 0.0
-            cost_source = cost_source or "estimated_from_rate_table"
+            cost_gbp = _cost(provider, model_actual, tin, tout, model_requested) if status == "ok" else 0.0
+            cost_source = cost_source or ("measured_tokens_x_rate_table" if measured else "estimated_tokens_x_rate_table")
         uid, tier = _user.get()
         doc = {
             "schema": SCHEMA, "ts": datetime.now(timezone.utc).isoformat(), "request_id": _request_id.get(),
@@ -82,7 +113,8 @@ def record(*, provider: str, model_requested: str, model_actual: str = None, inp
             "provider": provider, "model": model_actual, "model_requested": model_requested, "model_actual": model_actual,
             "attempt": _attempt.get(), "status": status, "latency_ms": int(latency_ms),
             "input_chars": int(input_chars), "output_chars": int(output_chars),
-            "tokens_in": tin, "tokens_out": tout, "tokens_source": ("not_applicable" if no_tokens else "provider") if measured else "estimated_chars_div_4",
+            "tokens_in": tin, "tokens_out": tout, "tokens_source": ("not_applicable" if no_tokens else "provider") if measured else ESTIMATE_SOURCE,
+            "measured": bool(measured and not no_tokens),
             "cost_gbp": cost_gbp, "cost_source": cost_source, "units": units or None,
         }
         asyncio.get_running_loop().create_task(_insert(doc))
@@ -113,20 +145,39 @@ def install(db, rates: dict) -> None:
     from emergentintegrations.llm.openai.text_to_speech import OpenAITextToSpeech
 
     orig_send = LlmChat.send_message
+    orig_exec = LlmChat._execute_completion
+
+    async def _execute_completion(self, messages):
+        resp = await orig_exec(self, messages)
+        try:
+            u = getattr(resp, "usage", None)
+            self._aiu_usage = (getattr(u, "prompt_tokens", None), getattr(u, "completion_tokens", None), getattr(resp, "model", None))
+        except Exception:
+            self._aiu_usage = None
+        return resp
+
+    LlmChat._execute_completion = _execute_completion
 
     async def send_message(self, user_message):
         t0 = time.monotonic()
+        self._aiu_usage = None
         msgs = getattr(self, "messages", None) or [{"content": getattr(self, "system_message", "") or ""}]
-        in_chars = sum(len(str(m.get("content", ""))) for m in msgs if isinstance(m, dict)) + _msg_chars(user_message)
+        msgs = [m for m in msgs if isinstance(m, dict)]
+        in_text = "\n".join(str(m.get("content", "")) for m in msgs) + "\n" + (getattr(user_message, "text", "") or "") \
+            + " x" * (1000 * len(getattr(user_message, "file_contents", None) or []))
+        in_chars = sum(len(str(m.get("content", ""))) for m in msgs) + _msg_chars(user_message)
+        site = _call_site(getattr(self, "session_id", ""))
         try:
             out = await orig_send(self, user_message)
         except Exception:
             record(provider=self.provider, model_requested=self.model, input_chars=in_chars, status="error",
-                   latency_ms=(time.monotonic() - t0) * 1000, call_site=_call_site(getattr(self, "session_id", "")))
+                   latency_ms=(time.monotonic() - t0) * 1000, call_site=site, input_text=in_text, n_messages=len(msgs) + 1)
             raise
-        record(provider=self.provider, model_requested=self.model, input_chars=in_chars,
-               output_chars=len(out or "") if isinstance(out, str) else 0,
-               latency_ms=(time.monotonic() - t0) * 1000, call_site=_call_site(getattr(self, "session_id", "")))
+        tin, tout, model_actual = (getattr(self, "_aiu_usage", None) or (None, None, None))
+        out_text = out if isinstance(out, str) else ""
+        record(provider=self.provider, model_requested=self.model, model_actual=model_actual, input_chars=in_chars,
+               output_chars=len(out_text), tokens_in=tin, tokens_out=tout, latency_ms=(time.monotonic() - t0) * 1000,
+               call_site=site, input_text=in_text, output_text=out_text, n_messages=len(msgs) + 1)
         return out
 
     LlmChat.send_message = send_message

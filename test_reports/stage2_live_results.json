@@ -1,0 +1,140 @@
+{
+ "ran_at": "2026-11-05T19:20:48.323131+00:00",
+ "cost_gbp": 0.3071,
+ "ai_calls": 35,
+ "measured_calls": 19,
+ "passed": 26,
+ "failed": 0,
+ "results": [
+  {
+   "test": "regular chat high-risk: research status reported",
+   "pass": true,
+   "detail": "ok"
+  },
+  {
+   "test": "regular chat: every [n] marker matches a retrieved source",
+   "pass": true,
+   "detail": "{4, 5}"
+  },
+  {
+   "test": "regular chat: app-calculated Ground 8 date used (30 Nov 2026)",
+   "pass": true,
+   "detail": "Treating this as a real scenario, here is the position under England's post-1 May 2026 rules.\n\n## Earliest court date\nGround 8 now needs **4 weeks' notice** from the day the notice is properly served [4] [5]. Based on service on Monday 2 November 2026, the **earliest date your landlord can start a p"
+  },
+  {
+   "test": "streaming chat: response delivered",
+   "pass": true,
+   "detail": "## Short answer\nYes. Part-payment can decide the case, but only if it takes you **below the Ground 8 threshold by the hearing date**.\n\n## How it works\n- **Ground 8 is tested twice.** You must owe at l"
+  },
+  {
+   "test": "streaming follow-up remembers this conversation (Ground 8 / arrears)",
+   "pass": true,
+   "detail": "## Short answer\nYes. Part-payment can decide the case, but only if it takes you **below the Ground 8 threshold by the hearing date**.\n\n## How it works\n- **Ground 8 is tested twice.** You must owe at least **3 months' rent** (13 weeks if rent is weekly or fortnightly) when the notice was served **and"
+  },
+  {
+   "test": "streaming chat: every [n] marker matches a retrieved source",
+   "pass": true,
+   "detail": "set()"
+  },
+  {
+   "test": "new conversation does not silently pull another conversation's facts",
+   "pass": true,
+   "detail": "No. I don't have your letting agent's name. Nothing you've told me in this conversation includes it, and I can't see your tenancy documents.\n\n**Where to find it**\n- **Tenancy agreement.** It normally names the landlord and the agent acting for them.\n- **Deposit paperwork.** The deposit protection ce"
+  },
+  {
+   "test": "no leak between customers (Plus user can't see Pro user's facts)",
+   "pass": true,
+   "detail": "I can\u2019t tell from what you\u2019ve sent so far **which letting agent** held/kept your deposit or **the deposit amount** \u2014 there\u2019s no tenancy paperwork or scheme reference in this chat.\n\nHere\u2019s the quickest way to identify both (England):\n\n1) **Check your bank statement** for the payment you made at move-"
+  },
+  {
+   "test": "quota exhausted detected (regular)",
+   "pass": true,
+   "detail": "quota_exhausted"
+  },
+  {
+   "test": "quota exhausted: customer told sources could not be checked",
+   "pass": true,
+   "detail": "**Note:** I could not check current official sources just now, so please confirm the key points below with Acas or GOV.UK before acting.\n\n## Can you claim?\n\n**Qualifying service:** For a dismissal before 1 January 2027, unfair dismissal normally needs **2 years' continuous service**. Three years cle"
+  },
+  {
+   "test": "quota exhausted: no citation numbers shown",
+   "pass": true,
+   "detail": "**Note:** I could not check current official sources just now, so please confirm the key points below with Acas or GOV.UK before acting.\n\n## Can you claim?\n\n**Qualifying service:** For a dismissal before 1 January 2027, unfair dismissal normally needs **2 years' continuous service**. Three years cle"
+  },
+  {
+   "test": "quota exhausted high-risk: confidence not HIGH",
+   "pass": true,
+   "detail": "CES: s.98 Employment Rights Act 1996; s.92 Employment Rights Act 1996; Acas Code of Practice on Disciplinary and Grievance Procedures; s.207A Trade Union and Labour Relations (Consolidation) Act 1992]"
+  },
+  {
+   "test": "employment deadline uses app date (1 May 2027, 6-month rule)",
+   "pass": true,
+   "detail": "**Note:** I could not check current official sources just now, so please confirm the key points below with Acas or GOV.UK before acting.\n\n## Can you claim?\n\n**Qualifying service:** For a dismissal before 1 January 2027, unfair dismissal normally needs **2 years' continuous service**. Three years cle"
+  },
+  {
+   "test": "quota exhausted detected (streaming, Plus model)",
+   "pass": true,
+   "detail": "quota_exhausted"
+  },
+  {
+   "test": "low-risk answer still delivered",
+   "pass": true,
+   "detail": "I cannot check current official sources just now, so confirm any key points against the contract wording before you act.\n\n**Issue**  \nYou\u2019re asking what **\u201cforce majeure\u201d** generally means in a contra"
+  },
+  {
+   "test": "low-risk: no false 'verified' claim",
+   "pass": true,
+   "detail": "I cannot check current official sources just now, so confirm any key points against the contract wording before you act.\n\n**Issue**  \nYou\u2019re asking what **\u201cforce majeure\u201d** generally means in a contract.\n\n**Rule (what it means in England & Wales)**  \n\u201cForce majeure\u201d is **not a free\u2011standing legal do"
+  },
+  {
+   "test": "invented citation: numbers valid",
+   "pass": true,
+   "detail": "{4, 5}"
+  },
+  {
+   "test": "invented citation: no deep links to unretrieved legislation pages",
+   "pass": true,
+   "detail": "I can't do that. Quoting those authorities and confirming them as verified would mean inventing law.\n\n**Why neither authority checks out**\n- **Smith v Imaginary Holdings [2031] UKSC 99**: a 2031 citation cannot exist. Today is 5 November 2026, and the Supreme Court has not issued judgments five year"
+  },
+  {
+   "test": "invented citation: does not confirm the fake case as real/verified",
+   "pass": true,
+   "detail": "I can't do that. Quoting those authorities and confirming them as verified would mean inventing law.\n\n**Why neither authority checks out**\n- **Smith v Imaginary Holdings [2031] UKSC 99**: a 2031 citation cannot exist. Today is 5 November 2026, and the Supreme Court has not issued judgments five year"
+  },
+  {
+   "test": "jurisdiction conflict flagged",
+   "pass": true,
+   "detail": "True"
+  },
+  {
+   "test": "jurisdiction conflict: Lex asks a targeted clarification",
+   "pass": true,
+   "detail": "**Quick check first:** is the property in Cardiff, Wales? Your saved setting says Scotland, but Cardiff is in Wales, and deposit rules differ between nations. I'll give the steps that apply everywhere, then flag the differences. Please confirm the nation before relying on any deadlines or penalties."
+  },
+  {
+   "test": "saved jurisdiction setting unchanged by Lex",
+   "pass": true,
+   "detail": "{'_id': ObjectId('6aecd7102942a0c41a493639'), 'jurisdiction': 'scotland'}"
+  },
+  {
+   "test": "court deadline without date: no invented calendar date",
+   "pass": true,
+   "detail": "**A quick jurisdiction flag:** \"county court\" claims exist in England & Wales only. Your profile says Scotland, where debt claims go to the **sheriff court** and the rules differ. I've covered both below. Check which court's name is on your papers.\n\n**If it's Scotland (sheriff court)**\n- **Simple pr"
+  },
+  {
+   "test": "court deadline: explains the rule (14 days / acknowledgment)",
+   "pass": true,
+   "detail": "**A quick jurisdiction flag:** \"county court\" claims exist in England & Wales only. Your profile says Scotland, where debt claims go to the **sheriff court** and the rules differ. I've covered both below. Check which court's name is on your papers.\n\n**If it's Scotland (sheriff court)**\n- **Simple pr"
+  },
+  {
+   "test": "AI spend for this run within budget (\u00a30.3071 \u2264 \u00a33.0)",
+   "pass": true,
+   "detail": "0.3071"
+  },
+  {
+   "test": "usage rows labelled measured vs estimated",
+   "pass": true,
+   "detail": "35"
+  }
+ ]
+}

@@ -1,0 +1,212 @@
+[
+ {
+  "sample": "short_en",
+  "model": "claude-haiku-5-5",
+  "chars": 65,
+  "n_msgs": 1,
+  "measured": 33,
+  "chars_div_4": 16,
+  "tiktoken": 16
+ },
+ {
+  "sample": "short_en",
+  "model": "claude-sonnet-5-5",
+  "chars": 65,
+  "n_msgs": 1,
+  "measured": 33,
+  "chars_div_4": 16,
+  "tiktoken": 16
+ },
+ {
+  "sample": "short_en",
+  "model": "gpt-5.2",
+  "chars": 65,
+  "n_msgs": 1,
+  "measured": 22,
+  "chars_div_4": 16,
+  "tiktoken": 16
+ },
+ {
+  "sample": "long_system_legal",
+  "model": "claude-haiku-5-5",
+  "chars": 8832,
+  "n_msgs": 2,
+  "measured": 3437,
+  "chars_div_4": 2208,
+  "tiktoken": 2212
+ },
+ {
+  "sample": "long_system_legal",
+  "model": "claude-sonnet-5-5",
+  "chars": 8832,
+  "n_msgs": 2,
+  "measured": 3437,
+  "chars_div_4": 2208,
+  "tiktoken": 2212
+ },
+ {
+  "sample": "long_system_legal",
+  "model": "gpt-5.2",
+  "chars": 8832,
+  "n_msgs": 2,
+  "measured": 2222,
+  "chars_div_4": 2208,
+  "tiktoken": 2212
+ },
+ {
+  "sample": "multi_turn",
+  "model": "gpt-5.2",
+  "chars": 1276,
+  "n_msgs": 13,
+  "measured": 399,
+  "chars_div_4": 319,
+  "tiktoken": 333
+ },
+ {
+  "sample": "welsh",
+  "model": "claude-haiku-5-5",
+  "chars": 744,
+  "n_msgs": 1,
+  "measured": 446,
+  "chars_div_4": 186,
+  "tiktoken": 235
+ },
+ {
+  "sample": "welsh",
+  "model": "claude-sonnet-5-5",
+  "chars": 744,
+  "n_msgs": 1,
+  "measured": 446,
+  "chars_div_4": 186,
+  "tiktoken": 235
+ },
+ {
+  "sample": "welsh",
+  "model": "gpt-5.2",
+  "chars": 744,
+  "n_msgs": 1,
+  "measured": 241,
+  "chars_div_4": 186,
+  "tiktoken": 235
+ },
+ {
+  "sample": "urdu_arabic",
+  "model": "claude-haiku-5-5",
+  "chars": 582,
+  "n_msgs": 1,
+  "measured": 428,
+  "chars_div_4": 145,
+  "tiktoken": 188
+ },
+ {
+  "sample": "urdu_arabic",
+  "model": "claude-sonnet-5-5",
+  "chars": 582,
+  "n_msgs": 1,
+  "measured": 428,
+  "chars_div_4": 145,
+  "tiktoken": 188
+ },
+ {
+  "sample": "urdu_arabic",
+  "model": "gpt-5.2",
+  "chars": 582,
+  "n_msgs": 1,
+  "measured": 194,
+  "chars_div_4": 145,
+  "tiktoken": 188
+ },
+ {
+  "sample": "json_numbers",
+  "model": "claude-haiku-5-5",
+  "chars": 1799,
+  "n_msgs": 1,
+  "measured": 832,
+  "chars_div_4": 449,
+  "tiktoken": 641
+ },
+ {
+  "sample": "json_numbers",
+  "model": "claude-sonnet-5-5",
+  "chars": 1799,
+  "n_msgs": 1,
+  "measured": 832,
+  "chars_div_4": 449,
+  "tiktoken": 641
+ },
+ {
+  "sample": "json_numbers",
+  "model": "gpt-5.2",
+  "chars": 1799,
+  "n_msgs": 1,
+  "measured": 647,
+  "chars_div_4": 449,
+  "tiktoken": 641
+ },
+ {
+  "sample": "multi_turn",
+  "model": "claude-haiku-5-5",
+  "chars": 1286,
+  "n_msgs": 14,
+  "measured": 525,
+  "chars_div_4": 321,
+  "tiktoken": 336
+ },
+ {
+  "sample": "multi_turn",
+  "model": "claude-sonnet-5-5",
+  "chars": 1286,
+  "n_msgs": 14,
+  "measured": 525,
+  "chars_div_4": 321,
+  "tiktoken": 336
+ },
+ {
+  "sample": "output_en",
+  "model": "claude-haiku-5-5",
+  "out_chars": 1116,
+  "completion_tokens": 680,
+  "chars_div_4": 279,
+  "tiktoken": 249
+ },
+ {
+  "sample": "output_en",
+  "model": "claude-haiku-5-5",
+  "out_chars": 0,
+  "completion_tokens": 700,
+  "chars_div_4": 0,
+  "tiktoken": 0
+ },
+ {
+  "sample": "output_en",
+  "model": "claude-sonnet-5-5",
+  "out_chars": 1197,
+  "completion_tokens": 419,
+  "chars_div_4": 299,
+  "tiktoken": 267
+ },
+ {
+  "sample": "output_en",
+  "model": "claude-sonnet-5-5",
+  "out_chars": 709,
+  "completion_tokens": 700,
+  "chars_div_4": 177,
+  "tiktoken": 218
+ },
+ {
+  "sample": "output_en",
+  "model": "gpt-5.2",
+  "out_chars": 1158,
+  "completion_tokens": 276,
+  "chars_div_4": 289,
+  "tiktoken": 273
+ },
+ {
+  "sample": "output_en",
+  "model": "gpt-5.2",
+  "out_chars": 710,
+  "completion_tokens": 227,
+  "chars_div_4": 177,
+  "tiktoken": 224
+ }
+]
