@@ -2343,7 +2343,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
             except Exception:
                 logger.exception("Streaming fallback also failed")
                 await _refund_lex(user["id"], bool(data.deep_think))
-                yield f"data: {_json.dumps({'type':'error','message':lex_output.FAILED_MSG})}\n\n"
+                yield f"data: {_json.dumps({'type':'error','code':'lex_incomplete','message':lex_output.FAILED_MSG})}\n\n"
                 yield f"data: {_json.dumps({'type':'done'})}\n\n"
                 return
         if _stream_usage.get("finish") == "length":

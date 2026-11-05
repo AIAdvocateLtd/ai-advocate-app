@@ -153,7 +153,7 @@ def test_stream_both_blank_error_and_refund(env):
     _mock_stream(mp, calls, [], "length")
     _mock_completion(mp, calls, [("", "stop")])
     ev = _stream(loop, {"message": MSG, "language": "en-GB", "country": "GB"})
-    assert any(e["type"] == "error" and "not been counted" in e["message"] for e in ev)
+    assert any(e["type"] == "error" and e.get("code") == "lex_incomplete" and "not been counted" in e["message"] for e in ev)
     assert _count(loop, uid) == 0
     assert loop.run_until_complete(server.db.conversations.count_documents({"user_id": uid})) == 0
 

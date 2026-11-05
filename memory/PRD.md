@@ -1044,3 +1044,10 @@ Production redeploy required. All env vars unchanged.
 - Stage 3+ NOT started — awaiting founder approval.
 - PRIORITY BUG (confirmed, not fixed): Claude 5.5 hidden reasoning uses the whole output cap -> blank Lex replies for Free (9/10 tests) and complex Pro questions; quota still consumed. Plus/GPT-5.2 fine. See stage2_report.md bottom. Awaiting founder approval to fix.
 
+
+## Blank-reply fix (2026-11-05, preview only, NOT deployed) — see memory/release_lex_repair.md
+- lex_output.py thinking control (Haiku 5.5 off; Sonnet 5.5 budget 1024/cap 2600; Deep Think 1500/4000), blank -> Sonnet 4.5 fallback -> lex_incomplete notice + quota refund; cut-off note; finish_reason/reasoning_tokens logged; admin lex_reply_health.
+- Frontend: stream lex_incomplete shown without re-sending.
+- Regression iteration_46: 52/52 unit, 14/14 live, all tiers non-blank; UI desktop+mobile OK. Spend this round ≈ £1.70.
+- Known: Free 1200 cap still cuts long answers (note shown); founder decision needed to change. Production confirmed affected (deployed run 2f1ec1d6).
+- Awaiting founder deployment approval. No Stage 3.

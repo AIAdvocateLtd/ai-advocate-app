@@ -2208,6 +2208,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
     // We use fetch + ReadableStream (EventSource doesn't support POST).
     // If the stream fails for any reason we fall back to the buffered endpoint.
     let streamed = false;
+    let incomplete = false;
     try {
       const token = localStorage.getItem("aa_token");
       const resp = await fetch(`${API}/lex/chat/stream`, {
@@ -2314,6 +2315,9 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
             // we still surface the full_text the backend computed.
             // The server's final text includes citation/research safety checks, so it replaces the raw tokens.
             if (payload.full_text) assembled = payload.full_text;
+          } else if (payload.type === "error" && payload.code === "lex_incomplete") {
+            // Server already retried and refunded the message — show its notice instead of retrying again.
+            assembled = payload.message; incomplete = true;
           } else if (payload.type === "error") {
             throw new Error(payload.message || "stream error");
           }
@@ -2324,6 +2328,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
       // revealing whatever's left then mark the bubble as no longer typing.
       streamDone = true;
       streamed = true;
+      if (incomplete) return;
 
       // Post-stream side effects (smart category, deep-think usage, reminders/deadlines)
       const finalText = stripMarkers(finalDone?.full_text || assembled);
