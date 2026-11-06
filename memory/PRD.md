@@ -1056,3 +1056,11 @@ Production redeploy required. All env vars unchanged.
 - Live run activated 2026-11-06 05:44:12 GMT: healthy, fallback repair confirmed in deployed code, no 5xx/BlankReply since.
 - OPEN: live SENTRY_ENV secret = "preview" -> prod alerts not separated. User skipped secure card. Needs live value "production" + redeploy.
 - Stage 3 (login rate limiting + usage caps): NOT STARTED, user wants a written plan first, after Stage 1/2 closure.
+
+## 2026-11-06 Stage 3 (PREVIEW, not deployed)
+- Login limits (login_guard.py), fair-use allowances + spend safeguards + Free site brake + abuse guards (stage3.py),
+  admin "Fair use & spending" card (AdminFairUse.js), chat notice (FairUseNotice.js). Report: release_stage3.md.
+- Owner decisions: Free 2 lifetime actions; Plus 300/mo (40/day); Pro & Yearly 600/mo (80/day); no model changes ever without separate approval;
+  Letter Pack keeps Plus chat capped 100; Yearly grandfathered until renewal; paid limits only after 30-day notice (admin start date).
+- Pending owner: wording sign-off (stage3_wording_drafts.md), production deploy approval, live SENTRY_ENV=production.
+- Backlog: 25 flagged legal facts review; Stages 4-6; Lex 2.0 Option C; age checkbox; personalised toasts; founder story page.

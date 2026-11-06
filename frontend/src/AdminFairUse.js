@@ -44,7 +44,7 @@ function FlagRow({ f, onLift }) {
   );
 }
 
-export function AdminFairUseCard({ api, toast, prompt }) {
+export function AdminFairUseCard({ api, toast, prompt, confirm }) {
   const [d, setD] = useState(null);
   const load = () => api.get("/admin/fair-use").then(r => setD(r.data)).catch(() => toast("Couldn't load fair-use settings", "error"));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -57,11 +57,16 @@ export function AdminFairUseCard({ api, toast, prompt }) {
     save({ thresholds: { [tier]: { flag: n[0], cooldown: n[1], monthly_review: n[2] } } });
   };
   const setEffective = async () => {
-    const v = await prompt({ title: "Paid limits start date", message: "Only set this after the 30-day notice email has been sent. Format YYYY-MM-DD (UK). Leave blank to keep paid limits off.", defaultValue: (d.settings.paid_limits_effective_at || "").slice(0, 10), confirmLabel: "Save" });
+    const v = await prompt({ title: "Paid limits start date", message: "Only set this after the 30-day notice email has been sent. Limits start at midnight UK time. Format YYYY-MM-DD. Leave blank to keep paid limits off.", defaultValue: (d.settings.paid_limits_effective_at || "").slice(0, 10), confirmLabel: "Save" });
     if (v === null || v === undefined) return;
     const day = v.trim();
-    if (day && (!/^\d{4}-\d{2}-\d{2}$/.test(day) || isNaN(new Date(`${day}T00:00:00Z`)))) { toast("Please use the format YYYY-MM-DD", "error"); return; }
-    save({ paid_limits_effective_at: day ? new Date(`${day}T00:00:00Z`).toISOString() : null });
+    const parsed = new Date(`${day}T00:00:00Z`);
+    if (day && (!/^\d{4}-\d{2}-\d{2}$/.test(day) || isNaN(parsed) || parsed.toISOString().slice(0, 10) !== day)) {
+      toast("Please enter a real date as YYYY-MM-DD", "error"); return;
+    }
+    if (day && day <= new Date().toISOString().slice(0, 10) &&
+        !(await confirm({ title: "Start paid limits now?", message: "This date is today or in the past, so paid allowances switch on immediately.", danger: true, confirmLabel: "Start now" }))) return;
+    save({ paid_limits_effective_at: day || null });
   };
   const exempt = async () => {
     const email = await prompt({ title: "Exempt a customer", message: "Their account skips fair-use limits and safeguards.", placeholder: "name@example.com", confirmLabel: "Exempt" });

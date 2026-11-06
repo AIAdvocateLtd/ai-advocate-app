@@ -1327,7 +1327,7 @@ async def verify_turnstile(token: Optional[str], request: Optional[Request] = No
         raise HTTPException(400, "Bot-check didn't load. If you're using Brave or a privacy browser, disable Shields for this site and refresh — or try Safari/Chrome.")
     payload = {"secret": TURNSTILE_SECRET_KEY, "response": token}
     if request is not None and request.client is not None:
-        payload["remoteip"] = request.client.host
+        payload["remoteip"] = _client_ip(request)
     try:
         import httpx as _httpx
         async with _httpx.AsyncClient(timeout=6.0) as client_:
@@ -1466,7 +1466,7 @@ async def waitlist_join(data: WaitlistSignup, request: Request):
         "source": (data.source or "direct")[:60],
         "interests": [i.strip()[:40] for i in (data.interests or [])][:8],
         "device_id": (data.device_id or "")[:64],
-        "ip": (request.client.host if request.client else None),
+        "ip": _client_ip(request) or None,
         "user_agent": (request.headers.get("user-agent") or "")[:200],
         "created_at": now_iso,
         "notified_at": None,                                                # set when launch email goes out
@@ -1574,7 +1574,7 @@ async def signup(data: UserSignup, request: Request):
         "stripe_subscription_id": None,
         "terms_accepted": True,
         "signup_device_id": data.device_id,  # for abuse fingerprinting (1 user per device per 24h max ≈ 2)
-        "signup_ip": (request.client.host if request.client else None),
+        "signup_ip": _client_ip(request) or None,
         "signup_network_ip": _client_ip(request),
         "email_canonical": stage3.canonical_email(data.email),
         # 📧 Email-verification gate. False for email/password signups; flipped
@@ -1711,7 +1711,7 @@ async def auth_resend_verification(data: ResendVerifyReq, request: Request):
     enumeration. The user just sees 'check your inbox' regardless."""
     import secrets as _s, hashlib as _h
     email = (data.email or "").strip().lower()
-    ip = (request.client.host if request.client else "unknown")
+    ip = _client_ip(request) or "unknown"
     now = datetime.now(timezone.utc)
     one_hour_ago = (now - timedelta(hours=1)).isoformat()
 

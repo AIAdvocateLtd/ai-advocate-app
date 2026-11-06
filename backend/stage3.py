@@ -244,7 +244,7 @@ def _parse_dt(v):
     if not v:
         return None
     d = v if isinstance(v, datetime) else datetime.fromisoformat(str(v).replace("Z", "+00:00"))
-    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    return d if d.tzinfo else d.replace(tzinfo=UK)
 
 
 async def _flag(user: dict, day: str, level: str, spent: float, until: str = None):
