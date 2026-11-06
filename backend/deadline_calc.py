@@ -68,8 +68,8 @@ def _working_days(start: date, n: int, nation: str = "england") -> date:
 
 def _closed_day_note(d: date, nation: str = "england") -> str:
     if d.weekday() >= 5 or d in bank_holidays(nation):
-        what = d.strftime("%A") if d.weekday() >= 5 else "a bank holiday"
-        return (f" Note: {fmt(d)} is {what} — do not assume the deadline moves to the next working day; act before it.")
+        what = "a weekend" if d.weekday() >= 5 else "a bank holiday"
+        return (f" Note: this date falls on {what} — do not assume the deadline moves to the next working day; act before it.")
     if not (BANK_HOLIDAY_YEARS[0] <= d.year <= BANK_HOLIDAY_YEARS[1]):
         return " (Bank holidays for that year were not checked.)"
     return ""
@@ -104,6 +104,10 @@ def _et(c) -> List[Item]:
         safe = min(limit, ni_limit)
         return [(f"UK nation of the workplace not confirmed. {gb_text} {ni_text} Until confirmed, treat {fmt(safe)} as the "
                  "safe date.", "Contact ACAS/LRA (tribunal time limit — safe date)", safe)]
+    if months == 3 and limit >= date(2026, 10, 1):
+        gb_text += (" The limit rose to 6 months for matters from 1 October 2026; transitional rules may give this claim longer, "
+                    "so treat this as the safe date — if it has passed, do not assume the claim is out of time: contact ACAS and get "
+                    "advice urgently.")
     out: List[Item] = [(gb_text, "Contact ACAS (tribunal time limit)", limit)]
     a, b = _d(c.get("acas_date")), _d(c.get("certificate_date"))
     if a and a > limit:

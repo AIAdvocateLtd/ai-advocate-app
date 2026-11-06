@@ -1,0 +1,242 @@
+[
+ {
+  "variant": "A_1200",
+  "q": "en_complex",
+  "finish": "length",
+  "out_tokens": 1200,
+  "in_tokens": 4210,
+  "chars": 3428,
+  "complete": false,
+  "text_head": "Lex, here. Leeds is in England, so England & Wales law applies. This is general information, so please check the dates on GOV.UK before relying on them.  **Issu"
+ },
+ {
+  "variant": "A_1200",
+  "q": "en_dismissal",
+  "finish": "stop",
+  "out_tokens": 1126,
+  "in_tokens": 3865,
+  "chars": 3188,
+  "complete": true,
+  "text_head": "**Short answer: very likely yes.** Dismissal with no warning and no meeting, after 3 years' service, is a strong basis for an unfair dismissal claim, and you cl"
+ },
+ {
+  "variant": "A_1200",
+  "q": "en_simple",
+  "finish": "stop",
+  "out_tokens": 898,
+  "in_tokens": 3627,
+  "chars": 2572,
+  "complete": true,
+  "text_head": "**Short answer:** In England, generally no. A landlord must give you at least **24 hours' written notice** before entering your home, and the entry must be at a"
+ },
+ {
+  "variant": "A_1200",
+  "q": "en_letter",
+  "finish": "stop",
+  "out_tokens": 771,
+  "in_tokens": 3643,
+  "chars": 2214,
+  "complete": true,
+  "text_head": "Here is a letter you can adapt. Fill in the bracketed details and send it by a method you can prove, such as email with a read receipt or recorded delivery post"
+ },
+ {
+  "variant": "A_1200",
+  "q": "cy",
+  "finish": "length",
+  "out_tokens": 1200,
+  "in_tokens": 3662,
+  "chars": 2120,
+  "complete": false,
+  "text_head": "You've written in Welsh, so I'll answer in Welsh. Note: I'm replying in Welsh because you wrote to me in Welsh; the rest of my replies will follow the language "
+ },
+ {
+  "variant": "A_1200",
+  "q": "ur",
+  "finish": "length",
+  "out_tokens": 1200,
+  "in_tokens": 3026,
+  "chars": 1622,
+  "complete": false,
+  "text_head": "**فرضی سوال — انگلینڈ میں کرائے دار کے حقوق**  آپ کے دو مسائل ہیں: بے دخلی کا نوٹس اور ڈپازٹ کی حفاظت۔ دونوں کا جواب انگلینڈ کے قوانین کے تحت دیا جا رہا ہے۔  **"
+ },
+ {
+  "variant": "B_1200_concise",
+  "q": "en_complex",
+  "finish": "stop",
+  "out_tokens": 1004,
+  "in_tokens": 4328,
+  "chars": 2700,
+  "complete": true,
+  "text_head": "**Urgent: your deadlines this week**  - **Section 8 notice served 2 November 2026.** Under the Renters' Rights Act 2025 (from 1 May 2026), a Ground 8 notice for"
+ },
+ {
+  "variant": "B_1200_concise",
+  "q": "en_dismissal",
+  "finish": "stop",
+  "out_tokens": 1008,
+  "in_tokens": 3983,
+  "chars": 2849,
+  "complete": true,
+  "text_head": "**Short answer: yes, you very likely have a strong unfair dismissal claim, and the clock is already running.**  **Key facts and rules (England & Wales / Scotlan"
+ },
+ {
+  "variant": "B_1200_concise",
+  "q": "en_simple",
+  "finish": "stop",
+  "out_tokens": 660,
+  "in_tokens": 3745,
+  "chars": 1815,
+  "complete": true,
+  "text_head": "**Short answer: usually no.** In England, a landlord generally needs your consent or proper notice to enter, and only for a legitimate reason. Entering without "
+ },
+ {
+  "variant": "B_1200_concise",
+  "q": "en_letter",
+  "finish": "stop",
+  "out_tokens": 668,
+  "in_tokens": 3761,
+  "chars": 1923,
+  "complete": true,
+  "text_head": "Here is a letter you can adapt and send. Keep a copy and send it in a way you can prove (email with read receipt, or recorded delivery post).  ---  [Your full n"
+ },
+ {
+  "variant": "B_1200_concise",
+  "q": "cy",
+  "finish": "stop",
+  "out_tokens": 1172,
+  "in_tokens": 3780,
+  "chars": 1960,
+  "complete": true,
+  "text_head": "Mae'n flin gen i glywed hyn. Gan eich bod yng Nghaerdydd, mae cyfraith Cymru yn berthnasol (Deddf Rhentu Cartrefi (Cymru) 2016), ac mae'n wahanol i Loegr.  **1."
+ },
+ {
+  "variant": "B_1200_concise",
+  "q": "ur",
+  "finish": "stop",
+  "out_tokens": 1164,
+  "in_tokens": 3144,
+  "chars": 1691,
+  "complete": true,
+  "text_head": "**ضروری نکات (انگلینڈ):**  **1. نوٹس کی قسم پہلے دیکھیں** - **Section 21 نوٹس** (بغیر وجہ): Renters' Rights Act 2025 کے تحت یکم مئی 2026 سے نئے section 21 نوٹس "
+ },
+ {
+  "variant": "C_1600",
+  "q": "en_complex",
+  "finish": "stop",
+  "out_tokens": 1426,
+  "in_tokens": 4210,
+  "chars": 3879,
+  "complete": true,
+  "text_head": "**Issue:** You're in Leeds (England), your landlord has served a section 8 notice for arrears, and there are several potential counter-claims against him: an un"
+ },
+ {
+  "variant": "C_1600",
+  "q": "en_dismissal",
+  "finish": "stop",
+  "out_tokens": 903,
+  "in_tokens": 3865,
+  "chars": 2544,
+  "complete": true,
+  "text_head": "**Short answer:** Very probably yes. You have a strong basis for an **unfair dismissal** claim, and you have time, but you should act now.  **Key points (Englan"
+ },
+ {
+  "variant": "C_1600",
+  "q": "en_simple",
+  "finish": "stop",
+  "out_tokens": 749,
+  "in_tokens": 3627,
+  "chars": 2190,
+  "complete": true,
+  "text_head": "**Short answer:** In England, generally no. A landlord needs your consent or proper notice before entering, except in genuine emergencies.  **The key rule** - U"
+ },
+ {
+  "variant": "C_1600",
+  "q": "en_letter",
+  "finish": "stop",
+  "out_tokens": 797,
+  "in_tokens": 3643,
+  "chars": 2394,
+  "complete": true,
+  "text_head": "Here is a letter you can adapt and send. Keep a copy and send it by email or recorded delivery so you have proof of when it was received.  ---  [Your full name]"
+ },
+ {
+  "variant": "C_1600",
+  "q": "cy",
+  "finish": "stop",
+  "out_tokens": 929,
+  "in_tokens": 3662,
+  "chars": 2694,
+  "complete": true,
+  "text_head": "I'll reply in English, as per the system instruction, though your message was in Welsh. Let me know if you'd prefer Welsh.  **Your situation (Cardiff, Wales)** "
+ },
+ {
+  "variant": "C_1600",
+  "q": "ur",
+  "finish": "stop",
+  "out_tokens": 1553,
+  "in_tokens": 3026,
+  "chars": 2131,
+  "complete": true,
+  "text_head": "یہ جواب برطانیہ (انگلینڈ) کے قانون کے مطابق ہے۔  **1. بے دخلی کا نوٹس (Eviction Notice)**  اہم تبدیلی: **Renters' Rights Act 2025** کے تحت یکم مئی 2026 سے انگلی"
+ },
+ {
+  "variant": "D_1600_concise",
+  "q": "en_complex",
+  "finish": "stop",
+  "out_tokens": 1004,
+  "in_tokens": 4328,
+  "chars": 2754,
+  "complete": true,
+  "text_head": "**Urgent: your section 8 notice and deadlines**  Before anything else, check the notice itself. Under the Renters' Rights Act 2025 (in force from 1 May 2026), a"
+ },
+ {
+  "variant": "D_1600_concise",
+  "q": "en_dismissal",
+  "finish": "stop",
+  "out_tokens": 765,
+  "in_tokens": 3983,
+  "chars": 2073,
+  "complete": true,
+  "text_head": "**Short answer: very likely yes.** Dismissal with no warning or meeting is a strong basis for an unfair dismissal claim, and you have 3 years' service, well abo"
+ },
+ {
+  "variant": "D_1600_concise",
+  "q": "en_simple",
+  "finish": "stop",
+  "out_tokens": 669,
+  "in_tokens": 3745,
+  "chars": 1946,
+  "complete": true,
+  "text_head": "**Short answer: usually no.** In England, a landlord generally needs your consent or proper notice to enter, except in genuine emergencies.  **The key rules**  "
+ },
+ {
+  "variant": "D_1600_concise",
+  "q": "en_letter",
+  "finish": "stop",
+  "out_tokens": 677,
+  "in_tokens": 3761,
+  "chars": 1999,
+  "complete": true,
+  "text_head": "Here is a letter you can adapt and send. Keep a copy and use recorded delivery or email so you have proof of when it was sent.  ---  [Your full name] [Your addr"
+ },
+ {
+  "variant": "D_1600_concise",
+  "q": "cy",
+  "finish": "stop",
+  "out_tokens": 1259,
+  "in_tokens": 3780,
+  "chars": 2178,
+  "complete": true,
+  "text_head": "Mae'r ateb yma yn Gymraeg oherwydd i chi ysgrifennu yn Gymraeg, ond mae'r gyfraith yn berthnasol i Gymru (Renting Homes (Wales) Act 2016).  **Y pethau pwysicaf "
+ },
+ {
+  "variant": "D_1600_concise",
+  "q": "ur",
+  "finish": "stop",
+  "out_tokens": 1533,
+  "in_tokens": 3144,
+  "chars": 2002,
+  "complete": true,
+  "text_head": "آپ کا سوال انگلینڈ کے تناظر میں ہے، اس لیے میں انگلینڈ اور ویلز کا قانون لاگو کر رہا ہوں۔  **فوری اہم نکات**  - **نوٹس کی قسم دیکھیں:** 1 مئی 2026 سے سیکشن 21 ک"
+ }
+]

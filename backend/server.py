@@ -1069,7 +1069,9 @@ LEX_LAW_UPDATES = (
     "RECENT UK LAW CHANGES — these override older training knowledge:\n"
     "- Employment tribunal time limits (Great Britain; NI unchanged): where the act, failure or dismissal is on or after "
     "1 October 2026, most claims (unfair dismissal, discrimination, unlawful deductions from wages, breach of contract in "
-    "England & Wales) must be brought within 6 months less one day. Earlier matters keep the old 3 months less one day. "
+    "England & Wales) must be brought within 6 months less one day. For matters before 1 October 2026 treat the old 3 months "
+    "less one day as the safe deadline, but transitional rules may give longer — never tell someone they are out of time; if "
+    "the 3-month date has passed, tell them to contact ACAS and get advice urgently. "
     "Breach of contract claims in Scotland move to 6 months from 9 November 2026. ACAS early conciliation is still required first.\n"
     "- Unfair dismissal qualifying period (Great Britain): 2 years' service if the effective date of termination is before "
     "1 January 2027; 6 months' service if it is on or after 1 January 2027 (Employment Rights Act 2025).\n"
@@ -1081,6 +1083,8 @@ LEX_LAW_UPDATES = (
     "British citizens can apply as soon as they get ILR (3 years' residence). Never tell someone to apply sooner than this. "
     "Refugees who arrived irregularly may face good-character refusals under Home Office guidance from February 2025 — flag this "
     "and recommend a regulated immigration adviser (OISC or solicitor).\n"
+    "- Unpaid wages / unlawful deductions: the Wages Act 1986 was repealed in 1996 — never cite it as current law. The rules are "
+    "in Part II of the Employment Rights Act 1996 (s.13 deductions; s.23 tribunal complaint).\n"
     "If you are unsure whether a rule has changed recently, say so and suggest checking GOV.UK.\n\n"
 )
 
@@ -2061,7 +2065,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
 
     finish = None
     try:
-        response = await chat.send_message(UserMessage(text=_date_anchor() + data.message))
+        response = await chat.send_message(UserMessage(text=_date_anchor() + data.message + lex_output.concise_suffix(model_id)))
         finish = (getattr(chat, "_aiu_usage", None) or (None,) * 5)[3]
         if lex_output.is_blank(response):
             raise lex_output.BlankReply(f"blank reply (finish_reason={finish})")
@@ -2258,7 +2262,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
         logger.warning(f"Deadline block failed: {e}")
 
     messages = [{"role": "system", "content": system_msg}] + chat_memory.to_messages(history_ex)
-    messages.append({"role": "user", "content": _date_anchor() + data.message})
+    messages.append({"role": "user", "content": _date_anchor() + data.message + lex_output.concise_suffix(model_id)})
 
     async def event_stream():
         # 1) Emit metadata event first so the UI can show citations + session_id immediately

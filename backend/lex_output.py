@@ -14,6 +14,16 @@ def gen_params(model_id: str, max_tok: int, deep_think: bool = False) -> tuple:
     return max_tok, {}
 
 
+# Free-tier only: tested 5 Nov 2026 — 6/6 complete at the unchanged 1,200 cap (vs 3/6 without), ~11% fewer tokens.
+CONCISE_SUFFIX = ("\n\n[Answer format for this reply: be concise — at most about 300 words (fewer in non-Latin scripts), short "
+                  "bullets, the most urgent steps and any deadline first, then the disclaimer line and the [CONFIDENCE]/[SOURCES] "
+                  "lines. If more detail would help, offer it in one closing sentence. A letter may be up to about 350 words.]")
+
+
+def concise_suffix(model_id: str) -> str:
+    return CONCISE_SUFFIX if model_id == "claude-haiku-5-5" else ""
+
+
 def is_blank(text) -> bool:
     return not (text or "").strip()
 

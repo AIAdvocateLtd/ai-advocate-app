@@ -177,3 +177,20 @@ def test_stream_pro_gets_thinking_budget(env):
     kw = calls["stream"][0]
     assert kw["model"] == "claude-sonnet-5-5"
     assert kw["max_tokens"] == 2600 and kw["extra_body"]["thinking"]["budget_tokens"] == 1024
+
+
+def test_free_gets_concise_suffix_pro_does_not(env):
+    loop, uid, calls, mp = env
+    _mock_stream(mp, calls, ["Short complete answer. [CONFIDENCE: HIGH]"], "stop")
+    _stream(loop, {"message": MSG, "language": "en-GB", "country": "GB"})
+    assert calls["stream"][0]["messages"][-1]["content"].endswith(lex_output.CONCISE_SUFFIX)
+    assert lex_output.concise_suffix("claude-sonnet-5-5") == "" and lex_output.concise_suffix("gpt-5.2") == ""
+    saved = loop.run_until_complete(server.db.conversations.find_one({"user_id": uid}))
+    assert "Answer format" not in (server.decrypt_text(saved["user_message"]) or "")
+
+
+def test_et_transitional_caveat():
+    import deadline_calc as dc
+    t = dc.compute([{"type": "employment_tribunal", "event_date": "2026-08-01", "jurisdiction": "england"}])[0][0]
+    assert "transitional rules" in t and "do not assume the claim is out of time" in t
+    assert "Wages Act 1986 was repealed" in server.LEX_LAW_UPDATES

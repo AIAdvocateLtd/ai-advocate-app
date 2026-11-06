@@ -1,0 +1,115 @@
+{
+ "cost_gbp": 0.2131,
+ "complete": 8,
+ "total": 10,
+ "finish": [
+  "stop",
+  "stop",
+  "length",
+  "length",
+  "length",
+  "stop",
+  "stop",
+  "length",
+  "stop",
+  "stop"
+ ],
+ "tokens_out": [
+  891,
+  918,
+  1200,
+  1200,
+  1200,
+  1055,
+  932,
+  1200,
+  759,
+  687
+ ],
+ "results": [
+  {
+   "q": "en_complex",
+   "chars": 2387,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null
+  },
+  {
+   "q": "en_dismissal",
+   "chars": 2837,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null
+  },
+  {
+   "q": "cy",
+   "chars": 2042,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null
+  },
+  {
+   "q": "ur",
+   "chars": 1716,
+   "blank": false,
+   "has_end_markers": false,
+   "cut_note": true,
+   "error": null
+  },
+  {
+   "q": "ar",
+   "chars": 1936,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null
+  },
+  {
+   "q": "pl",
+   "chars": 2309,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null
+  },
+  {
+   "q": "zh",
+   "chars": 1130,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null
+  },
+  {
+   "q": "hi",
+   "chars": 1909,
+   "blank": false,
+   "has_end_markers": false,
+   "cut_note": true,
+   "error": null
+  },
+  {
+   "q": "en_wages",
+   "chars": 2144,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null,
+   "cites_wages_act_1986_as_current": false,
+   "mentions_era_1996": true
+  },
+  {
+   "q": "en_et_transitional",
+   "chars": 1930,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null,
+   "says_definitely_out_of_time": false,
+   "mentions_transitional_or_advice": true
+  }
+ ]
+}

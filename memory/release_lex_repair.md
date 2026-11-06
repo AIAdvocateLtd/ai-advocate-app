@@ -28,3 +28,15 @@ Note: rolling back restores the blank-reply bug (production currently has it).
 - TAVILY_API_KEY / TAVILY_MONTHLY_CAP must exist in production secrets (preview: cap 900); missing key -> research_status not_configured (handled).
 - Fact-pack needs_review flags exist in preview DB only.
 - Stripe/Resend/Turnstile live keys unchanged.
+
+## Final checks round (2026-11-05)
+- Free conciseness: lex_output.CONCISE_SUFFIX appended to the model-only user turn for claude-haiku-5-5 (not saved). Experiment
+  (tests/free_tier_concise_experiment.py): 1200 baseline 3/6 complete; concise@1200 6/6; avg out 1066 -> 946 tokens.
+  Live (tests/free_tier_live_validation.py + blank_reply_live_check): English 6/6 complete; ar/pl/zh 3/3; Welsh 2/3; Urdu 0/3; Hindi 0/1
+  (cut-off note shown). Hindi/Urdu need ~1,770-1,900 tokens even concise (2000 cap -> complete). PROPOSED (not applied): Free cap 2000.
+- Legal text: LEX_LAW_UPDATES no longer states pre-Oct-2026 ET matters definitely keep 3 months (transitional caveat, never say out of
+  time); Wages Act 1986 marked repealed -> ERA 1996 Part II. deadline_calc ET transitional caveat; weekend note wording.
+- Security: login no rate limit/lockout (Medium, pre-existing, credential stuffing feasible); JWT in localStorage 30 days (Low, no XSS sinks
+  found: no dangerouslySetInnerHTML, AI text rendered as React text, links from retrieved/constructed URLs); CORS * + credentials (Low,
+  bearer-header auth, no cookies -> not exploitable cross-site).
+- Round AI cost ≈ £0.79.

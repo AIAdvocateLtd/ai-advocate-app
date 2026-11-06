@@ -1,5 +1,5 @@
 {
- "cost_gbp": 0.3203,
+ "cost_gbp": 0.3575,
  "lex_rows": [
   {
    "model_requested": "claude-haiku-5-5",
@@ -7,29 +7,29 @@
    "attempt": "primary",
    "finish_reason": "stop",
    "reasoning_tokens": 0,
-   "tokens_out": 619,
-   "output_chars": 1776,
-   "cost_gbp": 0.007271
+   "tokens_out": 659,
+   "output_chars": 1920,
+   "cost_gbp": 0.00766
   },
   {
    "model_requested": "claude-haiku-5-5",
    "call_site": "lex_stream",
    "attempt": "primary",
-   "finish_reason": "length",
+   "finish_reason": "stop",
    "reasoning_tokens": 0,
-   "tokens_out": 1200,
-   "output_chars": 3472,
-   "cost_gbp": 0.010345
+   "tokens_out": 988,
+   "output_chars": 2698,
+   "cost_gbp": 0.009683
   },
   {
    "model_requested": "claude-haiku-5-5",
    "call_site": "",
    "attempt": "primary",
-   "finish_reason": "length",
+   "finish_reason": "stop",
    "reasoning_tokens": 0,
-   "tokens_out": 1200,
-   "output_chars": 3375,
-   "cost_gbp": 0.010345
+   "tokens_out": 933,
+   "output_chars": 2458,
+   "cost_gbp": 0.009441
   },
   {
    "model_requested": "claude-haiku-5-5",
@@ -38,8 +38,8 @@
    "finish_reason": "length",
    "reasoning_tokens": 0,
    "tokens_out": 1200,
-   "output_chars": 2001,
-   "cost_gbp": 0.010261
+   "output_chars": 2077,
+   "cost_gbp": 0.010402
   },
   {
    "model_requested": "claude-haiku-5-5",
@@ -48,8 +48,8 @@
    "finish_reason": "length",
    "reasoning_tokens": 0,
    "tokens_out": 1200,
-   "output_chars": 1559,
-   "cost_gbp": 0.009387
+   "output_chars": 1541,
+   "cost_gbp": 0.009464
   },
   {
    "model_requested": "gpt-5.2",
@@ -57,9 +57,9 @@
    "attempt": "primary",
    "finish_reason": "stop",
    "reasoning_tokens": 0,
-   "tokens_out": 1022,
-   "output_chars": 4320,
-   "cost_gbp": 0.023081
+   "tokens_out": 1195,
+   "output_chars": 5130,
+   "cost_gbp": 0.025947
   },
   {
    "model_requested": "gpt-5.2",
@@ -67,47 +67,57 @@
    "attempt": "primary",
    "finish_reason": "stop",
    "reasoning_tokens": 0,
-   "tokens_out": 607,
-   "output_chars": 2531,
-   "cost_gbp": 0.016927
+   "tokens_out": 758,
+   "output_chars": 3158,
+   "cost_gbp": 0.01922
   },
   {
    "model_requested": "claude-sonnet-5-5",
    "call_site": "lex_stream",
    "attempt": "primary",
    "finish_reason": "stop",
-   "reasoning_tokens": 999,
-   "tokens_out": 2161,
-   "output_chars": 3115,
-   "cost_gbp": 0.028868
+   "reasoning_tokens": 0,
+   "tokens_out": 957,
+   "output_chars": 2783,
+   "cost_gbp": 0.017473
+  },
+  {
+   "model_requested": "claude-sonnet-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 998,
+   "tokens_out": 2238,
+   "output_chars": 3279,
+   "cost_gbp": 0.029865
   },
   {
    "model_requested": "claude-sonnet-5-5",
    "call_site": "",
    "attempt": "primary",
    "finish_reason": "stop",
-   "reasoning_tokens": 877,
-   "tokens_out": 2080,
-   "output_chars": 3224,
-   "cost_gbp": 0.028155
+   "reasoning_tokens": 994,
+   "tokens_out": 2216,
+   "output_chars": 3243,
+   "cost_gbp": 0.029672
   },
   {
    "model_requested": "claude-sonnet-5-5",
    "call_site": "lex_stream",
    "attempt": "primary",
    "finish_reason": "stop",
-   "reasoning_tokens": 980,
-   "tokens_out": 2275,
-   "output_chars": 3390,
-   "cost_gbp": 0.029871
+   "reasoning_tokens": 952,
+   "tokens_out": 2236,
+   "output_chars": 3327,
+   "cost_gbp": 0.029848
   }
  ],
- "passed": 10,
+ "passed": 11,
  "total": 11,
  "results": [
   {
    "case": "free_simple_stream",
-   "chars": 2023,
+   "chars": 1921,
    "blank": false,
    "cut_note": false,
    "ending_markers": true,
@@ -115,31 +125,31 @@
   },
   {
    "case": "free_complex_stream",
-   "chars": 3541,
+   "chars": 2698,
    "blank": false,
-   "cut_note": true,
-   "ending_markers": false,
-   "pass": true
-  },
-  {
-   "case": "free_complex_regular",
-   "chars": 3447,
-   "blank": false,
-   "cut_note": true,
-   "ending_markers": false,
-   "pass": true
-  },
-  {
-   "case": "free_welsh_stream",
-   "chars": 2070,
-   "blank": false,
-   "cut_note": true,
+   "cut_note": false,
    "ending_markers": true,
    "pass": true
   },
   {
+   "case": "free_complex_regular",
+   "chars": 2458,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "free_welsh_stream",
+   "chars": 2146,
+   "blank": false,
+   "cut_note": true,
+   "ending_markers": false,
+   "pass": true
+  },
+  {
    "case": "free_urdu_stream",
-   "chars": 1627,
+   "chars": 1609,
    "blank": false,
    "cut_note": false,
    "ending_markers": false,
@@ -147,7 +157,7 @@
   },
   {
    "case": "plus_complex_stream",
-   "chars": 4320,
+   "chars": 5130,
    "blank": false,
    "cut_note": false,
    "ending_markers": true,
@@ -155,7 +165,7 @@
   },
   {
    "case": "plus_regular",
-   "chars": 2533,
+   "chars": 3403,
    "blank": false,
    "cut_note": false,
    "ending_markers": true,
@@ -163,12 +173,15 @@
   },
   {
    "case": "pro_simple_stream",
-   "error": "ReadError('')",
-   "pass": false
+   "chars": 2783,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
   },
   {
    "case": "pro_complex_stream",
-   "chars": 3116,
+   "chars": 3279,
    "blank": false,
    "cut_note": false,
    "ending_markers": true,
@@ -176,7 +189,7 @@
   },
   {
    "case": "pro_complex_regular",
-   "chars": 3225,
+   "chars": 3244,
    "blank": false,
    "cut_note": false,
    "ending_markers": true,
@@ -184,7 +197,7 @@
   },
   {
    "case": "deep_think_stream",
-   "chars": 3634,
+   "chars": 3328,
    "blank": false,
    "cut_note": false,
    "ending_markers": true,

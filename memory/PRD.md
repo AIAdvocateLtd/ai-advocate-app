@@ -1050,4 +1050,4 @@ Production redeploy required. All env vars unchanged.
 - Frontend: stream lex_incomplete shown without re-sending.
 - Regression iteration_46: 52/52 unit, 14/14 live, all tiers non-blank; UI desktop+mobile OK. Spend this round ≈ £1.70.
 - Known: Free 1200 cap still cuts long answers (note shown); founder decision needed to change. Production confirmed affected (deployed run 2f1ec1d6).
-- Awaiting founder deployment approval. No Stage 3.
+- Final checks round done (concise Free answers, legal text fixes, security classification). Proposed Free cap 2000 awaiting approval. Awaiting founder deployment approval. No Stage 3.
