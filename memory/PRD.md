@@ -1051,3 +1051,8 @@ Production redeploy required. All env vars unchanged.
 - Regression iteration_46: 52/52 unit, 14/14 live, all tiers non-blank; UI desktop+mobile OK. Spend this round ≈ £1.70.
 - Known: Free 1200 cap still cuts long answers (note shown); founder decision needed to change. Production confirmed affected (deployed run 2f1ec1d6).
 - Free cap 2000 approved+applied; pre-deploy tests passed; production deploy dispatched 2026-11-06 — post-deploy verification pending. Next priorities (after approval): login rate limiting, usage caps, 25 flagged facts, Lex 2.0.
+
+## 2026-11-06 Production verification (Stage 1 & 2 closure)
+- Live run activated 2026-11-06 05:44:12 GMT: healthy, fallback repair confirmed in deployed code, no 5xx/BlankReply since.
+- OPEN: live SENTRY_ENV secret = "preview" -> prod alerts not separated. User skipped secure card. Needs live value "production" + redeploy.
+- Stage 3 (login rate limiting + usage caps): NOT STARTED, user wants a written plan first, after Stage 1/2 closure.
