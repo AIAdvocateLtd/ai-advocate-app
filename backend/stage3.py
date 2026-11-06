@@ -114,7 +114,9 @@ async def settings() -> dict:
 
 async def update_settings(patch: dict) -> dict:
     allowed = set(DEFAULTS) - {"site_brake_manual", "site_brake_manual_day"}
-    clean = {k: v for k, v in patch.items() if k in allowed}
+    clean = {k: v for k, v in patch.items() if k in allowed and v is not None or k == "paid_limits_effective_at"}
+    if clean.get("paid_limits_effective_at"):
+        clean["paid_limits_effective_at"] = _parse_dt(clean["paid_limits_effective_at"]).isoformat()
     if "thresholds" in clean:
         cur = (await settings())["thresholds"]
         clean["thresholds"] = {t: {k: float(v) for k, v in {**cur[t], **(clean["thresholds"].get(t) or {})}.items()
@@ -232,11 +234,17 @@ def _threshold_tier(tier: str):
 
 async def paid_limits_active(user: dict) -> bool:
     s = await settings()
-    eff = s.get("paid_limits_effective_at")
-    if not eff or _now().isoformat() < eff:
+    eff, gf = _parse_dt(s.get("paid_limits_effective_at")), _parse_dt(user.get("s3_grandfather_until"))
+    if not eff or _now() < eff:
         return False
-    gf = user.get("s3_grandfather_until")
-    return not (gf and _now().isoformat() < gf)
+    return not (gf and _now() < gf)
+
+
+def _parse_dt(v):
+    if not v:
+        return None
+    d = v if isinstance(v, datetime) else datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
 async def _flag(user: dict, day: str, level: str, spent: float, until: str = None):
@@ -293,7 +301,7 @@ async def pre_chat(user: dict, tier: str, message: str, stream: bool):
     s = await settings()
     if _is_owner(user) or user.get("s3_exempt"):
         return
-    if tier == "free" and s["free_lifetime_enabled"]:
+    if tier == "free":
         await check_free_brake()
     await check_spend(user, tier)
     if not s["abuse_guards_enabled"]:
@@ -379,9 +387,10 @@ async def consume(user: dict, tier: str, feature: str, amount: int = 1, soft: bo
         return True
     entries = []
     if tier == "free":
+        if kind in FREE_KINDS:
+            await check_free_brake()
         if not (s["free_lifetime_enabled"] and kind in FREE_KINDS):
             return True
-        await check_free_brake()
         keys = [f"email:{canonical_email(user.get('email'))}"]
         if user.get("signup_device_id"):
             keys.append(f"device:{user['signup_device_id']}")
@@ -467,7 +476,9 @@ async def usage_view(user: dict, tier: str) -> dict:
     if _is_owner(user):
         return out
     if tier == "free" and s["free_lifetime_enabled"]:
-        used = await _count(f"email:{canonical_email(user.get('email'))}", "s3-lifetime", "free_actions")
+        keys = [f"email:{canonical_email(user.get('email'))}"] + \
+            ([f"device:{user['signup_device_id']}"] if user.get("signup_device_id") else [])
+        used = max([await _count(k, "s3-lifetime", "free_actions") for k in keys])
         cap = int(s["free_lifetime_actions"])
         out["items"]["free_actions"] = {"used": used, "limit": cap, "period": "lifetime"}
         if used >= cap:

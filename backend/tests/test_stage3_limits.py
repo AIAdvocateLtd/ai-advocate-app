@@ -170,3 +170,11 @@ def test_2fa_attempt_limit():
     for _ in range(5):
         run(login_guard.fail_2fa(tok))
     assert "sign in again" in _deny(login_guard.check_2fa(tok))
+
+
+def test_client_ip_ignores_spoofed_forwarded_for():
+    from types import SimpleNamespace as NS
+    req = lambda x: NS(headers={"x-forwarded-for": x}, client=NS(host="10.0.0.1"))
+    assert server._client_ip(req("203.0.113.77,136.108.30.124,104.22.56.9,34.102.193.45")) == "136.108.30.124"
+    assert server._client_ip(req("136.108.30.124,108.162.237.97,34.102.193.45")) == "136.108.30.124"
+    assert server._client_ip(req("1.2.3.4, 9.9.9.9, 34.102.193.45")) == "9.9.9.9"

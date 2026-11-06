@@ -369,12 +369,31 @@ def make_token(user_id: str, email: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
 # ---------- Geo / sign-in anomaly detection ----------
+import ipaddress as _ipaddress
+_PROXY_NETS = [_ipaddress.ip_network(n) for n in (
+    "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "141.101.64.0/18", "108.162.192.0/18",
+    "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+    "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22", "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32",
+    "2405:b500::/32", "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32")]
+
+
+def _is_proxy_ip(ip: str) -> bool:
+    try:
+        a = _ipaddress.ip_address(ip)
+    except ValueError:
+        return True
+    return a.is_private or a.is_loopback or any(a in n for n in _PROXY_NETS if n.version == a.version)
+
+
 def _client_ip(req: Request) -> str:
-    """Best-effort client IP, honouring reverse-proxy headers."""
-    xff = req.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
-    return (req.client.host if req.client else "") or ""
+    """Real client IP: the right-most X-Forwarded-For hop that isn't our ingress, Cloudflare or private.
+    Left-most entries are client-supplied and can be spoofed, so they are ignored."""
+    hops = [h.strip() for h in (req.headers.get("x-forwarded-for") or "").split(",") if h.strip()]
+    if len(hops) > 1:
+        hops = hops[:-1]  # last hop is appended by the platform load balancer
+    while len(hops) > 1 and _is_proxy_ip(hops[-1]):
+        hops.pop()
+    return (hops[-1] if hops else "") or (req.client.host if req.client else "") or ""
 
 def _ip_country(req: Request) -> str:
     """Country code from common CDN/ingress headers. Returns '' if unavailable.
@@ -16974,8 +16993,33 @@ async def admin_fair_use(_: dict = Depends(require_admin)):
     }
 
 
+class FairUseThreshold(BaseModel):
+    flag: Optional[float] = Field(None, ge=0)
+    cooldown: Optional[float] = Field(None, ge=0)
+    monthly_review: Optional[float] = Field(None, ge=0)
+
+class FairUseSettings(BaseModel):
+    login_limits_enabled: Optional[bool] = None
+    abuse_guards_enabled: Optional[bool] = None
+    free_lifetime_enabled: Optional[bool] = None
+    free_lifetime_actions: Optional[int] = Field(None, ge=0, le=100)
+    free_lifetime_cost_cap_gbp: Optional[float] = Field(None, ge=0)
+    free_signups_per_network_7d: Optional[int] = Field(None, ge=1, le=1000)
+    pass_limits_enabled: Optional[bool] = None
+    spend_guard_enabled: Optional[bool] = None
+    paid_limits_effective_at: Optional[datetime] = None
+    site_brake_enabled: Optional[bool] = None
+    site_brake_multiplier: Optional[float] = Field(None, ge=1)
+    burst_per_minute: Optional[int] = Field(None, ge=1, le=120)
+    cooldown_minutes: Optional[int] = Field(None, ge=1, le=1440)
+    thresholds: Optional[dict[Literal["plus", "pro", "yearly"], FairUseThreshold]] = None
+
+
 @api_router.put("/admin/fair-use/settings")
-async def admin_fair_use_settings(patch: dict, _: dict = Depends(require_admin)):
+async def admin_fair_use_settings(data: FairUseSettings, _: dict = Depends(require_admin)):
+    patch = data.model_dump(exclude_unset=True)
+    if "thresholds" in patch:
+        patch["thresholds"] = {t: {k: v for k, v in th.items() if v is not None} for t, th in patch["thresholds"].items()}
     return await stage3.update_settings(patch)
 
 
@@ -17372,3 +17416,4 @@ async def shutdown_db_client():
     except Exception:
         pass
     client.close()
+

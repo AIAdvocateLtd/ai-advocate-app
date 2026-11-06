@@ -1,0 +1,47 @@
+{
+  "summary": "Stage 3 (login limits, Free 2 lifetime actions, abuse guards, admin fair-use API/UI, Free brake) tested on PREVIEW. Backend: new pytest suite tests/test_iter47_stage3_fair_use.py, 15/15 pass (one first-run failure was my test calling /api/subscription/plans, which never existed; the right endpoint is /api/subscription/tiers). Existing unit tests test_stage3_limits.py: 13/13 pass. Frontend: the admin Fair use & spending card renders below Lex's Brain with every testid; Pause and Resume update the status (running -> PAUSED -> running); all other admin cards still render. For a free user the FairUseNotice shows '2 of 2 free Lex questions left.' and drops to '1 of 2' after a real answer in the chat UI. 4 real LLM calls used in total. All settings restored (brake resume, plus flag 1.5, all switches true, paid_limits_effective_at null). All TEST users deleted.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "login_guard / _client_ip (all login endpoints + signup network limit)", "issue": "SECURITY: _client_ip trusts the first X-Forwarded-For value, which the client controls. Verified: a request with 'X-Forwarded-For: 203.0.113.77' was stored in login_attempts under the hash of 203.0.113.77. So an attacker can change the header on each request to get around the per-IP limit (20/15min), the 5-per-account+IP limit (only the 15-per-account limit still applies), the reset-password per-IP limit (10), the taster per-IP limit and the 'free_signups_per_network_7d' (3) Free signup anti-abuse limit. That last one weakens the Free lifetime cap: unlimited new emails + spoofed XFF + new device_id = unlimited free actions.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "PUT /api/admin/fair-use/settings", "issue": "No validation (raw dict). {\"thresholds\":{\"plus\":{\"flag\":\"abc\"}}} -> 500 ValueError. Non-threshold keys are saved as-is with no type check, e.g. free_lifetime_actions:'abc' or burst_per_minute:null. A bad saved value would make int()/float() fail and return 500 on every chat for 15s+ (settings cache) until fixed. Use a Pydantic model with typed optional fields."},
+      {"endpoint": "stage3.usage_view vs stage3.consume", "issue": "consume() checks the larger of the email and device:<signup_device_id> lifetime counters, but usage_view() only reads the email counter. A user whose device has already used its free actions sees '2 of 2 free Lex questions left' but gets a 429 on the first message."},
+      {"endpoint": "GET /api/subscription/tiers", "issue": "Free tier highlights still say '5 Lex chats / day' (server.py ~5764, shown in the 'Choose your plan' modal). This contradicts the new Free = 2 lifetime actions policy and is misleading pricing copy."},
+      {"endpoint": "stage3.pre_chat", "issue": "check_free_brake() for free chat only runs when free_lifetime_enabled is true. Turning the 'Free: 2 lifetime questions' switch off also turns off the site brake for logged-in free chat, while the taster path still enforces the brake. These two switches should be independent."},
+      {"endpoint": "stage3.paid_limits_active", "issue": "Compares ISO strings lexically. This works for the UI's toISOString() format but is fragile for other admin input formats (e.g. a date without a time, or 'Z' vs '+00:00'). Parse to datetime."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AdminFairUseCard.setEffective", "issue": "An invalid date typed into the prompt (e.g. 'abc') makes new Date(...).toISOString() throw a RangeError outside the try/catch. The rejection is unhandled and no toast appears.", "selector": "[data-testid='fair-use-set-effective']", "priority": "LOW"},
+      {"component": "AdminFairUseCard", "issue": "Customers can be exempted but there is no UI to un-exempt them (the API supports exempt:false).", "selector": "[data-testid='fair-use-exempt-btn']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin Settings > Fair use & spending", "issues": ["Threshold rows use textTransform: capitalize on the whole sentence, which renders 'Plus: Flag £1.50 · Cool-Down £4.00 / Day · Monthly Review £12.00'. Capitalise only the tier label.", "All six switches look the same gold when On; Off is just transparent. Acceptable, but 'On' vs 'Off' is hard to tell apart at a glance."]},
+      {"screen": "Home (free user)", "issues": ["Bottom-nav LEX button opens the paywall for free users (pre-existing hasAccess gate, App.js ~11666) and the banner says 'Free plan · Unlock Lex with Plus or Pro', yet the 'Ask Lex' tile lets free users chat (2 lifetime). Inconsistent entry points. The pricing modal also still says '5 Lex chats / day'."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter47_stage3_fair_use.py", "/app/backend/tests/test_stage3_limits.py", "/app/test_reports/pytest/iter47_stage3.xml"],
+  "action_items": [
+    "HIGH: Stop trusting the client-supplied first X-Forwarded-For value in _client_ip. Use the right-most trusted-proxy hop (e.g. the value the ingress appends, or the last-N value) so login, reset, taster and signup-network limits cannot be bypassed by spoofing the header.",
+    "Validate PUT /api/admin/fair-use/settings with a typed Pydantic model (floats for thresholds, ints for counts, bool switches, ISO datetime for paid_limits_effective_at). Currently 'abc' -> 500.",
+    "Make usage_view use the same larger-of-email/device lifetime counter as consume() so the notice matches enforcement.",
+    "Update Free tier highlights in /api/subscription/tiers ('5 Lex chats / day' -> '2 free Lex questions'), and consider the free-user entry points (nav LEX paywall vs Ask Lex tile).",
+    "Decouple the Free brake from the free_lifetime_enabled switch in pre_chat.",
+    "Wrap the setEffective date parsing in try/catch (or validate) in AdminFairUse.js; optionally add an un-exempt control."
+  ],
+  "critical_code_review_comments": [
+    "Verified flows: login lockout 5x401 -> 429 (user, firm, firm user), generic 'Invalid credentials', and an unlocked email still logs in from the same IP. Reset-password 10x400 -> 429. Free lifetime: 2 messages succeed (stream + non-stream), 3rd/4th return 429 with '2 free Lex questions', usage free_actions {used, limit:2, period:lifetime}. Brake-blocked requests do not consume. Duplicate within 30s -> 429 'already working'. A different message mid-stream -> 429 'still answering'. The lock is released after the stream finishes. Brake pause blocks free chat and taster with 'paused until midnight' while the comp Pro account chats normally. Override and resume work. Exempt works (404 for unknown email). Setting paid_limits_effective_at to a past date shows Pro monthly allowances (msgs 600 etc.) in fair_use; null hides them. Non-admin gets 403. Deep Think for free users -> 402. /admin/llm-spend and /admin/stats -> 200.",
+    "Retry guard (>3 same-message retries in 10 min) not exercised: it needs more than 2 minutes of spaced resends and extra LLM cost. Spend cool-down/flag thresholds were not exercised live (they need real spend of £1.50 or more); they are covered only by the unit tests.",
+    "2FA login limit not tested (no 2FA account available)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter47_stage3_fair_use.py"],
+  "success_rate": {"backend": "100% (15/15 new + 13/13 unit); 1 HIGH security finding (XFF spoofing)", "frontend": "100% of requested UI checks pass"},
+  "seed_data_creation": "Created test_s3_<hex>@advocate.app (pytest) and test_s3ui_6530@advocate.app (UI), both deleted along with their usage/s3_events/s3_consumptions/chat_sessions docs. login_attempts rows created under spoofed 198.51.x.x IPs expire via TTL. Seed and production data were not changed.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "From /app/memory/test_credentials.md: admin@aiadvocate.co.uk/AdminLex2026!, appstore.reviewer@aiadvocate.co.uk/Review2026!Lex, test@advocate.app/Test12345!",
+  "context_for_next_testing_agent": "Run: cd /app/backend && python -m pytest tests/test_iter47_stage3_fair_use.py -v -s (about 35s, 3 real LLM calls). Tests use random X-Forwarded-For IPs to isolate lockouts and the signup network limit, which itself demonstrates the XFF spoofing issue. Admin card is inside the Settings modal (settings-btn) at /app. Set localStorage aa_token, then dismiss the 'I understand — continue' / 'Essential only' modals. Free chat is reached via the 'Ask Lex' home tile (the bottom nav-lex opens the paywall for free users). After the XFF fix, tests that spoof XFF will need to clear login_attempts by key instead."
+}

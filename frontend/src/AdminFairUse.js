@@ -28,7 +28,7 @@ function BrakeRow({ b, onBrake }) {
 function ThresholdRow({ tier, th, onEdit }) {
   return (
     <div data-testid={`fair-use-threshold-${tier}`} style={{ ...muted, display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
-      <span style={{ textTransform: "capitalize" }}>{tier}: flag {gbp(th.flag)} · cool-down {gbp(th.cooldown)} / day · monthly review {gbp(th.monthly_review)}</span>
+      <span><span style={{ textTransform: "capitalize" }}>{tier}</span>: flag {gbp(th.flag)} · cool-down {gbp(th.cooldown)} / day · monthly review {gbp(th.monthly_review)}</span>
       <button data-testid={`fair-use-edit-${tier}`} style={btn("transparent", "var(--gold)")} onClick={() => onEdit(tier, th)}>Edit</button>
     </div>
   );
@@ -59,7 +59,9 @@ export function AdminFairUseCard({ api, toast, prompt }) {
   const setEffective = async () => {
     const v = await prompt({ title: "Paid limits start date", message: "Only set this after the 30-day notice email has been sent. Format YYYY-MM-DD (UK). Leave blank to keep paid limits off.", defaultValue: (d.settings.paid_limits_effective_at || "").slice(0, 10), confirmLabel: "Save" });
     if (v === null || v === undefined) return;
-    save({ paid_limits_effective_at: v.trim() ? new Date(`${v.trim()}T00:00:00Z`).toISOString() : null });
+    const day = v.trim();
+    if (day && (!/^\d{4}-\d{2}-\d{2}$/.test(day) || isNaN(new Date(`${day}T00:00:00Z`)))) { toast("Please use the format YYYY-MM-DD", "error"); return; }
+    save({ paid_limits_effective_at: day ? new Date(`${day}T00:00:00Z`).toISOString() : null });
   };
   const exempt = async () => {
     const email = await prompt({ title: "Exempt a customer", message: "Their account skips fair-use limits and safeguards.", placeholder: "name@example.com", confirmLabel: "Exempt" });
@@ -87,7 +89,11 @@ export function AdminFairUseCard({ api, toast, prompt }) {
       {d.flags.length ? d.flags.map((f, i) => <FlagRow key={i} f={f} onLift={uid => run(() => api.post("/admin/fair-use/lift", { user_id: uid }), "Cool-down lifted")} />)
         : <div style={muted}>None — no unusual spending.</div>}
       <div style={{ ...muted, marginTop: 10 }}>
-        Exempt: {d.exempt_users.map(u => u.email).join(", ") || "none"}{" "}
+        Exempt: {d.exempt_users.length ? d.exempt_users.map(u => (
+          <span key={u.id} style={{ marginRight: 8 }}>{u.email}{" "}
+            <button data-testid={`fair-use-unexempt-${u.id}`} style={btn("transparent", "var(--text-muted)")}
+                    onClick={() => run(() => api.post("/admin/fair-use/exempt", { user_id: u.id, exempt: false }), "Exemption removed")}>Remove</button>
+          </span>)) : "none"}{" "}
         <button data-testid="fair-use-exempt-btn" style={btn("transparent", "var(--gold)")} onClick={exempt}>Exempt a customer</button>
       </div>
     </div>
