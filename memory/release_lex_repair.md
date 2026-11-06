@@ -47,3 +47,12 @@ Note: rolling back restores the blank-reply bug (production currently has it).
 - Deploy dispatched to deployer (job c12aebe9…). POST-DEPLOY TODO: live smoke Free/Plus/Pro/Deep Think (regular + stream), research
   warnings/citations/memory, admin llm-spend lex_reply_health, Stripe/pricing unchanged, design/admin intact, 24h monitoring.
   Rollback: Emergent Rollback to run 2f1ec1d6.
+
+## Incident 6 Nov 05:19:31 GMT (Sentry alert BlankReply + 503 in server.lex_chat)
+- Origin: PREVIEW, not production. Production served run 2f1ec1d6 until the new release (run a00761ab) went live 05:25:05 GMT;
+  prod had 0 llm_usage/conversation/usage rows on 6 Nov and no matching logs. Preview Sentry env = "preview"; the alert matches the
+  mocked failure test (test_regular_both_blank_refunds...) run just before deploy dispatch — pytest imported server.py with Sentry on.
+- Fix: tests/conftest.py blanks SENTRY_DSN during pytest. Real bug found while investigating (preview repro): regular-chat fallback reused
+  the history list mutated by the failed primary (blank assistant turn + question twice). Fixed with list(initial_messages) copies;
+  regression test test_followup_fallback_gets_clean_history (fails without fix). 55/55 unit; live follow-ups Free+Pro OK (£0.11).
+- Redeploy dispatched 2026-11-06 ~05:40 GMT.

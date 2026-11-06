@@ -194,3 +194,34 @@ def test_et_transitional_caveat():
     t = dc.compute([{"type": "employment_tribunal", "event_date": "2026-08-01", "jurisdiction": "england"}])[0][0]
     assert "transitional rules" in t and "do not assume the claim is out of time" in t
     assert "Wages Act 1986 was repealed" in server.LEX_LAW_UPDATES
+
+
+def test_followup_fallback_gets_clean_history(env):
+    loop, uid, calls, mp = env
+    seq = [("First complete answer.", "stop"), ("", "stop"), ("Backup answer for the follow-up.", "stop")]
+    sent = []
+
+    def fake(**kw):
+        sent.append([dict(m) for m in kw["messages"]])      # snapshot at call time
+        return _resp(*seq[len(sent) - 1])
+    mp.setattr(eichat.litellm, "completion", fake)
+    r1 = loop.run_until_complete(_post("/lex/chat", {"message": MSG, "language": "en-GB", "country": "GB"}))
+    sid = r1.json()["session_id"]
+    r2 = loop.run_until_complete(_post("/lex/chat", {"message": "follow up question please", "session_id": sid,
+                                                     "language": "en-GB", "country": "GB"}))
+    assert r2.status_code == 200 and "Backup answer" in r2.json()["response"]
+    fb = sent[2]
+    assert not any(m["role"] == "assistant" and not str(m.get("content") or "").strip() for m in fb)   # no failed attempt
+    assert sum("follow up question please" in str(m.get("content")) for m in fb) == 1                 # question once
+    assert [m["role"] for m in fb] == ["system", "user", "assistant", "user"]                          # chronological
+    assert MSG in str(fb[1]["content"]) and fb[2]["content"] == "First complete answer."
+    assert "follow up question please" in str(fb[3]["content"])
+    convs = loop.run_until_complete(server.db.conversations.find({"user_id": uid}).sort("created_at", 1).to_list(10))
+    answers = [server.decrypt_text(c["assistant_response"]) for c in convs]
+    assert len(convs) == 2 and "Backup answer" in answers[1] and all(a.strip() for a in answers)       # failed attempt not saved
+    assert _count(loop, uid) == 2                                                                      # success counts once each
+    loop.run_until_complete(asyncio.sleep(0.3))
+    rows = loop.run_until_complete(server.db.llm_usage.find({"model_actual": "m"}).sort("ts", -1).to_list(3))
+    last_two = sorted(rows[:2], key=lambda r: r["ts"])
+    assert last_two[0]["attempt"] == "primary" and last_two[0]["output_chars"] == 0 and last_two[0]["model_requested"] == "claude-haiku-5-5"
+    assert last_two[1]["attempt"] == "fallback" and last_two[1]["model_requested"] == "claude-sonnet-4-5-20250929"

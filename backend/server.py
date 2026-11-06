@@ -2060,7 +2060,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         api_key=EMERGENT_LLM_KEY,
         session_id=session_id,
         system_message=system_msg,
-        initial_messages=initial_messages if len(initial_messages) > 1 else None,
+        initial_messages=list(initial_messages) if len(initial_messages) > 1 else None,
     ).with_model(provider, model_id).with_params(max_tokens=gen_max, **gen_extra)
 
     finish = None
@@ -2078,7 +2078,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
                 api_key=EMERGENT_LLM_KEY,
                 session_id=session_id,
                 system_message=system_msg,
-                initial_messages=initial_messages if len(initial_messages) > 1 else None,
+                initial_messages=list(initial_messages) if len(initial_messages) > 1 else None,
             ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2048)
             response = await chat.send_message(UserMessage(text=_date_anchor() + data.message))
             finish = (getattr(chat, "_aiu_usage", None) or (None,) * 5)[3]
