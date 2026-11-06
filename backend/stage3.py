@@ -180,7 +180,7 @@ async def _email_owner(subject: str, html: str):
     try:
         from email_helper import send_email
         admins = [e.strip() for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",") if e.strip()]
-        if os.environ.get("SENTRY_ENV") == "preview":
+        if "preview.emergentagent.com" in (os.environ.get("FRONTEND_URL") or ""):
             subject = f"[Preview] {subject}"
         for a in admins:
             await send_email(to=a, kind="firm", subject=subject, body_html=html)

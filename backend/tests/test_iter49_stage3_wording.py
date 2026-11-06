@@ -49,7 +49,7 @@ class TestTiers:
         assert any("6 sessions / month" in x for x in h)
 
     def test_yearly_live_assist(self, tiers):
-        assert "Live Assist — 6 sessions / month (up to 5 a day)" in tiers["yearly"]["highlights"]
+        assert "Live Assist — 6 sessions / month (up to 5 a day, 60 responses each)" in tiers["yearly"]["highlights"]
 
     def test_no_banned_strings(self, tiers):
         for t in tiers.values():
@@ -72,8 +72,8 @@ class TestTopups:
         r = requests.get(f"{API}/topups/packs", headers={"Authorization": f"Bearer {user_token}"}, timeout=30)
         assert r.status_code == 200
         packs = {p["id"]: p for p in r.json()["packs"]}
-        assert packs["day_pass"]["tagline"] == "50 Lex messages, 2 letters + 5 evidence photos for 24h."
-        assert packs["weekend_pass"]["tagline"] == "Plus for 72 hours: 120 Lex messages, 5 letters, 5 analyses."
+        assert packs["day_pass"]["tagline"] == "50 Lex messages, 2 letters, 5 evidence photos + 10 Read-Alouds for 24h."
+        assert packs["weekend_pass"]["tagline"] == "Plus for 72 hours: 120 Lex messages, 5 letters, 5 analyses, 30 Read-Alouds."
         assert packs["crisis_pack"]["tagline"].startswith("Pro for 24h: 80 Lex messages incl. 5 Deep Think")
         lp = packs["letter_pack"]
         assert "+ up to 100 Lex messages · 30-day use-by." in lp["tagline"]

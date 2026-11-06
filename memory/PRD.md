@@ -1069,3 +1069,5 @@ Production redeploy required. All env vars unchanged.
   AWAITING owner decision on deployment. Paid limits OFF until start date.
 - 2026-11-06 final sign-off pack delivered (no code changes). Open owner decisions: undisclosed caps (read-aloud/translations/Live Assist 60 per session) wording vs drop;
   paid cool-down before start date; Sentry label via 1-line FRONTEND_URL check; Doc Pack "0h" + Free bottom-nav LEX paywall fixes. AWAITING deploy decision.
+- 2026-11-06 release prep: wording now discloses Read-Aloud/translation/Live Assist/pass caps; Doc Pack "Never expires" fix; Free LEX centre button opens text chat;
+  Sentry + owner-email env label derived from FRONTEND_URL (no secrets changed). tests/test_stage3_release.py 33/33 (simulated). AWAITING deploy approval.

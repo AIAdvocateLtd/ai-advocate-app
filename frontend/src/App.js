@@ -8366,7 +8366,7 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
                     {pack.tagline}
                   </div>
                   <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-                    Valid for {pack.duration_hours >= 24 ? `${Math.round(pack.duration_hours / 24)} day${pack.duration_hours >= 48 ? "s" : ""}` : `${pack.duration_hours}h`} after purchase.
+                    {!pack.duration_hours ? "Never expires." : <>Valid for {pack.duration_hours >= 24 ? `${Math.round(pack.duration_hours / 24)} day${pack.duration_hours >= 48 ? "s" : ""}` : `${pack.duration_hours}h`} after purchase.</>}
                   </div>
                   <button
                     data-testid={`buy-topup-${pack.id}-btn`}
@@ -12418,8 +12418,8 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
         badges={{ reminders: casesBadge }}
         onNav={(k) => {
           if (k === "lex") {
-            // Tapping Lex centre button → open Siri-style Voice Mode (Plus+ only)
-            if (!hasTier("plus")) { setSubPreset("plus"); setShowSub(true); return; }
+            // Tapping Lex centre button → Voice Mode (Plus+); Free users get the text chat for their free questions
+            if (!hasTier("plus")) { setModal({ type: "chat", title: t(lang, "askLex"), category: "ask_lex" }); return; }
             setVoiceMode({ initialText: "" });
           }
           else if (k === "vault") setModal({ type: "vault" });
