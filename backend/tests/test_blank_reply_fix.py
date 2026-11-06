@@ -22,7 +22,7 @@ MSG = "hello there, quick general question about letters"
 
 
 def test_gen_params():
-    assert lex_output.gen_params("claude-haiku-5-5", 1200) == (1200, {"extra_body": {"thinking": {"type": "disabled"}}})
+    assert lex_output.gen_params("claude-haiku-5-5", 1200) == (2000, {"extra_body": {"thinking": {"type": "disabled"}}})
     mx, ex = lex_output.gen_params("claude-sonnet-5-5", 1400)
     assert mx == 2600 and ex["extra_body"]["thinking"]["budget_tokens"] == 1024
     mx, ex = lex_output.gen_params("claude-sonnet-5-5", 3500, True)
@@ -141,7 +141,7 @@ def test_stream_blank_uses_fallback(env):
     ev = _stream(loop, {"message": MSG, "language": "en-GB", "country": "GB"})
     done = [e for e in ev if e["type"] == "done"][-1]
     assert "Backup model full answer" in done["full_text"]
-    assert calls["stream"][0]["extra_body"] == {"thinking": {"type": "disabled"}} and calls["stream"][0]["max_tokens"] == 1200
+    assert calls["stream"][0]["extra_body"] == {"thinking": {"type": "disabled"}} and calls["stream"][0]["max_tokens"] == 2000
     loop.run_until_complete(asyncio.sleep(0.3))
     rows = loop.run_until_complete(server.db.llm_usage.find({"call_site": "lex_stream", "model_requested": "claude-haiku-5-5",
                                                              "model_actual": "m"}).sort("ts", -1).to_list(1))

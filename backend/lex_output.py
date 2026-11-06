@@ -3,12 +3,13 @@
 # Measured 5 Nov 2026 (preview): Haiku 5.5 honours thinking=disabled; Sonnet 5.5 ignores it but honours a (soft) budget.
 SONNET_BUDGET = {False: 1024, True: 1500}
 SONNET_MAX = {False: 2600, True: 4000}
+FREE_MAX = 2000  # founder-approved 5 Nov 2026 (was 1200); Hindi/Urdu/Welsh need ~1.8k even when concise
 
 
 def gen_params(model_id: str, max_tok: int, deep_think: bool = False) -> tuple:
     """Returns (max_tokens, extra litellm params) for a Lex reply. Model choice is unchanged."""
     if model_id == "claude-haiku-5-5":
-        return max_tok, {"extra_body": {"thinking": {"type": "disabled"}}}
+        return FREE_MAX, {"extra_body": {"thinking": {"type": "disabled"}}}
     if model_id == "claude-sonnet-5-5":
         return SONNET_MAX[bool(deep_think)], {"extra_body": {"thinking": {"type": "enabled", "budget_tokens": SONNET_BUDGET[bool(deep_think)]}}}
     return max_tok, {}

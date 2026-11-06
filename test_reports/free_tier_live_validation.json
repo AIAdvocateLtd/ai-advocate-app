@@ -1,35 +1,31 @@
 {
- "cost_gbp": 0.2131,
+ "cost_gbp": 0.1905,
  "complete": 8,
- "total": 10,
+ "total": 8,
  "finish": [
   "stop",
   "stop",
-  "length",
-  "length",
-  "length",
   "stop",
   "stop",
-  "length",
+  "stop",
+  "stop",
   "stop",
   "stop"
  ],
  "tokens_out": [
-  891,
-  918,
-  1200,
-  1200,
-  1200,
-  1055,
-  932,
-  1200,
-  759,
-  687
+  924,
+  807,
+  1207,
+  1672,
+  1822,
+  1191,
+  1456,
+  1396
  ],
  "results": [
   {
    "q": "en_complex",
-   "chars": 2387,
+   "chars": 2504,
    "blank": false,
    "has_end_markers": true,
    "cut_note": false,
@@ -37,7 +33,7 @@
   },
   {
    "q": "en_dismissal",
-   "chars": 2837,
+   "chars": 2230,
    "blank": false,
    "has_end_markers": true,
    "cut_note": false,
@@ -45,7 +41,7 @@
   },
   {
    "q": "cy",
-   "chars": 2042,
+   "chars": 2054,
    "blank": false,
    "has_end_markers": true,
    "cut_note": false,
@@ -53,31 +49,7 @@
   },
   {
    "q": "ur",
-   "chars": 1716,
-   "blank": false,
-   "has_end_markers": false,
-   "cut_note": true,
-   "error": null
-  },
-  {
-   "q": "ar",
-   "chars": 1936,
-   "blank": false,
-   "has_end_markers": true,
-   "cut_note": false,
-   "error": null
-  },
-  {
-   "q": "pl",
-   "chars": 2309,
-   "blank": false,
-   "has_end_markers": true,
-   "cut_note": false,
-   "error": null
-  },
-  {
-   "q": "zh",
-   "chars": 1130,
+   "chars": 2415,
    "blank": false,
    "has_end_markers": true,
    "cut_note": false,
@@ -85,31 +57,35 @@
   },
   {
    "q": "hi",
-   "chars": 1909,
+   "chars": 2852,
    "blank": false,
-   "has_end_markers": false,
-   "cut_note": true,
+   "has_end_markers": true,
+   "cut_note": false,
    "error": null
   },
   {
-   "q": "en_wages",
-   "chars": 2144,
+   "q": "cy2",
+   "chars": 2051,
    "blank": false,
    "has_end_markers": true,
    "cut_note": false,
-   "error": null,
-   "cites_wages_act_1986_as_current": false,
-   "mentions_era_1996": true
+   "error": null
   },
   {
-   "q": "en_et_transitional",
-   "chars": 1930,
+   "q": "ur2",
+   "chars": 2120,
    "blank": false,
    "has_end_markers": true,
    "cut_note": false,
-   "error": null,
-   "says_definitely_out_of_time": false,
-   "mentions_transitional_or_advice": true
+   "error": null
+  },
+  {
+   "q": "hi2",
+   "chars": 2077,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null
   }
  ]
 }

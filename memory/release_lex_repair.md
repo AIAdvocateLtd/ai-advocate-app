@@ -40,3 +40,10 @@ Note: rolling back restores the blank-reply bug (production currently has it).
   found: no dangerouslySetInnerHTML, AI text rendered as React text, links from retrieved/constructed URLs); CORS * + credentials (Low,
   bearer-header auth, no cookies -> not exploitable cross-site).
 - Round AI cost ≈ £0.79.
+
+## Founder-approved deploy (2026-11-06)
+- Free cap 1200 -> 2000 (lex_output.FREE_MAX), concise instruction kept. Pre-deploy live: 11/11 Free complete (finish=stop) incl. Welsh x3,
+  Urdu x3, Hindi x3; texts checked: deadlines, ACAS, adviser referral, disclaimer, CONFIDENCE MEDIUM present. Cost £0.26. Unit 54/54.
+- Deploy dispatched to deployer (job c12aebe9…). POST-DEPLOY TODO: live smoke Free/Plus/Pro/Deep Think (regular + stream), research
+  warnings/citations/memory, admin llm-spend lex_reply_health, Stripe/pricing unchanged, design/admin intact, 24h monitoring.
+  Rollback: Emergent Rollback to run 2f1ec1d6.

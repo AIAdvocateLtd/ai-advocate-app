@@ -1,0 +1,44 @@
+{
+ "cost_gbp": 0.0699,
+ "complete": 3,
+ "total": 3,
+ "finish": [
+  "stop",
+  "stop",
+  "stop"
+ ],
+ "tokens_out": [
+  1391,
+  1526,
+  1568
+ ],
+ "results": [
+  {
+   "q": "cy2",
+   "chars": 2294,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null,
+   "text": "Mae'n flin gen i glywed am hyn. Dyma'r prif bwyntiau (ateb yn Gymraeg, fel y gofynnwyd):\n\n**Dyddiad y diswyddo:** 2 Tachwedd 2026. Mae hyn yn bwysig oherwydd bod y rheolau terfyn amser wedi newid.\n\n**Terfyn amser (tribiwnlys cyflogaeth):**\n- Os digwyddodd y diswyddo ar neu ar ôl 1 Hydref 2026, mae'r cyfnod i wneud hawliad fel arfer yn **6 mis llai un diwrnod**. Y dyddiad cau cynharaf felly, i'w gymryd o ddifrif, yw **1 Mai 2027**. Gwiriwch hyn ar GOV.UK cyn dibynnu arno.\n- Rhaid i chi ddechrau gyda **cysylltiad ACAS** (cymod cynnar) cyn gallu mynd i'r tribiwnlys. Mae'r cyfnod hwn yn cyfri tuag at y terfyn amser, felly peidiwch â'i ohirio.\n\n**Cymhwysedd i hawlio diswyddo annheg:**\n- Mae'r cyfnod cymhwyso yn **2 flynedd** os yw'r diswyddo'n digwydd cyn 1 Ionawr 2027, ac yn **6 mis** os yw'n digwydd ar neu ar ôl 1 Ionawr 2027 (Deddf Hawliau Cyflogaeth 2025). Gan fod eich diswyddo ar 2 Tachwedd 2026, mae'r cyfnod o 2 flynedd yn berthnasol. Gan eich bod wedi gweithio 3 blynedd, rydych yn gymwys.\n\n**Camau ymarferol nawr:**\n1. **Ysgrifennwch** yr hyn a ddigwyddodd, gyda dyddiadau, enwau a geiriau a ddefnyddiwyd, tra bod y cof yn ffres.\n2. **Casglwch dystiolaeth:** eich contract, slipiau cyflog, e-byst, negeseuon, asesiadau perfformiad, a chofnodion o unrhyw rybuddion blaenorol.\n3. **Gofynnwch am resymau yn ysgrifenedig** os nad ydynt wedi'u rhoi.\n4. **Peidiwch â llofnodi** unrhyw gytundeb ymadael neu ryddhad heb gyngor cyfreithiol yn gyntaf.\n5. **Cysylltwch ag ACAS** ar 0300 123 1100 neu drwy eu gwefan i ddechrau cymod cynnar.\n6. **Ceisiwch gyngor:** undeb llafur (os ydych yn aelod), Citizens Advice, neu gyfreithiwr cyflogaeth.\n\n**Dim rhybudd:** Os na roddwyd rhybudd statudol, neu os nad oedd y rhybudd yn ddigonol, efallai bod hawl i iawndal am fethiant rhybudd yn ogystal â diswyddo annheg. Mae angen gwirio hyn gyda'ch contract.\n\nNid wyf wedi gallu gwirio'r manylion hyn yn erbyn ffynonellau cyfreithiol cyfredol yn yr ymchwil y cefais fynediad iddi, felly dylech gadarnhau'r terfyn amser ar GOV.UK ar unwaith.\n\nDisclaimer: Gwybodaeth gyffredinol am y gyfraith yw hon, nid yn lle cyngor gan gyfreithiwr cymwys yn eich awdurdodaeth.\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: Deddf Hawliau Cyflogaeth 2025; Deddf Hawliau Cyflogaeth 1996; rheolau terfyn amser tribiwnlys cyflogaeth]"
+  },
+  {
+   "q": "ur2",
+   "chars": 2112,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null,
+   "text": "**فرضی صورتحال پر عمومی رہنمائی (انگلینڈ و ویلز)**\n\n**1. فوری اقدامات**\n- اپنی برطرفی کا تحریری ثبوت، ای میل، پیغامات، تنخواہ کی سلپس اور معاہدہ محفوظ کریں۔\n- آجر سے برطرفی کی وجہ تحریری طور پر مانگیں۔\n\n**2. آخری تاریخ: ACAS ابتدائی مصالحت (Early Conciliation)**\n- ایمپلائمنٹ ٹربیونل میں دعویٰ کرنے سے پہلے **ACAS** کے ذریعے ابتدائی مصالحت لازمی ہے۔\n- ٹربیونل کی عمومی حد: برطرفی کی تاریخ (2 نومبر 2026) سے **6 ماہ منفی ایک دن**، یعنی تقریباً **1 مئی 2027** تک، بشرطیکہ برطرفی 1 اکتوبر 2026 کے بعد ہوئی ہو (یہ تاریخ ACAS مصالحت کے دوران رکنے کے قواعد کے تابع ہے)۔ حتمی تاریخ کی تصدیق آج ہی ACAS یا GOV.UK پر کریں۔\n- ایمپلائمنٹ ٹربیونل دعویٰ مدت: عام طور پر یہ \"unfair dismissal\" کی حد ہے، جبکہ معاہدے کی خلاف ورزی (breach of contract) کے دعوے کے لیے مختلف قواعد ہو سکتے ہیں۔\n\n**3. آپ کا ممکنہ دعویٰ: غیر منصفانہ برطرفی (Unfair Dismissal)**\n- **Employment Rights Act 1996 کی دفعہ 98** کے تحت آجر کو معقول وجہ اور منصفانہ طریقہ کار ثابت کرنا ہوتا ہے۔\n- آپ نے 3 سال کام کیا ہے، لہٰذا موجودہ قانون کے تحت **2 سال کی اہلیت** پوری ہوتی ہے۔ اگر آپ کی برطرفی کی مؤثر تاریخ (effective date of termination) 1 جنوری 2027 سے پہلے ہے تو یہ اہلیت لاگو ہوتی ہے، جو آپ پر پوری ہے۔\n- بغیر وارننگ اور بغیر تادیبی کارروائی کے برطرفی عام طور پر **طریقہ کار کی خامی** ہوتی ہے۔\n\n**4. ممکنہ معاوضہ اور دیگر حقوق**\n- غیر منصفانہ برطرفی پر معاوضہ عام طور پر ایک حد (cap) کے تابع ہوتا ہے۔\n- **نوٹس کی تنخواہ** اور بقایا چھٹیوں کی ادائیگی کا دعویٰ کریں۔\n- اگر برطرفی کسی امتیازی وجہ (نسل، مذہب، معذوری وغیرہ) سے ہوئی ہو تو امتیاز کا دعویٰ الگ ہو سکتا ہے، جس کی حد بھی مختلف ہے۔\n\n**5. آپ کو کیا نہیں کہنا چاہیے**\n- ACAS مصالحت سے پہلے براہ راست ٹربیونل میں نہ جائیں۔\n- آجر کو کوئی ایسا دستخط شدہ معاہدہ (settlement agreement) نہ دیں جب تک آپ کا وکیل اسے نہ دیکھ لے۔\n\n**6. قانونی مشورے کی ضرورت**\n- معاوضے کی رقم، حد اور دیگر دعووں کے لیے کسی **ایمپلائمنٹ وکیل** یا Citizens Advice یا Law Centre سے فوری رابطہ کریں۔\n\nDisclaimer: یہ عمومی قانونی معلومات ہیں، کسی اہل وکیل کے مشورے کا متبادل نہیں۔\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: Employment Rights Act 1996 s.98; ACAS Early Conciliation; Employment Rights Act 2025 (qualifying period changes)]"
+  },
+  {
+   "q": "hi2",
+   "chars": 2378,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null,
+   "text": "मैं इस स्थिति को समझता हूँ, और आपके पास अभी भी कुछ विकल्प हो सकते हैं। पर पहले एक ज़रूरी बात: यह जानकारी आपकी उपलब्ध स्रोत सामग्री पर आधारित है, और आपका सटीक मामला आपके वीज़ा के प्रकार, आपकी नौकरी की भूमिका और आपके रिकॉर्ड पर निर्भर करता है।\n\n**तत्काल कदम (सबसे ज़रूरी):**\n\n- **समय सीमा:** आपका वीज़ा 20 दिसंबर 2026 को समाप्त होता है। आज 6 नवंबर 2026 है, यानी लगभग 6 सप्ताह बचे हैं। इसे गंभीरता से लें।\n- **अपना वीज़ा प्रकार जाँचें:** यदि आपका वीज़ा Skilled Worker या Health and Care Worker जैसा नियोक्ता-प्रायोजित वीज़ा है, तो नौकरी छूटने पर स्थिति अलग होती है। यदि आपका वीज़ा Graduate वीज़ा है, तो उसे अलग तरह से देखा जाता है।\n- **नौकरी बदलने के लिए आवेदन:** Health and Care Worker वीज़ा के लिए, आप नई नौकरी के लिए अपना वीज़ा अपडेट करने का आवेदन कर सकते हैं, और यह नई नौकरी की शुरुआत से 3 महीने पहले तक किया जा सकता है। [2] अपना वर्तमान वीज़ा समाप्त होने से पहले आवेदन करना ज़रूरी है। [2] नई नौकरी की पुष्टि मिलने से पहले उसमें शुरू न करें। [2]\n- **नोटिस अवधि:** यदि आप अभी भी नोटिस अवधि में हैं, तो आप वर्तमान नौकरी में काम जारी रखते हुए नए आवेदन पर विचार कर सकते हैं, बशर्ते आवेदन आपके वीज़ा की समाप्ति से पहले हो। [2]\n- **Graduate वीज़ा:** यदि आप Graduate वीज़ा पर हैं, तो उसकी समाप्ति से पहले स्विच करने का आवेदन करें। ओवरस्टे (समय सीमा के बाद रुकना) भी छोटी अवधि का होने पर आवेदन अस्वीकृत होने और भविष्य के आवेदनों पर असर डाल सकता है। [4]\n\n**वैकल्पिक रास्ते:**\n\n- **नए नियोक्ता की तलाश:** यदि आपकी भूमिका प्रायोजन-योग्य है, तो नया प्रायोजक ढूँढना सबसे व्यावहारिक विकल्प हो सकता है।\n- **अपनी भूमिका की स्थिति:** कुछ व्यवसाय अस्थायी शॉर्टेज लिस्ट में हो सकते हैं, पर यह सूची बदलती रहती है और 2026 के अंत में कुछ परिवर्तन होने वाले हैं, इसलिए इसे सत्यापित करें। [3] [5]\n- **नियोक्ता से बातचीत:** यदि बर्खास्तगी का कारण विवादास्पद है, तो लिखित कारण माँगें और अपने रिकॉर्ड सुरक्षित रखें।\n\n**अभी क्या करें:**\n1. अपना वीज़ा पत्र और नियोक्ता का बर्खास्तगी पत्र निकालें।\n2. किसी विनियमित आव्रजन सलाहकार (OISC-पंजीकृत या सॉलिसिटर) से तुरंत मिलें।\n3. GOV.UK पर अपने वीज़ा प्रकार के नियम देखें।\n\n**Disclaimer:** यह सामान्य कानूनी जानकारी है, आपके न्यायक्षेत्र में योग्य वकील का विकल्प नहीं।\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: GOV.UK Cancellation and curtailment of permission guidance; GOV.UK Health and Care Worker visa update guidance; GOV.UK Temporary Shortage List Stage 1 report; ukimmigration.law Graduate Visa switching guidance; Legal 500 December 2026 immigration rule changes]"
+  }
+ ]
+}
