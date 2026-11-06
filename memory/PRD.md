@@ -1067,3 +1067,5 @@ Production redeploy required. All env vars unchanged.
 - 2026-11-06 readiness review: wording applied in preview (welcome.html, tiers, packs, Terms 6a/6c, welcome email);
   network limits raised (10 signups/7d, 50 login fails/15min); email allowance key hashed. Report: stage3_readiness_report.md.
   AWAITING owner decision on deployment. Paid limits OFF until start date.
+- 2026-11-06 final sign-off pack delivered (no code changes). Open owner decisions: undisclosed caps (read-aloud/translations/Live Assist 60 per session) wording vs drop;
+  paid cool-down before start date; Sentry label via 1-line FRONTEND_URL check; Doc Pack "0h" + Free bottom-nav LEX paywall fixes. AWAITING deploy decision.
