@@ -2045,12 +2045,12 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
                 data.deep_think = False
                 deep_think_auto = False
             else:
-                raise HTTPException(429, f"Deep Think monthly limit reached ({used_dt}/{limit_dt}). Disable Deep Think for unlimited Sonnet 5.5 chats this month, or upgrade to Yearly Pro for 50/mo.")
+                raise HTTPException(429, f"Deep Think monthly limit reached ({used_dt}/{limit_dt}). Turn Deep Think off to keep chatting within your monthly allowance, or upgrade to Yearly Pro for 50/mo.")
 
     # Daily quota for chat
     ok, used, limit = await check_quota_and_increment(user["id"], tier, "lex_chat", "daily")
     if not ok:
-        raise HTTPException(429, f"Daily limit reached ({used}/{limit} Lex messages on Free). Upgrade to Plus for unlimited.")
+        raise HTTPException(429, f"Daily limit reached ({used}/{limit} Lex messages on Free). Upgrade to Plus for 300 messages a month.")
 
     # Auto-detect: if the user's message is in a different language than UI, follow them.
     reply_language = data.language
@@ -2264,10 +2264,10 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                 data.deep_think = False
                 deep_think_auto = False
             else:
-                raise HTTPException(429, f"Deep Think monthly limit reached ({used_dt}/{limit_dt}). Disable Deep Think for unlimited Sonnet 5.5 chats this month, or upgrade to Yearly Pro for 50/mo.")
+                raise HTTPException(429, f"Deep Think monthly limit reached ({used_dt}/{limit_dt}). Turn Deep Think off to keep chatting within your monthly allowance, or upgrade to Yearly Pro for 50/mo.")
     ok, used, limit = await check_quota_and_increment(user["id"], tier, "lex_chat", "daily")
     if not ok:
-        raise HTTPException(429, f"Daily limit reached ({used}/{limit} Lex messages on Free). Upgrade to Plus for unlimited.")
+        raise HTTPException(429, f"Daily limit reached ({used}/{limit} Lex messages on Free). Upgrade to Plus for 300 messages a month.")
 
     # Language auto-detect
     reply_language = data.language
@@ -2499,7 +2499,7 @@ async def lex_taster(req: Request, data: TasterMessage):
     if len(text) < 4:
         raise HTTPException(400, "Question too short")
     if len(text) > 500:
-        raise HTTPException(400, "Free question must be 500 characters or less. Sign up for unlimited.")
+        raise HTTPException(400, "Free question must be 500 characters or less. Create a free account to keep going.")
     await stage3.check_free_brake()
 
     # IP fingerprint (in case device_id is rotated by the client)
@@ -4387,7 +4387,7 @@ async def generate_from_template(data: LetterFromTemplate, user: dict = Depends(
     # Monthly quota for letter generation
     ok, used, limit = await check_quota_and_increment(user["id"], tier, "letters_generate", "monthly")
     if not ok:
-        raise HTTPException(429, f"Monthly limit reached ({used}/{limit} letters on Free). Upgrade to Plus for unlimited.")
+        raise HTTPException(429, f"Monthly limit reached ({used}/{limit} letters on Free). Upgrade to Plus for 20 letters a month.")
     lang_name = LANG_NAMES.get(data.language, "English")
     system = f"""You are Lex, drafting a professional legal letter for {data.country} in {lang_name}.
 
@@ -4488,7 +4488,7 @@ async def tts(data: TTSRequest, user: dict = Depends(get_user)):
     # Per-day TTS quota (protects OpenAI billing — free tier capped at 20/day, paid unlimited)
     ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "tts", "daily")
     if not ok:
-        raise HTTPException(429, f"Daily Read-Aloud limit reached ({used}/{limit}). Upgrade to Plus for unlimited voice.")
+        raise HTTPException(429, f"Daily Read-Aloud limit reached ({used}/{limit}). Upgrade to Plus for more Read-Aloud.")
     tts_client = OpenAITextToSpeech(api_key=EMERGENT_LLM_KEY)
     try:
         b64 = await tts_client.generate_speech_base64(
@@ -4793,7 +4793,7 @@ TOPUP_PACKS = {
         "price_gbp": 4.99,
         "duration_hours": 24,
         "grants_tier": "plus",
-        "tagline": "Unlimited Lex chats + 5 evidence photos for 24h.",
+        "tagline": "50 Lex messages, 2 letters + 5 evidence photos for 24h.",
     },
     "letter_pack": {
         "label": "Letter Pack",
@@ -4802,21 +4802,21 @@ TOPUP_PACKS = {
         "grants_tier": "plus",
         "letter_quota": 5,
         "contract_quota": 1,
-        "tagline": "5 AI-drafted letters + 1 contract review · 30-day use-by.",
+        "tagline": "5 AI-drafted letters + 1 contract review + up to 100 Lex messages · 30-day use-by.",
     },
     "weekend_pass": {
         "label": "Weekend Pass",
         "price_gbp": 14.99,
         "duration_hours": 72,
         "grants_tier": "plus",
-        "tagline": "Full Plus features for 72 hours.",
+        "tagline": "Plus for 72 hours: 120 Lex messages, 5 letters, 5 analyses.",
     },
     "crisis_pack": {
         "label": "Crisis Pack",
         "price_gbp": 29.99,
         "duration_hours": 24,
         "grants_tier": "pro",
-        "tagline": "Full Pro for 24h — Hearing Recorder, Deep Think, RAG priority.",
+        "tagline": "Pro for 24h: 80 Lex messages incl. 5 Deep Think, 5 letters, 5 analyses, 1 Live Assist session, 1 hour Hearing Recorder.",
     },
     "doc_pack": {
         "label": "Doc Pack",
@@ -5780,24 +5780,26 @@ async def get_tiers():
     return {
         "tiers": [
             {"id": "free", "name": "Free", "price_gbp": 0, "period": "forever",
-             "highlights": ["5 Lex chats / day", "1 photo evidence / month", "1 letter / month",
+             "highlights": ["2 free Lex questions (lifetime — chat, letter or document check)",
                             "View 31 templates", "3 files", "Emergency rights (always free)",
                             "Read-Aloud rights (20 / day)"]},
             {"id": "plus", "name": "Plus", "price_gbp": 19.99, "period": "month",
-             "highlights": ["Unlimited Lex chats", "15 photo evidences / month",
-                            "Unlimited letters", "Will Writer (England, Wales, Scotland & NI)", "Contract Review", "Court Prep modes",
+             "highlights": ["300 Lex messages / month (fair use: up to 40 a day)", "15 evidence & document analyses / month",
+                            "20 letters / month", "Will Writer (England, Wales, Scotland & NI)", "Contract Review", "Court Prep modes",
                             "Voice in/out", "Practice Mode", "50 files", "Hey Lex wake word",
-                            "Claude Sonnet 5.5 brain"]},
+                            "Premium AI (GPT-5.2)"]},
             {"id": "pro", "name": "Pro", "price_gbp": 34.99, "period": "month",
-             "highlights": ["Everything in Plus", "Outcome Predictor + Contract Drafter + Negotiate",
-                            "Live Hearing Recorder", "Live Legal Assist (3 sessions/day)",
+             "highlights": ["Everything in Plus", "600 Lex messages / month (fair use: up to 80 a day)",
+                            "50 letters + 25 document analyses / month",
+                            "Outcome Predictor + Contract Drafter + Negotiate",
+                            "Live Hearing Recorder (5 hours / month)", "Live Legal Assist (6 sessions / month, up to 3 a day)",
                             "🧠 Deep Think — 30 / month (King's Counsel-grade reasoning)",
                             "Priority AI processing", "Premium court templates",
                             "Advanced document review", "Unlimited files", "Priority email support"]},
             {"id": "yearly", "name": "Yearly Pro", "price_gbp": 319.99, "period": "year",
              "best_value": True, "savings_pct": 24,
              "highlights": ["Everything in Pro", "🧠 Deep Think — 50 / month (bigger cap)",
-                            "Live Assist — 5 sessions/day", "Save £100 vs paying monthly",
+                            "Live Assist — 6 sessions / month (up to 5 a day)", "Save £100 vs paying monthly",
                             "12 months full access — no monthly faff"]},
         ],
         "currency": "GBP",
@@ -11694,7 +11696,7 @@ async def document_analyze(
     pub = user_to_public(user)
     ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "doc_analyze", "monthly")
     if not ok:
-        raise HTTPException(429, f"Document analysis monthly limit reached ({used}/{limit}). Upgrade to Plus for unlimited.")
+        raise HTTPException(429, f"Document analysis monthly limit reached ({used}/{limit}). Upgrade to Plus for 15 a month, or Pro for 25.")
 
     # -------- Mode C: multi-page upload via /lex/upload doc_ids --------
     if doc_ids and not file:
@@ -12063,7 +12065,7 @@ async def lex_upload_document(file: UploadFile = File(...), user: dict = Depends
                                       "Upgrade to Plus for 10/day, or buy a Doc Pack £4.99 (5 more docs, never expires).")
         elif tier == "plus":
             raise HTTPException(402, "Daily document limit reached (10/day on Plus). "
-                                      "Upgrade to Pro for unlimited, or buy a Doc Pack £4.99 (5 more docs, never expires).")
+                                      "Upgrade to Pro for more, or buy a Doc Pack £4.99 (5 more docs, never expires).")
         else:
             raise HTTPException(402, f"Daily document quota reached ({daily_cap}/day). "
                                       "Buy a Doc Pack £4.99 (5 more docs, never expires).")
@@ -12421,7 +12423,7 @@ async def contract_analyze(
     pub = user_to_public(user)
     ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "doc_analyze", "monthly")
     if not ok:
-        raise HTTPException(429, f"Document analysis monthly limit reached ({used}/{limit}). Upgrade to Plus for unlimited.")
+        raise HTTPException(429, f"Document analysis monthly limit reached ({used}/{limit}). Upgrade to Plus for 15 a month, or Pro for 25.")
 
     # ---------- Mode B: multi-page from /lex/upload doc_ids ----------
     if doc_ids and not file:
@@ -12601,7 +12603,7 @@ async def contract_draft(data: ContractDraftRequest, user: dict = Depends(get_us
         raise HTTPException(402, "Contract drafting requires Pro. Upgrade to unlock.")
     ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "letters_generate", "monthly")
     if not ok:
-        raise HTTPException(429, f"Document generation monthly limit reached ({used}/{limit}). Upgrade to Plus for unlimited.")
+        raise HTTPException(429, f"Document generation monthly limit reached ({used}/{limit}). Upgrade to Plus for 20 a month.")
 
     lang_name = LANG_NAMES.get(data.language, "English")
     sysmsg = f"""You are AI Advocate's contract-drafting expert. You draft contracts that are legally enforceable under {data.country} law.
@@ -12828,7 +12830,7 @@ async def outcome_predict(data: OutcomePredictRequest, user: dict = Depends(get_
     """Give a realistic % chance of success + similar past cases."""
     pub = user_to_public(user)
     if not tier_has_access(pub["tier"], "outcome_predict"):
-        raise HTTPException(402, "Outcome Predictor requires Pro. Upgrade to unlock Opus deep-think.")
+        raise HTTPException(402, "Outcome Predictor requires Pro. Upgrade to unlock.")
     if not data.case_summary or len(data.case_summary) < 20:
         raise HTTPException(400, "Please provide more detail (at least 20 chars)")
     await stage3.charge(user, pub["tier"], "doc_analyze")
@@ -16910,7 +16912,7 @@ async def conv_suggest(data: ConvSuggest, user: dict = Depends(get_user)):
             {"id": user["id"], "$or": [{"conv_suggest_count": {"$lt": CONV_FREE_SUGGESTIONS}}, {"conv_suggest_count": {"$exists": False}}]},
             {"$inc": {"conv_suggest_count": 1}})
         if not res.modified_count:
-            raise HTTPException(402, "You've used your 3 free form suggestions. Upgrade to Plus for unlimited help with your property forms.")
+            raise HTTPException(402, "You've used your 3 free form suggestions. Upgrade to Plus for more help with your property forms.")
     from emergentintegrations.llm.chat import LlmChat, UserMessage
     system = (
         "You help home sellers in England and Wales complete the Law Society's TA6 (Property Information), "

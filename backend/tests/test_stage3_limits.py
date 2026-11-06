@@ -178,3 +178,27 @@ def test_client_ip_ignores_spoofed_forwarded_for():
     assert server._client_ip(req("203.0.113.77,136.108.30.124,104.22.56.9,34.102.193.45")) == "136.108.30.124"
     assert server._client_ip(req("136.108.30.124,108.162.237.97,34.102.193.45")) == "136.108.30.124"
     assert server._client_ip(req("1.2.3.4, 9.9.9.9, 34.102.193.45")) == "9.9.9.9"
+
+
+def test_failed_request_refunds_allowance_via_middleware():
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse
+    u = _user("free")
+
+    async def call_next(_req):
+        await server.check_quota_and_increment(u["id"], "free", "letters_generate", "monthly")
+        return JSONResponse({"detail": "simulated AI failure"}, status_code=500)
+
+    req = Request({"type": "http", "method": "POST", "path": "/api/letters/generate", "headers": [], "query_string": b""})
+    assert run(server._ai_usage_request_context(req, call_next)).status_code == 500
+    assert run(stage3.usage_view(u, "free"))["items"]["free_actions"]["used"] == 0
+    assert run(stage3.consume(u, "free", "lex_chat")) and run(stage3.consume(u, "free", "lex_chat"))
+
+
+def test_charge_on_ungated_features_counts_and_refunds():
+    u = _user("free")
+    stage3.begin_request()
+    run(stage3.charge(u, "free", "lex_chat"))
+    assert stage3.request_charges() == [(u["id"], "lex_chat", "s3")]
+    run(stage3.refund(u["id"], "lex_chat"))
+    assert run(stage3.usage_view(u, "free"))["items"]["free_actions"]["used"] == 0

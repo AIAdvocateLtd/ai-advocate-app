@@ -6,7 +6,7 @@ import stage3
 
 _db = None
 WINDOW = timedelta(minutes=15)
-PER_ACCOUNT_IP, PER_ACCOUNT_ANY_IP, PER_IP, PER_2FA, PER_RESET_IP = 5, 15, 20, 5, 10
+PER_ACCOUNT_IP, PER_ACCOUNT_ANY_IP, PER_IP, PER_2FA, PER_RESET_IP = 5, 15, 50, 5, 10
 
 
 def init(db):

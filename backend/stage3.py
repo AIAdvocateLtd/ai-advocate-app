@@ -15,7 +15,7 @@ DEFAULTS = {
     "free_lifetime_enabled": True,
     "free_lifetime_actions": 2,
     "free_lifetime_cost_cap_gbp": 0.10,
-    "free_signups_per_network_7d": 3,
+    "free_signups_per_network_7d": 10,
     "pass_limits_enabled": True,
     "spend_guard_enabled": True,
     "paid_limits_effective_at": None,

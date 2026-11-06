@@ -3052,7 +3052,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                                opacity: paywallBusy ? 0.6 : 1 }}>
                 Upgrade to Plus £19.99/mo
                 <div style={{ fontSize: 9.5, fontWeight: 500, marginTop: 1, opacity: 0.85 }}>
-                  10/day · 25-page docs · unlimited chat
+                  300 messages/month · 25-page docs
                 </div>
               </button>
             </div>
@@ -11852,7 +11852,7 @@ function WinbackGiftBanner({ user, lang, refreshUser }) {
             Looks like you've been hitting the free limit. Here's a free 24h Plus pass — no card, no catch.
           </div>
           <div style={{ fontSize: 10.5, color: "var(--gold-soft)", marginTop: 4, opacity: 0.85 }}>
-            ✓ Unlimited Lex chats · ✓ 5 evidence photos · ✓ Voice mode
+            ✓ 50 Lex messages · ✓ 5 evidence photos · ✓ Voice mode
           </div>
         </div>
       </div>
@@ -15837,6 +15837,8 @@ const TOS_TEXT = `# Terms of Service
 **5. Vault.** The Lex Vault uses end-to-end encryption with a PIN that only you know. If you lose your PIN, your vault items are PERMANENTLY UNRECOVERABLE. We do not hold a copy.
 
 **6. Subscriptions & auto-renewal.** Paid plans renew automatically at £19.99/mo (Plus), £34.99/mo (Pro), or £319.99/yr (Yearly Pro). All payments are processed by Stripe. Cancel any time 24h before renewal via Settings → Manage Subscription.
+
+**6c. Fair use.** Each plan includes the monthly allowances shown on our pricing page (Free: 2 lifetime Lex questions, shared across chat, letters and document checks). Allowances reset on the 1st of each month (UK time) and do not roll over. Answers that fail, come back blank or are cut off are not counted. To protect the service from automated or abnormal use, we may apply a temporary one-hour pause if an account's AI usage in a single day is far above normal use (and pause until midnight if it continues). We will never switch a paid plan to a lower-quality AI model. If a pause affects you in error, contact support@aiadvocate.co.uk and we will lift it.
 
 **7. Misuse.** You may not use the App for: harassment, illegal recording, defamation, doxing, or building tools that compete with the App.
 
