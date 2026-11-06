@@ -24,6 +24,8 @@ import { AdminStripeResyncCard } from "@/AdminStripeResync";
 import { AdminSubscribersCard } from "@/AdminSubscribers";
 import { AdminFinanceCard } from "@/AdminFinance";
 import { AdminLexLessonsCard } from "@/AdminLexLessons";
+import { AdminFairUseCard } from "@/AdminFairUse";
+import { FairUseNotice } from "@/FairUseNotice";
 import ConveyancingModal from "@/Conveyancing";
 import { TrustpilotPrompt, AdminTestimonialsCard } from "@/Reviews";
 
@@ -2896,6 +2898,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
           )}
         </div>
 
+        <FairUseNotice api={api} refreshKey={busy} />
         <div className="flex items-center gap-2" style={{ padding: "12px 12px 56px", borderTop: "1px solid var(--line)", position: "relative" }}>
           <button onClick={onMic} data-testid="mic-btn"
                   style={{ background: "#000", border: `2px solid ${recording ? "var(--danger)" : "var(--gold)"}`,
@@ -7945,6 +7948,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             <AdminTestimonialsCard api={api} toast={aaToast} />
             <AdminSubscribersCard api={api} toast={aaToast} />
             <AdminLexLessonsCard api={api} toast={aaToast} prompt={aaPrompt} confirm={aaConfirm} />
+            <AdminFairUseCard api={api} toast={aaToast} prompt={aaPrompt} />
             <AdminFinanceCard api={api} toast={aaToast} />
             <AdminStripeResyncCard api={api} toast={aaToast} />
             {/* 💷 OWNER ONLY — founder cost dashboard: MRR, Stripe fees, LLM burn, net margin */}

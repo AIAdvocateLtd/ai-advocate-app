@@ -858,12 +858,17 @@ async def check_quota_and_increment(user_id: str, tier: str, feature: str, perio
         bucket = now.strftime("%Y-%m")
         limit_key = f"{feature}_monthly"
     limit = TIER_QUOTAS.get(tier, {}).get(limit_key)
+    s3_user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0}) or {"id": user_id}
+    if await stage3.replaces_legacy(s3_user, tier, feature):
+        limit = None
 
     # Get current count
     doc = await db.usage.find_one({"user_id": user_id, "bucket": bucket, "feature": feature}, {"_id": 0})
     current = doc["count"] if doc else 0
 
     if limit is not None and current >= limit:
+        return False, current, limit
+    if not await stage3.consume(s3_user, tier, feature, soft=(feature == "deep_think")):
         return False, current, limit
 
     # Increment
@@ -872,13 +877,18 @@ async def check_quota_and_increment(user_id: str, tier: str, feature: str, perio
         {"$inc": {"count": 1}, "$set": {"updated_at": now.isoformat()}},
         upsert=True,
     )
+    stage3.track_charge(user_id, feature, period)
     return True, current + 1, limit
 
 async def refund_quota(user_id: str, feature: str, period: str = "daily") -> None:
     """Gives back one use when the AI failed to deliver an answer."""
+    charges = stage3.request_charges()
+    if (user_id, feature, period) in charges:
+        charges.remove((user_id, feature, period))
     bucket = datetime.now(timezone.utc).strftime("%Y-%m-%d" if period == "daily" else "%Y-%m")
     await db.usage.update_one({"user_id": user_id, "bucket": bucket, "feature": feature, "count": {"$gt": 0}},
                               {"$inc": {"count": -1}})
+    await stage3.refund(user_id, feature)
 
 
 async def _refund_lex(user_id: str, deep_think_used: bool) -> None:
@@ -1361,10 +1371,38 @@ import chat_memory  # noqa: E402
 ai_usage.install(db, LLM_RATES_GBP_PER_1M)
 
 
+import stage3  # noqa: E402
+import login_guard  # noqa: E402
+stage3.init(db)
+login_guard.init(db)
+
+
+async def _stage3_refund_request():
+    for uid, feature, period in list(stage3.request_charges()):
+        try:
+            if period == "s3":
+                await stage3.refund(uid, feature)
+            else:
+                await refund_quota(uid, feature, period)
+        except Exception as e:
+            logger.warning(f"stage3 refund failed: {e!r}")
+
+
 @app.middleware("http")
 async def _ai_usage_request_context(request: Request, call_next):
     ai_usage.begin_request(request.url.path)
-    return await call_next(request)
+    stage3.begin_request()
+    try:
+        response = await call_next(request)
+    except Exception:
+        await _stage3_refund_request()
+        raise
+    finally:
+        if stage3.request_lock():
+            await stage3.release(stage3.request_lock())
+    if response.status_code >= 400:
+        await _stage3_refund_request()
+    return response
 
 
 async def _record_llm_call(
@@ -1484,6 +1522,12 @@ async def signup(data: UserSignup, request: Request):
         # Friendlier message — frontend keys off the word "already" to swap to sign-in mode + offer 'resend welcome email'.
         raise HTTPException(409, "An account already exists for this email. Sign in instead, or use the 'Forgot password?' link below if you've lost access.")
     await _enforce_device_signup_limit(data.device_id, request)
+    _s3 = await stage3.settings()
+    if _s3["free_lifetime_enabled"]:
+        _net_cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        if await db.users.count_documents({"signup_network_ip": _client_ip(request), "created_at": {"$gte": _net_cutoff}}) \
+                >= int(_s3["free_signups_per_network_7d"]):
+            raise HTTPException(429, "Too many new accounts have been created from this network recently. Please try again later.")
     user_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
 
@@ -1512,6 +1556,8 @@ async def signup(data: UserSignup, request: Request):
         "terms_accepted": True,
         "signup_device_id": data.device_id,  # for abuse fingerprinting (1 user per device per 24h max ≈ 2)
         "signup_ip": (request.client.host if request.client else None),
+        "signup_network_ip": _client_ip(request),
+        "email_canonical": stage3.canonical_email(data.email),
         # 📧 Email-verification gate. False for email/password signups; flipped
         # to True by /auth/verify-email when the user clicks the email link.
         # The founder is auto-verified to avoid locking the operator out.
@@ -1691,9 +1737,13 @@ async def auth_verify_status(email: EmailStr):
 
 @api_router.post("/auth/login")
 async def login(data: UserLogin, request: Request):
+    ip = _client_ip(request)
+    await login_guard.check("user", data.email, ip)
     user = await db.users.find_one({"email": data.email})
     if not user or not verify_pw(data.password, user.get("password_hash", "")):
+        await login_guard.fail("user", data.email, ip)
         raise HTTPException(401, "Invalid credentials")
+    await login_guard.success("user", data.email, ip)
     # 🔐 2FA gate: if the user has TOTP enabled, do NOT issue the full JWT yet.
     # Return a short-lived tmp_token; the client then POSTs /auth/2fa/login
     # with that token + the 6-digit code (or a backup code) to get the real JWT.
@@ -1950,6 +2000,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     # Deep Think is Pro-only (and trial_pro)
     if data.deep_think and tier not in ("pro", "yearly", "trial_pro"):
         raise HTTPException(402, "Deep Think requires Pro. Upgrade to unlock King's Counsel-grade reasoning.")
+    await stage3.pre_chat(user, tier, data.message, stream=False)
 
     # 🧠 Smart auto-router — Pro users who left Deep Think OFF get it auto-invoked
     # on genuinely complex questions. Skipped if they explicitly toggled it (either
@@ -2173,6 +2224,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
             raise HTTPException(402, "This category requires Plus or Pro. Upgrade to unlock.")
     if data.deep_think and tier not in ("pro", "yearly", "trial_pro"):
         raise HTTPException(402, "Deep Think requires Pro. Upgrade to unlock King's Counsel-grade reasoning.")
+    await stage3.pre_chat(user, tier, data.message, stream=True)
 
     # 🧠 Smart auto-router — mirrors /lex/chat behaviour on the streaming path.
     deep_think_auto = False
@@ -2391,8 +2443,16 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
         saved_rem = await _save_auto_reminders(user, session_id, auto_reminders)
         yield f"data: {_json.dumps({'type':'done','connected_session_id':connected_session_id,'full_text':full_text,'deep_think_auto':deep_think_auto,'saved_reminders':saved_rem})}\n\n"
 
+    async def _released_stream():
+        try:
+            async for chunk in event_stream():
+                yield chunk
+        finally:
+            await stage3.release(user["id"])
+
+    stage3.keep_lock_for_stream()
     return StreamingResponse(
-        event_stream(),
+        _released_stream(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
@@ -2421,6 +2481,7 @@ async def lex_taster(req: Request, data: TasterMessage):
         raise HTTPException(400, "Question too short")
     if len(text) > 500:
         raise HTTPException(400, "Free question must be 500 characters or less. Sign up for unlimited.")
+    await stage3.check_free_brake()
 
     # IP fingerprint (in case device_id is rotated by the client)
     ip = _client_ip(req) or "0.0.0.0"
@@ -2707,6 +2768,7 @@ async def lex_practice(data: PracticeRequest, user: dict = Depends(get_user)):
     role_prompt = PRACTICE_ROLES.get(data.role)
     if not role_prompt:
         raise HTTPException(400, "Unknown practice role")
+    await stage3.charge(user, pub["tier"], "lex_chat")
 
     lang_name = LANG_NAMES.get(data.language, "English")
     system = f"""You are in PRACTICE MODE. {role_prompt}
@@ -2823,6 +2885,7 @@ async def lex_outcome_ladder(data: StrategicHelperRequest, user: dict = Depends(
     exchange = await _last_lex_exchange(user["id"], data.session_id)
     if not exchange:
         raise HTTPException(404, "No recent Lex conversation in this session to analyse")
+    await stage3.charge(user, user_to_public(user)["tier"], "lex_chat")
 
     lang_name = LANG_NAMES.get(data.language, "English")
     system = f"""You are Lex, the AI Advocate strategist. The user just asked a legal question and you answered it. Now they want strategic clarity.
@@ -2913,6 +2976,7 @@ async def lex_do_nothing_sim(data: DoNothingRequest, user: dict = Depends(get_us
         source_text = (existing.get("text") or "")[:30000]
     if not source_text:
         raise HTTPException(400, "Provide either `doc_id` or `text`")
+    await stage3.charge(user, user_to_public(user)["tier"], "lex_chat")
 
     lang_name = LANG_NAMES.get(data.language, "English")
     system = f"""You are Lex, the AI Advocate strategist. The user uploaded a legal letter and is considering ignoring it.
@@ -3082,6 +3146,7 @@ async def lex_devil_advocate(data: StrategicHelperRequest, user: dict = Depends(
     exchange = await _last_lex_exchange(user["id"], data.session_id)
     if not exchange:
         raise HTTPException(404, "No recent Lex conversation in this session to analyse")
+    await stage3.charge(user, user_to_public(user)["tier"], "lex_chat")
 
     lang_name = LANG_NAMES.get(data.language, "English")
     system = f"""You are Lex helping the user prepare for the opposing arguments in their case. The user has explained their situation and you previously gave them advice supporting their position. Now help them prepare by mapping out the strongest counter-arguments the other party could raise — so the user can prepare responses BEFORE they're caught off guard.
@@ -3156,6 +3221,11 @@ async def lex_live_assist(data: LiveAssistRequest, user: dict = Depends(get_user
         ok, used, limit = await check_quota_and_increment(user["id"], pub["tier"], "live_assist_session", "daily")
         if not ok:
             raise HTTPException(429, f"Live Legal Assist daily session limit reached ({used}/{limit}). Upgrade to Yearly Pro for 5 sessions/day.")
+    elif await stage3.paid_limits_active(user) and \
+            await db.conversations.count_documents({"user_id": user["id"], "session_id": data.session_id}) >= 60:
+        raise HTTPException(429, "This Live Assist session has reached its 60-response limit. Start a new session to continue.")
+    else:
+        await stage3.check_spend(user, pub["tier"])
 
     lang_name = LANG_NAMES.get(data.language, "English")
     scenario_brief = {
@@ -3222,6 +3292,7 @@ async def lex_translate(data: TranslateRequest, user: dict = Depends(get_user)):
         raise HTTPException(400, "Nothing to translate.")
     if len(data.text) > 2000:
         raise HTTPException(400, "Text too long — Translation Mode is for short live exchanges.")
+    await stage3.charge(user, pub["tier"], "translate")
 
     src_name = LANG_NAMES.get(data.source_lang, ISO_639_NAMES.get(data.source_lang, data.source_lang))
     tgt_name = LANG_NAMES.get(data.target_lang, ISO_639_NAMES.get(data.target_lang, data.target_lang))
@@ -4425,6 +4496,7 @@ async def analyze_contract(
     contents = await file.read()
     if len(contents) > 10 * 1024 * 1024:
         raise HTTPException(413, "File too large (max 10MB)")
+    await stage3.charge(user, pub["tier"], "doc_analyze")
 
     suffix = "." + (file.filename.rsplit(".", 1)[-1] if "." in (file.filename or "") else "pdf")
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
@@ -5715,7 +5787,8 @@ async def get_tiers():
 @api_router.get("/subscription/usage")
 async def usage_summary(user: dict = Depends(get_user)):
     pub = user_to_public(user)
-    return {"tier": pub["tier"], "usage": await get_user_usage_summary(user["id"], pub["tier"])}
+    return {"tier": pub["tier"], "usage": await get_user_usage_summary(user["id"], pub["tier"]),
+            "fair_use": await stage3.usage_view(user, pub["tier"])}
 
 # ==================== Evidence (Photo) Analysis ====================
 @api_router.post("/evidence/analyze")
@@ -8255,13 +8328,15 @@ async def auth_forgot_password(data: ForgotPasswordReq):
 
 
 @api_router.post("/auth/reset-password", response_model=TokenResp)
-async def auth_reset_password(data: ResetPasswordReq):
+async def auth_reset_password(data: ResetPasswordReq, request: Request):
     """Consumer reset. Validates token, updates password_hash, marks token used,
     returns a fresh JWT so the user is auto-logged-in on the reset page."""
     if not data.new_password or len(data.new_password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters.")
+    await login_guard.check_reset(_client_ip(request))
     rec = await db.password_reset_tokens.find_one({"token": data.token, "account_kind": "user", "used_at": None})
     if not rec:
+        await login_guard.fail_reset(_client_ip(request))
         raise HTTPException(400, "This reset link is invalid or has already been used.")
     exp = rec.get("expires_at")
     if isinstance(exp, str):
@@ -8303,12 +8378,14 @@ async def firm_forgot_password(data: ForgotPasswordReq):
 
 
 @api_router.post("/firm/reset-password")
-async def firm_reset_password(data: ResetPasswordReq):
+async def firm_reset_password(data: ResetPasswordReq, request: Request):
     """Firm reset. Returns a firm JWT so the founder/firm-admin is auto-logged-in."""
     if not data.new_password or len(data.new_password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters.")
+    await login_guard.check_reset(_client_ip(request))
     rec = await db.password_reset_tokens.find_one({"token": data.token, "account_kind": "firm", "used_at": None})
     if not rec:
+        await login_guard.fail_reset(_client_ip(request))
         raise HTTPException(400, "This reset link is invalid or has already been used.")
     exp = rec.get("expires_at")
     if isinstance(exp, str):
@@ -8447,6 +8524,7 @@ async def auth_2fa_login(req: TOTPLoginReq):
     """Exchange a (tmp_token + 6-digit code OR backup code) for a full JWT.
     Called after /auth/login returned {requires_2fa: true, tmp_token}."""
     payload = _decode_tmp_2fa_token(req.tmp_token)
+    await login_guard.check_2fa(req.tmp_token)
     if payload.get("kind") != "user":
         raise HTTPException(400, "Wrong account kind for this endpoint.")
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
@@ -8463,6 +8541,7 @@ async def auth_2fa_login(req: TOTPLoginReq):
                 used_index = i
                 break
         if used_index is None:
+            await login_guard.fail_2fa(req.tmp_token)
             raise HTTPException(401, "Incorrect 2FA code.")
         # Mark backup code as consumed (remove from list)
         new_backups = backups[:used_index] + backups[used_index+1:]
@@ -9980,10 +10059,14 @@ async def firm_signup(data: FirmPortalSignup):
     return {"access_token": token, "firm": doc, "trial_days_remaining": 14}
 
 @api_router.post("/firm/login")
-async def firm_login(data: FirmPortalLogin):
+async def firm_login(data: FirmPortalLogin, request: Request):
+    ip = _client_ip(request)
+    await login_guard.check("firm", data.email, ip)
     f = await db.firm_accounts.find_one({"email": data.email.lower()})
     if not f or not verify_pw(data.password, f["password"]):
+        await login_guard.fail("firm", data.email, ip)
         raise HTTPException(401, "Invalid credentials")
+    await login_guard.success("firm", data.email, ip)
     token = jwt.encode({"sub": f["id"], "kind": "firm", "exp": datetime.now(timezone.utc) + timedelta(days=30)}, JWT_SECRET, algorithm="HS256")
     f.pop("_id", None); f.pop("password", None)
     return {"access_token": token, "firm": f}
@@ -10957,15 +11040,17 @@ async def firm_accept_invite(data: FirmUserAcceptInvite):
     }
 
 @api_router.post("/firm/users/login")
-async def firm_user_login(data: FirmUserLogin):
+async def firm_user_login(data: FirmUserLogin, request: Request):
     """Fee-earner login (separate from firm-owner login)."""
+    ip = _client_ip(request)
+    await login_guard.check("firm_user", data.email, ip)
     record = await db.firm_users.find_one({"email": data.email.lower().strip()})
-    if not record or not record.get("password"):
+    if not record or not record.get("password") or not verify_pw(data.password, record["password"]):
+        await login_guard.fail("firm_user", data.email, ip)
         raise HTTPException(401, "Invalid credentials")
     if record.get("status") != "active":
         raise HTTPException(403, f"Account is {record.get('status')} — contact your firm admin")
-    if not verify_pw(data.password, record["password"]):
-        raise HTTPException(401, "Invalid credentials")
+    await login_guard.success("firm_user", data.email, ip)
     firm = await db.firm_accounts.find_one({"id": record["firm_id"]}, {"_id": 0, "password": 0})
     if not firm:
         raise HTTPException(401, "Parent firm not found")
@@ -12727,6 +12812,7 @@ async def outcome_predict(data: OutcomePredictRequest, user: dict = Depends(get_
         raise HTTPException(402, "Outcome Predictor requires Pro. Upgrade to unlock Opus deep-think.")
     if not data.case_summary or len(data.case_summary) < 20:
         raise HTTPException(400, "Please provide more detail (at least 20 chars)")
+    await stage3.charge(user, pub["tier"], "doc_analyze")
     lang_name = LANG_NAMES.get(data.language, "English")
     sysmsg = f"""You are AI Advocate's outcome predictor. The user is in {data.country}.
 Reply in {lang_name}.
@@ -12912,6 +12998,7 @@ async def hearing_transcribe(
     raw = await audio.read()
     if len(raw) > 50 * 1024 * 1024:
         raise HTTPException(413, "Audio file too large (max 50MB)")
+    await stage3.charge(user, pub["tier"], "hearing", amount=max(1, round(len(raw) / 1_000_000)))
     suffix = "." + (audio.filename.split(".")[-1].lower() if "." in audio.filename else "m4a")
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix); tmp.write(raw); tmp.flush(); tmp.close()
     try:
@@ -15904,6 +15991,7 @@ async def letters_counter_ladder(data: CounterLadderRequest, user: dict = Depend
     pub = user_to_public(user)
     if not pub.get("has_access"):
         raise HTTPException(402, "Subscription required.")
+    await stage3.charge(user, pub["tier"], "letters_generate")
     lang_name = LANG_NAMES.get(data.language, "English")
     # Delimiter-based output is far more robust than nested JSON for long letter
     # bodies (newlines in JSON strings break frequently). We use distinctive
@@ -16861,6 +16949,58 @@ async def cron_lex_learning(request: Request):
     return {"ok": True, "queued": True}
 
 
+# ==================== Stage 3 admin: fair use & spending ====================
+class FairUseBrake(BaseModel):
+    action: Literal["pause", "resume", "override"]
+
+class FairUseUser(BaseModel):
+    user_id: Optional[str] = None
+    email: Optional[str] = None
+    exempt: Optional[bool] = None
+
+
+@api_router.get("/admin/fair-use")
+async def admin_fair_use(_: dict = Depends(require_admin)):
+    since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    flags = await db.s3_flags.find({"at": {"$gte": since}}, {"_id": 0}).sort("at", -1).to_list(100)
+    exempt = await db.users.find({"s3_exempt": True}, {"_id": 0, "id": 1, "email": 1, "tier": 1}).to_list(100)
+    return {
+        "settings": await stage3.settings(),
+        "brake": await stage3.brake_status(),
+        "estimated_month_gbp": await stage3._sum_cost({"ts": {"$gte": stage3._uk_midnight_utc(True).isoformat()}}),
+        "estimate_note": "Estimated AI cost = our calculation from each provider's published token prices. "
+                         "Actual charges are on your Universal Key balance and your Tavily bill, and may differ.",
+        "flags": flags, "exempt_users": exempt, "allowances": stage3.PAID, "passes": stage3.PASSES,
+    }
+
+
+@api_router.put("/admin/fair-use/settings")
+async def admin_fair_use_settings(patch: dict, _: dict = Depends(require_admin)):
+    return await stage3.update_settings(patch)
+
+
+@api_router.post("/admin/fair-use/brake")
+async def admin_fair_use_brake(data: FairUseBrake, _: dict = Depends(require_admin)):
+    await stage3.set_brake(data.action)
+    return await stage3.brake_status()
+
+
+@api_router.post("/admin/fair-use/lift")
+async def admin_fair_use_lift(data: FairUseUser, _: dict = Depends(require_admin)):
+    r = await db.s3_flags.update_many({"user_id": data.user_id, "day": stage3._uk_day(),
+                                       "level": {"$in": ["cooldown", "paused"]}}, {"$set": {"lifted": True}})
+    return {"ok": True, "lifted": r.modified_count}
+
+
+@api_router.post("/admin/fair-use/exempt")
+async def admin_fair_use_exempt(data: FairUseUser, _: dict = Depends(require_admin)):
+    q = {"id": data.user_id} if data.user_id else {"email": (data.email or "").strip().lower()}
+    r = await db.users.update_one(q, {"$set": {"s3_exempt": bool(data.exempt)}})
+    if not r.matched_count:
+        raise HTTPException(404, "No account found with that email.")
+    return {"ok": True}
+
+
 app.include_router(api_router)
 app.include_router(_lessons_router, prefix="/api")
 
@@ -16909,6 +17049,11 @@ async def _translate_email(lang: str, subject: str, html: str):
 
 @app.on_event("startup")
 async def startup():
+    try:
+        await stage3.ensure_indexes()
+        await login_guard.ensure_indexes()
+    except Exception:
+        logger.exception("Stage 3 index setup failed (non-fatal)")
     from email_helper import set_email_translation
     set_email_translation(_email_lang_for, _translate_email)
     try:
