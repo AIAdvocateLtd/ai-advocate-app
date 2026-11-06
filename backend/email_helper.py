@@ -196,9 +196,9 @@ async def send_welcome(email: str, full_name: str = "") -> bool:
         2. <strong>Open a Case File.</strong> Keep your documents, evidence and timeline together in one place<br>
         3. <strong>Install the app.</strong> Add AI Advocate to your home screen for one-tap access (Android &amp; iPhone)
       </p>
-      <p style="font-size:14px; line-height:1.6; margin-bottom:6px;"><strong>You're on the Free plan</strong>, which includes Lex chat with daily limits and our core tools. When you need more:</p>
+      <p style="font-size:14px; line-height:1.6; margin-bottom:6px;"><strong>You're on the Free plan</strong>, which includes 2 free Lex questions and our core tools. When you need more:</p>
       <p style="font-size:14px; line-height:1.7; margin-top:0;">
-        &bull; <strong>Plus, £19.99/month</strong>: unlimited Lex chat, letter writer, evidence analysis<br>
+        &bull; <strong>Plus, £19.99/month</strong>: 300 Lex messages a month, 20 letters, evidence analysis<br>
         &bull; <strong>Pro, £34.99/month</strong>: our most advanced AI, outcome prediction, Devil's Advocate &amp; more
       </p>
       <p style="text-align:center; margin:22px 0;">

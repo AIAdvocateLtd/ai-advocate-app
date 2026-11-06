@@ -97,6 +97,11 @@ def canonical_email(email: str) -> str:
     return f"{local}@{domain}"
 
 
+def email_key(email: str) -> str:
+    """Pseudonymous allowance key — the address itself is never stored in usage counters."""
+    return "email:" + hashlib.sha256(canonical_email(email).encode()).hexdigest()[:32]
+
+
 # ---------------- Settings ----------------
 async def settings() -> dict:
     if _cache["settings"] and time.monotonic() - _cache["at"] < 15:
@@ -391,7 +396,7 @@ async def consume(user: dict, tier: str, feature: str, amount: int = 1, soft: bo
             await check_free_brake()
         if not (s["free_lifetime_enabled"] and kind in FREE_KINDS):
             return True
-        keys = [f"email:{canonical_email(user.get('email'))}"]
+        keys = [email_key(user.get("email"))]
         if user.get("signup_device_id"):
             keys.append(f"device:{user['signup_device_id']}")
         used = max([await _count(k, "s3-lifetime", "free_actions") for k in keys])
@@ -476,7 +481,7 @@ async def usage_view(user: dict, tier: str) -> dict:
     if _is_owner(user):
         return out
     if tier == "free" and s["free_lifetime_enabled"]:
-        keys = [f"email:{canonical_email(user.get('email'))}"] + \
+        keys = [email_key(user.get("email"))] + \
             ([f"device:{user['signup_device_id']}"] if user.get("signup_device_id") else [])
         used = max([await _count(k, "s3-lifetime", "free_actions") for k in keys])
         cap = int(s["free_lifetime_actions"])

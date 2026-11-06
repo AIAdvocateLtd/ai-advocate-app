@@ -79,7 +79,7 @@ def cleanup(admin_tok):
         mdb.users.delete_one({"id": uid})
         mdb.usage.delete_many({"user_id": uid})
         if u:
-            mdb.usage.delete_many({"user_id": f"email:{u['email']}"})
+            mdb.usage.delete_many({"user_id": {"$in": [f"email:{u['email']}", __import__("stage3").email_key(u["email"])]}})
         mdb.s3_events.delete_many({"user_id": uid})
         mdb.s3_consumptions.delete_many({"user_id": uid})
         mdb.chat_sessions.delete_many({"user_id": uid})
@@ -116,14 +116,14 @@ class TestXffSpoof:
             clear_login_rows([email], ih)
 
     def test_per_ip_limit_not_bypassed_by_rotating_xff(self):
-        emails = [f"TEST_xffip_{i}_{uuid.uuid4().hex[:6]}@advocate.app" for i in range(21)]
+        emails = [f"TEST_xffip_{i}_{uuid.uuid4().hex[:6]}@advocate.app" for i in range(51)]
         codes = []
         for em in emails:
             codes.append(requests.post(f"{API}/auth/login", json={"email": em, "password": "wrong"},
                                        headers={"X-Forwarded-For": spoof()}).status_code)
         ih = real_ip_hash_for(emails[0])
         try:
-            assert codes[:20] == [401] * 20 and codes[20] == 429, codes
+            assert codes[:50] == [401] * 50 and codes[50] == 429, codes
             # even a valid account is now blocked from this IP
             r = requests.post(f"{API}/auth/login", json={"email": PRO[0], "password": PRO[1]}, headers={"X-Forwarded-For": spoof()})
             assert r.status_code == 429, r.text[:200]

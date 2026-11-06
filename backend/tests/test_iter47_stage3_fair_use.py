@@ -68,7 +68,7 @@ def cleanup():
         mdb.users.delete_one({"id": uid})
         mdb.usage.delete_many({"user_id": uid})
         if u:
-            mdb.usage.delete_many({"user_id": f"email:{u['email']}"})
+            mdb.usage.delete_many({"user_id": {"$in": [f"email:{u['email']}", __import__("stage3").email_key(u["email"])]}})
         mdb.s3_events.delete_many({"user_id": uid})
         mdb.s3_consumptions.delete_many({"user_id": uid})
         mdb.chat_sessions.delete_many({"user_id": uid})

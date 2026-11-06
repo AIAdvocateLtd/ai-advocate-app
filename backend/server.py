@@ -949,10 +949,12 @@ async def get_user_usage_summary(user_id: str, tier: str) -> dict:
     ]:
         bucket = day_bucket if period == "daily" else month_bucket
         doc = await db.usage.find_one({"user_id": user_id, "bucket": bucket, "feature": feature}, {"_id": 0})
+        replaced = tier == "free" and feature in ("lex_chat", "letters_generate", "evidence_analyze") \
+            and (await stage3.settings())["free_lifetime_enabled"]
         items[feature] = {
             "used": doc["count"] if doc else 0,
-            "limit": TIER_QUOTAS.get(tier, {}).get(key),
-            "period": period,
+            "limit": None if replaced else TIER_QUOTAS.get(tier, {}).get(key),
+            "period": "lifetime (see fair_use)" if replaced else period,
         }
     return items
 
@@ -4029,6 +4031,8 @@ TERMS_BODY_EN = """TERMS OF SERVICE
 5. Eligibility. You must be at least 18 years old (or the age of legal majority in your jurisdiction, whichever is higher) and legally capable of entering into a binding contract.
 
 6. Subscription, Auto-Renewal & Refunds. Paid plans are auto-renewing subscriptions. By subscribing through our payment processor (Stripe), you authorise recurring charges to your selected payment method until you cancel. Cancel any time at least 24 hours before the next renewal. Refunds are handled in line with our Terms and your statutory rights.
+
+6a. Fair Use. Each plan includes the monthly allowances shown on our pricing page (Free: 2 lifetime Lex questions, shared across chat, letters and document checks). Allowances reset on the 1st of each month (UK time) and do not roll over. Answers that fail, come back blank or are cut off are not counted. To protect the service from automated or abnormal use, we may apply a temporary one-hour pause if an account's AI usage in a single day is far above normal use (and pause until midnight if it continues). We will never switch a paid plan to a lower-quality AI model. If a pause affects you in error, contact support@aiadvocate.co.uk and we will lift it.
 
 7. Acceptable Use. You agree not to (a) use the App for any unlawful purpose; (b) submit content that is illegal, defamatory, infringing, or contains malware; (c) attempt to reverse-engineer, scrape, or circumvent technical protections; (d) use the App to draft or send threats, harassment, fraud, or content designed to evade the law; (e) impersonate a lawyer or hold yourself out as receiving legal advice from the App.
 

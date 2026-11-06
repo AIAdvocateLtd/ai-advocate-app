@@ -15838,7 +15838,7 @@ const TOS_TEXT = `# Terms of Service
 
 **6. Subscriptions & auto-renewal.** Paid plans renew automatically at £19.99/mo (Plus), £34.99/mo (Pro), or £319.99/yr (Yearly Pro). All payments are processed by Stripe. Cancel any time 24h before renewal via Settings → Manage Subscription.
 
-**6c. Fair use.** Each plan includes the monthly allowances shown on our pricing page (Free: 2 lifetime Lex questions, shared across chat, letters and document checks). Allowances reset on the 1st of each month (UK time) and do not roll over. Answers that fail, come back blank or are cut off are not counted. To protect the service from automated or abnormal use, we may apply a temporary one-hour pause if an account's AI usage in a single day is far above normal use (and pause until midnight if it continues). We will never switch a paid plan to a lower-quality AI model. If a pause affects you in error, contact support@aiadvocate.co.uk and we will lift it.
+**6a. Fair use.** Each plan includes the monthly allowances shown on our pricing page (Free: 2 lifetime Lex questions, shared across chat, letters and document checks). Allowances reset on the 1st of each month (UK time) and do not roll over. Answers that fail, come back blank or are cut off are not counted. To protect the service from automated or abnormal use, we may apply a temporary one-hour pause if an account's AI usage in a single day is far above normal use (and pause until midnight if it continues). We will never switch a paid plan to a lower-quality AI model. If a pause affects you in error, contact support@aiadvocate.co.uk and we will lift it.
 
 **7. Misuse.** You may not use the App for: harassment, illegal recording, defamation, doxing, or building tools that compete with the App.
 

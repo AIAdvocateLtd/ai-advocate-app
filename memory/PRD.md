@@ -1064,3 +1064,6 @@ Production redeploy required. All env vars unchanged.
   Letter Pack keeps Plus chat capped 100; Yearly grandfathered until renewal; paid limits only after 30-day notice (admin start date).
 - Pending owner: wording sign-off (stage3_wording_drafts.md), production deploy approval, live SENTRY_ENV=production.
 - Backlog: 25 flagged legal facts review; Stages 4-6; Lex 2.0 Option C; age checkbox; personalised toasts; founder story page.
+- 2026-11-06 readiness review: wording applied in preview (welcome.html, tiers, packs, Terms 6a/6c, welcome email);
+  network limits raised (10 signups/7d, 50 login fails/15min); email allowance key hashed. Report: stage3_readiness_report.md.
+  AWAITING owner decision on deployment. Paid limits OFF until start date.
