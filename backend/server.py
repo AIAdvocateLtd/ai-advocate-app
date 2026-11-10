@@ -69,7 +69,8 @@ if SENTRY_DSN:
     )
 
 from app_crypto import encrypt_text, decrypt_text, encrypt_bytes, decrypt_bytes, is_enabled as crypto_enabled  # noqa: E402
-from deadline_calc import build_deadlines, reminder_due_iso  # noqa: E402
+from deadline_calc import build_deadlines, reminder_due_iso, NO_CALC_BLOCK, _HINT_RE as _DEADLINE_CALC_HINT_RE  # noqa: E402
+import legal_sources  # noqa: E402
 from lex_lessons import fact_pack_block as _fact_pack_block, lessons_block as _lessons_block, refresh_if_stale as _lessons_refresh_if_stale  # noqa: E402
 from rag import build_rag_context, research as rag_research, _looks_like_legal_question, is_enabled as rag_enabled, get_usage as rag_get_usage  # noqa: E402
 import lex_safety  # noqa: E402
@@ -1994,8 +1995,18 @@ async def update_prefs(data: dict, user: dict = Depends(get_user)):
     return user_to_public(fresh)
 
 # ==================== Lex Chat ====================
-def _lex_finalize(text: str, citations: list, research: dict, risk: str, language: str, message: str, juris: dict):
-    """Citation/research honesty checks on the final answer. Stores counts only (no answer text)."""
+def _juris_nation(j: dict):
+    n = (j or {}).get("applicable") or (j or {}).get("deadline_jurisdiction")
+    return n if n in lex_safety.NATIONS else None
+
+
+async def _lex_finalize(text: str, citations: list, research: dict, risk: str, language: str, message: str, juris: dict):
+    """Legislation status check + citation/research honesty checks. Stores counts only (no answer text)."""
+    leg = {}
+    try:
+        text, leg = await legal_sources.check_answer(text or "", _juris_nation(juris), citations)
+    except Exception as e:
+        logger.warning(f"legislation check failed (answer unchanged): {e!r}")
     try:
         out, rep = lex_safety.finalize_answer(text or "", citations=citations, sources=research.get("sources") or [],
                                               research_status=research.get("status"), risk=risk, language=language,
@@ -2005,7 +2016,8 @@ def _lex_finalize(text: str, citations: list, research: dict, risk: str, languag
         return text, {"error": True}
     return out, {k: rep[k] for k in ("removed_markers", "unsupported_markers", "urls_removed", "urls_rerouted",
                                      "notes_added", "risk", "research_status")} | {
-        "unverified_case_refs": len(rep["unverified_case_refs"]), "jurisdiction_conflict": bool(juris.get("conflict"))}
+        "unverified_case_refs": len(rep["unverified_case_refs"]), "jurisdiction_conflict": bool(juris.get("conflict")),
+        "legislation": leg}
 
 
 @api_router.post("/lex/chat")
@@ -2078,8 +2090,12 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     # are appended to the system prompt and Lex is told to cite numbered sources.
     citations: List[dict] = []
     research = {"status": "unavailable", "sources": []}
+    history_ex, history_omitted = await chat_memory.load_recent_history(db, user["id"], session_id, decrypt_text)
+    _ctx = "\n".join(ex["user"] for ex in history_ex[-3:])
     try:
-        research = await rag_research(data.message, country=data.country or "GB", db=db)
+        _pre = lex_safety.assess_jurisdiction(data.message, _ctx, user.get("jurisdiction"), data.country, data.category)
+        research = await rag_research(data.message, country=data.country or "GB", db=db, context=_ctx,
+                                      nation=_juris_nation(_pre))
         citations = research["citations"]
         system_msg = system_msg + research["block"]
     except Exception as e:
@@ -2111,14 +2127,12 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     # We pull the last 12 turns for this user+session, decrypt them, and seed
     # LlmChat's initial_messages. This is what makes Lex feel like a real
     # ongoing conversation instead of forgetting after every question.
-    history_ex, history_omitted = await chat_memory.load_recent_history(db, user["id"], session_id, decrypt_text)
     system_msg = system_msg + chat_memory.history_note(history_omitted)
 
     # 📅 Exact deadline maths — LLM extracts the dates, Python calculates them.
     auto_reminders = []
     juris = {"conflict": False}
     try:
-        _ctx = "\n".join(ex["user"] for ex in history_ex[-3:])
         juris = lex_safety.assess_jurisdiction(data.message, _ctx, user.get("jurisdiction"), data.country, data.category)
         system_msg = system_msg + juris["block"]
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
@@ -2164,7 +2178,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     if finish == "length":
         response = lex_safety.append_cut_note(response, reply_language)
 
-    response, safety_rep = _lex_finalize(response, citations, research, risk, reply_language, data.message, juris)
+    response, safety_rep = await _lex_finalize(response, citations, research, risk, reply_language, data.message, juris)
 
     # Save conversation (sensitive content encrypted at rest). Citations are stored
     # as plaintext metadata so chat history can re-render the pills on reload.
@@ -2290,8 +2304,12 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
     # RAG
     citations: List[dict] = []
     research = {"status": "unavailable", "sources": []}
+    history_ex, history_omitted = await chat_memory.load_recent_history(db, user["id"], session_id, decrypt_text)
+    _ctx = "\n".join(ex["user"] for ex in history_ex[-3:])
     try:
-        research = await rag_research(data.message, country=data.country or "GB", db=db)
+        _pre = lex_safety.assess_jurisdiction(data.message, _ctx, user.get("jurisdiction"), data.country, data.category)
+        research = await rag_research(data.message, country=data.country or "GB", db=db, context=_ctx,
+                                      nation=_juris_nation(_pre))
         citations = research["citations"]
         system_msg = system_msg + research["block"]
     except Exception as e:
@@ -2319,14 +2337,11 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
         except Exception as e:
             logger.warning(f"Doc-context build failed: {e}")
 
-    # Load chat history
-    history_ex, history_omitted = await chat_memory.load_recent_history(db, user["id"], session_id, decrypt_text)
     system_msg = system_msg + chat_memory.history_note(history_omitted)
     # 📅 Exact deadline maths — LLM extracts the dates, Python calculates them.
     auto_reminders = []
     juris = {"conflict": False}
     try:
-        _ctx = "\n".join(ex["user"] for ex in history_ex[-3:])
         juris = lex_safety.assess_jurisdiction(data.message, _ctx, user.get("jurisdiction"), data.country, data.category)
         system_msg = system_msg + juris["block"]
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
@@ -2427,7 +2442,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
             full_text_parts.append("\n\n" + lex_safety.note("cut", reply_language))
 
         # Assemble full response, run citation/research checks, resolve [CONNECTED_TO: #N]
-        full_text, safety_rep = _lex_finalize("".join(full_text_parts), citations, research, risk, reply_language,
+        full_text, safety_rep = await _lex_finalize("".join(full_text_parts), citations, research, risk, reply_language,
                                               data.message, juris)
         connected_session_id = None
         try:
@@ -2517,23 +2532,35 @@ async def lex_taster(req: Request, data: TasterMessage):
     if used > 0:
         raise HTTPException(429, "You've used your free question. Create a free account to keep chatting with Lex.")
 
-    # Use cheapest model — this is a free hook
+    juris = lex_safety.assess_jurisdiction(text, "", None, data.country, None)
+    risk = lex_safety.risk_level(text, None)
+    research = {"status": "unavailable", "sources": [], "citations": [], "block": ""}
+    try:
+        research = await rag_research(text, country=data.country or "GB", db=db, nation=_juris_nation(juris))
+    except Exception as e:
+        logger.warning(f"Taster research failed (continuing without): {e}")
+    citations = research.get("citations") or []
+    safety_ctx = (research.get("block") or "") + lex_safety.research_block(research["status"], risk, lex_safety.topics_of(text)) \
+        + juris.get("block", "") + _fact_pack_block(text, "") + (NO_CALC_BLOCK if _DEADLINE_CALC_HINT_RE.search(text) else "")
     try:
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"taster-{uuid.uuid4()}",
             system_message=(
-                lex_system_prompt(data.language, data.country, None)
+                lex_system_prompt(data.language, data.country, None) + safety_ctx
                 + "\n\nIMPORTANT: This is the user's FIRST-EVER question. Be concise (under 250 words), "
                 "warm and helpful. End with: 'Create a free account to keep chatting with Lex, plus case files "
                 "and your private Vault.'"
             ),
         ).with_model("anthropic", "claude-haiku-4-5-20251001").with_params(max_tokens=600)
         response = await chat.send_message(UserMessage(text=text))
+        if lex_output.is_blank(response):
+            raise RuntimeError("blank taster reply")
     except Exception as e:
         logger.exception("Taster Lex error")
         raise HTTPException(500, f"Lex is busy — please try again. ({str(e)[:100]})")
 
+    response, _taster_safety = await _lex_finalize(response, citations, research, risk, data.language, text, juris)
     # Record usage so the device + IP can't burn another free question for 7 days
     now_iso = datetime.now(timezone.utc).isoformat()
     await db.taster_usage.insert_one({"key": fp_ip, "at": now_iso})
@@ -2553,7 +2580,7 @@ async def lex_taster(req: Request, data: TasterMessage):
         "language": data.language, "claimed_by": None, "created_at": now_iso,
     })
 
-    return {"response": response, "model": "claude-haiku-4-5", "taster_id": taster_id}
+    return {"response": response, "model": "claude-haiku-4-5", "taster_id": taster_id, "citations": citations}
 
 
 @api_router.get("/lex/taster/status")
@@ -4547,6 +4574,12 @@ async def analyze_contract(
         try: os.unlink(tmp.name)
         except Exception: pass
 
+    try:
+        _cn = _juris_nation(lex_safety.assess_jurisdiction("", "", user.get("jurisdiction"), country, None))
+        response, _ = lex_safety.verify_citations(response, [], [])
+        response, _ = await legal_sources.check_answer(response, _cn, [])
+    except Exception as e:
+        logger.warning(f"Contract legislation check failed (analysis unchanged): {e!r}")
     doc = {
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
@@ -4558,7 +4591,7 @@ async def analyze_contract(
     }
     await db.legal_files.insert_one(doc.copy())
     doc.pop("_id", None)
-    return {"id": doc["id"], "filename": doc["filename"], "analysis": response, "created_at": doc["created_at"]}
+    return {"id": doc["id"], "filename": doc["filename"], "analysis": doc["analysis"], "created_at": doc["created_at"]}
 
 @api_router.get("/legal-files")
 async def list_files(user: dict = Depends(get_user)):
@@ -4573,10 +4606,20 @@ async def generate_letter(data: LegalLetterRequest, user: dict = Depends(get_use
     pub = user_to_public(user)
     if not pub.get("has_access"):
         raise HTTPException(402, "Subscription required.")
+    _letter_juris = lex_safety.assess_jurisdiction(data.details or "", "", user.get("jurisdiction"), user.get("country"), None)
+    _letter_research = {"status": "unavailable", "citations": [], "block": ""}
+    try:
+        _letter_research = await rag_research(f"{data.letter_type}: {data.details}", country=user.get("country") or "GB",
+                                              db=db, nation=_juris_nation(_letter_juris))
+    except Exception as e:
+        logger.warning(f"Letter research failed (continuing without): {e}")
+    _letter_research_block = (_letter_research.get("block") or "").replace(
+        "cite the source like [1] or [2] matching the numbered list", "rely on these sources (do not print [n] markers in the letter)") \
+        + _letter_juris.get("block", "")
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=str(uuid.uuid4()),
-        system_message=lex_system_prompt(data.language, user.get("country", "GB"), "legal_letter"),
+        system_message=lex_system_prompt(data.language, user.get("country", "GB"), "legal_letter") + _letter_research_block,
     ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2000)
     tone_instructions = {
         "polite": "Polite, professional, opens with goodwill and reasonable request. NO threats. Frames as 'I'd be grateful if you could…'. Suitable for first-contact / opening salvo.",
@@ -4597,6 +4640,11 @@ Output ONLY the letter (no extra commentary)."""
         letter = await chat.send_message(UserMessage(text=prompt))
     except Exception as e:
         raise HTTPException(500, f"Letter gen failed: {str(e)}")
+    try:
+        letter, _ = lex_safety.verify_citations(letter, _letter_research.get("citations") or [], [])
+        letter, _ = await legal_sources.check_answer(letter, _juris_nation(_letter_juris), [], document=True)
+    except Exception as e:
+        logger.warning(f"Letter legislation check failed (letter unchanged): {e!r}")
     await db.legal_files.insert_one({
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
@@ -12524,6 +12572,15 @@ If the document is NOT a contract, set contract_type=\"other\" and verdict_one_l
             "clauses": [], "red_flags": [], "amber_flags": [], "questions_to_ask": [],
             "solicitor_review_recommended": True, "missing_protections": [],
         }
+
+    try:
+        _cn = _juris_nation(lex_safety.assess_jurisdiction("", "", user.get("jurisdiction"), user.get("country"), None))
+        _leg = await legal_sources.issue_notes(_json.dumps(analysis_obj, ensure_ascii=False), _cn)
+        if _leg:
+            analysis_obj["amber_flags"] = list(analysis_obj.get("amber_flags") or []) + [f"Legislation check: {n}" for n in _leg]
+            analysis_obj["legislation_check"] = _leg
+    except Exception as e:
+        logger.warning(f"Contract legislation check failed (analysis unchanged): {e!r}")
 
     # 💾 Persist the analysis so the user can go back to it later (Contract Tools tab → "My contracts").
     # We store the raw bytes too (base64) for re-display + future re-analysis. Capped at ~6MB

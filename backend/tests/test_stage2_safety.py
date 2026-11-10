@@ -73,7 +73,7 @@ def test_unsupported_claim_marker_dropped():
 
 def test_supported_claim_kept():
     out, rep = ls.verify_citations("Section 213 of the Housing Act 2004 applies [1].", CITES, SRCS)
-    assert "[1]" in out and CITES[0]["claim_check"] == "supported"
+    assert "[1]" in out and CITES[0]["claim_check"] == "reference_found_in_source"
 
 
 def test_urls_checked():

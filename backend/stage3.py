@@ -1,5 +1,5 @@
 """Stage 3: fair-use allowances, spend safeguards, Free site brake, abuse guards."""
-import os, re, time, hashlib, logging, contextvars
+import os, time, hashlib, logging, contextvars
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from fastapi import HTTPException

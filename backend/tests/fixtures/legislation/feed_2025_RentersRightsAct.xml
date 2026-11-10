@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xmlns:leg="http://www.legislation.gov.uk/namespaces/legislation" xmlns:ukm="http://www.legislation.gov.uk/namespaces/metadata" xmlns:theme="http://www.legislation.gov.uk/namespaces/theme" xmlns:openSearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:parameters="http://a9.com/-/spec/opensearch/extensions/parameters/1.0/">
+			<id>http://www.legislation.gov.uk/search/data.feed?type=primary&amp;year=2025&amp;title=Renters%27%20Rights%20Act</id>
+			<link rel="self" type="application/atom+xml" href="http://www.legislation.gov.uk/search/data.feed?type=primary&amp;year=2025&amp;title=Renters%27%20Rights%20Act"/>
+			
+			<link rel="alternate" type="text/csv" href="http://www.legislation.gov.uk/search/data.csv?type=primary&amp;year=2025&amp;title=Renters%27%20Rights%20Act"/>
+			<updated>2026-06-19T23:59:59Z</updated>
+			<title>Search Results</title>
+			<openSearch:Query role="request" leg:type="primary" leg:year="2025" leg:title="Renters' Rights Act"> </openSearch:Query>
+			<openSearch:itemsPerPage>20</openSearch:itemsPerPage>
+			<openSearch:startIndex>1</openSearch:startIndex>
+			<leg:page>1</leg:page>
+			<leg:morePages>1</leg:morePages>
+			<leg:facets>
+								
+								<leg:facetTypes remove="http://www.legislation.gov.uk/search/data.feed?year=2025&amp;title=Renters%27%20Rights%20Act"><leg:facetType type="UnitedKingdomPublicGeneralAct" href="http://www.legislation.gov.uk/search/data.feed?type=ukpga&amp;year=2025&amp;title=Renters%27%20Rights%20Act" value="1"/></leg:facetTypes>
+								<leg:facetYears remove="http://www.legislation.gov.uk/search/data.feed?type=primary&amp;title=Renters%27%20Rights%20Act"><leg:facetYear year="2025" href="http://www.legislation.gov.uk/search/data.feed?type=primary&amp;year=2025&amp;title=Renters%27%20Rights%20Act" total="1" value="1"/></leg:facetYears>
+								<leg:facetHundreds/>
+								
+							</leg:facets>
+			<leg:title><leg:and><leg:term>Renters'</leg:term><leg:term>Rights</leg:term><leg:term>Act</leg:term></leg:and></leg:title>
+			<openSearch:totalResults>1</openSearch:totalResults>
+			<link rel="first" type="application/atom+xml" href="http://www.legislation.gov.uk/search/data.feed?type=primary&amp;year=2025&amp;title=Renters%27%20Rights%20Act"/><entry>
+			<id>http://www.legislation.gov.uk/id/ukpga/2025/26</id>
+			<title>Renters’ Rights Act 2025</title>
+			<link rel="self" href="http://www.legislation.gov.uk/id/ukpga/2025/26"/>
+			<link href="http://www.legislation.gov.uk/ukpga/2025/26/2026-06-22"/>
+			<link rel="alternate" type="application/xml" href="http://www.legislation.gov.uk/ukpga/2025/26/2026-06-22/data.xml" title="XML"/><link rel="alternate" type="application/rdf+xml" href="http://www.legislation.gov.uk/ukpga/2025/26/2026-06-22/data.rdf" title="RDF/XML"/><link rel="alternate" type="application/akn+xml" href="http://www.legislation.gov.uk/ukpga/2025/26/2026-06-22/data.akn" title="AKN"/><link rel="alternate" type="application/xhtml+xml" href="http://www.legislation.gov.uk/ukpga/2025/26/2026-06-22/data.xht" title="HTML snippet"/><link rel="alternate" type="application/akn+xhtml" href="http://www.legislation.gov.uk/ukpga/2025/26/2026-06-22/data.html" title="HTML5"/><link rel="alternate" type="text/html" href="http://www.legislation.gov.uk/ukpga/2025/26/2026-06-22/data.htm" title="Website (XHTML) Default View"/><link rel="alternate" type="text/csv" href="http://www.legislation.gov.uk/ukpga/2025/26/2026-06-22/data.csv" title="CSV"/><link rel="alternate" type="application/pdf" href="http://www.legislation.gov.uk/ukpga/2025/26/2026-06-22/data.pdf" title="PDF"/>
+			<link rel="http://purl.org/dc/terms/tableOfContents" type="application/xml" href="http://www.legislation.gov.uk/ukpga/2025/26/contents" title="Table of Contents"/>
+			<author><name/></author>
+			<updated>2026-06-21T23:10:00Z</updated>
+			<published>2025-10-31T12:50:21.699052Z</published>
+			<ukm:DocumentMainType Value="UnitedKingdomPublicGeneralAct"/><ukm:Year Value="2025"/><ukm:Number Value="26"/><ukm:ISBN Value="9780105702948"/><ukm:CreationDate Date="2025-10-27"/>
+			
+			
+			
+			<summary>An Act to make provision changing the law about rented homes, including provision abolishing fixed term assured tenancies and assured shorthold tenancies; imposing obligations on landlords and others in relation to rented homes and temporary and supported accommodation; and for connected purposes.</summary>
+		</entry>
+		</feed>

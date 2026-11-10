@@ -22,6 +22,7 @@ returns an empty context. Lex is never blocked.
 from __future__ import annotations
 
 import os
+import re
 import time
 import asyncio
 import logging
@@ -178,7 +179,8 @@ def _format_block(label: str, items: List[Dict], start_index: int = 1) -> str:
     for i, it in enumerate(items, start_index):
         title = it.get("title") or "(untitled)"
         url = it.get("url") or ""
-        snippet = (it.get("content") or "")[:350].replace("\n", " ").strip()
+        cap = 900 if "legislation.gov.uk/" in url and "/section/" in url else 350
+        snippet = (it.get("content") or "")[:cap].replace("\n", " ").strip()
         lines.append(f"[{i}] {title}\n    {url}\n    {snippet}")
     return "\n".join(lines)
 
@@ -188,7 +190,39 @@ async def build_rag_context(message: str, country: str = "GB", db=None):
     return r["block"], r["citations"]
 
 
-async def research(message: str, country: str = "GB", db=None) -> Dict:
+_PII = [
+    (re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), ""),
+    (re.compile(r"https?://\S+"), ""),
+    (re.compile(r"\b(?:\+44\s?|0)(?:\d[\s-]?){9,10}\b"), ""),
+    (re.compile(r"\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b", re.I), ""),
+    (re.compile(r"\b[A-Z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-D]\b", re.I), ""),
+    (re.compile(r"\b(?:my name is|i am called|i'm called|called|named)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?", re.I), ""),
+    (re.compile(r"\b\d{6,}\b"), ""),
+]
+NATION_HINT = {"england": " England law", "wales": " Wales law", "scotland": " Scotland law",
+               "northern_ireland": " Northern Ireland law"}
+
+
+def scrub(text: str) -> str:
+    """Remove contact details, postcodes, NI numbers, names and long numbers before sending to a search provider."""
+    for rx, rep_ in _PII:
+        text = rx.sub(rep_, text or "")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def build_query(message: str, context: str = "", nation: Optional[str] = None, country: str = "GB") -> str:
+    q = scrub(message)
+    follow_up = re.match(r"^(and|but|so|or|what about|what if|how about|they|he|she|it|then|also|ok|okay)\b", q, re.I)
+    if context and (len(q.split()) < 8 or follow_up):
+        last = scrub(context.strip().split("\n")[-1])[:160]
+        q = f"{last} {q}".strip()
+    cc = (country or "GB").upper()
+    hint = NATION_HINT.get(nation or "") or (" Scotland law" if cc == "SCT" else " Northern Ireland law" if cc == "NIR"
+                                             else " Wales law" if cc == "WAL" else " UK law")
+    return f"{q[:300]}{hint}"
+
+
+async def research(message: str, country: str = "GB", db=None, context: str = "", nation: Optional[str] = None) -> Dict:
     """Returns {status, block, citations, sources}. status: ok | not_needed | not_configured |
     quota_exhausted | unavailable | no_results. `sources` keeps snippets for server-side citation checks."""
     res = {"status": "not_needed", "block": "", "citations": [], "sources": []}
@@ -200,20 +234,21 @@ async def research(message: str, country: str = "GB", db=None) -> Dict:
         logger.info("Tavily monthly cap reached — serving Lex without RAG this turn.")
         return {**res, "status": "quota_exhausted"}
 
-    jurisdiction_hint = ""
-    cc = (country or "GB").upper()
-    if cc in ("GB", "UK", "ENG", "WAL"):
-        jurisdiction_hint = " UK law"
-    elif cc == "SCT":
-        jurisdiction_hint = " Scotland law"
-    elif cc == "NIR":
-        jurisdiction_hint = " Northern Ireland law"
-    base_q = f"{message.strip()[:280]}{jurisdiction_hint}"
+    base_q = build_query(message, context, nation, country)
+    import legal_sources
+
+    async def _statute():
+        try:
+            return await legal_sources.grounding_sources(f"{context}\n{message}", nation)
+        except Exception as e:
+            logger.info("legislation grounding skipped: %s", e)
+            return []
 
     try:
-        (official, s1), (web, s2) = await asyncio.wait_for(asyncio.gather(
+        (official, s1), (web, s2), statute = await asyncio.wait_for(asyncio.gather(
             _tavily_search_ex(base_q, include_domains=AUTHORITY_DOMAINS, max_results=3, search_depth="basic"),
             _tavily_search_ex(base_q, include_domains=None, max_results=2, search_depth="basic"),
+            _statute(),
         ), timeout=9.0)
     except asyncio.TimeoutError:
         logger.warning("Tavily RAG block timed out — continuing without grounding.")
@@ -234,7 +269,7 @@ async def research(message: str, country: str = "GB", db=None) -> Dict:
                 out.append(it)
         return out
 
-    official, web = dedupe(official), dedupe(web)
+    official, web = dedupe(statute) + dedupe(official), dedupe(web)
     if not official and not web:
         failed = {s1, s2} - {"ok"}
         status = ("quota_exhausted" if "quota_exhausted" in failed else "unavailable") if failed else "no_results"

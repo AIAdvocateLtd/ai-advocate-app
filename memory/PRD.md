@@ -1071,3 +1071,11 @@ Production redeploy required. All env vars unchanged.
   paid cool-down before start date; Sentry label via 1-line FRONTEND_URL check; Doc Pack "0h" + Free bottom-nav LEX paywall fixes. AWAITING deploy decision.
 - 2026-11-06 release prep: wording now discloses Read-Aloud/translation/Live Assist/pass caps; Doc Pack "Never expires" fix; Free LEX centre button opens text chat;
   Sentry + owner-email env label derived from FRONTEND_URL (no secrets changed). tests/test_stage3_release.py 33/33 (simulated). AWAITING deploy approval.
+
+## 2026-11-06 Lex 2.0 Phase 1 (PREVIEW only, not deployed)
+- legal_sources.py: legislation.gov.uk Act resolution + section XML (extent, repealed/partly, prospective, pending changes), 6h status cache;
+  check_answer qualifies chat answers inline + note; letters get notes outside the body; JSON contract review -> amber flags.
+- rag.py: PII-scrubbed queries using context + nation; real section text added as official sources when user names an Act/section.
+- Taster now gets jurisdiction, research, safety blocks, deadline no-calc guard, legislation check (model unchanged).
+- Case law (Find Case Law) behind CASELAW_VERIFY_ENABLED=1 — OFF until TNA computational-analysis licence.
+- Tests: tests/test_lex2_phase1.py (16), test_lex2_phase1_wiring.py (4). Pending: OGL attribution line, deploy approval. Phases 2-4 not started.

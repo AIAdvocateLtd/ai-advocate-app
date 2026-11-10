@@ -283,7 +283,7 @@ def verify_citations(text: str, citations: List[dict], sources: List[dict]) -> T
             rep["unverified_case_refs"].append(ref)
     for c in citations or []:
         seen = rep["per_source"].get(int(c["n"]), set())
-        c["claim_check"] = ("supported" if "supported" in seen else "not_confirmed" if seen == {"not_confirmed"}
+        c["claim_check"] = ("reference_found_in_source" if "supported" in seen else "not_confirmed" if seen == {"not_confirmed"}
                             else "unchecked" if seen else "not_cited")
     rep["per_source"] = {k: sorted(v) for k, v in rep["per_source"].items()}
     return out, rep
