@@ -2354,7 +2354,9 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
       }
       const fd = new FormData();
       fd.append("message", text); fd.append("language", lang); fd.append("country", country);
-      if (!(finalDone?.saved_reminders || []).length) api.post("/reminders/detect", fd).then(r => {
+      const proposed = finalDone?.proposed_reminders || [];
+      if (proposed.length) setMessages(m => [...m, { role: "deadlines", proposed: true, content: "", at: new Date().toISOString(), deadlines: proposed }]);
+      else if (!finalDone?.hypothetical && !(finalDone?.saved_reminders || []).length) api.post("/reminders/detect", fd).then(r => {
         const dls = r.data?.deadlines || [];
         if (dls.length) setMessages(m => [...m, { role: "deadlines", content: "", at: new Date().toISOString(), deadlines: dls }]);
       }).catch(() => {});
@@ -2375,7 +2377,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         setSessionId(data.session_id);
         const fullText = data.response;
         const lexMsg = { role: "lex", content: "", _fullContent: fullText, at: new Date().toISOString(), model: data.model, replyLang: data.reply_language, connectedSessionId: data.connected_session_id || null, citations: data.citations || [], savedReminders: data.saved_reminders || [], _typing: true };
-        setMessages(m => [...m, lexMsg]);
+        setMessages(m => [...m, lexMsg, ...((data.proposed_reminders || []).length ? [{ role: "deadlines", proposed: true, content: "", at: new Date().toISOString(), deadlines: data.proposed_reminders }] : [])]);
         let revealed = 0;
         const step = 30;
         const tick = () => {
@@ -2397,8 +2399,11 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
   };
 
   const addDeadlineAsReminder = async (dl, idx) => {
+    const ok = await aaConfirm({ title: "Add this reminder?", confirmLabel: "Yes, add reminder",
+      message: `Only add this if it is your real situation, not an example. ${dl.note || "Check the date on your papers or with an adviser."}` });
+    if (!ok) return;
     try {
-      await api.post("/reminders", { title: dl.title, due_at: dl.due_at, kind: dl.kind || "deadline", case_id: caseId || undefined, session_id: sessionId || undefined });
+      await api.post("/reminders", { title: dl.title, description: dl.note || "", due_at: dl.due_at, kind: dl.kind || "deadline", case_id: caseId || undefined, session_id: sessionId || undefined });
       // Mark this deadline as "added" in the local message
       setMessages(ms => ms.map((m, i) => {
         if (m.role !== "deadlines") return m;
@@ -2588,12 +2593,14 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
               ) : m.role === "deadlines" ? (
                 <div data-testid={`deadline-card-${i}`} style={{ background: "rgba(220,38,38,0.15)", border: "1px solid #fca5a5", borderRadius: 12, padding: 12, width: "100%", marginTop: 4 }}>
                   <div style={{ color: "#fca5a5", fontWeight: 700, fontSize: 12, marginBottom: 6 }}>⏰ {t(lang, "deadlineFound")}</div>
+                  {m.proposed && <div data-testid={`deadline-proposed-note-${i}`} style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 8 }}>Worked out from the dates you gave. Nothing has been saved — add a reminder only if this is your real situation.</div>}
                   {(m.deadlines || []).map((dl, di) => (
                     <div key={di} style={{ marginBottom: 6 }}>
                       <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>{dl.title}</div>
                       <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>
                         Due {new Date(dl.due_at).toLocaleString(document.documentElement.lang || "en-GB")}
                       </div>
+                      {dl.note && <div data-testid={`deadline-note-${i}-${di}`} style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>{dl.note}</div>}
                       <button data-testid={`add-deadline-${i}-${di}`} onClick={() => addDeadlineAsReminder(dl, di)} disabled={dl._added}
                         style={{ background: dl._added ? "var(--bg-card)" : "var(--gold)", color: dl._added ? "var(--text-muted)" : "#1a1300",
                                  border: "none", borderRadius: 12, padding: "5px 12px", fontSize: 11, fontWeight: 600, cursor: dl._added ? "default" : "pointer" }}>

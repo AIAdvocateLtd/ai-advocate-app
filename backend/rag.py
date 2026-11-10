@@ -222,6 +222,23 @@ def build_query(message: str, context: str = "", nation: Optional[str] = None, c
     return f"{q[:300]}{hint}"
 
 
+_STOP = set("this that with from have what your about under does would could should which when where will their there been "
+             "into them they than then also only just very more most some such like make made were want need know tell "
+             "england wales scotland northern ireland britain united kingdom please help".split())
+_OFF_TOPIC = re.compile(r"\b(constitution|standing orders|minutes of|agenda|committee meeting|council meeting|scheme of delegation|"
+                        r"annual report|press release)\b", re.I)
+
+
+def _relevant(it: dict, query: str) -> bool:
+    """Drops search results that don't match the question (e.g. a council constitution for a dismissal query)."""
+    title = it.get("title") or ""
+    if _OFF_TOPIC.search(title) and not _OFF_TOPIC.search(query):
+        return False
+    blob = f"{title} {it.get('url') or ''} {it.get('content') or ''}".lower()
+    terms = {w[:5] for w in re.findall(r"[a-z]{4,}", (query or "").lower()) if w not in _STOP}
+    return sum(1 for t in terms if t in blob) >= min(2, len(terms))
+
+
 async def research(message: str, country: str = "GB", db=None, context: str = "", nation: Optional[str] = None) -> Dict:
     """Returns {status, block, citations, sources}. status: ok | not_needed | not_configured |
     quota_exhausted | unavailable | no_results. `sources` keeps snippets for server-side citation checks."""
@@ -239,7 +256,7 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
 
     async def _statute():
         try:
-            return await legal_sources.grounding_sources(f"{context}\n{message}", nation)
+            return await legal_sources.grounding_sources(f"{message}\n{context}", nation)
         except Exception as e:
             logger.info("legislation grounding skipped: %s", e)
             return []
@@ -269,7 +286,9 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
                 out.append(it)
         return out
 
-    official, web = dedupe(statute) + dedupe(official), dedupe(web)
+    rel_q = scrub(message)
+    official = dedupe(statute) + [it for it in dedupe(official) if _relevant(it, rel_q)]
+    web = [it for it in dedupe(web) if _relevant(it, rel_q)]
     if not official and not web:
         failed = {s1, s2} - {"ok"}
         status = ("quota_exhausted" if "quota_exhausted" in failed else "unavailable") if failed else "no_results"
@@ -291,7 +310,10 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
         f"{body}\n\n"
         "USE THESE SOURCES: Ground your answer in the material above. When you state "
         "a rule, cite the source like [1] or [2] matching the numbered list — only numbers 1 to "
-        f"{next_idx - 1} exist. Only cite a number if that source actually says what you are claiming. If the "
+        f"{next_idx - 1} exist. Only cite a number if that source actually says what you are claiming. Legislation and "
+        "official guidance take priority: supporting web sources may add context but never override them. The territorial "
+        "extent shown for legislation is where it is law — never infer UK-wide or Northern Ireland extent beyond it, and "
+        "keep extent separate from whether it applies to the customer in practice. If the "
         "retrieved material does NOT cover the user's question, say so and give your "
         "best general guidance — never invent a citation, case, section or URL."
     )

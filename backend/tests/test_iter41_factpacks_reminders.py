@@ -47,12 +47,12 @@ def _chat(ah, msg, session_id=None):
 class TestDeadlineMaths:
     def test_et_england_6_months(self):
         items = compute([{"type": "employment_tribunal", "event_date": "2026-10-31", "jurisdiction": "england"}])
-        assert items[0][1] == "Contact ACAS (tribunal time limit)"
+        assert items[0][1] == "Latest date to start ACAS Early Conciliation"
         assert items[0][2] == date(2027, 4, 30)
 
     def test_et_ni_3_months_less_day(self):
         items = compute([{"type": "employment_tribunal", "event_date": "2026-11-02", "jurisdiction": "northern_ireland"}])
-        assert items[0][1] == "Contact the LRA / tribunal time limit"
+        assert items[0][1] == "Latest date to start LRA early conciliation"
         assert items[0][2] == date(2027, 2, 1)
 
     def test_wales_s173(self):

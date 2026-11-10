@@ -1081,3 +1081,11 @@ Production redeploy required. All env vars unchanged.
 - Tests: tests/test_lex2_phase1.py (16), test_lex2_phase1_wiring.py (4). Pending: OGL attribution line, deploy approval. Phases 2-4 not started.
 - 2026-11-06 Phase 1 sign-off: OGL attribution (legislation-check note + Terms 6b/6d); done-event now carries checked citations;
   multi-page contract path checked; status_checked label preserved. tests/test_lex2_phase1_e2e.py 7/7. AWAITING production approval.
+
+## 2026-06 — Lex 2.0 Customer Test 1 targeted fixes (PREVIEW ONLY, not deployed)
+- s.98 "not retrieved" vs "status checked": section lists ("sections 94 and 98") now parsed; grounding prioritises current message; answer reconciled with completed checks (legal_sources.reconcile).
+- Extent: parse_section used Body-level extent (E+W+S+N.I.) when section lacked its own; now innermost ancestor (s.94 = E+W+S). Plain-English extent + "extent ≠ practical application"; UK-wide/NI claims contradicted by record get flagged.
+- Irrelevant sources: rag._relevant filter (off-topic titles like council constitutions, low keyword overlap); uncited secondary web sources dropped from final list; legislation/official guidance prioritised.
+- "Plenty of time"-style reassurance replaced when deadlines discussed (lex_safety.no_false_reassurance) + prompt rule.
+- Reminders: no longer auto-saved. Backend returns proposed_reminders; UI shows card + confirm dialog (EDT + Early Conciliation note). ACAS EC and ET1 are separate reminders (NI: LRA + industrial tribunal). Hypothetical messages get no proposals.
+- Tests: tests/test_lex2_customer_test1.py (8, simulated). Updated title asserts in test_iter41 and a mock in test_stage2_safety.

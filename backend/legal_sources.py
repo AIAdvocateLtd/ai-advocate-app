@@ -19,7 +19,10 @@ _cache: Dict[str, Tuple[float, object]] = {}
 
 _WORD = r"(?:[A-Z][A-Za-z'’\-]+|\([A-Z][A-Za-z ]+\))"
 _ACT_RE = re.compile(rf"\b({_WORD}(?:\s+(?:{_WORD}|of|and|the|for|to|in|on|from|with))*\s+Act)\s+((?:18|19|20)\d{{2}})\b")
-_SEC_RE = re.compile(r"\b(?i:sections?|ss?\.|s)\s?(\d{1,4}[A-Z]{0,2})\b")
+_SEC_RE = re.compile(r"\b(?i:sections?|ss?\.|s)\s?(\d{1,4}[A-Z]{0,2}(?:(?:\s*,\s*|\s+(?i:and|or|&)\s+)\d{1,4}[A-Z]{0,2}\b"
+                     r"(?!\s*(?i:months?|days?|weeks?|years?|%)))*)\b")
+_SEC_NUM = re.compile(r"\d{1,4}[A-Z]{0,2}")
+NAMES = {"E": "England", "W": "Wales", "S": "Scotland", "N": "Northern Ireland"}
 _LEAD = {"Under", "The", "See", "Section", "Sections", "Part", "Schedule", "In", "By", "And", "Per", "S", "Ss", "Your",
          "This", "That", "Their", "Its", "Our", "If", "As", "Both", "Also"}
 _SENT = re.compile(r"(?<=[.!?])\s+|\n")
@@ -59,7 +62,7 @@ def extract_refs(text: str) -> List[dict]:
                 words = words[1:]
             a_title, year = " ".join(words), a.group(2)
             mine = [s for s in secs if min(acts, key=lambda x: abs(x.start() - s.start())) is a]
-            for sec in ([s.group(1) for s in mine] or [None]):
+            for sec in ([n for s in mine for n in _SEC_NUM.findall(s.group(1))] or [None]):
                 key = (a_title.lower(), year, sec)
                 if key not in seen:
                     seen.add(key)
@@ -97,6 +100,69 @@ def _strip(xml: str) -> str:
     return re.sub(r"\s+([,.;:)])", r"\1", re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", xml))).replace("( ", "(").strip()
 
 
+def _ancestor_extent(xml: str, idx: int) -> str:
+    """Innermost still-open element (Chapter/Part/Body…) carrying RestrictExtent — never a sibling or the whole Act."""
+    end, ext = xml.find(">", idx) + 1, ""
+    for m in re.finditer(r'<(\w+)\b[^>]*RestrictExtent="([^"]+)"', xml[:end]):
+        if f"</{m.group(1)}>" not in xml[m.end():end]:
+            ext = m.group(2)
+    return ext
+
+
+def extent_words(ext: str) -> str:
+    """'E+W+S' -> 'England, Wales and Scotland (not Northern Ireland)'."""
+    got = [k for k in "EWSN" if k in (ext or "").replace("N.I.", "N").split("+")]
+    if not got:
+        return ""
+    names = [NAMES[k] for k in got]
+    s = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+    missing = [NAMES[k] for k in "EWSN" if k not in got]
+    return s + (f" (not {' or '.join(missing)})" if missing else " (all four UK nations)")
+
+
+_STATUS_WORDS = {"in_force": "in force", "changes_pending": "in force — changes pending", "repealed": "repealed",
+                 "partly_repealed": "repealed/changed for some purposes", "not_in_force": "not yet in force",
+                 "wrong_jurisdiction": "does not extend to the nation in question"}
+_NOT_RETRIEVED = re.compile(r"\b(?:(?:was|were|is|has|have)(?:\s*n['’]t|\s+not)\s+(?:been\s+)?(?:retrieved|included|available|provided|"
+                            r"fetched|checked|among)|(?:could|can|did)(?:\s*n['’]t|\s*not)\s+(?:be\s+)?(?:retriev|fetch|access|check|"
+                            r"verif|see|find|locat)\w*|unable to (?:retriev|fetch|access|check|verif|find)\w*|not (?:in|among|part of) "
+                            r"(?:the )?(?:retrieved |research |live )?(?:sources|research|material))", re.I)
+_UK_WIDE = re.compile(r"\b(?:extends?|extending|extent|appl(?:y|ies|ying))\b[^.\n]{0,70}\b(?:Northern Ireland|whole (?:of the )?(?:UK|United "
+                      r"Kingdom)|all (?:four|UK) nations|throughout the UK|across the (?:whole )?UK)|\bUK[- ]wide\b", re.I)
+_SPLIT = re.compile(r"((?<=[.!?])\s+|\n)")
+
+
+def _mentions_section(sent: str, sec: str) -> bool:
+    return bool(re.search(r"\b(?:sections?|ss?\.?)\s?", sent, re.I) and re.search(rf"(?<![\w.]){re.escape(sec)}\b", sent))
+
+
+def reconcile(text: str, results: List[dict], document: bool = False) -> Tuple[str, List[str]]:
+    """Aligns the drafted answer with the completed checks: no 'not retrieved' claims for sections that were
+    retrieved, and no UK-wide / Northern Ireland extent claims the official record contradicts."""
+    lines, parts = [], _SPLIT.split(text or "")
+    for r in results:
+        sec, v = r.get("section"), r.get("verdict")
+        if not sec or v in ("not_found", "lookup_failed"):
+            continue
+        letters = (r.get("extent") or "").replace("N.I.", "N").split("+")
+        flagged = False
+        for i, sent in enumerate(parts):
+            if i % 2 or not _mentions_section(sent, sec) or r["act"].split()[0].lower() not in (text or "").lower():
+                continue
+            if _NOT_RETRIEVED.search(sent) and not document:
+                lead = re.match(r"^\s*(?:[-*•]\s+|\d+\.\s+)?", sent).group(0)
+                parts[i] = (f"{lead}{r['label']} was checked on legislation.gov.uk once this answer was drafted (status: "
+                            f"{_STATUS_WORDS.get(v, v)}) — see the sources below, and read its exact wording before relying on it.")
+            elif r.get("extent") and "N" not in letters and _UK_WIDE.search(sent) and not flagged:
+                flagged = True
+                lines.append(f"legislation.gov.uk records the territorial extent of “{r['label']}” as {extent_words(r['extent'])}, "
+                             "so it does not extend to Northern Ireland. Extent shows where a provision is law; whether it "
+                             "applies to your situation is a separate question.")
+                if not document:
+                    parts[i] = sent.rstrip() + " [⚠ see legislation check]"
+    return "".join(parts), lines
+
+
 def parse_section(xml: str, section: str) -> dict:
     """Extent, status and text of one section from legislation.gov.uk CLML (current revised version)."""
     idx = xml.find(f'id="section-{section}"')
@@ -107,7 +173,8 @@ def parse_section(xml: str, section: str) -> dict:
     g1 = xml.find("</P1group>", idx)
     seg = xml[g0:(g1 if g1 > 0 else idx + 20000)]
     head = seg[:seg.find(">") + 1]
-    ext = re.search(r'RestrictExtent="([^"]+)"', head) or re.search(r'RestrictExtent="([^"]+)"', xml[xml.find("<Body"):idx])
+    ext = re.search(r'RestrictExtent="([^"]+)"', head)
+    ext = ext.group(1) if ext else _ancestor_extent(xml, idx)
     text = _strip(xml[idx - 4 if xml[idx - 4:idx].startswith("<") else idx:(g1 if g1 > 0 else idx + 8000)])
     text = re.sub(r'^id="section-[^"]+"[^>]*>\s*', "", text)
     detail = ""
@@ -125,7 +192,7 @@ def parse_section(xml: str, section: str) -> dict:
         detail = _strip(m.group(1))[:220] if m else ""
     pending = bool(re.search(rf'AffectedProvisions="[^"]*\bss?\. (?:[\w(), ]*\b)?{re.escape(section)}\b', xml))
     valid = re.search(r"<dct:valid>([^<]+)", xml)
-    return {"status": status, "extent": ext.group(1) if ext else "", "text": text[:1200], "detail": detail,
+    return {"status": status, "extent": ext, "text": text[:1200], "detail": detail,
             "pending_changes": pending, "version_date": valid.group(1) if valid else ""}
 
 
@@ -194,7 +261,8 @@ async def check_answer(text: str, nation: Optional[str], citations: List[dict], 
     t0 = time.monotonic()
     refs = extract_refs(text)
     results = await check_refs(refs, nation)
-    out, lines, next_n = text, [], max([int(c.get("n", 0)) for c in citations or []] + [0]) + 1
+    out, lines = reconcile(text, results, document)
+    next_n = max([int(c.get("n", 0)) for c in citations or []] + [0]) + 1
     for r in results:
         line = _note_line(r, nation)
         if line:
@@ -204,7 +272,8 @@ async def check_answer(text: str, nation: Optional[str], citations: List[dict], 
         if r["verdict"] in ("in_force", "changes_pending") and r.get("url") and \
                 not any((c.get("url") or "").rstrip("/") == r["url"] for c in citations):
             citations.append({"n": next_n, "title": f"{r['label']} — legislation.gov.uk (status checked"
-                              + (f", version {r['version_date']}" if r.get("version_date") else "") + ")",
+                              + (f", version {r['version_date']}" if r.get("version_date") else "")
+                              + (f"; extent: {extent_words(r['extent'])}" if extent_words(r.get("extent")) else "") + ")",
                               "url": r["url"], "source": "legislation", "claim_check": "status_checked"})
             next_n += 1
     for c in await check_case_citations(out):
@@ -240,7 +309,8 @@ async def grounding_sources(text: str, nation: Optional[str], max_sections: int 
             status = {"in_force": "in force", "changes_pending": "in force — changes pending", "repealed": "REPEALED",
                       "partly_repealed": "repealed/changed for some purposes", "not_in_force": "NOT YET IN FORCE",
                       "wrong_jurisdiction": f"does NOT extend to {NATION_LABEL.get(nation, 'this nation')}"}.get(r["verdict"], "")
-            items.append({"title": f"{r['label']} (legislation.gov.uk — status: {status}; extent {r.get('extent')})",
+            items.append({"title": f"{r['label']} (legislation.gov.uk — status: {status}; territorial extent: "
+                                   f"{extent_words(r.get('extent')) or 'not stated'})",
                           "url": r["url"], "content": f"{r.get('detail', '')} {r['text']}".strip()})
     return items
 

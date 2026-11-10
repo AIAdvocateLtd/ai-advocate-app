@@ -94,7 +94,10 @@ def _et(c) -> List[Item]:
                "Early conciliation is with the Labour Relations Agency (LRA), not ACAS, and must start by then."
                + _month_end_note(ev, 3) + _closed_day_note(ni_limit, "northern_ireland"))
     if j.startswith("northern"):
-        return [(ni_text, "Contact the LRA / tribunal time limit", ni_limit)]
+        return [(ni_text, "Latest date to start LRA early conciliation", ni_limit),
+                ("Industrial tribunal claim: the normal time limit is the same date, but starting LRA early conciliation in time "
+                 "extends it — recalculate once the LRA certificate is issued.",
+                 "Industrial tribunal claim — normal time limit (can be extended by LRA early conciliation)", ni_limit)]
     months = 6 if ev >= ET_NEW_LIMIT_FROM else 3
     limit = _months_less_day(ev, months)
     gb_text = (f"Employment tribunal (England, Wales, Scotland): act/dismissal on {fmt(ev)} → normal time limit "
@@ -103,12 +106,12 @@ def _et(c) -> List[Item]:
     if _unknown(j):
         safe = min(limit, ni_limit)
         return [(f"UK nation of the workplace not confirmed. {gb_text} {ni_text} Until confirmed, treat {fmt(safe)} as the "
-                 "safe date.", "Contact ACAS/LRA (tribunal time limit — safe date)", safe)]
+                 "safe date.", "Latest date to start ACAS/LRA early conciliation (safe date)", safe)]
     if months == 3 and limit >= date(2026, 10, 1):
         gb_text += (" The limit rose to 6 months for matters from 1 October 2026; transitional rules may give this claim longer, "
                     "so treat this as the safe date — if it has passed, do not assume the claim is out of time: contact ACAS and get "
                     "advice urgently.")
-    out: List[Item] = [(gb_text, "Contact ACAS (tribunal time limit)", limit)]
+    out: List[Item] = [(gb_text, "Latest date to start ACAS Early Conciliation", limit)]
     a, b = _d(c.get("acas_date")), _d(c.get("certificate_date"))
     if a and a > limit:
         out.append((f"ACAS was contacted on {fmt(a)}, after the normal time limit ended — the early-conciliation extension does "
@@ -117,11 +120,17 @@ def _et(c) -> List[Item]:
     elif a and b and b >= a:
         final = max(limit + timedelta(days=(b - a).days), b + relativedelta(months=1))
         out.append((f"With ACAS contacted {fmt(a)} and certificate issued {fmt(b)}, the ET1 claim deadline becomes {fmt(final)}."
-                    + _closed_day_note(final), "Submit ET1 tribunal claim", final))
+                    + _closed_day_note(final), "Submit ET1 tribunal claim (after ACAS certificate)", final))
     elif a and not b:
         out.append((f"ACAS was contacted on {fmt(a)} but no certificate date is known yet: the clock is paused during "
                     "conciliation, so the final ET1 deadline can only be calculated once the certificate is issued (it will be "
                     "at least one month after the certificate date). Do not rely on any exact ET1 date until then.", None, None))
+    else:
+        out.append((f"Tribunal claim (ET1): {fmt(limit)} is the normal time limit before any extension. ACAS Early Conciliation is "
+                    "normally required first; starting it on or before that date pauses the clock, and the ET1 deadline is then "
+                    "recalculated from the ACAS certificate (at least one month after the certificate date). Keep the ACAS date "
+                    "and the ET1 date separate.", "ET1 tribunal claim — normal time limit (can be extended by ACAS Early Conciliation)",
+                    limit))
     return out
 
 
@@ -348,12 +357,25 @@ async def build_deadlines(message: str, context: str, api_key: str, jurisdiction
         return NO_CALC_BLOCK, []
     block = ("\n\nEXACT DATES CALCULATED BY THE APP — use these dates exactly, do not recalculate or round them. "
              "Say they are based on the dates the user gave and that a regulated adviser should confirm. "
-             "Future dates are saved to the user's Reminders automatically and they will be emailed 7, 3 and 1 day before — "
-             "mention this briefly:\n- " + "\n- ".join(i[0] for i in items) +
+             "Nothing has been saved: the app will OFFER to add future dates to Reminders only after the customer confirms "
+             "this is their real situation — do NOT say any reminder was saved or that emails will be sent. Keep the ACAS/LRA "
+             "early-conciliation date separate from the tribunal claim deadline; for a dismissal, ask the customer to confirm "
+             "the effective date of termination. Never reassure about time (e.g. 'you have plenty of time', 'no rush') — state "
+             "the date and urge prompt action:\n- " + "\n- ".join(i[0] for i in items) +
              "\nOnly the dates above are app-calculated. Any other deadline: explain the rule and what to check, "
              "but do not state a precise calendar date.\n")
-    reminders = [(t, d) for _, t, d in items if t and d and d >= today]
-    return block, reminders
+    return block, [{"title": t, "due": d, "note": reminder_note(t)} for _, t, d in items if t and d and d >= today]
+
+
+ET_NOTE = ("Based on the dismissal date you gave — confirm your effective date of termination (on your dismissal letter or "
+           "payslip). Starting ACAS Early Conciliation (LRA in Northern Ireland) in time extends the tribunal claim deadline; "
+           "recalculate once you have the certificate. Check with a regulated adviser.")
+
+
+def reminder_note(title: str) -> str:
+    if re.search(r"ACAS|LRA|ET1|tribunal", title or ""):
+        return ET_NOTE
+    return "Worked out by Lex from the dates you gave. Check with a regulated adviser."
 
 
 NO_CALC_BLOCK = (

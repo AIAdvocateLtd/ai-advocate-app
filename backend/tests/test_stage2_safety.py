@@ -178,7 +178,7 @@ def test_tavily_success_keeps_snippets(monkeypatch):
         async def __aexit__(self, *a): return False
         async def post(self, url, json=None):
             dom = "gov" if json.get("include_domains") else "web"
-            return _Resp(200, {"results": [{"title": f"T-{dom}", "url": f"https://{dom}.example/a", "content": "Housing Act 2004"}]})
+            return _Resp(200, {"results": [{"title": f"T-{dom}", "url": f"https://{dom}.example/a", "content": "Housing Act 2004 — landlord must protect a tenancy deposit"}]})
     monkeypatch.setattr(rag.httpx, "AsyncClient", C)
     r = asyncio.run(rag.research("My landlord is keeping my whole deposit, what can I do?"))
     assert r["status"] == "ok" and [c["n"] for c in r["citations"]] == [1, 2] and r["sources"][0]["content"]

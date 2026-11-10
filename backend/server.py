@@ -2014,7 +2014,8 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
     except Exception as e:
         logger.warning(f"lex finalize failed (answer unchanged): {e!r}")
         return text, {"error": True}
-    return out, {k: rep[k] for k in ("removed_markers", "unsupported_markers", "urls_removed", "urls_rerouted",
+    citations[:] = [c for c in citations if not (c.get("source") == "web" and c.get("claim_check") == "not_cited")]
+    return out, {k: rep[k] for k in ("reassurance_removed", "removed_markers", "unsupported_markers", "urls_removed", "urls_rerouted",
                                      "notes_added", "risk", "research_status")} | {
         "unverified_case_refs": len(rep["unverified_case_refs"]), "jurisdiction_conflict": bool(juris.get("conflict")),
         "legislation": leg}
@@ -2136,6 +2137,9 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         juris = lex_safety.assess_jurisdiction(data.message, _ctx, user.get("jurisdiction"), data.country, data.category)
         system_msg = system_msg + juris["block"]
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
+        if auto_reminders and _HYPOTHETICAL_RE.search(data.message or ""):
+            auto_reminders = []
+            _dl_block += _HYPOTHETICAL_NOTE
         system_msg = system_msg + _fact_pack_block(data.message, _ctx) + _dl_block
     except Exception as e:
         logger.warning(f"Deadline block failed: {e}")
@@ -2227,7 +2231,8 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         "model": model_id,
         "deep_think_auto": deep_think_auto,
         "connected_session_id": connected_session_id,
-        "saved_reminders": await _save_auto_reminders(user, session_id, auto_reminders),
+        "proposed_reminders": _propose_reminders(auto_reminders),
+        "hypothetical": bool(_HYPOTHETICAL_RE.search(data.message or "")),
         "citations": citations,
         "research_status": research["status"],
         "jurisdiction_check": bool(juris.get("conflict")),
@@ -2345,6 +2350,9 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
         juris = lex_safety.assess_jurisdiction(data.message, _ctx, user.get("jurisdiction"), data.country, data.category)
         system_msg = system_msg + juris["block"]
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
+        if auto_reminders and _HYPOTHETICAL_RE.search(data.message or ""):
+            auto_reminders = []
+            _dl_block += _HYPOTHETICAL_NOTE
         system_msg = system_msg + _fact_pack_block(data.message, _ctx) + _dl_block
     except Exception as e:
         logger.warning(f"Deadline block failed: {e}")
@@ -2476,8 +2484,10 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
             logger.exception("Failed to persist streamed conversation — user already saw the response")
 
         # Final event with metadata that needed the full text to compute
-        saved_rem = await _save_auto_reminders(user, session_id, auto_reminders)
-        yield f"data: {_json.dumps({'type':'done','connected_session_id':connected_session_id,'full_text':full_text,'citations':citations,'deep_think_auto':deep_think_auto,'saved_reminders':saved_rem})}\n\n"
+        _done = {'type': 'done', 'connected_session_id': connected_session_id, 'full_text': full_text, 'citations': citations,
+                 'deep_think_auto': deep_think_auto, 'proposed_reminders': _propose_reminders(auto_reminders),
+                 'hypothetical': bool(_HYPOTHETICAL_RE.search(data.message or ""))}
+        yield f"data: {_json.dumps(_done)}\n\n"
 
     async def _released_stream():
         try:
@@ -7989,22 +7999,16 @@ Please:
     return rec
 
 # ==================== LIMITATION-PERIOD REMINDERS ====================
-async def _save_auto_reminders(user: dict, session_id: str, items: list) -> list:
-    """Auto-save Lex-calculated deadlines as reminders (deduped per user/title/date)."""
-    saved = []
-    for title, d in items[:6]:
-        due = reminder_due_iso(d)
-        existing = await db.reminders.find_one({"user_id": user["id"], "title": title, "due_at": due}, {"_id": 0, "id": 1})
-        if existing:
-            saved.append({"id": existing["id"], "title": title, "due_at": due})
-            continue
-        doc = {"id": str(uuid.uuid4()), "user_id": user["id"], "case_id": None, "session_id": session_id,
-               "title": title, "description": "Worked out by Lex from the dates you gave. Check with a regulated adviser.",
-               "due_at": due, "kind": "deadline", "status": "pending", "source": "lex_auto",
-               "created_at": datetime.now(timezone.utc).isoformat()}
-        await db.reminders.insert_one(doc)
-        saved.append({"id": doc["id"], "title": title, "due_at": due})
-    return saved
+_HYPOTHETICAL_RE = re.compile(r"\b(hypothetical(?:ly)?|what if|imagine|suppose|supposing|let['’]?s say|for example|"
+                              r"for instance|example scenario|a scenario|test (?:case|scenario|question)|in theory)\b", re.I)
+_HYPOTHETICAL_NOTE = ("\nThis looks like a hypothetical or example scenario: explain the dates, but do not offer to set "
+                      "reminders unless the customer says it is their real situation.\n")
+
+
+def _propose_reminders(items: list) -> list:
+    """Lex-calculated deadlines are only OFFERED — nothing is saved or emailed until the customer confirms."""
+    return [{"title": r["title"], "due_at": reminder_due_iso(r["due"]), "kind": "deadline", "note": r["note"]}
+            for r in items[:6]]
 
 
 @api_router.post("/reminders")

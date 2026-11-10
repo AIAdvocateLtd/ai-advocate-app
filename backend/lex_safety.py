@@ -291,13 +291,37 @@ def verify_citations(text: str, citations: List[dict], sources: List[dict]) -> T
     return out, rep
 
 
+_REASSURE = re.compile(r"(?:you(?:['’]ve| have| still have)?\s+(?:still\s+)?(?:got\s+)?(?:plenty|lots|loads|ample|a lot)\s+of\s+time|"
+                       r"there(?:['’]s| is)\s+(?:no\s+(?:rush|hurry)|plenty of time|lots of time)|no\s+need\s+to\s+(?:rush|hurry|panic)|"
+                       r"time is on your side|you(?:['’]re| are)\s+(?:comfortably|well)\s+within\s+(?:the\s+)?time)[^.!?\n]*[.!?]?", re.I)
+_DEADLINE_CTX = re.compile(r"\b(deadline|time limit|tribunal|limitation|acas|early conciliation|claim form|appeal|less one day|"
+                           r"within \d+)", re.I)
+_CALM = "strict time limits apply, so act promptly and do not leave it until close to the deadline."
+
+
+def no_false_reassurance(text: str) -> Tuple[str, int]:
+    """Replaces 'you have plenty of time'-style wording when the answer concerns a strict legal deadline."""
+    if not _DEADLINE_CTX.search(text or ""):
+        return text, 0
+    n = 0
+
+    def rep(m):
+        nonlocal n
+        n += 1
+        start = not text[:m.start()].rstrip(" *_") or text[:m.start()].rstrip(" *_")[-1] in ".!?\n:-•"
+        return _CALM[0].upper() + _CALM[1:] if start else _CALM
+    return _REASSURE.sub(rep, text), n
+
+
 _VERIFIED_CLAIM = re.compile(r"\b(I(?:'ve| have)\s+(?:just\s+)?(?:checked|verified|confirmed|looked up)|independently verified|"
                              r"(?:according to|based on) (?:the )?(?:latest|current|live) (?:research|sources|search))", re.I)
 
 
 def finalize_answer(text: str, *, citations: List[dict], sources: List[dict], research_status: str, risk: str,
                     language: str, legal_question: bool) -> Tuple[str, dict]:
-    out, rep = verify_citations(text, citations, sources)
+    out, reassure = no_false_reassurance(text)
+    out, rep = verify_citations(out, citations, sources)
+    rep["reassurance_removed"] = reassure
     failed = research_status in RESEARCH_FAILED and legal_question
     notes = []
     if failed and (risk == "high" or _VERIFIED_CLAIM.search(out)):
