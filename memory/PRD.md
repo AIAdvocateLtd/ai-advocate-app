@@ -1079,3 +1079,5 @@ Production redeploy required. All env vars unchanged.
 - Taster now gets jurisdiction, research, safety blocks, deadline no-calc guard, legislation check (model unchanged).
 - Case law (Find Case Law) behind CASELAW_VERIFY_ENABLED=1 — OFF until TNA computational-analysis licence.
 - Tests: tests/test_lex2_phase1.py (16), test_lex2_phase1_wiring.py (4). Pending: OGL attribution line, deploy approval. Phases 2-4 not started.
+- 2026-11-06 Phase 1 sign-off: OGL attribution (legislation-check note + Terms 6b/6d); done-event now carries checked citations;
+  multi-page contract path checked; status_checked label preserved. tests/test_lex2_phase1_e2e.py 7/7. AWAITING production approval.

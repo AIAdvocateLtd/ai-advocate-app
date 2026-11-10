@@ -13,6 +13,7 @@ ACT_TTL, STATUS_TTL, FAIL_TTL = 7 * 86400, 6 * 3600, 300
 MAX_REFS, TIMEOUT = 6, 6.0
 EXTENT = {"england": "E", "wales": "W", "scotland": "S", "northern_ireland": "N"}
 NATION_LABEL = {"england": "England", "wales": "Wales", "scotland": "Scotland", "northern_ireland": "Northern Ireland"}
+OGL = "Contains public sector information licensed under the Open Government Licence v3.0."
 BAD = {"not_found", "repealed", "partly_repealed", "not_in_force", "wrong_jurisdiction"}
 _cache: Dict[str, Tuple[float, object]] = {}
 
@@ -213,7 +214,7 @@ async def check_answer(text: str, nation: Optional[str], citations: List[dict], 
                 out = out.replace(c["citation"], f"{c['citation']} [⚠ unverified]", 1)
     if lines:
         head = "Notes for you — not part of the letter" if document else "Legislation check (legislation.gov.uk)"
-        block = f"\n\n**{head}:**\n" + "\n".join(f"- {ln}" for ln in lines)
+        block = f"\n\n**{head}:**\n" + "\n".join(f"- {ln}" for ln in lines) + f"\n_{OGL}_"
         if any(r["verdict"] in BAD | {"lookup_failed"} for r in results) or "Find Case Law" in block:
             out = re.sub(r"\[CONFIDENCE:\s*HIGH\]", "[CONFIDENCE: MEDIUM]", out)
         if document:

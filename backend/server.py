@@ -2477,7 +2477,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
 
         # Final event with metadata that needed the full text to compute
         saved_rem = await _save_auto_reminders(user, session_id, auto_reminders)
-        yield f"data: {_json.dumps({'type':'done','connected_session_id':connected_session_id,'full_text':full_text,'deep_think_auto':deep_think_auto,'saved_reminders':saved_rem})}\n\n"
+        yield f"data: {_json.dumps({'type':'done','connected_session_id':connected_session_id,'full_text':full_text,'citations':citations,'deep_think_auto':deep_think_auto,'saved_reminders':saved_rem})}\n\n"
 
     async def _released_stream():
         try:
@@ -4060,6 +4060,8 @@ TERMS_BODY_EN = """TERMS OF SERVICE
 6. Subscription, Auto-Renewal & Refunds. Paid plans are auto-renewing subscriptions. By subscribing through our payment processor (Stripe), you authorise recurring charges to your selected payment method until you cancel. Cancel any time at least 24 hours before the next renewal. Refunds are handled in line with our Terms and your statutory rights.
 
 6a. Fair Use. Each plan includes the monthly allowances shown on our pricing page (Free: 2 lifetime Lex questions, shared across chat, letters and document checks). Allowances reset on the 1st of each month (UK time) and do not roll over. Answers that fail, come back blank or are cut off are not counted. To protect the service from automated or abnormal use, we may apply a temporary one-hour pause if an account's AI usage in a single day is far above normal use (and pause until midnight if it continues). We will never switch a paid plan to a lower-quality AI model. If a pause affects you in error, contact support@aiadvocate.co.uk and we will lift it.
+
+6b. Legal sources. Lex checks legislation it cites against legislation.gov.uk. Contains public sector information licensed under the Open Government Licence v3.0.
 
 7. Acceptable Use. You agree not to (a) use the App for any unlawful purpose; (b) submit content that is illegal, defamatory, infringing, or contains malware; (c) attempt to reverse-engineer, scrape, or circumvent technical protections; (d) use the App to draft or send threats, harassment, fraud, or content designed to evade the law; (e) impersonate a lawyer or hold yourself out as receiving legal advice from the App.
 
@@ -12436,6 +12438,14 @@ If the document is NOT a contract, set contract_type=\"other\" and verdict_one_l
             "solicitor_review_recommended": True, "missing_protections": [],
         }
 
+    try:
+        _cn = _juris_nation(lex_safety.assess_jurisdiction("", "", None, country, None))
+        _leg = await legal_sources.issue_notes(_json.dumps(analysis_obj, ensure_ascii=False), _cn)
+        if _leg:
+            analysis_obj["amber_flags"] = list(analysis_obj.get("amber_flags") or []) + [f"Legislation check: {n}" for n in _leg]
+            analysis_obj["legislation_check"] = _leg
+    except Exception as e:
+        logger.warning(f"Contract legislation check failed (analysis unchanged): {e!r}")
     try:
         import base64 as _b64
         file_b64 = _b64.b64encode(raw_bytes).decode("ascii") if (raw_bytes and len(raw_bytes) <= 8 * 1024 * 1024) else None

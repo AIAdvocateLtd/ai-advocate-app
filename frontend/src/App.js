@@ -2317,6 +2317,9 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
             // we still surface the full_text the backend computed.
             // The server's final text includes citation/research safety checks, so it replaces the raw tokens.
             if (payload.full_text) assembled = payload.full_text;
+            if (Array.isArray(payload.citations)) {
+              setMessages(ms => ms.map((mm, idx) => idx === lexMsgIndex ? { ...mm, citations: payload.citations } : mm));
+            }
           } else if (payload.type === "error" && payload.code === "lex_incomplete") {
             // Server already retried and refunded the message — show its notice instead of retrying again.
             assembled = payload.message; incomplete = true;
@@ -15839,6 +15842,8 @@ const TOS_TEXT = `# Terms of Service
 **6. Subscriptions & auto-renewal.** Paid plans renew automatically at £19.99/mo (Plus), £34.99/mo (Pro), or £319.99/yr (Yearly Pro). All payments are processed by Stripe. Cancel any time 24h before renewal via Settings → Manage Subscription.
 
 **6a. Fair use.** Each plan includes the monthly allowances shown on our pricing page (Free: 2 lifetime Lex questions, shared across chat, letters and document checks). Allowances reset on the 1st of each month (UK time) and do not roll over. Answers that fail, come back blank or are cut off are not counted. To protect the service from automated or abnormal use, we may apply a temporary one-hour pause if an account's AI usage in a single day is far above normal use (and pause until midnight if it continues). We will never switch a paid plan to a lower-quality AI model. If a pause affects you in error, contact support@aiadvocate.co.uk and we will lift it.
+
+**6b. Legal sources.** Lex checks legislation it cites against legislation.gov.uk. Contains public sector information licensed under the Open Government Licence v3.0.
 
 **7. Misuse.** You may not use the App for: harassment, illegal recording, defamation, doxing, or building tools that compete with the App.
 

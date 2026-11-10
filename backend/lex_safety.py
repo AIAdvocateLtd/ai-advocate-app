@@ -282,6 +282,8 @@ def verify_citations(text: str, citations: List[dict], sources: List[dict]) -> T
         if key not in all_src and ref not in rep["unverified_case_refs"]:
             rep["unverified_case_refs"].append(ref)
     for c in citations or []:
+        if c.get("claim_check") == "status_checked":
+            continue
         seen = rep["per_source"].get(int(c["n"]), set())
         c["claim_check"] = ("reference_found_in_source" if "supported" in seen else "not_confirmed" if seen == {"not_confirmed"}
                             else "unchecked" if seen else "not_cited")
