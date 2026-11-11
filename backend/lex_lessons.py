@@ -227,7 +227,7 @@ async def seed_fact_packs(db) -> None:
 async def seed_review_records(db) -> None:
     """Attaches the Phase 2A-1 review record to each built-in fact (text and approval untouched) and adds the former
     fixed law-change notes as pending items. Never signs anything off."""
-    if await db.seeds_applied.find_one({"_id": "fact_review_v1"}):
+    if await db.seeds_applied.find_one({"_id": "fact_review_v2"}):
         return
     from fact_review import REVIEW, LAW_NOTES, CHECKED
     now = datetime.now(timezone.utc).isoformat()
@@ -237,14 +237,18 @@ async def seed_review_records(db) -> None:
         if not rec:
             continue
         meta = dict(zip(fields, rec[:7]), checked_at=CHECKED, next_review=rec[8])
-        await db.lex_lessons.update_one({"id": r["id"]}, {"$set": {
-            "original_text": r["text"], "proposed_text": rec[7], "review_meta": meta}})
-    for text, *rec in LAW_NOTES:
-        await db.lex_lessons.insert_one({
+        await db.lex_lessons.update_one({"id": r["id"], "reviewed_by": {"$in": [None]}}, {"$set": {
+            "proposed_text": rec[7], "review_meta": meta}})
+        await db.lex_lessons.update_one({"id": r["id"], "original_text": {"$exists": False}},
+                                        {"$set": {"original_text": r["text"]}})
+    for i, (text, *rec) in enumerate(LAW_NOTES):
+        if await db.lex_lessons.find_one({"source": "law_note", "$or": [{"note_index": i}, {"text": text}]}):
+            continue
+        await db.lex_lessons.insert_one({"note_index": i,
             "id": str(uuid.uuid4()), "text": text, "category": "general", "why": "Former fixed law-change note",
             "status": "pending", "source": "law_note", "source_ref": "law_notes_v1", "created_at": now, "approved_at": None,
             "review_meta": dict(zip(fields, rec), checked_at=CHECKED, next_review="2027-05-11")})
-    await db.seeds_applied.insert_one({"_id": "fact_review_v1", "at": now})
+    await db.seeds_applied.insert_one({"_id": "fact_review_v2", "at": now})
 
 
 def build_router(db, get_user, require_admin, encrypt_text, decrypt_text, api_key, today_line, tavily_search):

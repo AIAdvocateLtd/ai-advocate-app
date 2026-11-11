@@ -13,8 +13,8 @@ function ReviewInfo({ l }) {
       <div><b style={{ color: REC[m.recommendation] }}>Suggested: {m.recommendation}</b> · {m.verification} · {m.jurisdiction}{m.effective ? ` · effective ${m.effective}` : ""} · checked {m.checked_at}{m.next_review ? ` · re-check by ${m.next_review}` : ""}</div>
       <div>{m.reason}</div>
       {m.unconfirmed_parts && <div style={{ color: "#fcd34d" }}>Not confirmed: {m.unconfirmed_parts}</div>}
-      {m.source_url && <a href={m.source_url} target="_blank" rel="noreferrer" style={{ color: "var(--gold)" }}>Official source</a>}
-      {l.proposed_text && <div data-testid={`lesson-proposed-${l.id}`} style={{ marginTop: 4, color: "var(--text)" }}>Proposed correction: {l.proposed_text}</div>}
+      {m.source_url ? <a href={m.source_url} target="_blank" rel="noreferrer" style={{ color: "var(--gold)" }}>Official source</a> : <div style={{ color: "#fca5a5" }}>No working official source yet</div>}
+      {l.proposed_text && <div data-testid={`lesson-proposed-${l.id}`} style={{ marginTop: 6, color: "var(--text)", borderLeft: "2px solid var(--gold)", paddingLeft: 8 }}><b>Proposed correction:</b> {l.proposed_text}</div>}
       {l.reviewed_by && <div>Signed off by {l.reviewed_by} on {String(l.reviewed_at).slice(0, 10)}</div>}
     </div>
   );
@@ -23,7 +23,7 @@ function ReviewInfo({ l }) {
 function LessonRow({ l, onAct }) {
   return (
     <div data-testid={`lesson-${l.id}`} style={{ borderTop: "1px solid var(--line)", padding: "10px 0" }}>
-      <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>{l.text}</div>
+      <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>{l.proposed_text && <b style={{ color: "var(--text-muted)" }}>Current wording: </b>}{l.text}</div>
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
         {SOURCE[l.source] || l.source} · {l.category}{l.why ? ` · ${l.why.replace(/^Fact pack · /, "")}` : ""}
       </div>

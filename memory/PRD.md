@@ -1119,3 +1119,10 @@ Production redeploy required. All env vars unchanged.
 - Admin PATCH: sign-off stores reviewed_by/at + next_review_at; text change pushes old wording to `versions` and clears sign-off unless approved in same request. Admin card shows suggestion/source/unconfirmed parts + "Use correction & sign off".
 - Re-review alerts: designed only (not active).
 - Tests: tests/test_lex2_2a1_review.py (5); 133 simulated passed with AIA_NO_PAID=1.
+
+## 2026-11-11 — Phase 2A-1 pre-deployment checks (PREVIEW ONLY)
+- Visual check of admin review screen (desktop + 390px mobile) done; added "Current wording" label, boxed "Proposed correction", "No working official source yet" note. Sign-off dialog opened and cancelled — 0 signed.
+- Links: 40 unique checked; fixed NI divorce link (fact 30); fact 38 has no working nidirect source (blank).
+- Seed renamed fact_review_v2 (idempotent: never overwrites signed-off rows; notes keyed by note_index). Preview duplicate notes from hot-reload removed.
+- scripts/rollback_fact_review.py (dry-run default, --apply). tests/test_lex2_2a1_migration.py: prod-shaped dry-run (41→46 docs, nothing deleted, ids/wording/status unchanged, idempotent, rollback restores).
+- 134 simulated passed (AIA_NO_PAID=1); acas live-fetch test flaky once (network), passed on rerun.
