@@ -242,17 +242,25 @@ def _relevant(it: dict, query: str) -> bool:
     return sum(1 for t in terms if t in blob) >= min(2, len(terms))
 
 
+PARTLY_REMOVED = " (partly removed: text aimed at AI systems was left out)"
+
+
 def _guard_items(items: List[Dict], keep_suspicious: bool):
-    """Cleans each retrieved item; non-official pages containing AI-directed instructions are left out entirely."""
+    """Cleans each retrieved item and removes sentences aimed at AI systems. A web page whose instructions can't be
+    cleanly separated (or whose title carries them) is left out; official records are kept without those sentences."""
     kept, dropped, kinds = [], 0, set()
     for it in items:
         content, k1 = content_guard.inspect(it.get("content") or "")
         title, k2 = content_guard.inspect(it.get("title") or "")
         found = set(k1) | set(k2)
         kinds |= found
-        if content_guard.suspicious(list(found)) and not keep_suspicious:
-            dropped += 1
-            continue
+        if content_guard.suspicious(list(found)):
+            clean_text, removed, safe = content_guard.separate(content)
+            if not keep_suspicious and (content_guard.suspicious(k2) or not safe):
+                dropped += 1
+                continue
+            content = clean_text
+            title = title + (PARTLY_REMOVED if removed else "")
         kept.append({**it, "content": content, "title": title})
     return kept, dropped, kinds
 
