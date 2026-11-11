@@ -361,7 +361,8 @@ async def build_deadlines(message: str, context: str, api_key: str, jurisdiction
              "this is their real situation — do NOT say any reminder was saved or that emails will be sent. Keep the ACAS/LRA "
              "early-conciliation date separate from the tribunal claim deadline; for a dismissal, ask the customer to confirm "
              "the effective date of termination. Never reassure about time (e.g. 'you have plenty of time', 'no rush') — state "
-             "the date and urge prompt action:\n- " + "\n- ".join(i[0] for i in items) +
+             "the date and urge prompt action. Great Britain employment time limits end at 11:59pm UK time on the last day (Acas); "
+             "never give 9am or any other time as a legal cut-off, and for other deadlines do not state a cut-off time:\n- " + "\n- ".join(i[0] for i in items) +
              "\nOnly the dates above are app-calculated. Any other deadline: explain the rule and what to check, "
              "but do not state a precise calendar date.\n")
     return block, [{"title": t, "due": d, "note": reminder_note(t)} for _, t, d in items if t and d and d >= today]
@@ -389,3 +390,33 @@ NO_CALC_BLOCK = (
 
 def reminder_due_iso(d: date) -> str:
     return datetime(d.year, d.month, d.day, 9, 0, tzinfo=UK).isoformat()
+
+
+def deadline_iso(d: date) -> str:
+    """Legal deadline = end of the last day, UK local time (GMT or BST as applicable)."""
+    return datetime(d.year, d.month, d.day, 23, 59, tzinfo=UK).isoformat()
+
+
+ACAS_TL_URL = "https://www.acas.org.uk/employment-tribunal-time-limits"
+
+
+def deadline_label(d: date, title: str) -> dict:
+    """What the customer is shown about the cut-off time. Only GB employment limits have an authoritative 11:59pm
+    (Acas: the time limit 'ends at 11:59pm' on the last day); everything else is labelled as needing confirmation."""
+    day = datetime(d.year, d.month, d.day, 23, 59, tzinfo=UK)
+    when = f"{fmt(d)}"
+    gb_et = bool(re.search(r"ACAS|ET1", title or "")) and not re.search(r"LRA|Industrial", title or "")
+    if gb_et and "ACAS" in title and "ET1" not in title:
+        basis = ("Legal deadline: the time limit ends at 11:59pm UK time on this day (Acas guidance). Notifying Acas online "
+                 "can be done at any time; the Acas phone line is only open during its opening hours, so do not leave it "
+                 "to the last day.")
+    elif gb_et:
+        basis = ("Legal deadline: the time limit ends at 11:59pm UK time on this day (Acas guidance), unless Early "
+                 "Conciliation has extended it. Submit the ET1 online well before then.")
+    else:
+        basis = ("Legal deadline date only — the exact cut-off time has not been confirmed. Check the time on your papers or "
+                 "with the court, tribunal or office, and act well before the day.")
+    return {"deadline_label": f"{when}, 11:59pm UK time ({day.tzname()})" if gb_et else f"{when} — cut-off time to be confirmed",
+            "deadline_time_confirmed": gb_et, "deadline_basis": basis,
+            "deadline_source": ACAS_TL_URL if gb_et else "",
+            "reminder_schedule": "Reminder emails at 8am UK time, 7, 3 and 1 days before"}

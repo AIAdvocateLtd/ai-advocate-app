@@ -1095,3 +1095,8 @@ Production redeploy required. All env vars unchanged.
 - s.98 wording: section text capped at 1200 chars and research snippet at 900, so s.98(4) was cut. Now 4000 (full s.98 ≈2,200). Titles distinguish "full wording retrieved" vs "status checked only … does not confirm Lex's interpretation"; prompt rule separating status/wording/interpretation; "incomplete/own knowledge" sentences reconciled.
 - Source list: only cited sources + legislation named in the answer (status checked); uncited official/web sources dropped.
 - Tests: 79 simulated passed (tests/test_lex2_customer_test1.py now 12 tests).
+
+## 2026-06 — Acas guidance retrieval + deadline times (PREVIEW ONLY, awaiting approval)
+- official_guidance.py: free direct fetch of 5 key acas.org.uk pages (Code, capability/conduct dismissals, tribunal time limits, early conciliation, dismissals), max 2 per question, 24h cache / 5-min failure cache, keyword excerpt; integrated in rag.research (parallel, no Tavily cost); guidance citations must share terms with retrieved wording (lex_safety._guidance_supported); disclose() reconciles "not retrieved" claims or adds honest failure note; cited/named Acas Code kept in source list. OGL (Acas Crown copyright).
+- Deadlines: 09:00 came from reminder_due_iso (notification-style time used as due_at). New proposals use deadline_iso = 23:59 Europe/London (GMT/BST) + deadline_label/basis; only GB ACAS/ET1 limits show "11:59pm UK time" (Acas source); others "cut-off time to be confirmed". Reminder emails unchanged (cron 8am UK, 7/3/1 days). Existing reminders untouched; new optional fields on ReminderCreate.
+- Tests: tests/test_lex2_acas_deadlines.py (13). Run stage3 suite separately (shared event-loop quirk).

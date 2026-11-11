@@ -180,7 +180,7 @@ def _format_block(label: str, items: List[Dict], start_index: int = 1) -> str:
     for i, it in enumerate(items, start_index):
         title = it.get("title") or "(untitled)"
         url = it.get("url") or ""
-        cap = 4000 if "legislation.gov.uk/" in url and "/section/" in url else 350
+        cap = 4000 if "legislation.gov.uk/" in url and "/section/" in url else 1800 if it.get("acas_key") else 350
         snippet = (it.get("content") or "")[:cap].replace("\n", " ").strip()
         lines.append(f"[{i}] {title}\n    {url}\n    {snippet}")
     return "\n".join(lines)
@@ -262,11 +262,21 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
             logger.info("legislation grounding skipped: %s", e)
             return []
 
+    import official_guidance
+
+    async def _guidance():
+        try:
+            return await official_guidance.guidance_sources(message, context)
+        except Exception as e:
+            logger.info("acas guidance skipped: %s", e)
+            return [], []
+
     try:
-        (official, s1), (web, s2), statute = await asyncio.wait_for(asyncio.gather(
+        (official, s1), (web, s2), statute, (guidance, g_failed) = await asyncio.wait_for(asyncio.gather(
             _tavily_search_ex(base_q, include_domains=AUTHORITY_DOMAINS, max_results=3, search_depth="basic"),
             _tavily_search_ex(base_q, include_domains=None, max_results=2, search_depth="basic"),
             _statute(),
+            _guidance(),
         ), timeout=9.0)
     except asyncio.TimeoutError:
         logger.warning("Tavily RAG block timed out — continuing without grounding.")
@@ -288,12 +298,13 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
         return out
 
     rel_q = scrub(message)
-    official = dedupe(statute) + [it for it in dedupe(official) if _relevant(it, rel_q)]
+    official = dedupe(statute) + dedupe(guidance) + [it for it in dedupe(official) if _relevant(it, rel_q)]
+    g_meta = {"guidance_keys": [it["acas_key"] for it in guidance], "guidance_failed": g_failed}
     web = [it for it in dedupe(web) if _relevant(it, rel_q)]
     if not official and not web:
         failed = {s1, s2} - {"ok"}
         status = ("quota_exhausted" if "quota_exhausted" in failed else "unavailable") if failed else "no_results"
-        return {**res, "status": status}
+        return {**res, "status": status, **g_meta}
 
     blocks, citations, sources, next_idx = [], [], [], 1
     for label, items, kind in (("OFFICIAL UK LEGAL SOURCES (statute / case law)", official, "official"),
@@ -303,7 +314,8 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
         blocks.append(_format_block(label, items, start_index=next_idx))
         for it in items:
             citations.append({"n": next_idx, "title": it.get("title") or "(untitled)", "url": it.get("url") or "", "source": kind})
-            sources.append({"n": next_idx, "title": it.get("title") or "", "content": it.get("content") or ""})
+            sources.append({"n": next_idx, "title": it.get("title") or "", "content": it.get("content") or "",
+                            "guidance": bool(it.get("acas_key"))})
             next_idx += 1
     body = "\n\n".join(blocks)
     block = (
@@ -316,8 +328,10 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
         "extent shown for legislation is where it is law — never infer UK-wide or Northern Ireland extent beyond it, and "
         "keep extent separate from whether it applies to the customer in practice. A legislation STATUS CHECK only confirms a "
         "provision exists and is in force; RETRIEVED WORDING shows what it says; neither proves your interpretation — say "
-        "which applies, and if you rely on wording you were not given, say so plainly. If the "
+        "which applies, and if you rely on wording you were not given, say so plainly. Sources marked 'acas.org.uk "
+        "(official guidance; wording retrieved …)' were fetched from Acas just now — cite them for points about Acas "
+        "guidance or the Acas Code. VERIFIED UK FACTS are built-in knowledge checked by our team, not retrieved text. If the "
         "retrieved material does NOT cover the user's question, say so and give your "
         "best general guidance — never invent a citation, case, section or URL."
     )
-    return {"status": "ok", "block": block, "citations": citations, "sources": sources}
+    return {"status": "ok", "block": block, "citations": citations, "sources": sources, **g_meta}

@@ -85,7 +85,7 @@ def test_reminders_only_proposed_and_hypotheticals_blocked():
     assert "_save_auto_reminders" not in src and "lex_auto" not in src.split("_propose_reminders", 1)[1][:600]
     prop = server._propose_reminders([{"title": "Latest date to start ACAS Early Conciliation", "due": date(2027, 4, 30),
                                        "note": deadline_calc.ET_NOTE}])
-    assert prop[0]["due_at"].startswith("2027-04-30T09:00") and prop[0]["note"] == deadline_calc.ET_NOTE
+    assert prop[0]["due_at"] == "2027-04-30T23:59:00+01:00" and prop[0]["note"] == deadline_calc.ET_NOTE
     for msg in ("Hypothetically, if I was dismissed on 31 October 2026...", "What if someone was sacked last week?",
                 "Let's say an employee was fired on 1 Nov 2026"):
         assert server._HYPOTHETICAL_RE.search(msg)

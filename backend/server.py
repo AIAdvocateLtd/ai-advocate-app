@@ -69,7 +69,8 @@ if SENTRY_DSN:
     )
 
 from app_crypto import encrypt_text, decrypt_text, encrypt_bytes, decrypt_bytes, is_enabled as crypto_enabled  # noqa: E402
-from deadline_calc import build_deadlines, reminder_due_iso, NO_CALC_BLOCK, _HINT_RE as _DEADLINE_CALC_HINT_RE  # noqa: E402
+import official_guidance  # noqa: E402
+from deadline_calc import build_deadlines, deadline_iso, deadline_label, NO_CALC_BLOCK, _HINT_RE as _DEADLINE_CALC_HINT_RE  # noqa: E402
 import legal_sources  # noqa: E402
 from lex_lessons import fact_pack_block as _fact_pack_block, lessons_block as _lessons_block, refresh_if_stale as _lessons_refresh_if_stale  # noqa: E402
 from rag import build_rag_context, research as rag_research, _looks_like_legal_question, is_enabled as rag_enabled, get_usage as rag_get_usage  # noqa: E402
@@ -241,6 +242,9 @@ class ReminderCreate(BaseModel):
     due_at: str  # ISO datetime
     kind: str = "deadline"  # deadline | hearing | follow_up | renewal_review
     session_id: Optional[str] = None
+    deadline_label: Optional[str] = None
+    deadline_basis: Optional[str] = None
+    deadline_time_confirmed: Optional[bool] = None
 
 class VaultSetupRequest(BaseModel):
     pin_verifier: str  # SHA-256(PIN + salt), hex. 64 chars.
@@ -2007,6 +2011,15 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
         text, leg = await legal_sources.check_answer(text or "", _juris_nation(juris), citations)
     except Exception as e:
         logger.warning(f"legislation check failed (answer unchanged): {e!r}")
+    g_notes = []
+    try:
+        text, g_notes = official_guidance.disclose(text or "", research.get("guidance_keys") or [],
+                                                   research.get("guidance_failed") or [])
+        if g_notes:
+            text = lex_safety.insert_before_tail(text, "**Official guidance check (acas.org.uk):**\n" +
+                                                 "\n".join(f"- {n}" for n in g_notes))
+    except Exception as e:
+        logger.warning(f"acas guidance check failed (answer unchanged): {e!r}")
     try:
         out, rep = lex_safety.finalize_answer(text or "", citations=citations, sources=research.get("sources") or [],
                                               research_status=research.get("status"), risk=risk, language=language,
@@ -2014,12 +2027,14 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
     except Exception as e:
         logger.warning(f"lex finalize failed (answer unchanged): {e!r}")
         return text, {"error": True}
-    named = {u.rstrip("/") for u in (leg or {}).get("urls", [])}
+    named = {u.rstrip("/") for u in (leg or {}).get("urls", []) + official_guidance.named_urls(out)}
     citations[:] = [c for c in citations if c.get("claim_check") != "not_cited" or c.get("source") == "legislation"
                     or (c.get("url") or "").rstrip("/") in named]
     return out, {k: rep[k] for k in ("reassurance_removed", "removed_markers", "unsupported_markers", "urls_removed", "urls_rerouted",
                                      "notes_added", "risk", "research_status")} | {
         "unverified_case_refs": len(rep["unverified_case_refs"]), "jurisdiction_conflict": bool(juris.get("conflict")),
+        "acas_guidance": {"retrieved": research.get("guidance_keys") or [], "failed": research.get("guidance_failed") or [],
+                          "notes": len(g_notes)},
         "legislation": leg}
 
 
@@ -8009,8 +8024,8 @@ _HYPOTHETICAL_NOTE = ("\nThis looks like a hypothetical or example scenario: exp
 
 def _propose_reminders(items: list) -> list:
     """Lex-calculated deadlines are only OFFERED — nothing is saved or emailed until the customer confirms."""
-    return [{"title": r["title"], "due_at": reminder_due_iso(r["due"]), "kind": "deadline", "note": r["note"]}
-            for r in items[:6]]
+    return [{"title": r["title"], "due_at": deadline_iso(r["due"]), "kind": "deadline", "note": r["note"],
+             **deadline_label(r["due"], r["title"])} for r in items[:6]]
 
 
 @api_router.post("/reminders")
@@ -8028,6 +8043,9 @@ async def create_reminder(data: ReminderCreate, user: dict = Depends(get_user)):
         "due_at": data.due_at, "kind": data.kind, "status": "pending",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    if data.deadline_label:
+        doc.update(deadline_label=data.deadline_label[:120], deadline_basis=(data.deadline_basis or "")[:400],
+                   deadline_time_confirmed=bool(data.deadline_time_confirmed))
     await db.reminders.insert_one(doc)
     doc.pop("_id", None)
     return doc

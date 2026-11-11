@@ -225,6 +225,17 @@ def _refs_supported(sentence: str, src: str) -> Optional[bool]:
     return False
 
 
+_GSTOP = set("this that with from have what your about under does would could should which when where will their there been "
+             "into them they than then also only just very more most some such like make made were want need know tell "
+             "acas code practice guidance employer employee employees employers".split())
+
+
+def _guidance_supported(sentence: str, src: str) -> bool:
+    """A sentence citing official guidance must share at least two meaningful terms with the retrieved wording."""
+    terms = {w[:6] for w in re.findall(r"[a-z]{4,}", re.sub(r"\[\d+\]", "", sentence).lower()) if w not in _GSTOP}
+    return sum(1 for t in terms if t in src) >= min(2, len(terms))
+
+
 def verify_citations(text: str, citations: List[dict], sources: List[dict]) -> Tuple[str, dict]:
     """Strips citation numbers/URLs that don't match retrieved sources; drops [n] where the source
     doesn't mention the Act/section claimed in that sentence. Returns (text, report)."""
@@ -233,6 +244,7 @@ def verify_citations(text: str, citations: List[dict], sources: List[dict]) -> T
     valid = {int(c["n"]) for c in citations or [] if str(c.get("n", "")).isdigit()}
     src_by_n = {int(s["n"]): ((s.get("title") or "") + " " + (s.get("content") or "")).lower() for s in sources or []}
     retrieved = [_norm(c.get("url") or "") for c in citations or []]
+    guidance_n = {int(s["n"]) for s in sources or [] if s.get("guidance")}
     stash: List[str] = []
 
     def md(m):
@@ -266,6 +278,8 @@ def verify_citations(text: str, citations: List[dict], sources: List[dict]) -> T
                     rep["removed_markers"] += 1
                     continue
                 ok = _refs_supported(sent, src_by_n.get(n, "")) if n in src_by_n else None
+                if ok is None and n in guidance_n:
+                    ok = _guidance_supported(sent, src_by_n[n])
                 rep["per_source"].setdefault(n, set()).add({True: "supported", False: "not_confirmed", None: "unchecked"}[ok])
                 if ok is False:
                     rep["unsupported_markers"] += 1

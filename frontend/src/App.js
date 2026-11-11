@@ -2400,10 +2400,11 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
 
   const addDeadlineAsReminder = async (dl, idx) => {
     const ok = await aaConfirm({ title: "Add this reminder?", confirmLabel: "Yes, add reminder",
-      message: `Only add this if it is your real situation, not an example. ${dl.note || "Check the date on your papers or with an adviser."}` });
+      message: `Only add this if it is your real situation, not an example.${dl.deadline_label ? ` Legal deadline: ${dl.deadline_label}.` : ""} ${dl.note || "Check the date on your papers or with an adviser."}` });
     if (!ok) return;
     try {
-      await api.post("/reminders", { title: dl.title, description: dl.note || "", due_at: dl.due_at, kind: dl.kind || "deadline", case_id: caseId || undefined, session_id: sessionId || undefined });
+      await api.post("/reminders", { title: dl.title, description: dl.note || "", due_at: dl.due_at, kind: dl.kind || "deadline", case_id: caseId || undefined, session_id: sessionId || undefined,
+        deadline_label: dl.deadline_label || undefined, deadline_basis: dl.deadline_basis || undefined, deadline_time_confirmed: dl.deadline_time_confirmed });
       // Mark this deadline as "added" in the local message
       setMessages(ms => ms.map((m, i) => {
         if (m.role !== "deadlines") return m;
@@ -2598,8 +2599,11 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                     <div key={di} style={{ marginBottom: 6 }}>
                       <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>{dl.title}</div>
                       <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>
-                        Due {new Date(dl.due_at).toLocaleString(document.documentElement.lang || "en-GB")}
+                        {dl.deadline_label
+                          ? <span data-testid={`deadline-label-${i}-${di}`}>Legal deadline: {dl.deadline_label}</span>
+                          : <>Due {new Date(dl.due_at).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "Europe/London" })} — cut-off time to be confirmed</>}
                       </div>
+                      {dl.deadline_basis && <div data-testid={`deadline-basis-${i}-${di}`} style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>{dl.deadline_basis} {dl.reminder_schedule ? `${dl.reminder_schedule}.` : ""}</div>}
                       {dl.note && <div data-testid={`deadline-note-${i}-${di}`} style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>{dl.note}</div>}
                       <button data-testid={`add-deadline-${i}-${di}`} onClick={() => addDeadlineAsReminder(dl, di)} disabled={dl._added}
                         style={{ background: dl._added ? "var(--bg-card)" : "var(--gold)", color: dl._added ? "var(--text-muted)" : "#1a1300",
@@ -6935,6 +6939,7 @@ function RemindersModal({ lang, onClose }) {
                 <div style={{ fontSize: 11, color: urgent ? "#fca5a5" : "var(--text-muted)", marginTop: 6 }}>
                   Due {due.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "Europe/London" })} · {Math.abs(daysOut)} {daysOut > 0 ? "days left" : "days overdue"}
                 </div>
+                {r.deadline_label && <div data-testid={`rem-deadline-${r.id}`} style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Legal deadline: {r.deadline_label}</div>}
                 <button className="btn-ghost" onClick={() => markDone(r.id)} data-testid={`done-${r.id}`} style={{ marginTop: 8, padding: "4px 10px", fontSize: 11 }}>
                   ✓ {t(lang, "reminderMarkDone")}
                 </button>
