@@ -1105,3 +1105,9 @@ Production redeploy required. All env vars unchanged.
 - Root cause: Haiku date extractor (deadline_calc) could put the dismissal date into acas_date; Python trusted it → "ACAS contacted on…" and no ET1 date. Main model could also assert unstated steps.
 - date_guard.py (no AI): validate() keeps a date only if a customer sentence (current message + earlier customer messages) links it to that event (nearest-keyword attribution, explicit-date match, relative dates allowed); conflicting dates → no calc + ask; certificate without ACAS dropped. guard_answer() replaces sentences claiming the customer contacted ACAS/got certificate/appealed/filed claim/asked MR when they never said so. Extractor prompt tightened. ET text asks about ACAS and says EC adjustment can't be calculated yet.
 - Tests: tests/test_lex2_date_guard.py (12). Total simulated: 120 passed (stage3 + acas suites run separately).
+
+## 2026-11 — Phase 2A-1 confidence + signed-off facts (PREVIEW ONLY, awaiting approval)
+- lex_system_prompt: removed "perfect recall/sharper than top barristers" and hedge-word ban; added CONFIDENCE AND UNCERTAINTY rules.
+- lex_lessons.is_signed_off: fact_pack/unknown-source rows need reviewed_by+reviewed_at; needs_review always withheld; admin-approved sources (manual/report/thumbs_down/law_watch) ok. Withheld rows not sent to Lex (founder chose withhold). Admin PATCH approve = sign-off (reviewed_by/at, needs_review False, review_history kept); text edit clears sign-off. Admin card: "Awaiting your sign-off" list + Sign off button. Fact header renamed "UK FACTS SIGNED OFF BY AI ADVOCATE'S REVIEWER".
+- Preview: 38 approved fact packs → 0 used until signed off. Production inspection requested via deployer (read-only).
+- tests/conftest.py: AIA_NO_PAID=1 blocks LlmChat, Tavily, preview/live app HTTP; skips the 2 legacy live files. New tests/test_lex2_2a1_confidence_facts.py (8). 128 simulated passed.

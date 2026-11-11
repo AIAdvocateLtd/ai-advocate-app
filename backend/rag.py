@@ -330,7 +330,7 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
         "provision exists and is in force; RETRIEVED WORDING shows what it says; neither proves your interpretation — say "
         "which applies, and if you rely on wording you were not given, say so plainly. Sources marked 'acas.org.uk "
         "(official guidance; wording retrieved …)' were fetched from Acas just now — cite them for points about Acas "
-        "guidance or the Acas Code. VERIFIED UK FACTS are built-in knowledge checked by our team, not retrieved text. If the "
+        "guidance or the Acas Code. UK FACTS SIGNED OFF BY AI ADVOCATE'S REVIEWER are built-in knowledge, not retrieved text — where retrieved official sources conflict with them, say so. If the "
         "retrieved material does NOT cover the user's question, say so and give your "
         "best general guidance — never invent a citation, case, section or URL."
     )

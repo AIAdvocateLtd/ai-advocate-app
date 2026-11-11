@@ -31,10 +31,26 @@ async def refresh_if_stale(db, max_age: int = 300) -> None:
         await refresh_lessons(db)
 
 
+HUMAN_APPROVED_SOURCES = {"manual", "report", "thumbs_down", "law_watch"}  # only reach "approved" via an admin action
+
+
+def is_signed_off(r: dict) -> bool:
+    """Only facts a person has signed off are given to Lex. Machine-seeded rows (fact packs, unknown sources) need an
+    explicit reviewed_by/reviewed_at record; anything flagged needs_review is withheld regardless of source."""
+    if r.get("status") != "approved" or r.get("needs_review"):
+        return False
+    if r.get("reviewed_by") and r.get("reviewed_at"):
+        return True
+    return r.get("source") in HUMAN_APPROVED_SOURCES and bool(r.get("approved_at"))
+
+
 async def refresh_lessons(db) -> None:
     _cache["at"] = time.time()
-    rows = await db.lex_lessons.find({"status": "approved"}, {"_id": 0, "text": 1, "source": 1, "category": 1}) \
-        .sort("approved_at", -1).to_list(300)
+    rows = await db.lex_lessons.find({"status": "approved"}, {"_id": 0, "text": 1, "source": 1, "category": 1, "approved_at": 1,
+                                                              "needs_review": 1, "reviewed_by": 1, "reviewed_at": 1,
+                                                              "status": 1}).sort("approved_at", -1).to_list(300)
+    _cache["withheld"] = sum(1 for r in rows if not is_signed_off(r))
+    rows = [r for r in rows if is_signed_off(r)]
     packs: dict = {}
     for r in rows:
         if r.get("source") == "fact_pack":
@@ -70,7 +86,8 @@ def fact_pack_block(message: str, context: str = "") -> str:
     lines = [t for cat in picked for t in _cache.get("packs", {}).get(cat, [])]
     if not lines:
         return ""
-    return ("\n\nVERIFIED UK FACTS (current as of the date above — use these exactly; if the user's UK nation is unclear "
+    return ("\n\nUK FACTS SIGNED OFF BY AI ADVOCATE'S REVIEWER (built-in knowledge, not text retrieved for this answer — "
+            "use these exactly; if the user's UK nation is unclear "
             "and the rules differ, ask or give each nation's rule):\n- " + "\n- ".join(lines) + "\n")
 
 
@@ -285,6 +302,8 @@ def build_router(db, get_user, require_admin, encrypt_text, decrypt_text, api_ke
     async def list_lessons(admin: dict = Depends(require_admin)):
         rows = await db.lex_lessons.find({"status": {"$ne": "rejected"}}, {"_id": 0}).sort("created_at", -1).to_list(300)
         rows.sort(key=lambda r: r["status"] != "pending")
+        for r in rows:
+            r["used_by_lex"] = is_signed_off(r)
         since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
         stats = {k: await db.lex_feedback.count_documents({"rating": k, "created_at": {"$gte": since}})
                  for k in ("up", "down", "wrong")}
@@ -298,7 +317,8 @@ def build_router(db, get_user, require_admin, encrypt_text, decrypt_text, api_ke
         now = datetime.now(timezone.utc).isoformat()
         await db.lex_lessons.insert_one({"id": str(uuid.uuid4()), "text": text, "category": data.category or "general",
                                          "why": "Added manually", "status": "approved", "source": "manual",
-                                         "created_at": now, "approved_at": now})
+                                         "created_at": now, "approved_at": now,
+                                         "reviewed_by": admin.get("email") or admin.get("id"), "reviewed_at": now})
         await refresh_lessons(db)
         return {"ok": True}
 
@@ -307,14 +327,26 @@ def build_router(db, get_user, require_admin, encrypt_text, decrypt_text, api_ke
         upd = {}
         if data.text is not None:
             upd["text"] = data.text.strip()[:600]
+        now = datetime.now(timezone.utc).isoformat()
+        row = await db.lex_lessons.find_one({"id": lesson_id}, {"_id": 0})
+        if not row:
+            raise HTTPException(404, "Lesson not found")
+        push = None
+        if data.text is not None and data.status != "approved" and upd["text"] != row.get("text"):
+            upd.update(reviewed_by=None, reviewed_at=None)  # changed wording needs a fresh sign-off
         if data.status is not None:
             if data.status not in ("approved", "rejected", "pending"):
                 raise HTTPException(400, "Invalid status")
             upd["status"] = data.status
-            upd["approved_at"] = datetime.now(timezone.utc).isoformat() if data.status == "approved" else None
-        r = await db.lex_lessons.update_one({"id": lesson_id}, {"$set": upd})
-        if not r.matched_count:
-            raise HTTPException(404, "Lesson not found")
+            upd["approved_at"] = now if data.status == "approved" else None
+            if data.status == "approved":  # a person signing the fact off; the old flag is kept in review_history
+                upd.update(reviewed_by=admin.get("email") or admin.get("id"), reviewed_at=now, needs_review=False)
+                push = {"action": "signed_off", "by": upd["reviewed_by"], "at": now,
+                        "previous_flag": row.get("review_reason") if row.get("needs_review") else None}
+            else:
+                upd.update(reviewed_by=None, reviewed_at=None)
+                push = {"action": data.status, "by": admin.get("email") or admin.get("id"), "at": now}
+        await db.lex_lessons.update_one({"id": lesson_id}, {"$set": upd, **({"$push": {"review_history": push}} if push else {})})
         await refresh_lessons(db)
         return {"ok": True}
 

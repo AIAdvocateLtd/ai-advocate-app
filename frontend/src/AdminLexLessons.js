@@ -11,8 +11,14 @@ function LessonRow({ l, onAct }) {
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
         {SOURCE[l.source] || l.source} · {l.category}{l.why ? ` · ${l.why.replace(/^Fact pack · /, "")}` : ""}
       </div>
+      {l.status === "approved" && !l.used_by_lex && (
+        <div data-testid={`lesson-needs-signoff-${l.id}`} style={{ fontSize: 11, color: "#fca5a5", marginTop: 4 }}>
+          Not used by Lex until you sign it off{l.needs_review && l.review_reason ? ` · Review note: ${l.review_reason}` : ""}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
         {l.status === "pending" && <button data-testid={`lesson-approve-${l.id}`} onClick={() => onAct(l, "approved")} style={btn("var(--gold)", "#0a0a0a")}>Approve</button>}
+        {l.status === "approved" && !l.used_by_lex && <button data-testid={`lesson-signoff-${l.id}`} onClick={() => onAct(l, "signoff")} style={btn("var(--gold)", "#0a0a0a")}>Sign off</button>}
         <button data-testid={`lesson-edit-${l.id}`} onClick={() => onAct(l, "edit")} style={btn("transparent", "var(--gold)")}>Edit</button>
         <button data-testid={`lesson-reject-${l.id}`} onClick={() => onAct(l, l.status === "pending" ? "rejected" : "delete")} style={btn("transparent", "var(--text-muted)")}>
           {l.status === "pending" ? "Reject" : "Remove"}
@@ -36,6 +42,9 @@ export function AdminLexLessonsCard({ api, toast, prompt, confirm }) {
       } else if (action === "delete") {
         if (!(await confirm({ title: "Remove lesson?", message: "Lex will stop following this rule straight away.", danger: true, confirmLabel: "Remove" }))) return;
         await api.delete(`/admin/lex-lessons/${l.id}`);
+      } else if (action === "signoff") {
+        if (!(await confirm({ title: "Sign off this fact?", message: "Only sign off after checking it against the official source. Lex will then treat it as reviewed.", confirmLabel: "I've checked it — sign off" }))) return;
+        await api.patch(`/admin/lex-lessons/${l.id}`, { status: "approved" });
       }
       else await api.patch(`/admin/lex-lessons/${l.id}`, { status: action });
       load();
@@ -53,12 +62,13 @@ export function AdminLexLessonsCard({ api, toast, prompt, confirm }) {
   };
 
   const pending = (data?.lessons || []).filter(l => l.status === "pending");
-  const live = (data?.lessons || []).filter(l => l.status === "approved");
+  const live = (data?.lessons || []).filter(l => l.status === "approved" && l.used_by_lex);
+  const awaiting = (data?.lessons || []).filter(l => l.status === "approved" && !l.used_by_lex);
   return (
     <div data-testid="admin-lex-lessons-card" style={{ background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginTop: 14 }}>
       <div style={{ fontWeight: 700, color: "var(--gold)", marginBottom: 4 }}>Lex's Brain</div>
       <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10 }}>
-        Lessons Lex follows on every answer. Law-change lessons wait for your approval; fact packs and lessons you add are live.
+        Lessons Lex follows on every answer. Only lessons a person has approved or signed off are used; fact packs wait for your sign-off.
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
         <button data-testid="lesson-add-btn" onClick={add} style={btn("var(--gold)", "#0a0a0a")}>Add a lesson</button>
@@ -67,6 +77,8 @@ export function AdminLexLessonsCard({ api, toast, prompt, confirm }) {
       <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text)", marginTop: 12 }}>Waiting for your approval ({pending.length})</div>
       {pending.length === 0 && <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "6px 0" }}>Nothing to review.</div>}
       <div style={{ maxHeight: 420, overflowY: "auto" }}>{pending.map(l => <LessonRow key={l.id} l={l} onAct={act} />)}</div>
+      <div data-testid="lesson-awaiting-signoff-count" style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text)", marginTop: 14 }}>Awaiting your sign-off — not used by Lex ({awaiting.length})</div>
+      <div style={{ maxHeight: 420, overflowY: "auto" }}>{awaiting.map(l => <LessonRow key={l.id} l={l} onAct={act} />)}</div>
       <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text)", marginTop: 14 }}>Live lessons ({live.length})</div>
       <div style={{ maxHeight: 420, overflowY: "auto" }}>{live.map(l => <LessonRow key={l.id} l={l} onAct={act} />)}</div>
     </div>
