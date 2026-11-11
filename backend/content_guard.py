@@ -9,7 +9,8 @@ from typing import List, Tuple
 from urllib.parse import urlparse
 
 _AI = (r"(?:ai|a\.i\.|artificial intelligence|ai assistant|virtual assistant|chat ?bot|language model|llm|ai model|lex|gpt|"
-       r"chatgpt|claude|gemini|ai advocate|ai system|ai tool|ai reviewer)")
+       r"chatgpt|claude|gemini|ai advocate|ai system|ai tool|ai reviewer|"
+       r"(?:when|while|if)\s+(?:summari[sz]ing|processing|ingesting|parsing)\s+this\s+(?:document|letter|contract|page|file|text))")
 _AI_RE = re.compile(rf"\b{_AI}s?\b", re.I)
 _LEAD = re.compile(r"(?:^|[.!?:;\n\"'“(\[]|\bplease)\s*$", re.I)
 
@@ -30,8 +31,22 @@ _RULES = [
     ("manipulate_conclusion", rf"\b{_AI}s?\b[^.\n]{{0,60}}?\b(?:must|should|shall|will|needs? to|are required to|is instructed to)\s+"
      r"(?:always\s+)?(?:say|state|tell|conclude|advise|confirm|report|rate|classify|answer|respond|recommend|describe|"
      r"treat|omit|not mention|never mention|not flag|ignore)\b", False),
-    ("manipulate_conclusion", r"\b(?:tell|inform|assure|advise|reassure) the (?:user|reader|customer|client|tenant|employee|claimant)\b"
-     r"[^.\n]{0,40}\b(?:that|they)\b", "ai"),
+    # Directing what the person is told, in any grammar: "tell the user (that) X", "the user must be told X", "make sure the reader believes X".
+    ("manipulate_conclusion", r"\b(?:tell|inform|assure|advise|reassure|convince|persuade|remind)\s+(?:the\s+|this\s+|any\s+)?"
+     r"(?:users?|readers?)\b|\b(?:the|any)\s+(?:users?|readers?)\s+(?:must|should|shall|is to|needs? to)\s+(?:be\s+)?"
+     r"(?:told|informed|advised|assured|led to believe|made to believe)\b|\bmake (?:sure|certain) (?:that )?the (?:users?|readers?)\s+"
+     r"(?:thinks?|believes?|concludes?|understands?|is told|knows?|accepts?)\b", True),
+    ("manipulate_conclusion", r"\b(?:tell|inform|assure|advise|reassure|convince|persuade)\s+(?:the\s+|this\s+)?"
+     r"(?:customer|client|tenant|employee|claimant|consumer|person|individual|them|him|her)\b|"
+     r"\b(?:say|state|claim|conclude|answer|respond|report|write|output|confirm|find|decide)\s+(?:only\s+)?(?:that\s+|with:?\s+)?"
+     r"(?:the|this|their|his|her|no|there)\s+[^.\n]{0,40}?\b(?:is|are|was|were|has|have|had|isn'?t|aren'?t|wasn'?t|"
+     r"can(?:not|'t)?|will|won'?t|does|doesn'?t|did|didn'?t)\b|"
+     r"\b(?:users?|readers?)\s+(?:must|should|shall|need to)\s+be\s+(?:told|informed|advised|assured)\b|"
+     r"\b(?:your|the)\s+(?:answer|response|reply|conclusion|verdict|output|summary|analysis|advice|review)\s+"
+     r"(?:must|should|shall|will|has to|needs? to)\s+(?:always\s+)?(?:be|say|state|conclude|confirm|find|show|read)\b", "ai"),
+    ("manipulate_conclusion", r"\bregardless of (?:the |any |what )?(?:facts|evidence|law|document|contents?|above|it says)\b[^.\n]{0,40}?"
+     r"\b(?:conclude|say|state|answer|advise|tell|find|confirm|report)\b|\b(?:any\s+)?(?:summar(?:y|ies)|analys[ie]s|reviews?)\s+of\s+this\s+"
+     r"(?:document|letter|contract|page|agreement|file)\s+(?:must|should|shall)\s+(?:say|state|conclude|confirm|find|show)\b", True),
     ("manipulate_conclusion", r"\b(?:rate|mark|classify|assess|grade) this (?:contract|document|clause|agreement|letter|claim)s? as\b|"
      r"\b(?:overall_verdict|verdict_one_liner|solicitor_review_recommended|red_flags|amber_flags)\b|"
      r"\b(?:do not|don'?t|never)\s+(?:flag|mention|report|highlight|warn about)\s+(?:this|these|any|the)\s+"
