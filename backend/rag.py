@@ -44,6 +44,7 @@ AUTHORITY_DOMAINS = [
     "judiciary.uk",
     "supremecourt.uk",
     "gov.uk",
+    "acas.org.uk",
     "caselaw.nationalarchives.gov.uk",
 ]
 
@@ -179,7 +180,7 @@ def _format_block(label: str, items: List[Dict], start_index: int = 1) -> str:
     for i, it in enumerate(items, start_index):
         title = it.get("title") or "(untitled)"
         url = it.get("url") or ""
-        cap = 900 if "legislation.gov.uk/" in url and "/section/" in url else 350
+        cap = 4000 if "legislation.gov.uk/" in url and "/section/" in url else 350
         snippet = (it.get("content") or "")[:cap].replace("\n", " ").strip()
         lines.append(f"[{i}] {title}\n    {url}\n    {snippet}")
     return "\n".join(lines)
@@ -313,7 +314,9 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
         f"{next_idx - 1} exist. Only cite a number if that source actually says what you are claiming. Legislation and "
         "official guidance take priority: supporting web sources may add context but never override them. The territorial "
         "extent shown for legislation is where it is law — never infer UK-wide or Northern Ireland extent beyond it, and "
-        "keep extent separate from whether it applies to the customer in practice. If the "
+        "keep extent separate from whether it applies to the customer in practice. A legislation STATUS CHECK only confirms a "
+        "provision exists and is in force; RETRIEVED WORDING shows what it says; neither proves your interpretation — say "
+        "which applies, and if you rely on wording you were not given, say so plainly. If the "
         "retrieved material does NOT cover the user's question, say so and give your "
         "best general guidance — never invent a citation, case, section or URL."
     )

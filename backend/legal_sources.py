@@ -10,7 +10,7 @@ LEG = "https://www.legislation.gov.uk"
 TNA = "https://caselaw.nationalarchives.gov.uk"
 UA = {"User-Agent": "AIAdvocate/1.0 (+https://aiadvocate.co.uk; support@aiadvocate.co.uk)"}
 ACT_TTL, STATUS_TTL, FAIL_TTL = 7 * 86400, 6 * 3600, 300
-MAX_REFS, TIMEOUT = 6, 6.0
+MAX_REFS, TIMEOUT, TEXT_CAP = 6, 6.0, 4000
 EXTENT = {"england": "E", "wales": "W", "scotland": "S", "northern_ireland": "N"}
 NATION_LABEL = {"england": "England", "wales": "Wales", "scotland": "Scotland", "northern_ireland": "Northern Ireland"}
 OGL = "Contains public sector information licensed under the Open Government Licence v3.0."
@@ -127,6 +127,8 @@ _NOT_RETRIEVED = re.compile(r"\b(?:(?:was|were|is|has|have)(?:\s*n['’]t|\s+not
                             r"fetched|checked|among)|(?:could|can|did)(?:\s*n['’]t|\s*not)\s+(?:be\s+)?(?:retriev|fetch|access|check|"
                             r"verif|see|find|locat)\w*|unable to (?:retriev|fetch|access|check|verif|find)\w*|not (?:in|among|part of) "
                             r"(?:the )?(?:retrieved |research |live )?(?:sources|research|material))", re.I)
+_PARTIAL = re.compile(r"\b(?:incomplete|partial(?:ly)?|truncated|cut off|only (?:the )?(?:first|part|opening)|my own "
+                      r"(?:knowledge|understanding)|from memory|general knowledge|training)\b", re.I)
 _UK_WIDE = re.compile(r"\b(?:extends?|extending|extent|appl(?:y|ies|ying))\b[^.\n]{0,70}\b(?:Northern Ireland|whole (?:of the )?(?:UK|United "
                       r"Kingdom)|all (?:four|UK) nations|throughout the UK|across the (?:whole )?UK)|\bUK[- ]wide\b", re.I)
 _SPLIT = re.compile(r"((?<=[.!?])\s+|\n)")
@@ -149,10 +151,12 @@ def reconcile(text: str, results: List[dict], document: bool = False) -> Tuple[s
         for i, sent in enumerate(parts):
             if i % 2 or not _mentions_section(sent, sec) or r["act"].split()[0].lower() not in (text or "").lower():
                 continue
-            if _NOT_RETRIEVED.search(sent) and not document:
+            if (_NOT_RETRIEVED.search(sent) or (_PARTIAL.search(sent) and not r.get("truncated"))) and not document:
                 lead = re.match(r"^\s*(?:[-*•]\s+|\d+\.\s+)?", sent).group(0)
                 parts[i] = (f"{lead}{r['label']} was checked on legislation.gov.uk once this answer was drafted (status: "
-                            f"{_STATUS_WORDS.get(v, v)}) — see the sources below, and read its exact wording before relying on it.")
+                            f"{_STATUS_WORDS.get(v, v)}) and its full wording is linked below. That check confirms the "
+                            "provision exists and is in force — it does not confirm this answer's interpretation, so read "
+                            "the wording before relying on it.")
             elif r.get("extent") and "N" not in letters and _UK_WIDE.search(sent) and not flagged:
                 flagged = True
                 lines.append(f"legislation.gov.uk records the territorial extent of “{r['label']}” as {extent_words(r['extent'])}, "
@@ -192,7 +196,7 @@ def parse_section(xml: str, section: str) -> dict:
         detail = _strip(m.group(1))[:220] if m else ""
     pending = bool(re.search(rf'AffectedProvisions="[^"]*\bss?\. (?:[\w(), ]*\b)?{re.escape(section)}\b', xml))
     valid = re.search(r"<dct:valid>([^<]+)", xml)
-    return {"status": status, "extent": ext, "text": text[:1200], "detail": detail,
+    return {"status": status, "extent": ext, "text": text[:TEXT_CAP], "truncated": len(text) > TEXT_CAP, "detail": detail,
             "pending_changes": pending, "version_date": valid.group(1) if valid else ""}
 
 
@@ -217,7 +221,7 @@ async def check_ref(ref: dict, nation: Optional[str]) -> dict:
                 info = _put(key, parse_section(body, ref["section"]), STATUS_TTL)
         res.update(url=f"{LEG}/{act['id']}/section/{ref['section']}", extent=info.get("extent", ""),
                    detail=info.get("detail", ""), text=info.get("text", ""), version_date=info.get("version_date", ""),
-                   pending_changes=info.get("pending_changes", False))
+                   pending_changes=info.get("pending_changes", False), truncated=info.get("truncated", False))
         verdict, letter = info["status"], EXTENT.get(nation or "")
         extent = info.get("extent", "").replace("N.I.", "N").split("+")
         if verdict != "not_found" and letter and info.get("extent") and letter not in extent:
@@ -271,9 +275,10 @@ async def check_answer(text: str, nation: Optional[str], citations: List[dict], 
                 out = out.replace(r["anchor"], f"{r['anchor']} [⚠ see legislation check]", 1)
         if r["verdict"] in ("in_force", "changes_pending") and r.get("url") and \
                 not any((c.get("url") or "").rstrip("/") == r["url"] for c in citations):
-            citations.append({"n": next_n, "title": f"{r['label']} — legislation.gov.uk (status checked"
+            citations.append({"n": next_n, "title": f"{r['label']} — legislation.gov.uk (status checked only: exists and in force"
                               + (f", version {r['version_date']}" if r.get("version_date") else "")
-                              + (f"; extent: {extent_words(r['extent'])}" if extent_words(r.get("extent")) else "") + ")",
+                              + (f"; extent: {extent_words(r['extent'])}" if extent_words(r.get("extent")) else "")
+                              + " — does not confirm Lex's interpretation)",
                               "url": r["url"], "source": "legislation", "claim_check": "status_checked"})
             next_n += 1
     for c in await check_case_citations(out):
@@ -291,7 +296,7 @@ async def check_answer(text: str, nation: Optional[str], citations: List[dict], 
         else:
             import lex_safety
             out = lex_safety.insert_before_tail(out, block.strip())
-    rep = {"refs": len(refs), "verdicts": [r["verdict"] for r in results], "ms": int((time.monotonic() - t0) * 1000)}
+    rep = {"refs": len(refs), "verdicts": [r["verdict"] for r in results], "urls": [r["url"] for r in results if r.get("url")], "ms": int((time.monotonic() - t0) * 1000)}
     return out, rep
 
 
@@ -309,7 +314,8 @@ async def grounding_sources(text: str, nation: Optional[str], max_sections: int 
             status = {"in_force": "in force", "changes_pending": "in force — changes pending", "repealed": "REPEALED",
                       "partly_repealed": "repealed/changed for some purposes", "not_in_force": "NOT YET IN FORCE",
                       "wrong_jurisdiction": f"does NOT extend to {NATION_LABEL.get(nation, 'this nation')}"}.get(r["verdict"], "")
-            items.append({"title": f"{r['label']} (legislation.gov.uk — status: {status}; territorial extent: "
+            wording = "wording retrieved: first part only" if r.get("truncated") else "full wording retrieved"
+            items.append({"title": f"{r['label']} (legislation.gov.uk — status: {status}; {wording}; territorial extent: "
                                    f"{extent_words(r.get('extent')) or 'not stated'})",
                           "url": r["url"], "content": f"{r.get('detail', '')} {r['text']}".strip()})
     return items

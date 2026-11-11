@@ -1089,3 +1089,9 @@ Production redeploy required. All env vars unchanged.
 - "Plenty of time"-style reassurance replaced when deadlines discussed (lex_safety.no_false_reassurance) + prompt rule.
 - Reminders: no longer auto-saved. Backend returns proposed_reminders; UI shows card + confirm dialog (EDT + Early Conciliation note). ACAS EC and ET1 are separate reminders (NI: LRA + industrial tribunal). Hypothetical messages get no proposals.
 - Tests: tests/test_lex2_customer_test1.py (8, simulated). Updated title asserts in test_iter41 and a mock in test_stage2_safety.
+
+## 2026-06 — Lex 2.0 legal accuracy corrections (PREVIEW ONLY, awaiting approval)
+- ACAS Code/poor performance: no verified fact + acas.org.uk not in authority search domains → Lex used training knowledge. Added fact pack employment_pack_v2 (ACAS Code para 1 wording, seeded on startup, editable as approved lesson) and acas.org.uk to AUTHORITY_DOMAINS.
+- s.98 wording: section text capped at 1200 chars and research snippet at 900, so s.98(4) was cut. Now 4000 (full s.98 ≈2,200). Titles distinguish "full wording retrieved" vs "status checked only … does not confirm Lex's interpretation"; prompt rule separating status/wording/interpretation; "incomplete/own knowledge" sentences reconciled.
+- Source list: only cited sources + legislation named in the answer (status checked); uncited official/web sources dropped.
+- Tests: 79 simulated passed (tests/test_lex2_customer_test1.py now 12 tests).

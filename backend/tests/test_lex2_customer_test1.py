@@ -91,3 +91,43 @@ def test_reminders_only_proposed_and_hypotheticals_blocked():
         assert server._HYPOTHETICAL_RE.search(msg)
     assert not server._HYPOTHETICAL_RE.search("I was dismissed on 31 October 2026 by my employer in Leeds")
     assert re.search(r"Nothing has been saved", deadline_calc.build_deadlines.__code__.co_consts.__str__())
+
+
+# --- Customer test 2: ACAS Code / s.98 wording vs status
+def test_s98_full_wording_reaches_lex():
+    items = run(L.grounding_sources("Employment Rights Act 1996, section 98", "england"))
+    assert items and "full wording retrieved" in items[0]["title"]
+    assert "(4)" in items[0]["content"] and "reasonably" in items[0]["content"]
+    block = rag._format_block("OFFICIAL", items, start_index=1)
+    assert "equity and the substantial merits" in block
+
+
+def test_partial_claim_reconciled_and_status_not_proof():
+    text = ("Section 98 of the Employment Rights Act 1996 governs fairness. The retrieved extract of section 98 was "
+            "incomplete, so I relied on my own knowledge of section 98(4). [CONFIDENCE: HIGH]")
+    cits = []
+    out, rep = run(L.check_answer(text, "england", cits))
+    assert "incomplete" not in out and "does not confirm this answer's interpretation" in out
+    assert any("status checked only" in c["title"] and "does not confirm Lex's interpretation" in c["title"] for c in cits)
+    assert any(u.endswith("/section/98") for u in rep["urls"])
+
+
+def test_acas_code_fact_present():
+    import fact_packs
+    import lex_lessons
+    txt = fact_packs.EMPLOYMENT_PACK_V2[0][0]
+    assert "INCLUDE misconduct and/or poor performance" in txt and "capability procedure" in txt
+    assert lex_lessons.PACKS["employment_pack_v2"][0] == "employment"
+    assert "acas.org.uk" in rag.AUTHORITY_DOMAINS
+
+
+def test_source_list_only_used_or_named():
+    import server
+    cits = [{"n": 1, "title": "ERA s.98", "url": "https://www.legislation.gov.uk/ukpga/1996/18/section/98", "source": "official"},
+            {"n": 2, "title": "Acas: dismissal", "url": "https://www.acas.org.uk/dismissal", "source": "official"},
+            {"n": 3, "title": "Some blog", "url": "https://blog.example/x", "source": "web"},
+            {"n": 4, "title": "Unused statute", "url": "https://www.legislation.gov.uk/ukpga/2010/15/section/13", "source": "official"}]
+    research = {"sources": [{"n": 2, "title": "Acas", "content": "unfair dismissal tribunal"}], "status": "ok"}
+    text = "Section 98 of the Employment Rights Act 1996 requires a fair reason [2]. Acas guidance explains this [2]."
+    out, rep = run(server._lex_finalize(text, cits, research, "high", "en", "unfair dismissal", {"applicable": "england"}))
+    assert [c["n"] for c in cits] == [1, 2]

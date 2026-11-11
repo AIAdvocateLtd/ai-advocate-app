@@ -2014,7 +2014,9 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
     except Exception as e:
         logger.warning(f"lex finalize failed (answer unchanged): {e!r}")
         return text, {"error": True}
-    citations[:] = [c for c in citations if not (c.get("source") == "web" and c.get("claim_check") == "not_cited")]
+    named = {u.rstrip("/") for u in (leg or {}).get("urls", [])}
+    citations[:] = [c for c in citations if c.get("claim_check") != "not_cited" or c.get("source") == "legislation"
+                    or (c.get("url") or "").rstrip("/") in named]
     return out, {k: rep[k] for k in ("reassurance_removed", "removed_markers", "unsupported_markers", "urls_removed", "urls_rerouted",
                                      "notes_added", "risk", "research_status")} | {
         "unverified_case_refs": len(rep["unverified_case_refs"]), "jurisdiction_conflict": bool(juris.get("conflict")),

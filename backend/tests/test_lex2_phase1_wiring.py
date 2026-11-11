@@ -67,7 +67,7 @@ def test_taster_gets_jurisdiction_research_deadline_and_legislation_checks():
     assert SEEN["research_args"]["nation"] == "scotland"
     assert "LIVE LEGAL RESEARCH" in SEEN["system"] and server.NO_CALC_BLOCK.strip()[:40] in SEEN["system"]
     assert "does not extend to Scotland" in out["response"] and "[CONFIDENCE: MEDIUM]" in out["response"]
-    assert out["citations"] and out["model"] == "claude-haiku-4-5"
+    assert out["citations"] == [] and out["model"] == "claude-haiku-4-5"  # uncited source dropped; s.21 not status-checked
 
 
 def test_taster_research_failure_is_disclosed(monkeypatch):

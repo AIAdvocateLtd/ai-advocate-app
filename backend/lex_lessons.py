@@ -184,9 +184,10 @@ IMMIGRATION_PACK_V1 = [
 ]
 
 
-from fact_packs import EMPLOYMENT_PACK_V1, HOUSING_PACK_V1, FAMILY_PACK_V1, BENEFITS_PACK_V1  # noqa: E402
+from fact_packs import EMPLOYMENT_PACK_V1, EMPLOYMENT_PACK_V2, HOUSING_PACK_V1, FAMILY_PACK_V1, BENEFITS_PACK_V1  # noqa: E402
 
 PACKS = {"immigration_pack_v1": ("immigration", None), "employment_pack_v1": ("employment", EMPLOYMENT_PACK_V1),
+         "employment_pack_v2": ("employment", EMPLOYMENT_PACK_V2),
          "housing_pack_v1": ("housing", HOUSING_PACK_V1), "family_pack_v1": ("family", FAMILY_PACK_V1),
          "benefits_pack_v1": ("benefits", BENEFITS_PACK_V1)}
 

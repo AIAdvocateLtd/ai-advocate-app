@@ -1,5 +1,15 @@
 """Verified UK fact packs (researched from GOV.UK / official sources, November 2026)."""
 
+EMPLOYMENT_PACK_V2 = [
+    ("ACAS Code of Practice on Disciplinary and Grievance Procedures (para 1): disciplinary situations INCLUDE misconduct "
+     "and/or poor performance. Employers with a separate capability procedure may prefer to deal with performance under it, "
+     "but the Code's basic principles of fairness should still be followed (adapted as needed). The Code does not apply to "
+     "redundancy dismissals or the non-renewal of fixed-term contracts on expiry. Tribunals take the Code into account and "
+     "can adjust awards by up to 25% for unreasonable failure to follow it. Never say the Code does not cover poor "
+     "performance; distinguish disciplinary from capability procedures.",
+     "https://www.acas.org.uk/acas-code-of-practice-on-disciplinary-and-grievance-procedures/html"),
+]
+
 EMPLOYMENT_PACK_V1 = [
     ("National Living Wage: £12.71 an hour for workers aged 21+ from 1 April 2026 (applies across the whole UK).",
      "https://www.gov.uk/national-minimum-wage-rates"),
