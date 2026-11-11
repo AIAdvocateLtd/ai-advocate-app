@@ -1136,3 +1136,12 @@ Production redeploy required. All env vars unchanged.
 - LAW_NOTES[0] tribunal limits: Acas — 1 Oct 2026 change; Scotland breach of contract 9 Nov 2026 (3m-1d before / 6m-1d on or after); 11:59pm; ACAS EC pauses.
 - LAW_NOTES[1] qualifying period: SI 2026/559 regs 3–4 (EDT-based transition: dismissed before 1 Jan 2027 but EDT on/after → 6 months) + GOV.UK eligibility (exceptions, excluded groups, NI 1 year).
 - Seed id fact_review_v3: refreshes unsigned notes (old wording kept in versions), never touches signed ones. Rollback script updated. 76 targeted tests passed (AIA_NO_PAID=1).
+
+## 2026-11-11 — Phase 2A-2 document & research security (PREVIEW ONLY, awaiting approval)
+- content_guard.py (no AI): clean() strips invisible chars (keeps ZWJ/ZWNJ for Urdu/Arabic/Hindi), reveals Unicode tag-character hidden text, defangs fake fences/chat tokens; scan() finds override / role impersonation / conclusion manipulation / data exfiltration / safeguard bypass / citation spoofing (gated patterns need AI-addressed context or sentence start to avoid false positives); fence() wraps content in per-call random-id UNTRUSTED markers; RULES appended to every lex_system_prompt + custom analyser prompts; FILE_RULES marker [[AIA_INSTRUCTIONS_IGNORED]] for files the model reads directly (images), stripped server-side.
+- rag.research: items cleaned; non-official pages with AI-directed text dropped; "official" decided by real URL host only; research body fenced; `injection` meta.
+- Covered: Lex chat (all tiers/Deep Think, stream + non-stream, taster), attached docs, case context, legal letters (both), contracts (review/analyse/negotiate/draft rules), document & evidence analysis, form scan, counter-ladder, case summary, recording + video transcripts, OCR prompts.
+- Customer note (11 languages) once per conversation; JSON routes add `security_notice` + show in summary/amber_flags/warnings/negotiation_strategy; letters get it under "Notes for you — not part of the letter".
+- security_events: {at, feature, kinds, count} only. GET /api/admin/security_events (admin, counts only). Fact approval system untouched.
+- Tests: tests/test_lex2_2a2_injection.py (33). Lex2 combined 104 passed; acas 13; stage2 44; stage3 limits 16; stage3_release 32 + 1 pre-existing live-HTTP test blocked by AIA_NO_PAID.
+- Cost: ~300 extra input tokens per AI call (≈ £0.0002–0.0008/call); no new AI calls or searches.

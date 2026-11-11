@@ -31,6 +31,8 @@ from typing import List, Dict, Optional
 
 import httpx
 
+import content_guard
+
 logger = logging.getLogger("rag")
 
 TAVILY_ENDPOINT = "https://api.tavily.com/search"
@@ -240,6 +242,21 @@ def _relevant(it: dict, query: str) -> bool:
     return sum(1 for t in terms if t in blob) >= min(2, len(terms))
 
 
+def _guard_items(items: List[Dict], keep_suspicious: bool):
+    """Cleans each retrieved item; non-official pages containing AI-directed instructions are left out entirely."""
+    kept, dropped, kinds = [], 0, set()
+    for it in items:
+        content, k1 = content_guard.inspect(it.get("content") or "")
+        title, k2 = content_guard.inspect(it.get("title") or "")
+        found = set(k1) | set(k2)
+        kinds |= found
+        if content_guard.suspicious(list(found)) and not keep_suspicious:
+            dropped += 1
+            continue
+        kept.append({**it, "content": content, "title": title})
+    return kept, dropped, kinds
+
+
 async def research(message: str, country: str = "GB", db=None, context: str = "", nation: Optional[str] = None) -> Dict:
     """Returns {status, block, citations, sources}. status: ok | not_needed | not_configured |
     quota_exhausted | unavailable | no_results. `sources` keeps snippets for server-side citation checks."""
@@ -306,10 +323,16 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
         return out
 
     rel_q = scrub(message)
-    official = dedupe(statute) + dedupe(guidance) + [it for it in dedupe(official) if _relevant(it, rel_q)]
+    paid_official = [it for it in dedupe(official) if _relevant(it, rel_q)]
+    # A result only counts as official if its real host is an official domain, whatever its title or text claims.
+    official = dedupe(statute) + dedupe(guidance) + [it for it in paid_official if content_guard.official_url(it.get("url"))]
+    web = [it for it in paid_official if not content_guard.official_url(it.get("url"))] + \
+        [it for it in dedupe(web) if _relevant(it, rel_q)]
+    official, _, k1 = _guard_items(official, keep_suspicious=True)
+    web, dropped, k2 = _guard_items(web, keep_suspicious=False)
     g_meta = {"guidance_keys": [it["acas_key"] for it in guidance], "guidance_failed": g_failed,
-              "paid_search": "ok" if "ok" in (s1, s2) else (paid if paid != "ok" else "unavailable")}
-    web = [it for it in dedupe(web) if _relevant(it, rel_q)]
+              "paid_search": "ok" if "ok" in (s1, s2) else (paid if paid != "ok" else "unavailable"),
+              "injection": {"dropped": dropped, "kinds": sorted(k1 | k2)}}
     if not official and not web:
         failed = {s1, s2} - {"ok"}
         status = (paid if paid != "ok" else ("quota_exhausted" if "quota_exhausted" in failed else "unavailable")) \
@@ -327,7 +350,7 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
             sources.append({"n": next_idx, "title": it.get("title") or "", "content": it.get("content") or "",
                             "guidance": bool(it.get("acas_key"))})
             next_idx += 1
-    body = "\n\n".join(blocks)
+    body = content_guard.fence("\n\n".join(blocks), "RETRIEVED RESEARCH (web pages and official records)")
     if g_meta["paid_search"] != "ok":
         body += ("\n\nNOTE: only the free official lookups above (legislation.gov.uk / acas.org.uk) were available for this "
                  "answer — wider research could not be run. Rely on these sources for what they cover; for anything else, "
