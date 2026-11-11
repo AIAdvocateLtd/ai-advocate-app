@@ -203,7 +203,7 @@ RETENTION_DAYS = 90
 
 
 async def ensure_indexes(db) -> None:
-    await db.security_events.create_index("expires_at", expireAfterSeconds=0)
+    await db.attack_detections.create_index("expires_at", expireAfterSeconds=0)
 
 
 async def record(db, feature: str, kinds: List[str]) -> None:
@@ -212,7 +212,7 @@ async def record(db, feature: str, kinds: List[str]) -> None:
         return
     try:
         now = datetime.now(timezone.utc)
-        await db.security_events.insert_one({"at": now.isoformat(), "expires_at": now + timedelta(days=RETENTION_DAYS),
+        await db.attack_detections.insert_one({"at": now.isoformat(), "expires_at": now + timedelta(days=RETENTION_DAYS),
                                              "feature": feature, "kinds": sorted(set(kinds)), "count": len(set(kinds))})
     except Exception:
         pass

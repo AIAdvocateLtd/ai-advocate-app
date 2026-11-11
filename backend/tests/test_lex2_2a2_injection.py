@@ -77,8 +77,8 @@ def user():
 @pytest.fixture
 def events():
     start = server.datetime.now(server.timezone.utc).isoformat()
-    yield lambda: run(db.security_events.find({"at": {"$gte": start}}, {"_id": 0}).to_list(100))
-    run(db.security_events.delete_many({"at": {"$gte": start}}))
+    yield lambda: run(db.attack_detections.find({"at": {"$gte": start}}, {"_id": 0}).to_list(100))
+    run(db.attack_detections.delete_many({"at": {"$gte": start}}))
 
 
 # ------------------------------------------------------------------ detector
@@ -324,7 +324,7 @@ def test_recording_transcript_fenced(user, monkeypatch, events):
 
 def test_admin_summary_counts_only(events):
     run(G.record(db, "lex_chat", ["override_instructions"]))
-    out = run(server.admin_security_events(days=1, _={}))
+    out = run(server.admin_attack_detections(days=1, _={}))
     assert out["by_feature"].get("lex_chat", 0) >= 1 and out["by_kind"].get("override_instructions", 0) >= 1
     assert set(out) == {"days", "total", "by_feature", "by_kind"}
 
@@ -409,7 +409,7 @@ def test_notice_translated_and_falls_back(lang):
 
 def test_retention_90_days_and_no_identities(events):
     run(G.ensure_indexes(db))
-    idx = run(db.security_events.index_information())
+    idx = run(db.attack_detections.index_information())
     assert any(v.get("expireAfterSeconds") == 0 and v["key"] == [("expires_at", 1)] for v in idx.values())
     run(G.record(db, "lex_chat", ["data_exfiltration"]))
     e = events()[-1]
@@ -417,3 +417,52 @@ def test_retention_90_days_and_no_identities(events):
     from datetime import datetime
     secs = (e["expires_at"] - datetime.fromisoformat(e["at"]).replace(tzinfo=None)).total_seconds()
     assert round(secs / 86400) == 90
+
+
+# ------------------------------------------------------------------ record separation (login alerts untouched)
+def test_attack_detections_separate_from_login_alerts(user, events):
+    alert = {"id": str(uuid.uuid4()), "user_id": user["id"], "kind": "login_country_change", "acknowledged": False,
+             "created_at": server.datetime.now(server.timezone.utc).isoformat(), "ip": "203.0.113.5"}
+    run(db.security_events.insert_one(dict(alert)))
+    try:
+        before = run(server.admin_attack_detections(days=1, _={}))["total"]
+        run(G.record(db, "lex_chat", ["override_instructions"]))
+        out = run(server.admin_attack_detections(days=1, _={}))
+        assert out["total"] == before + 1 and None not in out["by_feature"]
+        mine = run(server.list_security_events(user=user))
+        items = mine if isinstance(mine, list) else (mine.get("events") or mine.get("items") or [])
+        assert [e.get("kind") for e in items] == ["login_country_change"]  # customer alerts unchanged, no attack records
+        assert run(db.security_events.find_one({"id": alert["id"]}, {"_id": 0, "ip": 1})) == {"ip": "203.0.113.5"}
+        assert run(db.attack_detections.count_documents({"user_id": {"$exists": True}})) == 0
+    finally:
+        run(db.security_events.delete_one({"id": alert["id"]}))
+
+
+def test_attack_stats_admin_only(user):
+    with pytest.raises(server.HTTPException) as e:
+        run(server.require_admin(user=user))
+    assert e.value.status_code == 403
+    admin = {"email": server.ADMIN_EMAILS[0]}
+    assert run(server.require_admin(user=admin)) is admin
+
+
+def test_login_alert_collection_has_no_new_ttl(events):
+    run(G.ensure_indexes(db))
+    idx = run(db.attack_detections.index_information())
+    assert any(v.get("expireAfterSeconds") == 0 for v in idx.values())
+    assert G.RETENTION_DAYS == 90
+
+
+def test_login_country_alert_still_works(user):
+    run(db.users.update_one({"id": user["id"]}, {"$set": {"last_login_country": "GB"}}))
+    req = NS(headers={"cf-ipcountry": "FR", "x-forwarded-for": "198.51.100.7, 10.0.0.1", "user-agent": "pytest"}, client=None)
+    u = run(db.users.find_one({"id": user["id"]}, {"_id": 0}))
+    before = run(server.admin_attack_detections(days=1, _={}))["total"]
+    try:
+        res = run(server._check_geo_anomaly(u, req))
+        assert res and res["kind"] == "login_country_change"
+        evs = run(server.list_security_events(user=u))["events"]
+        assert [e["kind"] for e in evs] == ["login_country_change"] and "expires_at" not in evs[0]
+        assert run(server.admin_attack_detections(days=1, _={}))["total"] == before
+    finally:
+        run(db.security_events.delete_many({"user_id": user["id"]}))

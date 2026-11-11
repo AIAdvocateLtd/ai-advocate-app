@@ -13999,12 +13999,12 @@ async def require_admin(user: dict = Depends(get_user)):
         raise HTTPException(403, "Admin only")
     return user
 
-@api_router.get("/admin/security_events")
-async def admin_security_events(days: int = 30, _: dict = Depends(require_admin)):
-    """Suspicious-instruction detections: counts by feature and kind only (no document wording, no customer details)."""
+@api_router.get("/admin/attack_detections")
+async def admin_attack_detections(days: int = 30, _: dict = Depends(require_admin)):
+    """Prompt-injection detections only (login alerts/lockouts live in security_events): counts by feature and kind."""
     since = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 365)))).isoformat()
     by_feature, by_kind, total = {}, {}, 0
-    async for e in db.security_events.find({"at": {"$gte": since}}, {"_id": 0, "feature": 1, "kinds": 1}):
+    async for e in db.attack_detections.find({"at": {"$gte": since}}, {"_id": 0, "feature": 1, "kinds": 1}):
         total += 1
         by_feature[e.get("feature")] = by_feature.get(e.get("feature"), 0) + 1
         for k in e.get("kinds") or []:
