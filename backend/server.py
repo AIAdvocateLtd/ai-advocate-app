@@ -70,6 +70,7 @@ if SENTRY_DSN:
 
 from app_crypto import encrypt_text, decrypt_text, encrypt_bytes, decrypt_bytes, is_enabled as crypto_enabled  # noqa: E402
 import official_guidance  # noqa: E402
+import date_guard  # noqa: E402
 from deadline_calc import build_deadlines, deadline_iso, deadline_label, NO_CALC_BLOCK, _HINT_RE as _DEADLINE_CALC_HINT_RE  # noqa: E402
 import legal_sources  # noqa: E402
 from lex_lessons import fact_pack_block as _fact_pack_block, lessons_block as _lessons_block, refresh_if_stale as _lessons_refresh_if_stale  # noqa: E402
@@ -2011,7 +2012,11 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
         text, leg = await legal_sources.check_answer(text or "", _juris_nation(juris), citations)
     except Exception as e:
         logger.warning(f"legislation check failed (answer unchanged): {e!r}")
-    g_notes = []
+    g_notes, event_fixes = [], 0
+    try:
+        text, event_fixes = date_guard.guard_answer(text or "", (juris or {}).get("customer_text") or message)
+    except Exception as e:
+        logger.warning(f"date guard failed (answer unchanged): {e!r}")
     try:
         text, g_notes = official_guidance.disclose(text or "", research.get("guidance_keys") or [],
                                                    research.get("guidance_failed") or [])
@@ -2033,6 +2038,7 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
     return out, {k: rep[k] for k in ("reassurance_removed", "removed_markers", "unsupported_markers", "urls_removed", "urls_rerouted",
                                      "notes_added", "risk", "research_status")} | {
         "unverified_case_refs": len(rep["unverified_case_refs"]), "jurisdiction_conflict": bool(juris.get("conflict")),
+        "unstated_event_claims_fixed": event_fixes,
         "acas_guidance": {"retrieved": research.get("guidance_keys") or [], "failed": research.get("guidance_failed") or [],
                           "notes": len(g_notes)},
         "legislation": leg}
@@ -2152,6 +2158,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     juris = {"conflict": False}
     try:
         juris = lex_safety.assess_jurisdiction(data.message, _ctx, user.get("jurisdiction"), data.country, data.category)
+        juris["customer_text"] = f"{_ctx}\n{data.message}"
         system_msg = system_msg + juris["block"]
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
         if auto_reminders and _HYPOTHETICAL_RE.search(data.message or ""):
@@ -2365,6 +2372,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
     juris = {"conflict": False}
     try:
         juris = lex_safety.assess_jurisdiction(data.message, _ctx, user.get("jurisdiction"), data.country, data.category)
+        juris["customer_text"] = f"{_ctx}\n{data.message}"
         system_msg = system_msg + juris["block"]
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
         if auto_reminders and _HYPOTHETICAL_RE.search(data.message or ""):

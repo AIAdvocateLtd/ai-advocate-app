@@ -129,7 +129,9 @@ def _et(c) -> List[Item]:
         out.append((f"Tribunal claim (ET1): {fmt(limit)} is the normal time limit before any extension. ACAS Early Conciliation is "
                     "normally required first; starting it on or before that date pauses the clock, and the ET1 deadline is then "
                     "recalculated from the ACAS certificate (at least one month after the certificate date). Keep the ACAS date "
-                    "and the ET1 date separate.", "ET1 tribunal claim — normal time limit (can be extended by ACAS Early Conciliation)",
+                    "and the ET1 date separate. The customer has not given an ACAS notification date: any Early Conciliation "
+                    "adjustment cannot be calculated until the ACAS notification and certificate dates are known — ask whether "
+                    "ACAS has been contacted and, if so, on what date.", "ET1 tribunal claim — normal time limit (can be extended by ACAS Early Conciliation)",
                     limit))
     return out
 
@@ -309,6 +311,9 @@ Resolve relative dates ("last Friday", "next week", "3 weeks ago") using TODAY. 
 jurisdiction is one of england|wales|scotland|northern_ireland|unknown — the nation where the matter is (property / workplace /
 court). Use APP JURISDICTION if it is not "unknown"; otherwise use only what the user clearly states; if unclear use "unknown".
 Never guess a date that is not stated or clearly implied — leave the item out instead.
+Each date field must come from the customer's words about THAT event: acas_date only if they say they contacted/notified
+ACAS (or the LRA) and when; certificate_date only if they mention the certificate and its date; mrn_date only for a mandatory
+reconsideration notice. Never copy the dismissal/decision/notice date into another field — use null.
 Reply ONLY with JSON: {"calcs": [ ... ]} — empty list if none. Allowed items:
 {"type":"employment_tribunal","event_date":"YYYY-MM-DD","acas_date":"YYYY-MM-DD|null","certificate_date":"YYYY-MM-DD|null","jurisdiction":"..."}
 {"type":"citizenship_after_ilr","ilr_date":"YYYY-MM-DD","married_to_british":true|false}
@@ -352,9 +357,16 @@ async def build_deadlines(message: str, context: str, api_key: str, jurisdiction
     except Exception as e:
         logger.warning(f"deadline extraction failed: {e!r}")
         return "", []
+    import date_guard
+    calcs, guard_notes = date_guard.validate(calcs, f"{context or ''}\n{message}")
+    facts = ("\nDATE SAFEGUARD (the app checked which dates the customer actually gave):\n- " + "\n- ".join(guard_notes) +
+             "\n") if guard_notes else ""
+    facts += ("Each date belongs only to the event it is stated for. Never say the customer contacted ACAS, received a "
+              "certificate, appealed, asked for reconsideration or submitted a claim — or give a date for it — unless they "
+              "said so. If an important date is missing or unclear, ask for it.\n")
     items = compute(calcs)
     if not items:
-        return NO_CALC_BLOCK, []
+        return NO_CALC_BLOCK + facts, []
     block = ("\n\nEXACT DATES CALCULATED BY THE APP — use these dates exactly, do not recalculate or round them. "
              "Say they are based on the dates the user gave and that a regulated adviser should confirm. "
              "Nothing has been saved: the app will OFFER to add future dates to Reminders only after the customer confirms "
@@ -364,7 +376,7 @@ async def build_deadlines(message: str, context: str, api_key: str, jurisdiction
              "the date and urge prompt action. Great Britain employment time limits end at 11:59pm UK time on the last day (Acas); "
              "never give 9am or any other time as a legal cut-off, and for other deadlines do not state a cut-off time:\n- " + "\n- ".join(i[0] for i in items) +
              "\nOnly the dates above are app-calculated. Any other deadline: explain the rule and what to check, "
-             "but do not state a precise calendar date.\n")
+             "but do not state a precise calendar date.\n" + facts)
     return block, [{"title": t, "due": d, "note": reminder_note(t)} for _, t, d in items if t and d and d >= today]
 
 
