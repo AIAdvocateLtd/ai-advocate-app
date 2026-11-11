@@ -68,12 +68,12 @@ def test_fixed_notes_not_in_prompt_until_signed_off():
     async def fn(db, patch, lst):
         await LL.refresh_lessons(db)
         p = server.lex_system_prompt("en", "GB", "employment", "england")
-        assert "RECENT UK LAW CHANGES" not in p and "6 months less one day" not in p
+        assert "RECENT UK LAW CHANGES" not in p and "6 months minus 1 day" not in p
         note = await db.lex_lessons.find_one({"source": "law_note", "text": {"$regex": "^Employment tribunal"}}, {"_id": 0})
         assert "transitional rules may give longer" not in note["text"]
         await patch(note["id"], LL.LessonPatch(status="approved"), ADMIN)
         p = server.lex_system_prompt("en", "GB", "employment", "england")
-        assert "6 months less one day" in p and "CONFIRMED LESSONS" in p
+        assert "6 months minus 1 day" in p and "9 November 2026" in p and "CONFIRMED LESSONS" in p
         row = await db.lex_lessons.find_one({"id": note["id"]}, {"_id": 0})
         assert row["reviewed_by"] == ADMIN["email"] and row["review_meta"]["source_url"].startswith("https://www.acas.org.uk")
         assert row["next_review_at"] == "2027-05-11"

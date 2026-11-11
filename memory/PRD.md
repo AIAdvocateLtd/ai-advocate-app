@@ -1131,3 +1131,8 @@ Production redeploy required. All env vars unchanged.
 - rag.research: paid Tavily gated by key + monthly cap (`paid` status); legislation.gov.uk + acas.org.uk lookups always run (same caps/caches). Per-call 8.5s timeout on paid search so a slow search can't drop free results. New `paid_search` field; block note when only free lookups available. Status unchanged when nothing found (not_configured / quota_exhausted / unavailable).
 - tests/test_lex2_free_official_fallback.py (5). 139 simulated passed. Rollback dry-run on preview: 38 facts / 5 notes, nothing applied.
 - Initial sign-off shortlist given to founder in chat (not approved).
+
+## 2026-11-11 — Employment law notes updated from official sources (PREVIEW ONLY, unsigned)
+- LAW_NOTES[0] tribunal limits: Acas — 1 Oct 2026 change; Scotland breach of contract 9 Nov 2026 (3m-1d before / 6m-1d on or after); 11:59pm; ACAS EC pauses.
+- LAW_NOTES[1] qualifying period: SI 2026/559 regs 3–4 (EDT-based transition: dismissed before 1 Jan 2027 but EDT on/after → 6 months) + GOV.UK eligibility (exceptions, excluded groups, NI 1 year).
+- Seed id fact_review_v3: refreshes unsigned notes (old wording kept in versions), never touches signed ones. Rollback script updated. 76 targeted tests passed (AIA_NO_PAID=1).

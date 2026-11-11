@@ -62,3 +62,26 @@ def test_production_migration_dry_run_and_rollback():
         finally:
             await db.client.drop_database(name)
     asyncio.run(go())
+
+
+def test_v3_refreshes_unsigned_notes_but_never_signed_ones():
+    import fact_review
+
+    async def go():
+        db, name = await _prod_like()
+        try:
+            await db.lex_lessons.insert_many([
+                {"id": "n0", "source": "law_note", "note_index": 0, "status": "pending", "text": "old tribunal wording"},
+                {"id": "n1", "source": "law_note", "note_index": 1, "status": "approved", "text": "signed wording",
+                 "reviewed_by": "founder@aiadvocate.co.uk", "reviewed_at": "2026-11-10"}])
+            await LL.seed_fact_packs(db)
+            n0 = await db.lex_lessons.find_one({"id": "n0"}, {"_id": 0})
+            n1 = await db.lex_lessons.find_one({"id": "n1"}, {"_id": 0})
+            assert n0["text"] == fact_review.LAW_NOTES[0][0] and n0["versions"][0]["text"] == "old tribunal wording"
+            assert n0["status"] == "pending" and not n0.get("reviewed_by")
+            assert "9 November 2026" in n0["text"] and "SI 2026/559" in fact_review.LAW_NOTES[1][0]
+            assert n1["text"] == "signed wording" and "versions" not in n1
+            assert await db.lex_lessons.count_documents({"source": "law_note"}) == 5
+        finally:
+            await db.client.drop_database(name)
+    asyncio.run(go())

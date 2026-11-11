@@ -19,7 +19,7 @@ async def rollback(db, apply: bool) -> dict:
     if apply:
         await db.lex_lessons.update_many({"source": "fact_pack"}, {"$unset": {"review_meta": "", "proposed_text": ""}})
         await db.lex_lessons.delete_many(notes_q)
-        await db.seeds_applied.delete_one({"_id": "fact_review_v2"})
+        await db.seeds_applied.delete_one({"_id": "fact_review_v3"})
     return {"facts_unmarked": facts, "unsigned_law_notes_removed": notes, "signed_law_notes_kept": signed_notes,
             "applied": apply}
 
