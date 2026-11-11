@@ -1111,3 +1111,11 @@ Production redeploy required. All env vars unchanged.
 - lex_lessons.is_signed_off: fact_pack/unknown-source rows need reviewed_by+reviewed_at; needs_review always withheld; admin-approved sources (manual/report/thumbs_down/law_watch) ok. Withheld rows not sent to Lex (founder chose withhold). Admin PATCH approve = sign-off (reviewed_by/at, needs_review False, review_history kept); text edit clears sign-off. Admin card: "Awaiting your sign-off" list + Sign off button. Fact header renamed "UK FACTS SIGNED OFF BY AI ADVOCATE'S REVIEWER".
 - Preview: 38 approved fact packs → 0 used until signed off. Production inspection requested via deployer (read-only).
 - tests/conftest.py: AIA_NO_PAID=1 blocks LlmChat, Tavily, preview/live app HTTP; skips the 2 legacy live files. New tests/test_lex2_2a1_confidence_facts.py (8). 128 simulated passed.
+
+## 2026-11-11 — Phase 2A-1 fact review system (PREVIEW ONLY, awaiting approval)
+- backend/fact_review.py: review records for all 38 facts (18 approve / 14 correct with proposed_text / 6 withhold) + 5 former fixed notes (LAW_NOTES).
+- lex_lessons.seed_review_records (seed id fact_review_v1, runs after seed_fact_packs): adds original_text/proposed_text/review_meta to facts (text & status untouched); inserts law notes as pending source "law_note". Nothing signed off.
+- LEX_LAW_UPDATES no longer injected (Lex prompt + /reminders/detect) — notes reach Lex only via signed-off lessons.
+- Admin PATCH: sign-off stores reviewed_by/at + next_review_at; text change pushes old wording to `versions` and clears sign-off unless approved in same request. Admin card shows suggestion/source/unconfirmed parts + "Use correction & sign off".
+- Re-review alerts: designed only (not active).
+- Tests: tests/test_lex2_2a1_review.py (5); 133 simulated passed with AIA_NO_PAID=1.

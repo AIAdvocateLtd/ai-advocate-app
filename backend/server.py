@@ -1101,9 +1101,11 @@ CONVERSATION MEMORY (CRITICAL):
         "legal_letter": "\n\nYou are now drafting a FORMAL LEGAL LETTER. Use proper structure (sender, recipient, date, subject, body, sign-off). Be firm but professional. Reference the relevant law.",
         "record": "\n\nYou are reviewing a RECORDED LEGAL INTERACTION (police/court transcript). Flag: rights violations, leading questions, things the user should NOT have said, suggested follow-up actions.",
     }
-    return _today_uk_line() + LEX_LAW_UPDATES + _lessons_block() + base + addons.get(category, "") + LEX_PDF_INSTRUCTION
+    return _today_uk_line() + _lessons_block() + base + addons.get(category, "") + LEX_PDF_INSTRUCTION
 
 
+# Archived: no longer injected into prompts — these notes are now reviewable "law_note" items (fact_review.LAW_NOTES)
+# and reach Lex only after a person signs them off.
 LEX_LAW_UPDATES = (
     "RECENT UK LAW CHANGES — these override older training knowledge:\n"
     "- Employment tribunal time limits (Great Britain; NI unchanged): where the act, failure or dismissal is on or after "
@@ -8303,7 +8305,7 @@ For each deadline found, return a JSON array entry: {{"title": "...", "due_at": 
 If no deadlines found, return [].
 Reply with ONLY valid JSON — no preamble, no explanation.
 If a relative date is mentioned (e.g. "within 14 days"), compute it from today.
-{LEX_LAW_UPDATES}{_today_uk_line()}"""
+{_lessons_block()}{_today_uk_line()}"""
     if not _DEADLINE_HINT_RE.search(message or ""):
         return {"deadlines": []}
     try:

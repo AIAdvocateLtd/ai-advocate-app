@@ -221,6 +221,30 @@ async def seed_fact_packs(db) -> None:
                 "created_at": now, "approved_at": now,
             })
         await db.seeds_applied.insert_one({"_id": pack_id, "at": now})
+    await seed_review_records(db)
+
+
+async def seed_review_records(db) -> None:
+    """Attaches the Phase 2A-1 review record to each built-in fact (text and approval untouched) and adds the former
+    fixed law-change notes as pending items. Never signs anything off."""
+    if await db.seeds_applied.find_one({"_id": "fact_review_v1"}):
+        return
+    from fact_review import REVIEW, LAW_NOTES, CHECKED
+    now = datetime.now(timezone.utc).isoformat()
+    fields = ("jurisdiction", "source_url", "effective", "verification", "recommendation", "reason", "unconfirmed_parts")
+    async for r in db.lex_lessons.find({"source": "fact_pack"}, {"_id": 0, "id": 1, "text": 1}):
+        rec = REVIEW.get(r["text"][:45])
+        if not rec:
+            continue
+        meta = dict(zip(fields, rec[:7]), checked_at=CHECKED, next_review=rec[8])
+        await db.lex_lessons.update_one({"id": r["id"]}, {"$set": {
+            "original_text": r["text"], "proposed_text": rec[7], "review_meta": meta}})
+    for text, *rec in LAW_NOTES:
+        await db.lex_lessons.insert_one({
+            "id": str(uuid.uuid4()), "text": text, "category": "general", "why": "Former fixed law-change note",
+            "status": "pending", "source": "law_note", "source_ref": "law_notes_v1", "created_at": now, "approved_at": None,
+            "review_meta": dict(zip(fields, rec), checked_at=CHECKED, next_review="2027-05-11")})
+    await db.seeds_applied.insert_one({"_id": "fact_review_v1", "at": now})
 
 
 def build_router(db, get_user, require_admin, encrypt_text, decrypt_text, api_key, today_line, tavily_search):
@@ -331,22 +355,27 @@ def build_router(db, get_user, require_admin, encrypt_text, decrypt_text, api_ke
         row = await db.lex_lessons.find_one({"id": lesson_id}, {"_id": 0})
         if not row:
             raise HTTPException(404, "Lesson not found")
-        push = None
-        if data.text is not None and data.status != "approved" and upd["text"] != row.get("text"):
-            upd.update(reviewed_by=None, reviewed_at=None)  # changed wording needs a fresh sign-off
+        push, who = None, admin.get("email") or admin.get("id")
+        version = None
+        if data.text is not None and upd["text"] != row.get("text"):
+            version = {"text": row.get("text"), "replaced_at": now, "by": who}
+            if data.status != "approved":
+                upd.update(reviewed_by=None, reviewed_at=None)  # changed wording needs a fresh sign-off
         if data.status is not None:
             if data.status not in ("approved", "rejected", "pending"):
                 raise HTTPException(400, "Invalid status")
             upd["status"] = data.status
             upd["approved_at"] = now if data.status == "approved" else None
             if data.status == "approved":  # a person signing the fact off; the old flag is kept in review_history
-                upd.update(reviewed_by=admin.get("email") or admin.get("id"), reviewed_at=now, needs_review=False)
+                upd.update(reviewed_by=who, reviewed_at=now, needs_review=False,
+                           next_review_at=(row.get("review_meta") or {}).get("next_review"))
                 push = {"action": "signed_off", "by": upd["reviewed_by"], "at": now,
                         "previous_flag": row.get("review_reason") if row.get("needs_review") else None}
             else:
                 upd.update(reviewed_by=None, reviewed_at=None)
                 push = {"action": data.status, "by": admin.get("email") or admin.get("id"), "at": now}
-        await db.lex_lessons.update_one({"id": lesson_id}, {"$set": upd, **({"$push": {"review_history": push}} if push else {})})
+        pushes = {k: v for k, v in (("review_history", push), ("versions", version)) if v}
+        await db.lex_lessons.update_one({"id": lesson_id}, {"$set": upd, **({"$push": pushes} if pushes else {})})
         await refresh_lessons(db)
         return {"ok": True}
 

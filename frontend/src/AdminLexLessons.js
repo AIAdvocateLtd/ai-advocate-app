@@ -1,8 +1,24 @@
 // Admin: Lex's Brain — approve AI-drafted lessons that Lex follows on every answer.
 import React, { useEffect, useState } from "react";
 
-const SOURCE = { report: "Customer report", thumbs_down: "Thumbs-down", law_watch: "Law change check", manual: "Added by you", fact_pack: "Fact pack" };
+const SOURCE = { report: "Customer report", thumbs_down: "Thumbs-down", law_watch: "Law change check", manual: "Added by you", fact_pack: "Fact pack", law_note: "Law-change note" };
 const btn = (bg, col) => ({ background: bg, color: col, border: "1px solid var(--gold-deep)", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" });
+const REC = { approve: "#86efac", correct: "#fcd34d", withhold: "#fca5a5" };
+
+function ReviewInfo({ l }) {
+  const m = l.review_meta;
+  if (!m) return null;
+  return (
+    <div data-testid={`lesson-review-${l.id}`} style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>
+      <div><b style={{ color: REC[m.recommendation] }}>Suggested: {m.recommendation}</b> · {m.verification} · {m.jurisdiction}{m.effective ? ` · effective ${m.effective}` : ""} · checked {m.checked_at}{m.next_review ? ` · re-check by ${m.next_review}` : ""}</div>
+      <div>{m.reason}</div>
+      {m.unconfirmed_parts && <div style={{ color: "#fcd34d" }}>Not confirmed: {m.unconfirmed_parts}</div>}
+      {m.source_url && <a href={m.source_url} target="_blank" rel="noreferrer" style={{ color: "var(--gold)" }}>Official source</a>}
+      {l.proposed_text && <div data-testid={`lesson-proposed-${l.id}`} style={{ marginTop: 4, color: "var(--text)" }}>Proposed correction: {l.proposed_text}</div>}
+      {l.reviewed_by && <div>Signed off by {l.reviewed_by} on {String(l.reviewed_at).slice(0, 10)}</div>}
+    </div>
+  );
+}
 
 function LessonRow({ l, onAct }) {
   return (
@@ -16,9 +32,11 @@ function LessonRow({ l, onAct }) {
           Not used by Lex until you sign it off{l.needs_review && l.review_reason ? ` · Review note: ${l.review_reason}` : ""}
         </div>
       )}
+      <ReviewInfo l={l} />
       <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
         {l.status === "pending" && <button data-testid={`lesson-approve-${l.id}`} onClick={() => onAct(l, "approved")} style={btn("var(--gold)", "#0a0a0a")}>Approve</button>}
         {l.status === "approved" && !l.used_by_lex && <button data-testid={`lesson-signoff-${l.id}`} onClick={() => onAct(l, "signoff")} style={btn("var(--gold)", "#0a0a0a")}>Sign off</button>}
+        {l.proposed_text && !l.used_by_lex && <button data-testid={`lesson-signoff-correction-${l.id}`} onClick={() => onAct(l, "signoff-correction")} style={btn("var(--gold)", "#0a0a0a")}>Use correction &amp; sign off</button>}
         <button data-testid={`lesson-edit-${l.id}`} onClick={() => onAct(l, "edit")} style={btn("transparent", "var(--gold)")}>Edit</button>
         <button data-testid={`lesson-reject-${l.id}`} onClick={() => onAct(l, l.status === "pending" ? "rejected" : "delete")} style={btn("transparent", "var(--text-muted)")}>
           {l.status === "pending" ? "Reject" : "Remove"}
@@ -42,9 +60,10 @@ export function AdminLexLessonsCard({ api, toast, prompt, confirm }) {
       } else if (action === "delete") {
         if (!(await confirm({ title: "Remove lesson?", message: "Lex will stop following this rule straight away.", danger: true, confirmLabel: "Remove" }))) return;
         await api.delete(`/admin/lex-lessons/${l.id}`);
-      } else if (action === "signoff") {
-        if (!(await confirm({ title: "Sign off this fact?", message: "Only sign off after checking it against the official source. Lex will then treat it as reviewed.", confirmLabel: "I've checked it — sign off" }))) return;
-        await api.patch(`/admin/lex-lessons/${l.id}`, { status: "approved" });
+      } else if (action === "signoff" || action === "signoff-correction") {
+        const fix = action === "signoff-correction";
+        if (!(await confirm({ title: fix ? "Sign off the corrected wording?" : "Sign off this fact?", message: "Only sign off after checking it against the official source. Lex will then treat it as reviewed; the previous wording is kept in its history.", confirmLabel: "I've checked it — sign off" }))) return;
+        await api.patch(`/admin/lex-lessons/${l.id}`, fix ? { status: "approved", text: l.proposed_text } : { status: "approved" });
       }
       else await api.patch(`/admin/lex-lessons/${l.id}`, { status: action });
       load();
