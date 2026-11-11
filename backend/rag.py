@@ -246,11 +246,13 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
     res = {"status": "not_needed", "block": "", "citations": [], "sources": []}
     if not _looks_like_legal_question(message):
         return res
+    # Paid web search is gated by its key and the monthly cap; the free official lookups below run regardless.
+    paid = "ok"
     if not is_enabled():
-        return {**res, "status": "not_configured"}
-    if db is not None and not await _under_cap(db):
-        logger.info("Tavily monthly cap reached — serving Lex without RAG this turn.")
-        return {**res, "status": "quota_exhausted"}
+        paid = "not_configured"
+    elif db is not None and not await _under_cap(db):
+        logger.info("Tavily monthly cap reached — paid search skipped; free official lookups still run.")
+        paid = "quota_exhausted"
 
     base_q = build_query(message, context, nation, country)
     import legal_sources
@@ -271,12 +273,18 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
             logger.info("acas guidance skipped: %s", e)
             return [], []
 
+    async def _paid(include_domains, n):
+        if paid != "ok":
+            return [], paid
+        try:
+            return await asyncio.wait_for(_tavily_search_ex(base_q, include_domains=include_domains, max_results=n,
+                                                            search_depth="basic"), timeout=8.5)
+        except asyncio.TimeoutError:
+            return [], "unavailable"
+
     try:
         (official, s1), (web, s2), statute, (guidance, g_failed) = await asyncio.wait_for(asyncio.gather(
-            _tavily_search_ex(base_q, include_domains=AUTHORITY_DOMAINS, max_results=3, search_depth="basic"),
-            _tavily_search_ex(base_q, include_domains=None, max_results=2, search_depth="basic"),
-            _statute(),
-            _guidance(),
+            _paid(AUTHORITY_DOMAINS, 3), _paid(None, 2), _statute(), _guidance(),
         ), timeout=9.0)
     except asyncio.TimeoutError:
         logger.warning("Tavily RAG block timed out — continuing without grounding.")
@@ -299,11 +307,13 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
 
     rel_q = scrub(message)
     official = dedupe(statute) + dedupe(guidance) + [it for it in dedupe(official) if _relevant(it, rel_q)]
-    g_meta = {"guidance_keys": [it["acas_key"] for it in guidance], "guidance_failed": g_failed}
+    g_meta = {"guidance_keys": [it["acas_key"] for it in guidance], "guidance_failed": g_failed,
+              "paid_search": "ok" if "ok" in (s1, s2) else (paid if paid != "ok" else "unavailable")}
     web = [it for it in dedupe(web) if _relevant(it, rel_q)]
     if not official and not web:
         failed = {s1, s2} - {"ok"}
-        status = ("quota_exhausted" if "quota_exhausted" in failed else "unavailable") if failed else "no_results"
+        status = (paid if paid != "ok" else ("quota_exhausted" if "quota_exhausted" in failed else "unavailable")) \
+            if failed else "no_results"
         return {**res, "status": status, **g_meta}
 
     blocks, citations, sources, next_idx = [], [], [], 1
@@ -318,6 +328,10 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
                             "guidance": bool(it.get("acas_key"))})
             next_idx += 1
     body = "\n\n".join(blocks)
+    if g_meta["paid_search"] != "ok":
+        body += ("\n\nNOTE: only the free official lookups above (legislation.gov.uk / acas.org.uk) were available for this "
+                 "answer — wider research could not be run. Rely on these sources for what they cover; for anything else, "
+                 "say plainly that it could not be checked against current sources just now.")
     block = (
         "\n\n=== LIVE LEGAL RESEARCH (retrieved just now) ===\n"
         f"{body}\n\n"

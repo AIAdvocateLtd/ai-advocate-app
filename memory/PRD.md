@@ -1126,3 +1126,8 @@ Production redeploy required. All env vars unchanged.
 - Seed renamed fact_review_v2 (idempotent: never overwrites signed-off rows; notes keyed by note_index). Preview duplicate notes from hot-reload removed.
 - scripts/rollback_fact_review.py (dry-run default, --apply). tests/test_lex2_2a1_migration.py: prod-shaped dry-run (41→46 docs, nothing deleted, ids/wording/status unchanged, idempotent, rollback restores).
 - 134 simulated passed (AIA_NO_PAID=1); acas live-fetch test flaky once (network), passed on rerun.
+
+## 2026-11-11 — Free official lookups independent of paid search (PREVIEW ONLY)
+- rag.research: paid Tavily gated by key + monthly cap (`paid` status); legislation.gov.uk + acas.org.uk lookups always run (same caps/caches). Per-call 8.5s timeout on paid search so a slow search can't drop free results. New `paid_search` field; block note when only free lookups available. Status unchanged when nothing found (not_configured / quota_exhausted / unavailable).
+- tests/test_lex2_free_official_fallback.py (5). 139 simulated passed. Rollback dry-run on preview: 38 facts / 5 notes, nothing applied.
+- Initial sign-off shortlist given to founder in chat (not approved).
