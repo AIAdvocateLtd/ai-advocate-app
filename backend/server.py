@@ -78,6 +78,7 @@ from rag import build_rag_context, research as rag_research, _looks_like_legal_q
 import lex_safety  # noqa: E402
 import content_guard  # noqa: E402
 import high_stakes  # noqa: E402
+import legal_reasoning  # noqa: E402
 import lex_output  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
@@ -2026,11 +2027,11 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
     hs_rep = {}
     try:
         j = juris or {}
-        law_checked = any(v in ("in_force", "changes_pending") for v in (leg or {}).get("verdicts", [])) or any(
-            "legislation.gov.uk/" in (src.get("url") or "") for src in research.get("sources") or [])
+        # Labels are now verified claim by claim in legal_reasoning.verify_claims (no answer-wide demotion).
         text, hs_rep = high_stakes.finalize(text or "", j.get("high_stakes"),
-                                            f"{j.get('customer_text') or message}\n{j.get('deadline_text') or ''}\n{_today_uk_line()}",
-                                            language, j.get("country", "GB"), law_checked)
+                                            f"{j.get('customer_text') or message}\n{j.get('deadline_text') or ''}\n"
+                                            f"{j.get('evidence_text') or ''}\n{_today_uk_line()}",
+                                            language, j.get("country", "GB"), True)
     except Exception as e:
         logger.warning(f"high-stakes check failed (answer unchanged): {e!r}")
     try:
@@ -2048,6 +2049,11 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
     except Exception as e:
         logger.warning(f"lex finalize failed (answer unchanged): {e!r}")
         return text, {"error": True}
+    claims_rep = {}
+    try:
+        out, claims_rep = legal_reasoning.verify_claims(out, leg, citations, research.get("sources") or [])
+    except Exception as e:
+        logger.warning(f"claim check failed (answer unchanged): {e!r}")
     named = {u.rstrip("/") for u in (leg or {}).get("urls", []) + official_guidance.named_urls(out)}
     citations[:] = [c for c in citations if c.get("claim_check") != "not_cited" or c.get("source") == "legislation"
                     or (c.get("url") or "").rstrip("/") in named]
@@ -2057,7 +2063,7 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
         "unstated_event_claims_fixed": event_fixes,
         "acas_guidance": {"retrieved": research.get("guidance_keys") or [], "failed": research.get("guidance_failed") or [],
                           "notes": len(g_notes)},
-        "legislation": leg, "high_stakes": hs_rep}
+        "legislation": leg, "high_stakes": hs_rep, "claims": claims_rep, "depth": (juris or {}).get("depth")}
 
 
 @api_router.post("/lex/chat")
@@ -2169,6 +2175,10 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         juris["country"] = data.country
         system_msg = system_msg + juris["block"] + high_stakes.prompt_block(
             _hs, bool(_juris_nation(juris) or user.get("jurisdiction")), data.country)
+        _evidence = bool(data.doc_ids or data.case_id)
+        juris["depth"] = legal_reasoning.depth(data.message, _ctx, _hs, _evidence)
+        juris["evidence_text"] = _untrusted_block
+        system_msg = system_msg + legal_reasoning.prompt_block(juris["depth"], _evidence, high_stakes.is_high(_hs))
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
         juris["deadline_text"] = _dl_block
         if auto_reminders and _HYPOTHETICAL_RE.search(data.message or ""):
@@ -2378,6 +2388,10 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
         juris["country"] = data.country
         system_msg = system_msg + juris["block"] + high_stakes.prompt_block(
             _hs, bool(_juris_nation(juris) or user.get("jurisdiction")), data.country)
+        _evidence = bool(data.doc_ids or data.case_id)
+        juris["depth"] = legal_reasoning.depth(data.message, _ctx, _hs, _evidence)
+        juris["evidence_text"] = _untrusted_block
+        system_msg = system_msg + legal_reasoning.prompt_block(juris["depth"], _evidence, high_stakes.is_high(_hs))
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
         juris["deadline_text"] = _dl_block
         if auto_reminders and _HYPOTHETICAL_RE.search(data.message or ""):
@@ -2588,6 +2602,7 @@ async def lex_taster(req: Request, data: TasterMessage):
     citations = research.get("citations") or []
     safety_ctx = (research.get("block") or "") + lex_safety.research_block(research["status"], risk, lex_safety.topics_of(text)) \
         + juris.get("block", "") + high_stakes.prompt_block(_hs, bool(_juris_nation(juris)), data.country) \
+        + legal_reasoning.prompt_block(legal_reasoning.depth(text, "", _hs, False), False, high_stakes.is_high(_hs)) \
         + _fact_pack_block(text, "") + (NO_CALC_BLOCK if _DEADLINE_CALC_HINT_RE.search(text) else "")
     try:
         chat = LlmChat(
@@ -6902,7 +6917,7 @@ async def _build_attached_docs_block(doc_ids: list, user_id: str) -> tuple:
     for d in attached:
         fenced, k = content_guard.guard(
             f"File name: {d.get('filename') or 'document'} (~{d.get('pages') or 1} pages · type: {d.get('doc_type') or 'other'})\n"
-            f"{(d.get('text') or '')[:60000]}", "ATTACHED DOCUMENT")
+            f"{(d.get('text') or '')[:60000]}" + _timeline_aid(d.get("text") or ""), "ATTACHED DOCUMENT")
         blocks.append("\n\n" + fenced)
         kinds += k
     if not blocks:
@@ -6913,6 +6928,12 @@ async def _build_attached_docs_block(doc_ids: list, user_id: str) -> tuple:
         "instructions (see UNTRUSTED CONTENT RULES)."
         + "".join(blocks)
     ), kinds
+
+
+def _timeline_aid(text: str) -> str:
+    lines = legal_reasoning.dated_lines(text)
+    return ("\n[Dated lines found by the app, quoted verbatim for a timeline — check them against the document]\n"
+            + "\n".join(f"- {ln}" for ln in lines)) if lines else ""
 
 
 async def _untrusted_chat_context(data, user: dict, research: dict) -> tuple:

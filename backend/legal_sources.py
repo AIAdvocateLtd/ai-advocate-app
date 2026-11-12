@@ -281,7 +281,8 @@ async def check_answer(text: str, nation: Optional[str], citations: List[dict], 
                               + " — does not confirm Lex's interpretation)",
                               "url": r["url"], "source": "legislation", "claim_check": "status_checked"})
             next_n += 1
-    for c in await check_case_citations(out):
+    case_results = await check_case_citations(out)
+    for c in case_results:
         if c["verdict"] in ("not_found", "lookup_failed"):
             lines.append(f"The case citation “{c['citation']}” could not be confirmed on Find Case Law — treat it as unverified.")
             if not document and c["citation"] in out:
@@ -296,7 +297,9 @@ async def check_answer(text: str, nation: Optional[str], citations: List[dict], 
         else:
             import lex_safety
             out = lex_safety.insert_before_tail(out, block.strip())
-    rep = {"refs": len(refs), "verdicts": [r["verdict"] for r in results], "urls": [r["url"] for r in results if r.get("url")], "ms": int((time.monotonic() - t0) * 1000)}
+    rep = {"refs": len(refs), "verdicts": [r["verdict"] for r in results], "urls": [r["url"] for r in results if r.get("url")],
+           "results": [{"act": r.get("act"), "year": r.get("year"), "section": r.get("section"), "verdict": r["verdict"]}
+                       for r in results], "cases": case_results, "ms": int((time.monotonic() - t0) * 1000)}
     return out, rep
 
 

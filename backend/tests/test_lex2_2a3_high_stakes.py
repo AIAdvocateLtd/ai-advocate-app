@@ -283,4 +283,4 @@ def test_research_unavailable_high_stakes_says_so(mk):
     out, rep = run(server._lex_finalize(ans, [], {"status": "unavailable", "sources": []}, "high", "en",
                                         "Bailiffs are coming on Friday to evict us", juris))
     assert "I couldn't check current official sources" in out and "[CONFIDENCE: MEDIUM]" in out
-    assert "Current law (not checked)" in out and rep["high_stakes"]["checked_labels_demoted"] == 1
+    assert "Current law (not checked)" in out and rep["claims"]["downgraded"] == 1
