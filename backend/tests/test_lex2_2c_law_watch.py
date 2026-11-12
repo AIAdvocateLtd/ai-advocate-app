@@ -6,7 +6,6 @@ import sys
 from datetime import date
 
 import pytest
-from fastapi import HTTPException
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import server  # noqa: E402
@@ -266,13 +265,6 @@ def test_nine_watchlist_init_with_one_timeout_writes_only_verified():
     assert src.calls.count(f"{W.LEG}/ukpga/1989/41/section/1/data.xml") == 2  # once per run (dry + write), never retried
 
 
-def test_endpoint_requires_switch_and_code(monkeypatch):
-    monkeypatch.setenv("LAW_WATCH_WRITE_ENABLED", "1")
-    with pytest.raises(HTTPException) as e:
-        run(server.admin_law_watch_run(dry_run=False, confirm=None, admin={"email": "admin@aiadvocate.co.uk"}))
-    assert e.value.status_code == 400
-
-
 @pytest.mark.parametrize("valid,start,expect", [("2099-01-01", "2020-01-01", "in the future"),
                                                 ("not-a-date", "2020-01-01", "not a valid date"),
                                                 ("2026-10-01", "2030-05-05", "in the future")])
@@ -314,16 +306,6 @@ def test_professional_review_status_only_with_qualified_record():
     assert not W.review_status({"reviewer_name": "A Solicitor", "regulator": "SRA", "registration_number": "123456"})["verified"]
     ok = W.review_status({"reviewer_name": "A Solicitor", "regulator": "SRA", "registration_number": "123456", "reviewed_at": "2026-11-12"})
     assert ok["verified"] and ok["label"] == W.STATUS_D
-
-
-def test_write_endpoints_disabled_without_flag(monkeypatch):
-    monkeypatch.delenv("LAW_WATCH_WRITE_ENABLED", raising=False)
-    with pytest.raises(HTTPException) as e:
-        run(server.admin_law_watch_run(dry_run=False, admin={"email": "admin@aiadvocate.co.uk"}))
-    assert e.value.status_code == 403
-    with pytest.raises(HTTPException):
-        run(server.admin_law_watch_review("ukpga/1996/18/section/94", server.LawWatchReview(
-            reviewer_name="A Solicitor", regulator="SRA", registration_number="123456"), admin={"email": "a"}))
 
 
 # ------------------------------------------------------------------ existing legal-fact records

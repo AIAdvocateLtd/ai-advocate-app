@@ -3,7 +3,9 @@ Verifies source FACTS (exists / wording retrieved / recorded status, extent and 
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -60,8 +62,78 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def write_enabled() -> bool:
-    return os.environ.get("LAW_WATCH_WRITE_ENABLED") == "1"
+SCOPES = {"nine_provisions": {"label": "The nine approved provisions only", "feeds": False, "facts": False}}
+SWITCH_MINUTES, TOKEN_MINUTES = 30, 15
+
+
+def kill_switch() -> bool:
+    """Emergency stop outside the app: LAW_WATCH_KILL_SWITCH=1 blocks every tracker write regardless of the admin switch."""
+    return os.environ.get("LAW_WATCH_KILL_SWITCH") == "1"
+
+
+async def switch_state(db) -> dict:
+    """Admin write switch, stored in law_watch_settings. Absent = OFF. Expires by itself after SWITCH_MINUTES."""
+    doc = await db.law_watch_settings.find_one({"_id": "writes"}) or {}
+    until = doc.get("until") or ""
+    on = bool(doc.get("enabled")) and until > _now().isoformat() and not kill_switch()
+    return {"enabled": on, "until": until if on else None, "changed_by": doc.get("by"), "changed_at": doc.get("at"),
+            "kill_switch": kill_switch(), "monitoring_scheduled": False, "customer_notifications": False}
+
+
+async def set_switch(db, enabled: bool, actor: str) -> dict:
+    now = _now()
+    await db.law_watch_settings.update_one({"_id": "writes"}, {"$set": {
+        "enabled": enabled, "until": (now + timedelta(minutes=SWITCH_MINUTES)).isoformat() if enabled else None,
+        "by": actor, "at": now.isoformat()}}, upsert=True)
+    await db.law_watch_audit.insert_one({"_id": str(uuid.uuid4()), "at": now.isoformat(), "actor": actor,
+                                         "action": "writes_on" if enabled else "writes_off"})
+    return await switch_state(db)
+
+
+def _sign(payload: str, secret: str) -> str:
+    return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def issue_token(code: str, scope: str, actor: str, secret: str) -> dict:
+    exp = (_now() + timedelta(minutes=TOKEN_MINUTES)).isoformat()
+    payload = base64.urlsafe_b64encode(json.dumps({"code": code, "scope": scope, "actor": actor, "exp": exp}).encode()).decode()
+    return {"token": f"{payload}.{_sign(payload, secret)}", "expires_at": exp}
+
+
+def read_token(token: str, actor: str, secret: str) -> Tuple[Optional[dict], str]:
+    payload, _, sig = (token or "").partition(".")
+    if not payload or not hmac.compare_digest(sig, _sign(payload, secret)):
+        return None, "This approval code is not valid. Run a new dry run."
+    data = json.loads(base64.urlsafe_b64decode(payload.encode()))
+    if data["exp"] <= _now().isoformat():
+        return None, "This approval code has expired. Run a new dry run."
+    if data["actor"] != actor:
+        return None, "Only the admin who ran the dry run can save it."
+    if data["scope"] not in SCOPES:
+        return None, "Unsupported scope."
+    return data, ""
+
+
+async def authorised_write(db, token: str, actor: str, secret: str, fetch=None) -> dict:
+    """Saves a reviewed dry run: switch ON, kill switch off, valid unexpired single-use token, fresh fetch must match."""
+    state = await switch_state(db)
+    if not state["enabled"]:
+        return {"refused": "Tracker writes are OFF" + (" (emergency stop is on)." if state["kill_switch"] else ".")}
+    data, err = read_token(token, actor, secret)
+    if err:
+        return {"refused": err}
+    tid = hashlib.sha256(token.encode()).hexdigest()[:32]
+    try:
+        await db.law_watch_audit.insert_one({"_id": tid, "at": _now().isoformat(), "actor": actor, "action": "apply",
+                                             "scope": data["scope"], "proposal_code": data["code"]})
+    except Exception:
+        return {"refused": "This approval code has already been used. Run a new dry run."}
+    sc = SCOPES[data["scope"]]
+    rep = await run_check(db, fetch, dry_run=False, confirm=data["code"], items=WATCHLIST, feeds=sc["feeds"],
+                          facts=sc["facts"], actor=actor, scope=data["scope"], authorisation_id=tid)
+    await db.law_watch_audit.update_one({"_id": tid}, {"$set": {"result": "refused" if rep["refused"] else "saved",
+                                                                 "run_id": rep["id"], "saved_keys": rep["saved_keys"]}})
+    return rep
 
 
 def jurisdiction_for(country: Optional[str], nation: Optional[str]) -> Optional[str]:
@@ -358,7 +430,8 @@ async def _write(db, results: List[dict], prevs: List[Optional[dict]], new_leg: 
 
 
 async def run_check(db, fetch=None, dry_run: bool = True, confirm: Optional[str] = None, items: Optional[List[dict]] = None,
-                    today: Optional[date] = None, feeds: bool = True, facts: bool = True, actor: str = "") -> dict:
+                    today: Optional[date] = None, feeds: bool = True, facts: bool = True, actor: str = "",
+                    scope: Optional[str] = None, authorisation_id: Optional[str] = None) -> dict:
     """Dry run (default) writes nothing and returns the proposed changes plus a proposal code. A write run fetches once,
     recomputes the code and writes only if it equals `confirm`. Only records with verified official metadata (A) are written."""
     fetch, today = fetch or _fetch, today or _now().date()
@@ -403,9 +476,13 @@ async def run_check(db, fetch=None, dry_run: bool = True, confirm: Optional[str]
                "rejected": sum(r["result"] in ("unsupported_jurisdiction", "unsupported_type", "invalid_identifier") for r in results),
                "new_legislation": sum(len(f.get("new") or []) for f in new_leg),
                "fact_sources_checked": len(fact_checks), "fact_sources_confirmed": sum(f["A_metadata"]["verified"] for f in fact_checks)}
+    saved = [r["key"] for r in results if r.get("write") == "new_version"] if wrote else []
     report = {"id": str(uuid.uuid4()), "at": now, "dry_run": dry_run, "written": wrote, "refused": refused,
-              "proposal_code": code, "actor": actor, "summary": summary,
+              "proposal_code": code, "actor": actor, "scope": scope, "authorisation_id": authorisation_id,
+              "saved_keys": saved, "summary": summary,
               "items": [{"key": r["key"], "result": r["result"], "changes": r["changes"], "write": r.get("write"),
+                         "title": (r["record"] or {}).get("title"), "url": (r["record"] or {}).get("url"),
+                         "extent": (r["record"] or {}).get("extent"), "version_date": (r["record"] or {}).get("version_date"),
                          "error": r.get("error"), "status": (r["record"] or {}).get("status"),
                          "commencement": (r["record"] or {}).get("commencement"),
                          "verification": (r["record"] or {}).get("verification")} for r in results],

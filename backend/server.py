@@ -14082,16 +14082,49 @@ class LawWatchReview(BaseModel):
     scope: str = Field(default="", max_length=600)
 
 
-@api_router.post("/admin/law-watch/run")
-async def admin_law_watch_run(dry_run: bool = True, confirm: Optional[str] = None, admin: dict = Depends(require_admin)):
-    """Manual official-source check (free legislation.gov.uk data). Dry run by default. Writing needs
-    LAW_WATCH_WRITE_ENABLED=1 AND confirm=<proposal_code from a reviewed dry run>; a changed source refuses the write."""
-    if not dry_run and not law_watch.write_enabled():
-        raise HTTPException(403, "Law-change tracking writes are disabled in this environment — use dry_run=true.")
-    if not dry_run and not confirm:
-        raise HTTPException(400, "Writing needs confirm=<proposal_code> from a dry run you have reviewed.")
-    rep = await law_watch.run_check(db, dry_run=dry_run, confirm=confirm, actor=admin.get("email", ""))
-    if rep["refused"]:
+class LawWatchScope(BaseModel):
+    scope: str = "nine_provisions"
+
+
+class LawWatchApply(BaseModel):
+    token: str = Field(min_length=20, max_length=2000)
+
+
+class LawWatchSwitch(BaseModel):
+    enabled: bool
+
+
+@api_router.get("/admin/law-watch/status")
+async def admin_law_watch_status(_: dict = Depends(require_admin)):
+    return {**await law_watch.switch_state(db), "scopes": law_watch.SCOPES,
+            "records": await db.law_watch_records.count_documents({}),
+            "history_versions": await db.law_watch_history.count_documents({}),
+            "audit": await db.law_watch_audit.find({}, {"_id": 0}).sort("at", -1).to_list(20)}
+
+
+@api_router.post("/admin/law-watch/switch")
+async def admin_law_watch_switch(data: LawWatchSwitch, admin: dict = Depends(require_admin)):
+    """Admin write switch. ON lasts 30 minutes then turns itself off; OFF takes effect immediately."""
+    if data.enabled and law_watch.kill_switch():
+        raise HTTPException(403, "Emergency stop (LAW_WATCH_KILL_SWITCH) is on — tracker writes cannot be enabled.")
+    return await law_watch.set_switch(db, data.enabled, admin.get("email", ""))
+
+
+@api_router.post("/admin/law-watch/dry-run")
+async def admin_law_watch_dry_run(data: LawWatchScope, admin: dict = Depends(require_admin)):
+    """Fresh check of the official sources. Writes nothing; returns the proposal and a signed 15-minute single-use code."""
+    sc = law_watch.SCOPES.get(data.scope)
+    if not sc:
+        raise HTTPException(400, "Unsupported scope.")
+    rep = await law_watch.run_check(db, dry_run=True, feeds=sc["feeds"], facts=sc["facts"], actor=admin.get("email", ""),
+                                    scope=data.scope)
+    return {**rep, **law_watch.issue_token(rep["proposal_code"], data.scope, admin.get("email", ""), JWT_SECRET)}
+
+
+@api_router.post("/admin/law-watch/apply")
+async def admin_law_watch_apply(data: LawWatchApply, admin: dict = Depends(require_admin)):
+    rep = await law_watch.authorised_write(db, data.token, admin.get("email", ""), JWT_SECRET)
+    if rep.get("refused"):
         raise HTTPException(409, rep["refused"])
     return rep
 
@@ -14114,8 +14147,8 @@ async def admin_law_watch_runs(_: dict = Depends(require_admin)):
 @api_router.post("/admin/law-watch/records/{key:path}/professional-review")
 async def admin_law_watch_review(key: str, data: LawWatchReview, admin: dict = Depends(require_admin)):
     """Records a review by a named, regulated professional. Status D is shown only from such a record."""
-    if not law_watch.write_enabled():
-        raise HTTPException(403, "Law-change tracking writes are disabled in this environment.")
+    if not (await law_watch.switch_state(db))["enabled"]:
+        raise HTTPException(403, "Tracker writes are OFF.")
     if data.regulator.strip().upper() not in law_watch.REGULATORS:
         raise HTTPException(400, "Regulator must be a UK legal regulator (e.g. SRA, BSB, CILEx).")
     review = {**data.model_dump(), "regulator": data.regulator.strip().upper(),

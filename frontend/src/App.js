@@ -28,6 +28,7 @@ import { AdminFairUseCard } from "@/AdminFairUse";
 import { FairUseNotice } from "@/FairUseNotice";
 import ConveyancingModal from "@/Conveyancing";
 import { TrustpilotPrompt, AdminTestimonialsCard } from "@/Reviews";
+import { LawWatchAdminCard } from "./components/LawWatchAdminCard";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
 // we hide all Subscribe / Upgrade buttons (and replace them with a web-billing notice).
@@ -7963,6 +7964,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             <AdminTestimonialsCard api={api} toast={aaToast} />
             <AdminSubscribersCard api={api} toast={aaToast} />
             <AdminLexLessonsCard api={api} toast={aaToast} prompt={aaPrompt} confirm={aaConfirm} />
+            <LawWatchAdminCard api={api} />
             <AdminFairUseCard api={api} toast={aaToast} prompt={aaPrompt} confirm={aaConfirm} />
             <AdminFinanceCard api={api} toast={aaToast} />
             <AdminStripeResyncCard api={api} toast={aaToast} />
