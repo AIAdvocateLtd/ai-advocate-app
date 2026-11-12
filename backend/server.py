@@ -2026,9 +2026,11 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
     hs_rep = {}
     try:
         j = juris or {}
+        law_checked = any(v in ("in_force", "changes_pending") for v in (leg or {}).get("verdicts", [])) or any(
+            "legislation.gov.uk/" in (src.get("url") or "") for src in research.get("sources") or [])
         text, hs_rep = high_stakes.finalize(text or "", j.get("high_stakes"),
                                             f"{j.get('customer_text') or message}\n{j.get('deadline_text') or ''}\n{_today_uk_line()}",
-                                            language)
+                                            language, j.get("country", "GB"), law_checked)
     except Exception as e:
         logger.warning(f"high-stakes check failed (answer unchanged): {e!r}")
     try:
@@ -2164,6 +2166,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         juris = lex_safety.assess_jurisdiction(data.message, _ctx, user.get("jurisdiction"), data.country, data.category)
         juris["customer_text"] = f"{_ctx}\n{data.message}"
         juris["high_stakes"] = _hs
+        juris["country"] = data.country
         system_msg = system_msg + juris["block"] + high_stakes.prompt_block(
             _hs, bool(_juris_nation(juris) or user.get("jurisdiction")), data.country)
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
@@ -2372,6 +2375,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
         juris = lex_safety.assess_jurisdiction(data.message, _ctx, user.get("jurisdiction"), data.country, data.category)
         juris["customer_text"] = f"{_ctx}\n{data.message}"
         juris["high_stakes"] = _hs
+        juris["country"] = data.country
         system_msg = system_msg + juris["block"] + high_stakes.prompt_block(
             _hs, bool(_juris_nation(juris) or user.get("jurisdiction")), data.country)
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
@@ -2573,6 +2577,7 @@ async def lex_taster(req: Request, data: TasterMessage):
     risk = lex_safety.risk_level(text, None)
     _hs = high_stakes.classify(text, "", None)
     juris["high_stakes"] = _hs
+    juris["country"] = data.country
     if high_stakes.is_high(_hs):
         risk = "high"
     research = {"status": "unavailable", "sources": [], "citations": [], "block": ""}

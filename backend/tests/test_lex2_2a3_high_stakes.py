@@ -233,3 +233,54 @@ def test_free_tier_category_lock_and_usage_still_enforced(mk, monkeypatch):
     _stream(user, monkeypatch, "General info.", message="My visa expires tomorrow, what can I do?")
     assert run(db.usage.count_documents({"user_id": user["id"]})) >= 1
     assert H.classify("My visa expires tomorrow")["level"] == "urgent"
+
+
+# ================================================================== release conditions: jurisdiction-aware help, honest labels
+UK_NUMBERS = ("999", "0808 2000 247", "0800 027 1234", "NSPCC", "Samaritans 116 123", "duty solicitor")
+
+
+def test_emergency_help_not_uk_for_non_uk_customer():
+    hs = H.classify("My ex hit me and is threatening to kill me")
+    out, _ = H.finalize("Legal info. [CONFIDENCE: LOW]", hs, "", "en", country="US")
+    assert out.startswith("**Urgent help:** If you or anyone else is in immediate danger, call your local emergency number")
+    assert not any(n in out for n in UK_NUMBERS)
+    fr = H.finalize("x", hs, "", "fr", country="FR")[0]
+    assert "numéro d'urgence local" in fr and "999" not in fr
+
+
+def test_emergency_help_qualified_when_country_unknown():
+    out, _ = H.finalize("x", H.classify("My partner is hurting my son"), "", "en", country="")
+    assert "local emergency number" in out and "If you are in the UK: call 999." in out and "NSPCC" in out
+
+
+def test_framework_not_uk_specific_outside_or_unknown_uk():
+    hs = H.classify("Bailiffs are coming on Friday to evict us")
+    us = H.prompt_block(hs, False, "US")
+    assert "Shelter" not in us and "which country (and region)" in us and "not yet known which UK nation" not in us
+    unk = H.prompt_block(hs, False, "")
+    assert "customer's country is not known" in unk and "do not assume UK law" in unk
+    assert "Shelter" in H.prompt_block(hs, False, "GB")
+
+
+def test_police_note_uk_only():
+    hs = H.classify("I have been arrested and I'm at the police station")
+    assert H.finalize("x", hs, "arrested", "en", country="GB")[1]["police_note"]
+    assert not H.finalize("x", hs, "arrested", "en", country="IE")[1]["police_note"]
+
+
+def test_checked_label_only_when_law_actually_checked():
+    hs = H.classify("Bailiffs are coming on Friday to evict us")
+    ans = "**Current law (checked):** section 21 applies. [CONFIDENCE: MEDIUM]"
+    out, rep = H.finalize(ans, hs, "", "en", law_checked=False)
+    assert "Current law (not checked)" in out and "(checked)" not in out.replace("(not checked)", "") and rep["checked_labels_demoted"] == 1
+    assert H.finalize(ans, hs, "", "en", law_checked=True)[0] == ans
+
+
+def test_research_unavailable_high_stakes_says_so(mk):
+    hs = H.classify("Bailiffs are coming on Friday to evict us")
+    juris = {"conflict": False, "high_stakes": hs, "country": "GB", "customer_text": "Bailiffs are coming on Friday"}
+    ans = "**Current law (checked):** the bailiffs can't come without a warrant. [CONFIDENCE: HIGH]"
+    out, rep = run(server._lex_finalize(ans, [], {"status": "unavailable", "sources": []}, "high", "en",
+                                        "Bailiffs are coming on Friday to evict us", juris))
+    assert "I couldn't check current official sources" in out and "[CONFIDENCE: MEDIUM]" in out
+    assert "Current law (not checked)" in out and rep["high_stakes"]["checked_labels_demoted"] == 1

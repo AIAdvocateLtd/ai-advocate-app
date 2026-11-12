@@ -161,11 +161,23 @@ HELP = {
 }
 
 
+def _uk(country: Optional[str]) -> Optional[bool]:
+    c = (country or "").strip().upper()
+    return None if not c else c in ("GB", "UK")
+
+
 def prompt_block(hs: dict, nation_known: bool, country: Optional[str]) -> str:
     """System-prompt framework for high-stakes matters. Empty for ordinary questions."""
     if not is_high(hs):
         return ""
     doms = hs["domains"] or ["general"]
+    uk = _uk(country)
+    help_line = ("; ".join(HELP[d] for d in doms if d in HELP) if uk else
+                 "a qualified lawyer and recognised support services where the matter is; only name UK services, "
+                 "numbers, laws or deadlines if the matter is in the UK")
+    missing = "; ".join(MISSING[d] for d in doms if d in MISSING)
+    if not uk:
+        missing = "which country (and region) the matter is in; " + missing.replace("which UK nation", "which country or region")
     lines = [
         f"\n\nHIGH-STAKES MATTER ({hs['level'].upper()}: {', '.join(doms)}). The customer is personally affected. Stay helpful — "
         "do NOT refuse or give a vague answer; give real, practical general legal information. Structure the answer:",
@@ -178,15 +190,16 @@ def prompt_block(hs: dict, nation_known: bool, country: Optional[str]) -> str:
         "govern those). Mention exceptions and qualifying conditions that could change the deadline. Never invent a date — "
         "only use dates the customer gave or the app calculated; otherwise explain how the deadline is worked out and say "
         "it is uncertain. Where delay could harm their rights, urge prompt action without false alarm.",
-        "4. Missing facts that change the answer — ask for the most important ones (at most 3): "
-        + "; ".join(MISSING[d] for d in doms if d in MISSING) + ".",
+        "4. Missing facts that change the answer — ask for the most important ones (at most 3): " + missing + ".",
         "5. Practical options and next steps, most urgent first.",
-        "6. When qualified help matters, say so plainly and name where to get it: "
-        + "; ".join(HELP[d] for d in doms if d in HELP) + ".",
+        "6. When qualified help matters, say so plainly and name where to get it: " + help_line + ".",
         "7. Never guarantee success or predict a court outcome definitively; describe likely factors and risks instead.",
         "8. Check effective dates: if a provision is repealed, not yet in force or recently changed, say so.",
     ]
-    if (country or "GB").upper() in ("GB", "UK") and not nation_known and any(d in _NATION_DEPENDENT for d in doms):
+    if uk is None:
+        lines.append("JURISDICTION: the customer's country is not known. Establish the country (and region) first; do not "
+                     "assume UK law, deadlines or helplines apply.")
+    elif uk and not nation_known and any(d in _NATION_DEPENDENT for d in doms):
         lines.append("JURISDICTION: it is not yet known which UK nation's law applies. Ask early (one short question) which UK "
                      "nation the matter is in, and do not give nation-specific deadlines or conclusions until confirmed.")
     if hs.get("level") == "emergency":
@@ -220,16 +233,44 @@ _HELPLINES = {
 }
 
 
-def emergency_note(hs: dict, language: str) -> str:
-    lead = EMERGENCY_LEAD.get((language or "en")[:2].lower(), EMERGENCY_LEAD["en"])
-    parts = [lead]
+GENERIC_LEAD = {
+    "en": "If you or anyone else is in immediate danger, call your local emergency number now (for example 112 in the EU, "
+          "911 in the US and Canada, 000 in Australia).",
+    "es": "Si usted u otra persona está en peligro inmediato, llame ya al número de emergencias local (por ejemplo, 112 en la UE, "
+          "911 en EE. UU. y Canadá, 000 en Australia).",
+    "fr": "Si vous ou quelqu'un d'autre êtes en danger immédiat, appelez maintenant le numéro d'urgence local (par exemple le 112 "
+          "dans l'UE, le 911 aux États-Unis et au Canada, le 000 en Australie).",
+    "ar": "إذا كنت أنت أو أي شخص آخر في خطر مباشر، اتصل الآن برقم الطوارئ المحلي (مثل 112 في الاتحاد الأوروبي، و911 في الولايات المتحدة وكندا، و000 في أستراليا).",
+    "pl": "Jeśli Ty lub ktoś inny jesteście w bezpośrednim niebezpieczeństwie, zadzwoń teraz na lokalny numer alarmowy (np. 112 w UE, "
+          "911 w USA i Kanadzie, 000 w Australii).",
+    "de": "Wenn Sie oder jemand anderes in unmittelbarer Gefahr sind, rufen Sie jetzt die örtliche Notrufnummer an (z. B. 112 in der "
+          "EU, 911 in den USA und Kanada, 000 in Australien).",
+    "hi": "अगर आप या कोई और तुरंत खतरे में है, तो अभी अपने स्थानीय आपातकालीन नंबर पर कॉल करें (जैसे भारत और EU में 112, अमेरिका व कनाडा में 911)।",
+    "ur": "اگر آپ یا کوئی اور فوری خطرے میں ہے تو ابھی اپنے مقامی ایمرجنسی نمبر پر کال کریں (مثلاً پاکستان میں 15 یا 1122، EU میں 112، امریکہ و کینیڈا میں 911)۔",
+    "it": "Se tu o qualcun altro siete in pericolo immediato, chiama subito il numero di emergenza locale (ad esempio 112 nell'UE, "
+          "911 negli USA e in Canada, 000 in Australia).",
+    "pt": "Se você ou outra pessoa estiver em perigo imediato, ligue já para o número de emergência local (por exemplo 112 na UE, "
+          "190 ou 192 no Brasil, 911 nos EUA e no Canadá).",
+    "zh": "如果您或其他人正处于紧急危险中，请立即拨打当地紧急电话（例如中国大陆 110/120，欧盟 112，美国和加拿大 911）。",
+}
+_LOCAL_HELP = ("Contact local police, domestic-abuse, child-protection or crisis services where you are; Lex can help you "
+               "find the right ones if you say which country you are in.")
+
+
+def emergency_note(hs: dict, language: str, country: Optional[str] = "GB") -> str:
+    lang = (language or "en")[:2].lower()
+    uk = _uk(country)
+    if uk is False:
+        return "**Urgent help:** " + GENERIC_LEAD.get(lang, GENERIC_LEAD["en"]) + " " + _LOCAL_HELP
+    lead = EMERGENCY_LEAD.get(lang, EMERGENCY_LEAD["en"])
+    parts = [lead] if uk else [GENERIC_LEAD.get(lang, GENERIC_LEAD["en"]), "If you are in the UK: call 999."]
     if hs.get("danger") or "family" in hs.get("domains", []):
         parts.append(_HELPLINES["abuse"])
     if hs.get("child_risk"):
         parts.append(_HELPLINES["child"])
     if hs.get("self_harm"):
         parts.append(_HELPLINES["self_harm"])
-    return "**Urgent help:** " + " ".join(parts)
+    return "**Urgent help:** " + " ".join(parts) + ("" if uk else " " + _LOCAL_HELP)
 
 
 _DETAINED = re.compile(r"\b(arrested|in custody|at the police station|being held|held in a cell|detained)\b", _I)
@@ -272,14 +313,20 @@ def unconfirmed_deadline_dates(answer: str, allowed_text: str) -> List[str]:
     return found
 
 
-def finalize(text: str, hs: Optional[dict], allowed_text: str, language: str) -> Tuple[str, dict]:
+_CHECKED_LABEL = re.compile(r"current law \(checked\)", _I)
+
+
+def finalize(text: str, hs: Optional[dict], allowed_text: str, language: str, country: Optional[str] = "GB",
+             law_checked: bool = False) -> Tuple[str, dict]:
     """Deterministic post-checks for high-stakes answers: emergency contacts, guarantee wording, unconfirmed dates."""
     rep = {"level": (hs or {}).get("level", "standard"), "emergency_note": False, "guarantees_softened": 0,
-           "unconfirmed_dates": 0, "police_note": False}
+           "unconfirmed_dates": 0, "police_note": False, "checked_labels_demoted": 0}
     if not is_high(hs):
         return text, rep
     from lex_safety import insert_before_tail
     out = text or ""
+    if not law_checked:  # nothing was actually verified against legislation.gov.uk for this answer
+        out, rep["checked_labels_demoted"] = _CHECKED_LABEL.subn("Current law (not checked)", out)
     for rx, repl in _GUARANTEE:
         out, n = rx.subn(repl, out)
         rep["guarantees_softened"] += n
@@ -290,10 +337,10 @@ def finalize(text: str, hs: Optional[dict], allowed_text: str, language: str) ->
                                       "by you or calculated by the app, so treat "
                                       f"{'it' if len(dates) == 1 else 'them'} as unconfirmed. Check the exact deadline on "
                                       "your letter, notice or court order, or with an adviser, and act promptly.")
-    if "criminal" in hs.get("domains", []) and _DETAINED.search(allowed_text or "") and "duty solicitor" not in out.lower():
+    if _uk(country) and "criminal" in hs.get("domains", []) and _DETAINED.search(allowed_text or "") and "duty solicitor" not in out.lower():
         out = insert_before_tail(out, f"**Your rights:** {_HELPLINES['police']}")
         rep["police_note"] = True
     if hs.get("level") == "emergency":
-        out = emergency_note(hs, language) + "\n\n" + out
+        out = emergency_note(hs, language, country) + "\n\n" + out
         rep["emergency_note"] = True
     return out, rep
