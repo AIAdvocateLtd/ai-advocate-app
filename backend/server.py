@@ -14770,6 +14770,75 @@ async def admin_users_recent(_: dict = Depends(require_admin), limit: int = 30, 
     return {"users": users}
 
 
+_TEST_EMAIL_RX = r"(@advocate\.app$|^firmpytest|^giftclaim_|^recipient_|^firmtest|^shottest|^pytest|^test_)"
+# Evidence of a test account (any one, and never with a real Stripe customer):
+# reserved non-deliverable domains (RFC 2606/6761) or Resend's test inbox; the TEST_ fixture marker;
+# or the developer test domain together with a fixture-generated random suffix, the documented test login,
+# a TEST_ name, or creation outside the signup form.
+_RESERVED_RX = r"(@example\.(com|org|net)$|\.(test|invalid|example|localhost)$|^(delivered|bounced|complained)(\+[^@]*)?@resend\.dev$)"
+_DEV_DOMAIN_RX = r"@advocate\.app$"
+
+
+def _signup_filters() -> dict:
+    no_real_payment = {"$or": [{"stripe_customer_id": None}, {"stripe_customer_id": {"$regex": "^cus_test_"}}]}
+    dev_domain_evidence = {"$and": [{"email": {"$regex": _DEV_DOMAIN_RX, "$options": "i"}}, {"$or": [
+        {"email": {"$regex": r"[0-9a-f]{4,}@", "$options": "i"}}, {"email": "test@advocate.app"},
+        {"full_name": {"$regex": "^TEST_"}}, {"signup_ip": None}]}]}
+    evidence = {"$or": [{"email": {"$regex": _RESERVED_RX, "$options": "i"}}, {"email": {"$regex": "^(TEST_|s3test-[0-9a-f]{8}\\.)"}},
+                        dev_domain_evidence]}
+    test = {"$and": [no_real_payment, evidence]}
+    internal = {"$or": [{"is_demo": True}, {"auth_provider": "demo"}, {"email": {"$regex": r"@aiadvocate\.co\.uk$", "$options": "i"}},
+                        {"email": {"$in": ADMIN_EMAILS}}]}
+    live = {"deleted": {"$ne": True}}
+    return {"genuine": {**live, "$nor": [test, internal]}, "test": {"$and": [live, test]},
+            "internal": {"$and": [live, internal, {"$nor": [test]}]}}
+
+
+def _created_since(t: datetime) -> dict:
+    return {"$or": [{"created_at": {"$gte": t.isoformat()}}, {"created_at": {"$gte": t}}]}
+
+
+@api_router.get("/admin/signups/stats")
+async def admin_signup_stats(_: dict = Depends(require_admin)):
+    from zoneinfo import ZoneInfo
+    f = _signup_filters()
+    now = datetime.now(timezone.utc)
+    uk_midnight = datetime.now(ZoneInfo("Europe/London")).replace(hour=0, minute=0, second=0, microsecond=0)
+    since = {"today": uk_midnight.astimezone(timezone.utc), "last_24h": now - timedelta(hours=24),
+             "last_7d": now - timedelta(days=7), "last_30d": now - timedelta(days=30)}
+    out = {k: await db.users.count_documents(v) for k, v in f.items()}
+    # Looks like a test address but lacks evidence — kept in the genuine count for you to check.
+    out["needs_review"] = await db.users.count_documents(
+        {"$and": [f["genuine"], {"email": {"$regex": _TEST_EMAIL_RX + r"|test|fake|pytest|example", "$options": "i"}}]})
+    for k, t in since.items():
+        out[k] = await db.users.count_documents({"$and": [f["genuine"], _created_since(t)]})
+    return out
+
+
+@api_router.get("/admin/signups/list")
+async def admin_signup_list(group: str = "genuine", page: int = 1, page_size: int = 25, _: dict = Depends(require_admin)):
+    f = _signup_filters()
+    if group not in f:
+        raise HTTPException(400, "group must be genuine, test or internal")
+    page, page_size = max(1, page), max(1, min(page_size, 100))
+    total = await db.users.count_documents(f[group])
+    fields = {k: 1 for k in ("id", "email", "full_name", "tier", "subscription_status", "email_verified", "comp_pro_until",
+                             "trial_end_date", "created_at")}
+    users = await db.users.aggregate([
+        {"$match": f[group]},
+        {"$addFields": {"_sort": {"$cond": [{"$eq": [{"$type": "$created_at"}, "date"]},
+                                            {"$dateToString": {"date": "$created_at", "format": "%Y-%m-%dT%H:%M:%S"}},
+                                            {"$ifNull": ["$created_at", ""]}]}}},
+        {"$sort": {"_sort": -1, "id": -1}}, {"$skip": (page - 1) * page_size}, {"$limit": page_size},
+        {"$project": {"_id": 0, **fields}},
+    ]).to_list(page_size)
+    for u in users:
+        if isinstance(u.get("created_at"), datetime):
+            u["created_at"] = u["created_at"].isoformat()
+    return {"group": group, "page": page, "page_size": page_size, "total": total, "users": users,
+            "has_more": page * page_size < total}
+
+
 VAT_THRESHOLD_GBP = 90000
 VAT_WARN_GBP = 75000
 

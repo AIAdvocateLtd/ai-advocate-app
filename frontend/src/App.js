@@ -10919,13 +10919,21 @@ function CompProAdminCard({ lang }) {
   const loadFounding = () => {
     api.get("/admin/founding-100").then(r => setFounding(r.data || { users: [], slots_taken: 0, slots_total: 100, pending: 0 })).catch(() => {});
   };
-  const loadRecent = async () => {
+  const [listGroup, setListGroup] = useState("genuine");
+  const [listPage, setListPage] = useState(1);
+  const [listMeta, setListMeta] = useState({ total: 0, has_more: false });
+  const [signupStats, setSignupStats] = useState(null);
+  const loadRecent = async (group = listGroup, page = 1) => {
     try {
-      const r = await api.get("/admin/users/recent?limit=30");
-      setResults(r.data?.users || []);
+      const r = await api.get(`/admin/signups/list?group=${group}&page=${page}&page_size=25`);
+      const rows = r.data?.users || [];
+      setResults(prev => (page > 1 ? [...prev, ...rows] : rows));
+      setListPage(page);
+      setListMeta({ total: r.data?.total || 0, has_more: !!r.data?.has_more });
     } catch (e) { /* no-op */ }
   };
-  useEffect(() => { loadComps(); loadRecent(); loadFounding(); }, []);
+  const loadSignupStats = () => api.get("/admin/signups/stats").then(r => setSignupStats(r.data)).catch(() => {});
+  useEffect(() => { loadComps(); loadRecent(); loadFounding(); loadSignupStats(); }, []);
 
   const search = async () => {
     if (!query.trim()) { loadRecent(); return; }
@@ -11090,10 +11098,14 @@ function CompProAdminCard({ lang }) {
               style={{ width: "100%", background: "transparent", border: "none", padding: 0, marginBottom: 6,
                        display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
         <span style={{ fontSize: 10.5, color: "var(--text-muted)", fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-          {showRecent ? "▼" : "▶"} {query ? `${results.length} match${results.length === 1 ? "" : "es"}` : `Recent users · ${results.length}`}
+          {showRecent ? "▼" : "▶"} {query ? `${results.length} match${results.length === 1 ? "" : "es"}` : `${{ genuine: "Genuine users", test: "Test accounts", internal: "Internal accounts" }[listGroup]} · ${listMeta.total}`}
         </span>
         {searching && <span style={{ color: "var(--gold)", fontSize: 10.5 }}>Searching…</span>}
       </button>
+
+      {signupStats && <SignupStatsLine stats={signupStats} />}
+      {showRecent && !query && <SignupGroupTabs group={listGroup} stats={signupStats}
+        onChange={(g) => { setListGroup(g); loadRecent(g, 1); }} />}
 
       {/* Search / recent results — tappable list */}
       {showRecent && results.length > 0 ? (
@@ -11112,7 +11124,8 @@ function CompProAdminCard({ lang }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.email}</div>
                   <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>
-                    {u.full_name || "—"} · {u.tier || "free"}
+                    {u.created_at && <span data-testid={`signup-date-${u.id}`}>{String(u.created_at).slice(0, 10)} · </span>}
+                    {u.full_name || "—"} · {u.tier || "free"}{u.subscription_status ? ` · ${u.subscription_status}` : ""}
                     {hasComp && <span style={{ color: "var(--gold)" }}> · comp until {u.comp_pro_until.slice(0,10)}</span>}
                   </div>
                 </div>
@@ -11135,6 +11148,12 @@ function CompProAdminCard({ lang }) {
               </div>
             );
           })}
+          {!query && listMeta.has_more && (
+            <button data-testid="signup-load-more" className="btn-ghost" onClick={() => loadRecent(listGroup, listPage + 1)}
+              style={{ padding: "8px 10px", fontSize: 12 }}>
+              Load more ({results.length} of {listMeta.total})
+            </button>
+          )}
         </div>
       ) : showRecent ? (
         <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "14px 8px", marginBottom: 12, textAlign: "center", border: "1px dashed var(--line)", borderRadius: 8 }}>
@@ -17545,3 +17564,29 @@ function EngagementFileShare({ lang, eid, onClose, onUploaded }) {
 }
 
 export default App;
+
+
+export const SignupStatsLine = ({ stats }) => (
+  <div data-testid="signup-stats" style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>
+    <span data-testid="signup-stats-genuine"><b style={{ color: "var(--gold)" }}>{stats.genuine}</b> genuine users</span>
+    <span data-testid="signup-stats-today">{stats.today} today</span>
+    <span data-testid="signup-stats-24h">{stats.last_24h} in 24h</span>
+    <span data-testid="signup-stats-7d">{stats.last_7d} in 7 days</span>
+    <span data-testid="signup-stats-30d">{stats.last_30d} in 30 days</span>
+    <span data-testid="signup-stats-test">{stats.test} test accounts</span>
+    <span data-testid="signup-stats-internal">{stats.internal} internal</span>
+  </div>
+);
+
+export const SignupGroupTabs = ({ group, stats, onChange }) => (
+  <div data-testid="signup-group-tabs" style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+    {[["genuine", "Genuine"], ["test", "Test"], ["internal", "Internal"]].map(([g, label]) => (
+      <button key={g} data-testid={`signup-group-${g}`} onClick={() => onChange(g)}
+        style={{ flex: 1, padding: "6px 8px", fontSize: 11, fontWeight: 700, borderRadius: 999, cursor: "pointer",
+                 border: "1px solid var(--line)", background: group === g ? "var(--gold)" : "transparent",
+                 color: group === g ? "#1a1300" : "var(--text-muted)", transition: "background-color 150ms" }}>
+        {label}{stats ? ` (${stats[g]})` : ""}
+      </button>
+    ))}
+  </div>
+);
