@@ -39,7 +39,8 @@ LABEL_RULES = (
     "retrieved legislation.gov.uk records and cited [n]; 'Official guidance' — only with a citation [n] to retrieved "
     "official guidance; 'Case law (checked)' — only for a case in the retrieved records; 'Your facts'; 'Our reading' "
     "(interpretation); 'Not confirmed'. The app re-checks every label against its records claim by claim and downgrades "
-    "any it cannot match. Never invent Acts, sections, cases, quotations or citations, and never quote statutory wording "
+    "any it cannot match. When you rely on statutory wording, quote the exact words from the retrieved record in "
+    "quotation marks; your explanation of what it means stays your interpretation. Never invent Acts, sections, cases, quotations or citations, and never quote statutory wording "
     "(in any language) unless it appears in the retrieved records."
 )
 _SIMPLE = ("\n\nRESPONSE DEPTH: simple question — answer directly and concisely (a few short paragraphs or bullets). No "
@@ -119,31 +120,55 @@ def _key(r: dict) -> tuple:
     return ((r.get("act") or "").lower(), str(r.get("year") or ""), r.get("section"))
 
 
-STATUS_ONLY = "Current law (in force; wording not checked)"
+STATUS_ONLY = "Legislation located (in force) — interpretation not independently verified"
+TEXT_LOCATED = "Legislation located (provision text retrieved) — interpretation not independently verified"
+QUOTE_CHECKED = "Current law (quoted wording checked against the Act)"
+_QUOTE = re.compile(r"[\"“]([^\"”]{25,400})[\"”]")
+_QUALIFIER = re.compile(r"\b\d+|\b(one|two|three|four|five|six|seven|eight|nine|ten|twelve)\b|\b(unless|except|provided that|"
+                        r"only if|within|before|after|deadline|time limit|qualifying|months?|years?|weeks?|days?)\b", _I)
 
 
-def _law_verified(unit: str, leg_results: Dict[tuple, str], by_n: Dict[int, dict], src_by_url: Dict[str, str]) -> Tuple[str, str]:
-    """verified = this claim's own Act/section is in force here AND a cited retrieved legislation text supports it;
-    status_only = in force but its wording wasn't retrieved; unverified otherwise."""
+def _norm(t: str) -> str:
+    return " ".join(re.sub(r"[^\w\s]", " ", (t or "").lower()).split())
+
+
+def _quote_verified(unit: str, content: str) -> bool:
+    """Substantive check (narrow): the claim quotes ≥25 chars that appear word-for-word in the retrieved provision, and
+    the rest of the claim adds no periods, numbers, exceptions or deadlines of its own."""
+    quotes = _QUOTE.findall(unit)
+    if not quotes or not content:
+        return False
+    body = _norm(content)
+    if not all(_norm(q) in body for q in quotes):
+        return False
+    rest = _QUOTE.sub(" ", re.sub(r"\*\*[^*]+\*\*|\[\d+\]|\b(?:section|s\.)\s*\d+\w*|\b(?:18|19|20)\d\d\b", " ", unit, flags=_I))
+    return not _QUALIFIER.search(rest)
+
+
+def _law_verified(unit: str, leg_results: Dict[tuple, dict], by_n: Dict[int, dict], src_by_url: Dict[str, str]) -> Tuple[str, str]:
+    """Never 'checked' for naming an Act/section. quoted = exact quoted wording found in this claim's own cited provision;
+    text_located = in force + its cited provision text retrieved; status_only = in force only; unverified otherwise."""
     refs = legal_sources.extract_refs(unit)
     if not refs:
         return "unverified", "no Act/section named in this claim"
+    own_urls = set()
     for r in refs:
-        v = leg_results.get(_key(r)) or leg_results.get(_key({**r, "section": None}))
-        if v not in ("in_force", "changes_pending"):
-            return "unverified", f"{r['label']}: {v or 'not checked'}"
+        res = leg_results.get(_key(r)) or leg_results.get(_key({**r, "section": None})) or {}
+        if res.get("verdict") not in ("in_force", "changes_pending"):
+            return "unverified", f"{r['label']}: {res.get('verdict') or 'not checked'}"
+        own_urls.add((res.get("url") or "").rstrip("/").lower())
+    located = False
     for n in map(int, _CITE.findall(unit)):
         c = by_n.get(n) or {}
-        content = src_by_url.get((c.get("url") or "").rstrip("/"), "")
-        if "legislation.gov.uk/" in (c.get("url") or "") and content and _supports(unit, content):
-            return "verified", "in force and supported by the cited legislation text"
+        url = (c.get("url") or "").rstrip("/")
+        content = src_by_url.get(url, "")
+        if content and url.lower() in own_urls:  # the citation is THIS claim's own provision, not another source
+            if _quote_verified(unit, content):
+                return "verified", "quoted wording matches the cited provision text"
+            located = True
+    if located:
+        return "text_located", "in force; cited provision text retrieved; interpretation not verified"
     return "status_only", "in force here, but the cited wording was not retrieved"
-
-
-def _supports(unit: str, content: str) -> bool:
-    import lex_safety
-    res = lex_safety._refs_supported(unit, content.lower())
-    return res is not False
 
 
 def _guidance_verified(unit: str, by_n: Dict[int, dict], src_by_url: Dict[str, str]) -> bool:
@@ -161,7 +186,7 @@ def _guidance_verified(unit: str, by_n: Dict[int, dict], src_by_url: Dict[str, s
 def verify_claims(text: str, leg: dict, citations: List[dict], sources: List[dict]) -> Tuple[str, dict]:
     """Each labelled claim is checked on its own: a label is kept only when THAT claim's own Act/section or citation was
     verified — an unrelated check elsewhere in the answer never verifies it. Also removes percentage odds."""
-    leg_results = {_key(r): r.get("verdict") for r in (leg or {}).get("results", [])}
+    leg_results = {_key(r): r for r in (leg or {}).get("results", [])}
     found_cases = {c.get("citation") for c in (leg or {}).get("cases", []) if c.get("verdict") == "found"}
     by_n = {int(c["n"]): c for c in citations or [] if str(c.get("n", "")).isdigit()}
     src_by_url = {(s.get("url") or "").rstrip("/"): (s.get("content") or "") for s in sources or []}
@@ -173,9 +198,9 @@ def verify_claims(text: str, leg: dict, citations: List[dict], sources: List[dic
             if kind == "law":
                 state, why = _law_verified(unit, leg_results, by_n, src_by_url)
                 ok = state == "verified"
-                if state == "status_only":
-                    ledger.append({"label": kind, "verified": False, "status_only": True, "why": why})
-                    out.append(rx.sub(STATUS_ONLY, unit))
+                if state != "unverified":
+                    ledger.append({"label": kind, "verified": ok, "status_only": not ok, "state": state, "why": why})
+                    out.append(rx.sub({"verified": QUOTE_CHECKED, "text_located": TEXT_LOCATED}.get(state, STATUS_ONLY), unit))
                     break
             elif kind == "case":
                 ok = any(c and c in unit for c in found_cases)
@@ -192,7 +217,8 @@ def verify_claims(text: str, leg: dict, citations: List[dict], sources: List[dic
     result, pct = _PERCENT.subn("a realistic chance (no reliable percentage can be given)", result)
     result, sol = _SOLICITOR.subn("as an AI legal information assistant (not a solicitor)", result)
     rep = {"labelled": len(ledger), "verified": sum(1 for c in ledger if c["verified"]),
-           "status_only": sum(1 for c in ledger if c.get("status_only")),
+           "located_only": sum(1 for c in ledger if c.get("status_only")),
+           "text_located": sum(1 for c in ledger if c.get("state") == "text_located"),
            "downgraded": sum(1 for c in ledger if not c["verified"] and not c.get("status_only")), "claims": ledger[:20],
            "percentages_removed": pct, "solicitor_claims_fixed": sol}
     return result, rep

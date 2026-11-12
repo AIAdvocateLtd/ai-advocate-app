@@ -298,7 +298,8 @@ async def check_answer(text: str, nation: Optional[str], citations: List[dict], 
             import lex_safety
             out = lex_safety.insert_before_tail(out, block.strip())
     rep = {"refs": len(refs), "verdicts": [r["verdict"] for r in results], "urls": [r["url"] for r in results if r.get("url")],
-           "results": [{"act": r.get("act"), "year": r.get("year"), "section": r.get("section"), "verdict": r["verdict"]}
+           "results": [{"act": r.get("act"), "year": r.get("year"), "section": r.get("section"), "verdict": r["verdict"],
+                        "url": r.get("url")}
                        for r in results], "cases": case_results, "ms": int((time.monotonic() - t0) * 1000)}
     return out, rep
 

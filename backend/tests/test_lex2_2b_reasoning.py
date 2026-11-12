@@ -33,7 +33,7 @@ MIXED = ("**Current law (checked):** Under section 94 of the Employment Rights A
          "**Official guidance:** The Home Office says you can stay while you wait [3].\n"
          "**Case law (checked):** Smith v Jones [2031] UKSC 99 says the same.\n"
          "You have an 85% chance of success. As your solicitor I recommend you act now.\n[CONFIDENCE: MEDIUM]")
-LEG = {"results": [{"act": "Employment Rights Act", "year": "1996", "section": "94", "verdict": "in_force"},
+LEG = {"results": [{"act": "Employment Rights Act", "year": "1996", "section": "94", "verdict": "in_force", "url": ERA94},
                    {"act": "Equality Act", "year": "2010", "section": "13", "verdict": "in_force"}], "cases": []}
 
 
@@ -41,13 +41,65 @@ LEG = {"results": [{"act": "Employment Rights Act", "year": "1996", "section": "
 def test_one_verified_claim_never_verifies_another():
     out, rep = R.verify_claims(MIXED, LEG, CITES, SOURCES)
     lines = out.split("\n")
-    assert lines[0].startswith("**Current law (checked):** Under section 94")          # own Act, in force, cited text supports
+    assert lines[0].startswith(f"**{R.TEXT_LOCATED}:** Under section 94")              # Act named + text retrieved ≠ verified
     assert lines[1].startswith("**Current law (not checked):** You must bring")         # no authority of its own
     assert lines[2].startswith(f"**{R.STATUS_ONLY}:** Section 13")                      # in force, wording not retrieved
     assert lines[3].startswith("**Official guidance:** You should raise a grievance")   # cited Acas page supports it
     assert lines[4].startswith("**Official guidance (not confirmed):** The Home Office") # cited a blog, not official
     assert lines[5].startswith("**Case law (not confirmed):** Smith v Jones")           # case-law checks are off
-    assert rep["labelled"] == 6 and rep["verified"] == 2 and rep["status_only"] == 1 and rep["downgraded"] == 3
+    assert "Current law (checked)" not in out
+    assert rep["labelled"] == 6 and rep["verified"] == 1 and rep["located_only"] == 2 and rep["downgraded"] == 3
+    assert "[1]" in lines[0] and "[2]" in lines[3]  # source links stay visible
+
+
+# ================================================================== 2B correction: naming an Act never verifies a conclusion
+PROV = [{"n": 1, "url": ERA94, "source": "official"}]
+PROV_SRC = [{"n": 1, "url": ERA94, "content": "94 The right. (1) An employee has the right not to be unfairly dismissed by his "
+                                             "employer. (2) This section has effect subject to the following provisions."}]
+L94 = {"results": [{"act": "Employment Rights Act", "year": "1996", "section": "94", "verdict": "in_force", "url": ERA94}]}
+
+
+def test_mentioning_act_does_not_verify_conclusion():
+    ans = "**Current law (checked):** Section 94 of the Employment Rights Act 1996 means your dismissal was unfair [1].\n"
+    out, rep = R.verify_claims(ans, L94, PROV, PROV_SRC)
+    assert R.TEXT_LOCATED in out and "Current law (checked)" not in out and R.QUOTE_CHECKED not in out
+    assert rep["verified"] == 0 and rep["text_located"] == 1
+
+
+def test_exact_quoted_provision_is_identified_and_interpretation_not_claimed():
+    ans = ('**Current law (checked):** Section 94 of the Employment Rights Act 1996 says "An employee has the right not to '
+           'be unfairly dismissed by his employer" [1].\n')
+    out, rep = R.verify_claims(ans, L94, PROV, PROV_SRC)
+    assert out.startswith(f"**{R.QUOTE_CHECKED}:**") and rep["verified"] == 1
+    misquote = ans.replace("unfairly dismissed by his employer", "dismissed for any reason")
+    assert R.QUOTE_CHECKED not in R.verify_claims(misquote, L94, PROV, PROV_SRC)[0]
+
+
+@pytest.mark.parametrize("extra", [
+    "but only after two years' service",
+    "unless you were dismissed for misconduct",
+    "and you must claim within 3 months",
+    "except during a probation period",
+])
+def test_qualifying_periods_exceptions_and_deadlines_stay_unverified(extra):
+    ans = ('**Current law (checked):** Section 94 of the Employment Rights Act 1996 says "An employee has the right not to '
+           f'be unfairly dismissed by his employer" {extra} [1].\n')
+    out, rep = R.verify_claims(ans, L94, PROV, PROV_SRC)
+    assert R.QUOTE_CHECKED not in out and R.TEXT_LOCATED in out and rep["verified"] == 0
+
+
+def test_unrelated_source_cannot_verify_other_claim():
+    ans = ('**Current law (checked):** Section 13 of the Equality Act 2010 says "An employee has the right not to be unfairly '
+           'dismissed by his employer" [1].\n')
+    leg = {"results": [{"act": "Equality Act", "year": "2010", "section": "13", "verdict": "in_force",
+                        "url": "https://www.legislation.gov.uk/ukpga/2010/15/section/13"}]}
+    out, rep = R.verify_claims(ans, leg, PROV, PROV_SRC)  # [1] is ERA s94, not the Equality Act
+    assert R.QUOTE_CHECKED not in out and R.TEXT_LOCATED not in out and R.STATUS_ONLY in out
+
+
+def test_ordinary_answer_unchanged_and_readable():
+    ans = "You can usually ask your employer for written reasons for dismissal. Keep copies of your emails. [CONFIDENCE: MEDIUM]"
+    assert R.verify_claims(ans, L94, PROV, PROV_SRC)[0] == ans
 
 
 def test_percentages_and_solicitor_claims_removed():
@@ -60,7 +112,7 @@ def test_percentages_and_solicitor_claims_removed():
 def test_wrong_act_cited_for_claim_not_verified():
     ans = "**Current law (checked):** Section 94 of the Employment Rights Act 1996 sets the tribunal time limit [2].\n"
     out, rep = R.verify_claims(ans, LEG, CITES, SOURCES)  # [2] is Acas guidance, not the Act's text
-    assert R.STATUS_ONLY in out and rep["verified"] == 0
+    assert R.STATUS_ONLY in out and rep["verified"] == 0  # [2] is Acas guidance, not the Act's text
 
 
 def test_repealed_or_wrong_nation_never_verified():
@@ -84,8 +136,8 @@ def test_end_to_end_finalize_with_real_checks():
     out, rep = run(server._lex_finalize(ans, [dict(c) for c in CITES[:1]], {"status": "ok", "sources": SOURCES[:1],
                                                                               "citations": CITES[:1]},
                                         "low", "en", "I was dismissed, what can I do?", juris))
-    assert "**Current law (checked):** Under section 94" in out
-    assert out.count("Current law (not checked)") == 2 and rep["claims"]["verified"] == 1
+    assert f"**{R.TEXT_LOCATED}:** Under section 94" in out and "[1]" in out
+    assert out.count("Current law (not checked)") == 2 and rep["claims"]["text_located"] == 1 and rep["claims"]["verified"] == 0
     assert "Example Act 2019 [⚠ see legislation check]" in out
 
 
