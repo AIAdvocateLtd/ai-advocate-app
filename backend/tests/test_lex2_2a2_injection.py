@@ -183,6 +183,7 @@ def _stream(user, monkeypatch, answer, **chat):
 
     async def acompletion(**kw):
         seen["messages"] = kw["messages"]
+        seen["model"] = kw.get("model")
 
         async def gen():
             yield NS(choices=[NS(delta=NS(content=answer), finish_reason=None)], usage=None, model="fake")

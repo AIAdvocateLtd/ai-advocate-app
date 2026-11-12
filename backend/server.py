@@ -77,6 +77,7 @@ from lex_lessons import fact_pack_block as _fact_pack_block, lessons_block as _l
 from rag import build_rag_context, research as rag_research, _looks_like_legal_question, is_enabled as rag_enabled, get_usage as rag_get_usage  # noqa: E402
 import lex_safety  # noqa: E402
 import content_guard  # noqa: E402
+import high_stakes  # noqa: E402
 import lex_output  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
@@ -2022,6 +2023,14 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
         text, event_fixes = date_guard.guard_answer(text or "", (juris or {}).get("customer_text") or message)
     except Exception as e:
         logger.warning(f"date guard failed (answer unchanged): {e!r}")
+    hs_rep = {}
+    try:
+        j = juris or {}
+        text, hs_rep = high_stakes.finalize(text or "", j.get("high_stakes"),
+                                            f"{j.get('customer_text') or message}\n{j.get('deadline_text') or ''}\n{_today_uk_line()}",
+                                            language)
+    except Exception as e:
+        logger.warning(f"high-stakes check failed (answer unchanged): {e!r}")
     try:
         text, g_notes = official_guidance.disclose(text or "", research.get("guidance_keys") or [],
                                                    research.get("guidance_failed") or [])
@@ -2046,7 +2055,7 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
         "unstated_event_claims_fixed": event_fixes,
         "acas_guidance": {"retrieved": research.get("guidance_keys") or [], "failed": research.get("guidance_failed") or [],
                           "notes": len(g_notes)},
-        "legislation": leg}
+        "legislation": leg, "high_stakes": hs_rep}
 
 
 @api_router.post("/lex/chat")
@@ -2130,6 +2139,9 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     except Exception as e:
         logger.warning(f"RAG context build failed (continuing without): {e}")
     risk = lex_safety.risk_level(data.message, data.category)
+    _hs = high_stakes.classify(data.message, _ctx, data.category)
+    if high_stakes.is_high(_hs):
+        risk = "high"
     system_msg = system_msg + lex_safety.research_block(research["status"], risk, lex_safety.topics_of(data.message))
 
     # 📂 If this chat is tied to a Case File, prepend the case summary + recent
@@ -2151,8 +2163,11 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     try:
         juris = lex_safety.assess_jurisdiction(data.message, _ctx, user.get("jurisdiction"), data.country, data.category)
         juris["customer_text"] = f"{_ctx}\n{data.message}"
-        system_msg = system_msg + juris["block"]
+        juris["high_stakes"] = _hs
+        system_msg = system_msg + juris["block"] + high_stakes.prompt_block(
+            _hs, bool(_juris_nation(juris) or user.get("jurisdiction")), data.country)
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
+        juris["deadline_text"] = _dl_block
         if auto_reminders and _HYPOTHETICAL_RE.search(data.message or ""):
             auto_reminders = []
             _dl_block += _HYPOTHETICAL_NOTE
@@ -2337,6 +2352,9 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
     except Exception as e:
         logger.warning(f"RAG context build failed (continuing without): {e}")
     risk = lex_safety.risk_level(data.message, data.category)
+    _hs = high_stakes.classify(data.message, _ctx, data.category)
+    if high_stakes.is_high(_hs):
+        risk = "high"
     system_msg = system_msg + lex_safety.research_block(research["status"], risk, lex_safety.topics_of(data.message))
 
     # 📂 If this chat is tied to a Case File, prepend the case summary + recent
@@ -2353,8 +2371,11 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
     try:
         juris = lex_safety.assess_jurisdiction(data.message, _ctx, user.get("jurisdiction"), data.country, data.category)
         juris["customer_text"] = f"{_ctx}\n{data.message}"
-        system_msg = system_msg + juris["block"]
+        juris["high_stakes"] = _hs
+        system_msg = system_msg + juris["block"] + high_stakes.prompt_block(
+            _hs, bool(_juris_nation(juris) or user.get("jurisdiction")), data.country)
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
+        juris["deadline_text"] = _dl_block
         if auto_reminders and _HYPOTHETICAL_RE.search(data.message or ""):
             auto_reminders = []
             _dl_block += _HYPOTHETICAL_NOTE
@@ -2550,6 +2571,10 @@ async def lex_taster(req: Request, data: TasterMessage):
 
     juris = lex_safety.assess_jurisdiction(text, "", None, data.country, None)
     risk = lex_safety.risk_level(text, None)
+    _hs = high_stakes.classify(text, "", None)
+    juris["high_stakes"] = _hs
+    if high_stakes.is_high(_hs):
+        risk = "high"
     research = {"status": "unavailable", "sources": [], "citations": [], "block": ""}
     try:
         research = await rag_research(text, country=data.country or "GB", db=db, nation=_juris_nation(juris))
@@ -2557,7 +2582,8 @@ async def lex_taster(req: Request, data: TasterMessage):
         logger.warning(f"Taster research failed (continuing without): {e}")
     citations = research.get("citations") or []
     safety_ctx = (research.get("block") or "") + lex_safety.research_block(research["status"], risk, lex_safety.topics_of(text)) \
-        + juris.get("block", "") + _fact_pack_block(text, "") + (NO_CALC_BLOCK if _DEADLINE_CALC_HINT_RE.search(text) else "")
+        + juris.get("block", "") + high_stakes.prompt_block(_hs, bool(_juris_nation(juris)), data.country) \
+        + _fact_pack_block(text, "") + (NO_CALC_BLOCK if _DEADLINE_CALC_HINT_RE.search(text) else "")
     try:
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
