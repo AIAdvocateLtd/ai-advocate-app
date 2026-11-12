@@ -1,0 +1,31 @@
+{
+  "summary": "Frontend-only test of the Phase 2C admin Law tracker card in Settings (preview). Every requested step passed: as admin, the card expands and shows writes OFF, 0 provision records, scheduled monitoring off and customer notifications off. The dry run returned a 16-char proposal code (bffa6673c62cb091) and 9 rows, all verified and showing 'A ✓ · B ✓ · C unverified · D none'. The apply button was visible and DISABLED while writes were off, enabled after writes ON (until 00:18 UTC), and disabled again after writes OFF. The audit list shows 'writes on' and 'writes off' entries with the admin email. Writes were left OFF. Apply was NEVER clicked. No paid AI calls were made. Non-admin test@advocate.app does not see the card. Unauthenticated GET /api/admin/law-watch/status returns 401. The admin-stripe-audit-card still renders for the admin and the landing page is unchanged. No page errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Settings > Law tracker", "issues": [
+        "The disabled law-watch-apply-btn looks identical to the enabled one: same bright green, no opacity or cursor change. An admin cannot tell it is inactive while writes are off. Add opacity:0.45 and cursor:not-allowed when disabled. The same applies to the other buttons in the card.",
+        "The 6-column proposal table is wider than the narrow Settings modal. The 'Statuses' and 'Action' columns are cut off and need horizontal scrolling. Consider a compact or stacked layout, or merging columns.",
+        "Raw enum values are shown, e.g. 'in_force', 'partly_repealed'. Replacing underscores with spaces, as the Check pill already does, would be cleaner.",
+        "The Commencement column repeats the status, e.g. 'in_force · date unknown', which adds little."
+      ]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional polish: style disabled buttons in LawWatchAdminCard (opacity/cursor)",
+    "Optional polish: make the proposal table fit the Settings modal width"
+  ],
+  "critical_code_review_comments": [
+    "LawWatchAdminCard: the write-state pill only appears after the card is first expanded, because status is fetched only when open. That is acceptable, but the collapsed header gives no hint of the state.",
+    "The writes-ON expiry shown in the UI is not refreshed automatically. After the 30 minutes pass, the card keeps showing 'writes ON' until another action reloads it, and the backend will reject apply at that point. Consider re-fetching status on an interval or before apply."
+  ],
+  "updated_files": ["/app/test_reports/iteration_51.json"],
+  "success_rate": {"backend": "N/A (skipped as requested)", "frontend": "100%"},
+  "seed_data_creation": "None. Only two audit entries were created: writes on and writes off by admin. Tracker writes are left OFF and 0 records were saved.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Login trick: add_init_script sessionStorage aa_skip_marketing=1, localStorage aa_welcomed=1, aa_lang=en-GB, aa_terms=1, aa_cookie_consent=accepted, aa_uk_scope_ack=1, aa_lex_upl_ack=x; fill email-input/password-input, click auth-submit-btn, then settings-btn -> admin-law-watch-card -> admin-law-watch-toggle. Dry run takes about 5s. Never click law-watch-apply-btn."
+}
