@@ -14083,11 +14083,17 @@ class LawWatchReview(BaseModel):
 
 
 @api_router.post("/admin/law-watch/run")
-async def admin_law_watch_run(dry_run: bool = True, admin: dict = Depends(require_admin)):
-    """Manual official-source check (free legislation.gov.uk data). Dry run by default; writes need LAW_WATCH_WRITE_ENABLED=1."""
+async def admin_law_watch_run(dry_run: bool = True, confirm: Optional[str] = None, admin: dict = Depends(require_admin)):
+    """Manual official-source check (free legislation.gov.uk data). Dry run by default. Writing needs
+    LAW_WATCH_WRITE_ENABLED=1 AND confirm=<proposal_code from a reviewed dry run>; a changed source refuses the write."""
     if not dry_run and not law_watch.write_enabled():
         raise HTTPException(403, "Law-change tracking writes are disabled in this environment — use dry_run=true.")
-    return await law_watch.run_check(db, dry_run=dry_run, actor=admin.get("email", ""))
+    if not dry_run and not confirm:
+        raise HTTPException(400, "Writing needs confirm=<proposal_code> from a dry run you have reviewed.")
+    rep = await law_watch.run_check(db, dry_run=dry_run, confirm=confirm, actor=admin.get("email", ""))
+    if rep["refused"]:
+        raise HTTPException(409, rep["refused"])
+    return rep
 
 
 @api_router.get("/admin/law-watch/records")

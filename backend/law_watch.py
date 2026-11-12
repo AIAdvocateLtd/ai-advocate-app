@@ -2,7 +2,9 @@
 Verifies source FACTS (exists / wording retrieved / recorded status, extent and dates) — never legal interpretations."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
 import os
 import re
 import uuid
@@ -70,7 +72,7 @@ def jurisdiction_for(country: Optional[str], nation: Optional[str]) -> Optional[
 
 
 async def _fetch(url: str) -> Tuple[int, str]:
-    async with httpx.AsyncClient(timeout=8.0, headers=L.UA, follow_redirects=True) as c:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0), headers=L.UA, follow_redirects=True) as c:
         r = await c.get(url)
         return r.status_code, (r.text if r.status_code == 200 else "")
 
@@ -253,7 +255,8 @@ async def check_item(it: dict, fetch, prev: Optional[dict], today: date) -> dict
     return {"key": key, "result": "checked", "changes": classify(prev, rec), "record": rec}
 
 
-async def check_new_legislation(db, fetch, year: str, dry_run: bool) -> List[dict]:
+async def check_new_legislation(db, fetch, year: str) -> List[dict]:
+    """Read only. New ids are returned in "_docs"; the caller writes them only when authorised."""
     out = []
     for t in NEW_FEEDS:
         feed = f"{t}/{year}"
@@ -262,33 +265,29 @@ async def check_new_legislation(db, fetch, year: str, dry_run: bool) -> List[dic
         except Exception:
             code, body = 0, ""
         if code != 200 or "<feed" not in body:
-            out.append({"feed": feed, "result": "source_unavailable"})
+            out.append({"feed": feed, "result": "source_unavailable", "_docs": []})
             continue
         baseline = not await db.law_watch_seen.find_one({"feed": feed})
         new = []
         for e in re.findall(r"<entry>(.*?)</entry>", body, re.S)[:50]:
             i_d = re.search(r"<id>https?://www\.legislation\.gov\.uk/id/([a-z]{3,5}/\d{4}/\d{1,5})</id>", e)
-            if not i_d or await db.law_watch_seen.find_one({"_id": i_d.group(1)}):
+            if not i_d or i_d.group(1) in {d["_id"] for d in new} or await db.law_watch_seen.find_one({"_id": i_d.group(1)}):
                 continue
             t_m = re.search(r"<title>([^<]*)", e)
             title, kinds = content_guard.inspect(" ".join((t_m.group(1) if t_m else "").split())[:200])
             upd = re.search(r"<updated>([^<]+)", e)
-            doc = {"_id": i_d.group(1), "feed": feed, "url": f"{LEG}/{i_d.group(1)}",
-                   "title": "[title withheld — suspicious content]" if content_guard.suspicious(kinds) else title,
-                   "feed_updated": upd.group(1) if upd else None, "commencement": {"state": "unknown", "date": None,
-                   "provenance": "listed in the official new-legislation feed; publication is not commencement"},
-                   "first_seen": _now().isoformat()}
-            new.append(doc)
-            if not dry_run:
-                await db.law_watch_seen.update_one({"_id": doc["_id"]}, {"$setOnInsert": doc}, upsert=True)
+            new.append({"_id": i_d.group(1), "feed": feed, "url": f"{LEG}/{i_d.group(1)}",
+                        "title": "[title withheld — suspicious content]" if content_guard.suspicious(kinds) else title,
+                        "feed_updated": upd.group(1) if upd else None, "commencement": {"state": "unknown", "date": None,
+                        "provenance": "listed in the official new-legislation feed; publication is not commencement"}})
         out.append({"feed": feed, "result": "baseline" if baseline else "checked", "new": [] if baseline else
-                    [{k: d[k] for k in ("_id", "title", "url", "commencement")} for d in new], "seen": len(new)})
+                    [{k: d[k] for k in ("_id", "title", "url", "commencement")} for d in new], "seen": len(new), "_docs": new})
     return out
 
 
-async def check_fact_sources(db, fetch, dry_run: bool) -> List[dict]:
+async def check_fact_sources(db, fetch) -> List[dict]:
     """Source-existence metadata for Phase 2A-1 records whose source is legislation.gov.uk. Reads lex_lessons only;
-    writes to law_watch_fact_checks. Review status and wording of the records are never touched."""
+    the caller writes to law_watch_fact_checks. Review status and wording of the records are never touched."""
     out = []
     async for r in db.lex_lessons.find({"source_url": {"$regex": r"^https://www\.legislation\.gov\.uk/"}},
                                        {"_id": 0, "id": 1, "source_url": 1}):
@@ -297,12 +296,9 @@ async def check_fact_sources(db, fetch, dry_run: bool) -> List[dict]:
         except Exception:
             code, body = 0, ""
         ok = code == 200 and "<Legislation" in body
-        doc = {"lesson_id": r.get("id"), "source_url": r["source_url"], "http_status": code, "checked_at": _now().isoformat(),
-               "A_metadata": {"label": STATUS_A, "verified": ok, "detail": "official source exists" if ok else "not confirmed"},
-               "C_interpretation": {"label": STATUS_C, "verified": False}, "D_professional_review": review_status(None)}
-        out.append(doc)
-        if not dry_run:
-            await db.law_watch_fact_checks.update_one({"lesson_id": doc["lesson_id"]}, {"$set": doc}, upsert=True)
+        out.append({"lesson_id": r.get("id"), "source_url": r["source_url"], "http_status": code, "checked_at": _now().isoformat(),
+                    "A_metadata": {"label": STATUS_A, "verified": ok, "detail": "official source exists" if ok else "not confirmed"},
+                    "C_interpretation": {"label": STATUS_C, "verified": False}, "D_professional_review": review_status(None)})
     return out
 
 
@@ -326,63 +322,97 @@ async def ensure_indexes(db) -> None:
     await db.law_watch_seen.create_index("feed")
 
 
-async def run_check(db, fetch=None, dry_run: bool = True, items: Optional[List[dict]] = None, today: Optional[date] = None,
-                    feeds: bool = True, facts: bool = True, actor: str = "") -> dict:
-    """Idempotent, auditable and safe to rerun. dry_run=True writes nothing and returns the proposed changes."""
-    fetch, today = fetch or _fetch, today or _now().date()
-    if not dry_run:
-        await ensure_indexes(db)
-    started, now = _now(), _now().isoformat()
-    results = []
-    for it in items if items is not None else WATCHLIST:
-        key = item_key(it) if not validate_item(it) else None
-        prev = await db.law_watch_records.find_one({"key": key}, {"_id": 0}) if key else None
-        res = await check_item(it, fetch, prev, today)
-        results.append(res)
-        rec = res["record"]
-        if dry_run or res["result"] not in ("checked", "not_found"):
-            continue
-        if res["result"] == "not_found":
-            if prev:
-                await db.law_watch_records.update_one({"key": key}, {"$set": {"last_checked": now},
-                                                                      "$addToSet": {"anomalies": "provision no longer found"}})
-            continue
-        rec["last_checked"] = now
-        if res["changes"] == ["unchanged"]:
+def proposal_code(results: List[dict], new_leg: List[dict], fact_checks: List[dict]) -> str:
+    """Fingerprint of exactly what an authorised run would write. Any source change gives a different code."""
+    prop = {"provisions": sorted([r["key"], r["version_id"]] for r in results if r.get("write") == "new_version"),
+            "new_legislation": sorted(d["_id"] for f in new_leg for d in f["_docs"]),
+            "fact_checks": sorted([str(f["lesson_id"]), f["A_metadata"]["verified"]] for f in fact_checks)}
+    return hashlib.sha256(json.dumps(prop, sort_keys=True).encode()).hexdigest()[:16]
+
+
+async def _write(db, results: List[dict], prevs: List[Optional[dict]], new_leg: List[dict], fact_checks: List[dict], now: str):
+    await ensure_indexes(db)
+    for res, prev in zip(results, prevs):
+        key, rec = res["key"], res["record"]
+        if res["result"] == "not_found" and prev:
+            await db.law_watch_records.update_one({"key": key}, {"$set": {"last_checked": now},
+                                                                  "$addToSet": {"anomalies": "provision no longer found"}})
+        if res.get("write") == "unchanged":
             await db.law_watch_records.update_one({"key": key}, {"$set": {"last_checked": now}})
-            continue
-        vid = _version_id(key, rec)
-        if prev and prev.get("version_id") == vid:
-            await db.law_watch_records.update_one({"key": key}, {"$set": {"last_checked": now}})
+        if res.get("write") != "new_version":
             continue
         if prev:
             await db.law_watch_history.update_many({"key": key, "superseded_at": None}, {"$set": {"superseded_at": now}})
-        rec.update(version_id=vid, previous_version_id=(prev or {}).get("version_id"),
+        rec.update(last_checked=now, version_id=res["version_id"], previous_version_id=(prev or {}).get("version_id"),
                    previous_text_hash=(prev or {}).get("text_hash"), last_change={"at": now, "types": res["changes"]})
-        await db.law_watch_history.update_one({"_id": vid}, {"$setOnInsert": {
+        await db.law_watch_history.update_one({"_id": res["version_id"]}, {"$setOnInsert": {
             **{k: rec[k] for k in ("key", "title", "url", "status", "extent", "text_hash", "version_date", "version_start_date",
                                    "pending_effects", "commencement", "previous_version_id")},
             "change_types": res["changes"], "recorded_at": now, "superseded_at": None}}, upsert=True)
         await db.law_watch_records.update_one({"key": key}, {"$set": rec}, upsert=True)
-    new_leg = await check_new_legislation(db, fetch, str(today.year), dry_run) if feeds else []
-    fact_checks = await check_fact_sources(db, fetch, dry_run) if facts else []
-    changed = [r for r in results if r["changes"] and r["changes"] != ["unchanged"]]
+    for f in new_leg:
+        for d in f["_docs"]:
+            await db.law_watch_seen.update_one({"_id": d["_id"]}, {"$setOnInsert": {**d, "first_seen": now}}, upsert=True)
+    for f in fact_checks:
+        await db.law_watch_fact_checks.update_one({"lesson_id": f["lesson_id"]}, {"$set": f}, upsert=True)
+
+
+async def run_check(db, fetch=None, dry_run: bool = True, confirm: Optional[str] = None, items: Optional[List[dict]] = None,
+                    today: Optional[date] = None, feeds: bool = True, facts: bool = True, actor: str = "") -> dict:
+    """Dry run (default) writes nothing and returns the proposed changes plus a proposal code. A write run fetches once,
+    recomputes the code and writes only if it equals `confirm`. Only records with verified official metadata (A) are written."""
+    fetch, today = fetch or _fetch, today or _now().date()
+    started, now = _now(), _now().isoformat()
+    its = items if items is not None else WATCHLIST
+    keys = [None if validate_item(it) else item_key(it) for it in its]
+    prevs = [await db.law_watch_records.find_one({"key": k}, {"_id": 0}) if k else None for k in keys]
+    sem = asyncio.Semaphore(3)  # polite: at most 3 requests at once, one attempt each, no retries
+
+    async def one(it, prev):
+        async with sem:
+            return await check_item(it, fetch, prev, today)
+    results = list(await asyncio.gather(*[one(it, p) for it, p in zip(its, prevs)]))
+    for res, prev in zip(results, prevs):
+        if res["result"] != "checked":
+            continue
+        if not res["record"]["verification"]["A_metadata"]["verified"]:
+            res["result"] = "held_unverified"  # incomplete / inconsistent official metadata is never written
+            continue
+        res["version_id"] = _version_id(res["key"], res["record"])
+        res["write"] = "unchanged" if res["changes"] == ["unchanged"] or (prev or {}).get("version_id") == res["version_id"] \
+            else "new_version"
+    new_leg = await check_new_legislation(db, fetch, str(today.year)) if feeds else []
+    fact_checks = await check_fact_sources(db, fetch) if facts else []
+    code = proposal_code(results, new_leg, fact_checks)
+    refused = None
+    if not dry_run and confirm != code:
+        refused = "Proposal code does not match this check — the official sources or records changed since the dry run, " \
+                  "or no code was given. Nothing was written; run a new dry run and review it."
+    wrote = not dry_run and not refused
+    if wrote:
+        await _write(db, results, prevs, new_leg, fact_checks, now)
+    changed = [r for r in results if r["changes"] and r["changes"] != ["unchanged"] and r["result"] == "checked"]
     summary = {"checked": sum(r["result"] == "checked" for r in results),
-               "unchanged": sum(r["changes"] == ["unchanged"] for r in results),
+               "unchanged": sum(r.get("write") == "unchanged" for r in results),
+               "to_write": sum(r.get("write") == "new_version" for r in results),
                "changed": sum(1 for r in changed if r["changes"] != ["first_recorded"]),
-               "first_recorded": sum(r["changes"] == ["first_recorded"] for r in results),
+               "first_recorded": sum(r["changes"] == ["first_recorded"] and r["result"] == "checked" for r in results),
+               "held_unverified": sum(r["result"] == "held_unverified" for r in results),
                "unavailable": sum(r["result"] == "source_unavailable" for r in results),
                "not_found": sum(r["result"] == "not_found" for r in results),
                "rejected": sum(r["result"] in ("unsupported_jurisdiction", "unsupported_type", "invalid_identifier") for r in results),
                "new_legislation": sum(len(f.get("new") or []) for f in new_leg),
                "fact_sources_checked": len(fact_checks), "fact_sources_confirmed": sum(f["A_metadata"]["verified"] for f in fact_checks)}
-    report = {"id": str(uuid.uuid4()), "at": now, "dry_run": dry_run, "actor": actor, "summary": summary,
-              "items": [{"key": r["key"], "result": r["result"], "changes": r["changes"], "error": r.get("error"),
-                         "status": (r["record"] or {}).get("status"), "commencement": (r["record"] or {}).get("commencement"),
+    report = {"id": str(uuid.uuid4()), "at": now, "dry_run": dry_run, "written": wrote, "refused": refused,
+              "proposal_code": code, "actor": actor, "summary": summary,
+              "items": [{"key": r["key"], "result": r["result"], "changes": r["changes"], "write": r.get("write"),
+                         "error": r.get("error"), "status": (r["record"] or {}).get("status"),
+                         "commencement": (r["record"] or {}).get("commencement"),
                          "verification": (r["record"] or {}).get("verification")} for r in results],
-              "new_legislation": new_leg, "affected_topics": affected_topics(changed), "notifications_sent": 0,
+              "new_legislation": [{k: v for k, v in f.items() if k != "_docs"} for f in new_leg],
+              "affected_topics": affected_topics(changed), "notifications_sent": 0,
               "ms": int((_now() - started).total_seconds() * 1000)}
-    if not dry_run:
+    if wrote:
         await db.law_watch_runs.insert_one({**report, "_id": report["id"]})
     return report
 

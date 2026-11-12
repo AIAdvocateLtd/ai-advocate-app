@@ -65,8 +65,14 @@ def page(xml, url=URL):
 
 
 def check(src, items=None, dry=False, **kw):
-    return run(W.run_check(TDB, src, dry_run=dry, items=[ERA] if items is None else items, today=TODAY,
-                           feeds=kw.pop("feeds", False), facts=kw.pop("facts", False), **kw))
+    """Authorised write = reviewed dry run, then a write run confirmed with that dry run's proposal code."""
+    args = dict(items=[ERA] if items is None else items, today=TODAY, feeds=kw.pop("feeds", False), facts=kw.pop("facts", False))
+    proposal = run(W.run_check(TDB, src, dry_run=True, **args, **kw))
+    if dry:
+        return proposal
+    rep = run(W.run_check(TDB, src, dry_run=False, confirm=proposal["proposal_code"], **args, **kw))
+    assert rep["written"] and not rep["refused"]
+    return rep
 
 
 @pytest.fixture(autouse=True)
@@ -211,6 +217,62 @@ def test_unsupported_jurisdiction_and_invalid_identifiers_rejected():
     assert W.jurisdiction_for("FR", None) is None and W.jurisdiction_for("US", "england") is None
 
 
+# ------------------------------------------------------------------ controlled initialisation
+def test_write_without_or_with_wrong_code_is_refused():
+    src = Src(page(clml()))
+    for code in (None, "", "0000000000000000"):
+        rep = run(W.run_check(TDB, src, dry_run=False, confirm=code, items=[ERA], today=TODAY, feeds=False, facts=False))
+        assert rep["refused"] and not rep["written"]
+    assert all(run(TDB[c].count_documents({})) == 0 for c in COLLS)
+
+
+def test_write_refused_when_source_changed_after_dry_run():
+    proposal = check(Src(page(clml())), dry=True)
+    rep = run(W.run_check(TDB, Src(page(clml(text=TEXT + " Changed."))), dry_run=False, confirm=proposal["proposal_code"],
+                          items=[ERA], today=TODAY, feeds=False, facts=False))
+    assert rep["refused"] and run(TDB.law_watch_records.count_documents({})) == 0
+
+
+def test_proposal_code_stable_and_initialisation_idempotent():
+    src = Src(page(clml()))
+    a, b = check(src, dry=True), check(src, dry=True)
+    assert a["proposal_code"] == b["proposal_code"] and a["summary"]["to_write"] == 1
+    check(src)
+    again = check(src, dry=True)
+    assert again["summary"]["to_write"] == 0 and again["proposal_code"] != a["proposal_code"]
+    check(src)
+    assert run(TDB.law_watch_records.count_documents({})) == 1 and run(TDB.law_watch_history.count_documents({})) == 1
+
+
+def test_unverified_metadata_held_back_never_written():
+    rep = check(Src(page(clml(valid="2099-01-01"))))
+    assert item(rep)["result"] == "held_unverified" and rep["summary"]["held_unverified"] == 1
+    assert run(TDB.law_watch_records.count_documents({})) == 0 and run(TDB.law_watch_history.count_documents({})) == 0
+
+
+def test_nine_watchlist_init_with_one_timeout_writes_only_verified():
+    import httpx
+    pages = {}
+    for it in W.WATCHLIST:
+        url = f"{W.LEG}/{W.item_key(it)}"
+        pages[f"{url}/data.xml"] = (200, clml(num=it["section"], part=W._PART.get(it["type"], "section")))
+    pages[f"{W.LEG}/ukpga/1989/41/section/1/data.xml"] = httpx.ReadTimeout("read timed out")
+    src = Src(pages)
+    rep = check(src, items=W.WATCHLIST)
+    assert rep["summary"]["first_recorded"] == 8 and rep["summary"]["unavailable"] == 1, (rep["summary"], [(i["key"], i["result"]) for i in rep["items"]])
+    assert next(i for i in rep["items"] if i["key"] == "ukpga/1989/41/section/1")["error"] == "ReadTimeout"
+    assert run(TDB.law_watch_records.count_documents({})) == 8
+    assert not run(TDB.law_watch_records.find_one({"key": "ukpga/1989/41/section/1"}))
+    assert src.calls.count(f"{W.LEG}/ukpga/1989/41/section/1/data.xml") == 2  # once per run (dry + write), never retried
+
+
+def test_endpoint_requires_switch_and_code(monkeypatch):
+    monkeypatch.setenv("LAW_WATCH_WRITE_ENABLED", "1")
+    with pytest.raises(HTTPException) as e:
+        run(server.admin_law_watch_run(dry_run=False, confirm=None, admin={"email": "admin@aiadvocate.co.uk"}))
+    assert e.value.status_code == 400
+
+
 @pytest.mark.parametrize("valid,start,expect", [("2099-01-01", "2020-01-01", "in the future"),
                                                 ("not-a-date", "2020-01-01", "not a valid date"),
                                                 ("2026-10-01", "2030-05-05", "in the future")])
@@ -314,13 +376,14 @@ def test_not_yet_in_force_and_pending_changes_explained():
 
 
 def test_incomplete_records_explained_as_uncertain():
-    _seed(valid="2099-01-01")
+    _seed()
+    check(Src())  # provision no longer found at the official source -> anomaly on the existing record
     assert any("incomplete or inconsistent" in n for n in notes("question"))
 
 
 def test_recent_change_described_as_source_fact_only():
     _seed()
-    run(W.run_check(TDB, Src(page(clml(text=TEXT + " Amended."))), dry_run=False, items=[ERA], feeds=False, facts=False))
+    check(Src(page(clml(text=TEXT + " Amended."))))
     out = notes("question")
     assert any("changed on" in n and "has not been assessed" in n for n in out)
     assert out[-1].startswith("These notes come from official source records only")
@@ -364,9 +427,9 @@ def test_only_free_official_source_requests_and_no_ai_or_search(monkeypatch):
     import rag
     monkeypatch.setattr(rag, "tavily_search", lambda *a, **k: called.append("tavily"), raising=False)
     src = Src(page(clml()))
-    check(src, items=W.WATCHLIST, feeds=True, facts=True)
+    check(src, items=W.WATCHLIST, feeds=True, facts=True, dry=True)
     assert called == [] and src.calls and all(u.startswith("https://www.legislation.gov.uk/") for u in src.calls)
-    assert len(src.calls) <= len(W.WATCHLIST) + len(W.NEW_FEEDS) + 50
+    assert len(src.calls) == len(set(src.calls)) == len(W.WATCHLIST) + len(W.NEW_FEEDS)  # one attempt each, no retries
 
 
 def test_affected_topics_prepared_but_nothing_sent(monkeypatch):
