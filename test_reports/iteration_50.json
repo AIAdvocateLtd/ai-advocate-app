@@ -1,0 +1,33 @@
+{
+  "summary": "Frontend-only test of Settings > Owner tool Comp Pro Access signup stats + grouped paginated users list as admin@aiadvocate.co.uk (desktop 1920x1080). All requested flows pass: signup-stats line matches GET /api/admin/signups/stats exactly (1 genuine, 0 today/24h/7d/30d, 56 test, 3 internal); comp-recent-toggle expands and shows tabs; header 'Genuine users · 1' -> 'Internal accounts · 3' (3 rows) -> 'Test accounts · 56' (25 rows, 'Load more (25 of 56)'); Load more -> 50 unique -> 56 unique, button disappears; no duplicates. Rows show date/email/name/tier/status with Grant(55)/Revoke(1)/Delete(56) rendered (none clicked). Search 'admin' -> '1 match', tabs + load-more hidden; clearing returns to Test group page 1 (25 rows, tabs back). No console errors from this feature (one pre-existing hydration warning from Reviews.js <option> injected span).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/signups/stats + /list?group=genuine", "issue": "Only 'genuine' user in preview is test1782245767@example-fake.com (name 'Test User', status trial) - classifier misses 'example-fake.com' domain / 'test<digits>@' local part; stats also reports needs_review:1 (not surfaced in UI)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Comp Pro user rows", "issues": ["Rows show redundant 'free · free' when tier and subscription_status are both 'free' - consider hiding status when equal to tier", "28 of 56 test rows have no created_at so no date shown (expected per spec, but older users lack a date)", "Stats line wraps '3 internal' onto a 2nd line at modal width - cosmetic"]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional: tighten genuine classifier (example-fake.com, test<digits>@ patterns) or surface needs_review count in SignupStatsLine",
+    "Optional: guard loadRecent against stale responses (tab switch while a request/Load more is in flight can mix groups or append twice); disable Load more while loading",
+    "Optional: hide subscription_status when it duplicates tier"
+  ],
+  "critical_code_review_comments": [
+    "loadRecent has no in-flight/stale-request guard: rapid tab switching or double-clicking Load more can append the wrong group's page or the same page twice (setResults uses prev append).",
+    "loadRecent swallows errors silently (no error state/feedback).",
+    "Pre-existing console warning: Reviews.js line 79 <option> contains injected <span> (visual-edit tooling) - hydration warning, unrelated to this feature."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "skipped (frontend only)", "frontend": "100%"},
+  "seed_data_creation": "None. No Grant/Revoke/Delete clicked; no data modified.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Login trick: add_init_script sessionStorage aa_skip_marketing=1, localStorage aa_welcomed=1, aa_lang=en-GB, aa_terms=1, aa_cookie_consent=accepted, aa_uk_scope_ack=1, aa_lex_upl_ack=x; fill email-input/password-input, click auth-submit-btn; then settings-btn -> settings-comp-pro card. Preview: genuine=1, test=56, internal=3. Test tab paginates 25/50/56."
+}

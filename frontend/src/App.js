@@ -11125,7 +11125,7 @@ function CompProAdminCard({ lang }) {
                   <div style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.email}</div>
                   <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>
                     {u.created_at && <span data-testid={`signup-date-${u.id}`}>{String(u.created_at).slice(0, 10)} · </span>}
-                    {u.full_name || "—"} · {u.tier || "free"}{u.subscription_status ? ` · ${u.subscription_status}` : ""}
+                    {u.full_name || "—"} · {u.tier || "free"}{u.subscription_status && u.subscription_status !== (u.tier || "free") ? ` · ${u.subscription_status}` : ""}
                     {hasComp && <span style={{ color: "var(--gold)" }}> · comp until {u.comp_pro_until.slice(0,10)}</span>}
                   </div>
                 </div>
