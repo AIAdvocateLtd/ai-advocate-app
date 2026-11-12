@@ -79,6 +79,7 @@ import lex_safety  # noqa: E402
 import content_guard  # noqa: E402
 import high_stakes  # noqa: E402
 import legal_reasoning  # noqa: E402
+import law_watch  # noqa: E402
 import lex_output  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
@@ -2054,6 +2055,15 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
         out, claims_rep = legal_reasoning.verify_claims(out, leg, citations, research.get("sources") or [])
     except Exception as e:
         logger.warning(f"claim check failed (answer unchanged): {e!r}")
+    lw_notes = []
+    try:
+        lw_notes = await law_watch.annotate(db, leg, (juris or {}).get("country"), _juris_nation(juris),
+                                            (juris or {}).get("customer_text") or message)
+        if lw_notes:
+            out = lex_safety.insert_before_tail(out, "**Law-change check (legislation.gov.uk records):**\n" +
+                                                "\n".join(f"- {n}" for n in lw_notes))
+    except Exception as e:
+        logger.warning(f"law-change check failed (answer unchanged): {e!r}")
     named = {u.rstrip("/") for u in (leg or {}).get("urls", []) + official_guidance.named_urls(out)}
     citations[:] = [c for c in citations if c.get("claim_check") != "not_cited" or c.get("source") == "legislation"
                     or (c.get("url") or "").rstrip("/") in named]
@@ -2063,7 +2073,8 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
         "unstated_event_claims_fixed": event_fixes,
         "acas_guidance": {"retrieved": research.get("guidance_keys") or [], "failed": research.get("guidance_failed") or [],
                           "notes": len(g_notes)},
-        "legislation": leg, "high_stakes": hs_rep, "claims": claims_rep, "depth": (juris or {}).get("depth")}
+        "legislation": leg, "high_stakes": hs_rep, "claims": claims_rep, "depth": (juris or {}).get("depth"),
+        "law_watch_notes": len(lw_notes)}
 
 
 @api_router.post("/lex/chat")
@@ -14062,6 +14073,53 @@ async def admin_attack_detections(days: int = 30, _: dict = Depends(require_admi
         for k in e.get("kinds") or []:
             by_kind[k] = by_kind.get(k, 0) + 1
     return {"days": days, "total": total, "by_feature": by_feature, "by_kind": by_kind}
+
+
+class LawWatchReview(BaseModel):
+    reviewer_name: str = Field(min_length=3, max_length=120)
+    regulator: str = Field(min_length=2, max_length=60)
+    registration_number: str = Field(min_length=2, max_length=40)
+    scope: str = Field(default="", max_length=600)
+
+
+@api_router.post("/admin/law-watch/run")
+async def admin_law_watch_run(dry_run: bool = True, admin: dict = Depends(require_admin)):
+    """Manual official-source check (free legislation.gov.uk data). Dry run by default; writes need LAW_WATCH_WRITE_ENABLED=1."""
+    if not dry_run and not law_watch.write_enabled():
+        raise HTTPException(403, "Law-change tracking writes are disabled in this environment — use dry_run=true.")
+    return await law_watch.run_check(db, dry_run=dry_run, actor=admin.get("email", ""))
+
+
+@api_router.get("/admin/law-watch/records")
+async def admin_law_watch_records(_: dict = Depends(require_admin)):
+    return await db.law_watch_records.find({}, {"_id": 0}).sort("key", 1).to_list(200)
+
+
+@api_router.get("/admin/law-watch/history")
+async def admin_law_watch_history(key: str, _: dict = Depends(require_admin)):
+    return await db.law_watch_history.find({"key": key}, {"_id": 0}).sort("recorded_at", 1).to_list(100)
+
+
+@api_router.get("/admin/law-watch/runs")
+async def admin_law_watch_runs(_: dict = Depends(require_admin)):
+    return await db.law_watch_runs.find({}, {"_id": 0, "items": 0}).sort("at", -1).to_list(30)
+
+
+@api_router.post("/admin/law-watch/records/{key:path}/professional-review")
+async def admin_law_watch_review(key: str, data: LawWatchReview, admin: dict = Depends(require_admin)):
+    """Records a review by a named, regulated professional. Status D is shown only from such a record."""
+    if not law_watch.write_enabled():
+        raise HTTPException(403, "Law-change tracking writes are disabled in this environment.")
+    if data.regulator.strip().upper() not in law_watch.REGULATORS:
+        raise HTTPException(400, "Regulator must be a UK legal regulator (e.g. SRA, BSB, CILEx).")
+    review = {**data.model_dump(), "regulator": data.regulator.strip().upper(),
+              "reviewed_at": datetime.now(timezone.utc).isoformat(), "recorded_by": admin.get("email")}
+    status = law_watch.review_status(review)
+    r = await db.law_watch_records.update_one({"key": key}, {"$set": {"professional_review": review,
+                                                                      "verification.D_professional_review": status}})
+    if not r.matched_count:
+        raise HTTPException(404, "No tracked provision with that key.")
+    return {"ok": True, "D_professional_review": status}
 
 
 @api_router.get("/admin/stats")
