@@ -23,7 +23,7 @@ Remove: "Anthropic does NOT train on Universal-Key API traffic" unless confirmed
 
 ## 2. Corrections to "What we collect"
 - Replace "Lex chat content … Encrypted at rest" with: "Lex chat content is encrypted at rest. Some conversations created before encryption was introduced are being migrated." **[after migration is done, remove the second sentence]**
-- Add: "Documents you upload to Lex: we keep the extracted text so Lex can refer to it in your conversation." **[CONFIRM retention period — none currently set]**
+- Add: "Documents you upload to Lex: we keep the extracted text so Lex can refer to it in your conversation, and delete it when you delete your account." **[Currently there is no way to delete a single uploaded document on its own — wording must not promise this until it exists]**
 - Add: "Emergency features: your emergency profile, emergency events and, if you share it, your location."
 - Add: "Evidence and witness features: file details (not the files themselves), witness statements and invitations you send."
 - Correct "Case files: … uploaded documents" — case attachments and recorded evidence store the file name, details and a fingerprint, not the file itself.
@@ -31,7 +31,7 @@ Remove: "Anthropic does NOT train on Universal-Key API traffic" unless confirmed
 ## 3. Corrections to "Data retention"
 Replace with:
 - "Active accounts: kept while you use AI Advocate. You can delete conversations and cases at any time (deleted items are kept in a recycle bin for 30 days)."
-- "When you delete your account: your personal and legal information is deleted immediately. If any part fails, it is completed automatically within 24 hours."
+- "When you delete your account: your account is closed immediately and your personal and legal information is deleted straight away. If any part cannot be removed at that moment, our system retries automatically every few hours until deletion is complete."
 - "We keep, without your name or email: AI usage and cost totals (to run spending limits), records of gift payments (UK tax law: 6 years), and audit records of complimentary access and analytics deletions."
 - "Payment records are held by Stripe for tax and accounting purposes." **[CONFIRM retention period with accountant — typically 6 years from the end of the financial year]**
 - Remove "personal data permanently erased within 30 days" (no 30-day process exists; deletion is immediate).

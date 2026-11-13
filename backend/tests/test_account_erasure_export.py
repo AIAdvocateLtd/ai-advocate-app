@@ -17,7 +17,7 @@ TDB = db.client["aia_erasure_test"]
 A = {"id": "synthetic-a", "email": "Synthetic.A@example.test", "full_name": "Alice Synthetic", "country": "GB",
      "password_hash": "$2b$12$syntheticsyntheticsyntheticsyntheticsyntheticsynthe", "latitude": 51.5, "longitude": -0.1,
      "language": "en", "stripe_customer_id": "cus_synthetic", "stripe_subscription_id": "sub_synthetic", "totp_secret": "x"}
-B = {"id": "synthetic-b", "email": "synthetic.b@example.test", "full_name": "Bob Synthetic", "password_hash": "$2b$12$b"}
+B = {"id": "synthetic-b", "email": "synthetic.b@aiadvocate-test.co.uk", "full_name": "Bob Synthetic", "password_hash": "$2b$12$b"}
 ALL = sorted(set(E.DELETE_BY_USER_ID + E.DELETE_BY_EMAIL + [c for c, *_ in E.ANONYMISE] +
                  ["users", "engagements", "engagement_messages", "engagement_files", "taster_answers"]))
 TOMB_KEYS = {"id", "deleted", "deleted_at", "email", "deletion"}
@@ -211,3 +211,19 @@ def test_preview_customer_data_untouched():
     before = {n: run(db[n].count_documents({})) for n in names}
     delete()
     assert before == {n: run(db[n].count_documents({})) for n in names}
+
+
+def test_login_refused_while_deletion_incomplete(monkeypatch):
+    import bcrypt
+    from types import SimpleNamespace
+
+    async def noop(*a, **k):
+        return None
+    for fn in ("check", "fail", "success"):
+        monkeypatch.setattr(server.login_guard, fn, noop)
+    pw = bcrypt.hashpw(b"Synthetic-pass-1", bcrypt.gensalt(4)).decode()
+    run(TDB.users.update_one({"id": B["id"]}, {"$set": {"password_hash": pw, "deleted": True, "deletion": {"status": "in_progress"}}}))
+    req = SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
+    with pytest.raises(HTTPException) as e:
+        run(server.login(server.UserLogin(email=B["email"], password="Synthetic-pass-1"), req))
+    assert e.value.status_code == 401

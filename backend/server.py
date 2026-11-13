@@ -1776,7 +1776,7 @@ async def login(data: UserLogin, request: Request):
     ip = _client_ip(request)
     await login_guard.check("user", data.email, ip)
     user = await db.users.find_one({"email": data.email})
-    if not user or not verify_pw(data.password, user.get("password_hash", "")):
+    if not user or user.get("deleted") or not verify_pw(data.password, user.get("password_hash", "")):
         await login_guard.fail("user", data.email, ip)
         raise HTTPException(401, "Invalid credentials")
     await login_guard.success("user", data.email, ip)
@@ -1848,6 +1848,8 @@ async def google_login(data: GoogleLogin):
         name = data.name or ""
 
     user = await db.users.find_one({"$or": [{"google_id": google_sub}, {"email": email}]})
+    if user and user.get("deleted"):
+        raise HTTPException(401, "This account has been deleted.")
     if not user:
         user_id = str(uuid.uuid4())
         user = {
@@ -1918,6 +1920,8 @@ async def apple_login(data: AppleLogin):
     user = await db.users.find_one({"apple_id": apple_sub})
     if not user and email:
         user = await db.users.find_one({"email": email})
+    if user and user.get("deleted"):
+        raise HTTPException(401, "This account has been deleted.")
     if not user:
         user_id = str(uuid.uuid4())
         user = {
