@@ -38,7 +38,7 @@
 									<ukm:TotalImages Value="2"/>
 								</ukm:Statistics>
 				</ukm:Metadata><Primary><Body DocumentURI="http://www.legislation.gov.uk/ukpga/2025/26/body" IdURI="http://www.legislation.gov.uk/id/ukpga/2025/26/body" NumberOfProvisions="254" RestrictExtent="E+W+S" RestrictStartDate="2026-06-22"><Part DocumentURI="http://www.legislation.gov.uk/ukpga/2025/26/part/2" IdURI="http://www.legislation.gov.uk/id/ukpga/2025/26/part/2" NumberOfProvisions="41" id="part-2" RestrictExtent="E+W" RestrictStartDate="2026-05-01"><Number>Part 2</Number><Title>Residential landlords</Title><Chapter DocumentURI="http://www.legislation.gov.uk/ukpga/2025/26/part/2/chapter/2" IdURI="http://www.legislation.gov.uk/id/ukpga/2025/26/part/2/chapter/2" NumberOfProvisions="15" id="part-2-chapter-2" RestrictExtent="E+W" RestrictStartDate="2026-05-01"><Number>Chapter 2</Number><Title>Landlord redress schemes</Title><Pblock DocumentURI="http://www.legislation.gov.uk/ukpga/2025/26/part/2/chapter/2/crossheading/guidance" IdURI="http://www.legislation.gov.uk/id/ukpga/2025/26/part/2/chapter/2/crossheading/guidance" NumberOfProvisions="1" id="part-2-chapter-2-crossheading-guidance" RestrictExtent="E+W" Match="false" Status="Prospective"><Title>Guidance</Title><P1group Match="false" Status="Prospective" RestrictExtent="E+W"><Title>Guidance for scheme administrator and local housing authority</Title><P1 DocumentURI="http://www.legislation.gov.uk/ukpga/2025/26/section/70" IdURI="http://www.legislation.gov.uk/id/ukpga/2025/26/section/70" id="section-70">
-<Pnumber><CommentaryRef Ref="key-e5552a301b1d7085d3bd5875105e2577"/>70</Pnumber>
+<Pnumber><CommentaryRef Ref="fx-e5552a301b1d7085d3bd5875105e2577"/>70</Pnumber>
 <P1para>
 <P2 DocumentURI="http://www.legislation.gov.uk/ukpga/2025/26/section/70/1" IdURI="http://www.legislation.gov.uk/id/ukpga/2025/26/section/70/1" id="section-70-1">
 <Pnumber>1</Pnumber>
@@ -59,4 +59,4 @@
 </P2para>
 </P2>
 </P1para>
-</P1></P1group></Pblock></Chapter></Part></Body></Primary><Commentaries><Commentary Type="I" id="key-e5552a301b1d7085d3bd5875105e2577"><Para><Text>S. 70  not in force at Royal Assent, see <CitationSubRef id="nc80fcd76eab90e7e" SectionRef="section-145-1-7" URI="http://www.legislation.gov.uk/id/ukpga/2025/26/section/145/1/7" Operative="true">s. 145(1)(7)</CitationSubRef></Text></Para></Commentary></Commentaries></Legislation>
+</P1></P1group></Pblock></Chapter></Part></Body></Primary><Commentaries><Commentary Type="I" id="fx-e5552a301b1d7085d3bd5875105e2577"><Para><Text>S. 70  not in force at Royal Assent, see <CitationSubRef id="nc80fcd76eab90e7e" SectionRef="section-145-1-7" URI="http://www.legislation.gov.uk/id/ukpga/2025/26/section/145/1/7" Operative="true">s. 145(1)(7)</CitationSubRef></Text></Para></Commentary></Commentaries></Legislation>
