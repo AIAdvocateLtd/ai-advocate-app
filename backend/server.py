@@ -80,6 +80,7 @@ import content_guard  # noqa: E402
 import high_stakes  # noqa: E402
 import legal_reasoning  # noqa: E402
 import law_watch  # noqa: E402
+import account_erasure  # noqa: E402
 import lex_output  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
@@ -7699,11 +7700,13 @@ async def _build_user_export(user: dict) -> dict:
         "email_verify_token_hash", "password_reset_token_hash",
         "apple_id", "google_id",
         "webauthn_credentials",  # if present
+        "deletion",
     ):
         me.pop(k, None)
 
+    convo_total = await db.conversations.count_documents({"user_id": uid})
     convos = []
-    async for c in db.conversations.find({"user_id": uid}, {"_id": 0}).sort("created_at", 1).limit(2000):
+    async for c in db.conversations.find({"user_id": uid}, {"_id": 0}).sort("created_at", 1).limit(account_erasure.EXPORT_LIMIT):
         if "user_message" in c: c["user_message"] = decrypt_text(c["user_message"])
         if "assistant_response" in c: c["assistant_response"] = decrypt_text(c["assistant_response"])
         convos.append(c)
@@ -7733,14 +7736,12 @@ async def _build_user_export(user: dict) -> dict:
         "format_version": 1,
         "notes": "This is your full personal data held by AI Advocate. Vault file contents are encrypted with your PIN and not exported here — open the Vault on your device to decrypt them.",
         "user": me,
-        "conversations": convos,
-        "cases": cases,
-        "case_items": case_items,
-        "legal_files": files,
-        "reminders": reminders,
-        "wills": wills,
-        "feature_requests": feature_requests,
-        "vault_items_metadata": vault_items,
+        **account_erasure.clean({"conversations": convos, "cases": cases, "case_items": case_items, "legal_files": files,
+                                 "reminders": reminders, "wills": wills, "feature_requests": feature_requests,
+                                 "vault_items_metadata": vault_items}, decrypt_text),
+        "conversations_total": convo_total,
+        "conversations_truncated": convo_total > len(convos),
+        "other_records": await account_erasure.export_extra(db, uid, decrypt_text),
     }
 
 
@@ -7749,6 +7750,7 @@ def _render_user_export_html(payload: dict) -> str:
     like a proper webpage — no JSON brackets, markdown properly rendered,
     conversations formatted as Q&A, dates human-readable."""
     import html as _h
+    import json as _json_mod
     import re as _re
     def esc(s):
         return _h.escape(str(s)) if s is not None else ""
@@ -7861,6 +7863,9 @@ def _render_user_export_html(payload: dict) -> str:
     </table>
 
     <h2>2. Ask Lex — Your Conversations ({len(convos)})</h2>"""]
+    if payload.get("conversations_truncated"):
+        html.append(f'<div class="disclaimer">This export contains your first {len(convos)} of {payload.get("conversations_total")} conversations. '
+                    'Email support@aiadvocate.co.uk and we will send the rest.</div>')
 
     if not convos:
         html.append('<div class="empty">You have no saved conversations yet.</div>')
@@ -7935,6 +7940,16 @@ def _render_user_export_html(payload: dict) -> str:
         for fr in reqs:
             html.append(f'<div class="qa"><div class="qmeta">{esc(fmt_dt(fr.get("created_at")))}</div>{md_to_html(fr.get("message") or fr.get("body") or "")}</div>')
 
+    other = payload.get("other_records") or {}
+    if other:
+        html.append('<h2>8. Other Records</h2>')
+        for name, rows in other.items():
+            html.append(f'<h3>{esc(name.replace("_", " ").title())} ({len(rows)})</h3>')
+            for r in rows:
+                cells = "".join(f'<tr><th>{esc(k)}</th><td>{esc(v if not isinstance(v, (dict, list)) else _json_mod.dumps(v, default=str))[:4000]}</td></tr>'
+                                for k, v in r.items() if k not in ("id", "user_id"))
+                html.append(f'<table class="meta">{cells}</table>')
+
     html.append('''
       <hr>
       <p class="muted">This export was generated automatically by AI Advocate under UK-GDPR Article 20 (right to data portability).
@@ -8002,43 +8017,20 @@ async def gdpr_delete_my_account(user: dict = Depends(get_user)):
     uid = user["id"]
     # 1) Cancel any active Stripe subscription so the user isn't billed after deletion
     sub_id = user.get("stripe_subscription_id")
+    retain = None
     if sub_id and STRIPE_API_KEY:
         try:
             stripe.Subscription.delete(sub_id)  # cancels immediately, prorated
             logger.info(f"Cancelled Stripe sub {sub_id} as part of account deletion")
         except Exception as e:
             logger.warning(f"Failed to cancel Stripe sub during account deletion: {e}")
-    # 2) Delete user-owned data across collections
-    cols_to_wipe = [
-        "conversations", "cases", "case_items", "case_notes", "legal_files",
-        "reminders", "feature_requests", "vault_items", "vault_meta", "vault_shares",
-        "usage_counters", "lex_chats", "security_events", "engagement_files", "wills",
-    ]
-    for col in cols_to_wipe:
-        try: await db[col].delete_many({"user_id": uid})
-        except Exception: pass
-    # 3) Engagements & their messages — user is either client or invited party
-    engs = []
-    async for e in db.engagements.find({"client_user_id": uid}, {"_id": 0, "id": 1}):
-        engs.append(e["id"])
-    if engs:
-        await db.engagement_messages.delete_many({"engagement_id": {"$in": engs}})
-        await db.engagement_files.delete_many({"engagement_id": {"$in": engs}})
-        await db.engagements.delete_many({"id": {"$in": engs}})
-    # 4) Anonymise the user record (kept to prevent trial abuse but personally unidentifiable)
-    await db.users.update_one(
-        {"id": uid},
-        {"$set": {
-            "deleted": True,
-            "deleted_at": datetime.now(timezone.utc).isoformat(),
-            "email": f"deleted-{uid}@ai-advocate.local",
-            "name": "(deleted)",
-            "hashed_password": None,
-            "apple_id": None, "google_id": None,
-            "stripe_customer_id": None, "stripe_subscription_id": None,
-            "last_login_ip": None, "last_login_country": None,
-        }}
-    )
+            retain = {"stripe_subscription_id": sub_id, "stripe_cancel_failed": True}  # so billing can still be stopped
+    # 2) Lock the account, erase personal data everywhere, anonymise records kept for a stated reason
+    rep = await account_erasure.erase_user(db, uid, user.get("email"), JWT_SECRET, retain)
+    if rep["status"] != "complete":
+        logger.warning(f"Account deletion incomplete for user {uid}: {rep['failed']} (sweeper will retry)")
+        return {"deleted": True, "message": "Your account is closed and your data is being deleted. "
+                                            "A few records are still being removed and will be gone shortly."}
     logger.info(f"Account deleted (GDPR) for user {uid}")
     return {"deleted": True, "message": "Your account and all personal data have been permanently deleted."}
 
@@ -17548,6 +17540,7 @@ async def startup():
     import asyncio as _aio
     try:
         await _recycle_bin_sweeper()
+        await account_erasure.retry_incomplete(db, JWT_SECRET)
     except Exception as e:
         logger.warning(f"Recycle-bin sweep on startup failed: {e}")
     async def _periodic_sweep():
@@ -17555,6 +17548,7 @@ async def startup():
             await _aio.sleep(6 * 3600)   # every 6 hours
             try:
                 await _recycle_bin_sweeper()
+                await account_erasure.retry_incomplete(db, JWT_SECRET)
             except Exception as e:
                 logger.warning(f"Periodic recycle-bin sweep failed: {e}")
     _aio.create_task(_periodic_sweep())
