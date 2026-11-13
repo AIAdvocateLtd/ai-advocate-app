@@ -1,0 +1,207 @@
+{
+ "cost_gbp": 0.3575,
+ "lex_rows": [
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 0,
+   "tokens_out": 659,
+   "output_chars": 1920,
+   "cost_gbp": 0.00766
+  },
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 0,
+   "tokens_out": 988,
+   "output_chars": 2698,
+   "cost_gbp": 0.009683
+  },
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 0,
+   "tokens_out": 933,
+   "output_chars": 2458,
+   "cost_gbp": 0.009441
+  },
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "length",
+   "reasoning_tokens": 0,
+   "tokens_out": 1200,
+   "output_chars": 2077,
+   "cost_gbp": 0.010402
+  },
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "length",
+   "reasoning_tokens": 0,
+   "tokens_out": 1200,
+   "output_chars": 1541,
+   "cost_gbp": 0.009464
+  },
+  {
+   "model_requested": "gpt-5.2",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 0,
+   "tokens_out": 1195,
+   "output_chars": 5130,
+   "cost_gbp": 0.025947
+  },
+  {
+   "model_requested": "gpt-5.2",
+   "call_site": "",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 0,
+   "tokens_out": 758,
+   "output_chars": 3158,
+   "cost_gbp": 0.01922
+  },
+  {
+   "model_requested": "claude-sonnet-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 0,
+   "tokens_out": 957,
+   "output_chars": 2783,
+   "cost_gbp": 0.017473
+  },
+  {
+   "model_requested": "claude-sonnet-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 998,
+   "tokens_out": 2238,
+   "output_chars": 3279,
+   "cost_gbp": 0.029865
+  },
+  {
+   "model_requested": "claude-sonnet-5-5",
+   "call_site": "",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 994,
+   "tokens_out": 2216,
+   "output_chars": 3243,
+   "cost_gbp": 0.029672
+  },
+  {
+   "model_requested": "claude-sonnet-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "stop",
+   "reasoning_tokens": 952,
+   "tokens_out": 2236,
+   "output_chars": 3327,
+   "cost_gbp": 0.029848
+  }
+ ],
+ "passed": 11,
+ "total": 11,
+ "results": [
+  {
+   "case": "free_simple_stream",
+   "chars": 1921,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "free_complex_stream",
+   "chars": 2698,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "free_complex_regular",
+   "chars": 2458,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "free_welsh_stream",
+   "chars": 2146,
+   "blank": false,
+   "cut_note": true,
+   "ending_markers": false,
+   "pass": true
+  },
+  {
+   "case": "free_urdu_stream",
+   "chars": 1609,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": false,
+   "pass": true
+  },
+  {
+   "case": "plus_complex_stream",
+   "chars": 5130,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "plus_regular",
+   "chars": 3403,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "pro_simple_stream",
+   "chars": 2783,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "pro_complex_stream",
+   "chars": 3279,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "pro_complex_regular",
+   "chars": 3244,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  },
+  {
+   "case": "deep_think_stream",
+   "chars": 3328,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": true,
+   "pass": true
+  }
+ ]
+}

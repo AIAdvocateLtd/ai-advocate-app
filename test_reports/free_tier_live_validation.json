@@ -1,0 +1,91 @@
+{
+ "cost_gbp": 0.1905,
+ "complete": 8,
+ "total": 8,
+ "finish": [
+  "stop",
+  "stop",
+  "stop",
+  "stop",
+  "stop",
+  "stop",
+  "stop",
+  "stop"
+ ],
+ "tokens_out": [
+  924,
+  807,
+  1207,
+  1672,
+  1822,
+  1191,
+  1456,
+  1396
+ ],
+ "results": [
+  {
+   "q": "en_complex",
+   "chars": 2504,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null
+  },
+  {
+   "q": "en_dismissal",
+   "chars": 2230,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null
+  },
+  {
+   "q": "cy",
+   "chars": 2054,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null
+  },
+  {
+   "q": "ur",
+   "chars": 2415,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null
+  },
+  {
+   "q": "hi",
+   "chars": 2852,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null
+  },
+  {
+   "q": "cy2",
+   "chars": 2051,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null
+  },
+  {
+   "q": "ur2",
+   "chars": 2120,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null
+  },
+  {
+   "q": "hi2",
+   "chars": 2077,
+   "blank": false,
+   "has_end_markers": true,
+   "cut_note": false,
+   "error": null
+  }
+ ]
+}

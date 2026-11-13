@@ -1,0 +1,35 @@
+{
+  "summary": "Retest of the Stage 3 fixes from iteration 47, run on PREVIEW. All 6 fixes are verified. New suite tests/test_iter48_stage3_fixes.py: 20/20 pass. Regression: test_iter47_stage3_fair_use.py 15/15 and test_stage3_limits.py 14/14 pass. (1) XFF: logins sent with a different 'X-Forwarded-For: 203.0.113.x' each time were still locked out after 5 (401x5 then 429). The recorded IP hash is never the spoofed value. 20 failed logins across 20 emails with rotating XFF lead to 429 on the 21st, and even the valid Pro account is blocked from that IP until the rows are cleared. signup_network_ip now records the real egress IP 136.108.30.124, and the 3-per-network signup cap really works: it blocked my 2nd signup because 2 other test_router_* users already exist from that IP. (2) Settings are now typed: 'abc', negative values, 0 burst, multiplier 0.5, unknown tier and an invalid date all return 422. Nulls are ignored. Dates are stored as ISO with timezone ('2099-01-01' -> '2099-01-01T00:00:00+00:00', Z -> +00:00, +01:00 kept), and null clears the date. (3) usage_view uses the device counter: device count 2 -> free_actions used 2/2, and chat returns 429 with the matching message. (4) With free_lifetime_enabled=false and the brake paused, free chat returns 429 'paused'. (5) paid_limits_active parses dates correctly for date-only, Z and offset formats, past and future. (6) UI: 'abc' and '2026-13-45' show the error toast with no page errors. The Remove button un-exempts the customer (toast 'Exemption removed', row gone, s3_exempt=false in DB). Threshold rows read 'Plus: flag £1.50 · cool-down ...'. One minor UI bug was found (impossible dates roll over). About 3 real LLM calls were used, all by the iter47 regression suite. All settings were restored and all test users and login_attempts rows I created were deleted.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/resend-verification (pre-existing)", "issue": "The per-IP limit (5/hour) uses request.client.host, which is the platform load balancer IP, not _client_ip(). So in effect it is one shared 5-per-hour bucket for all users. Any 5 resend requests in an hour (from anyone) block every user's resend with 429. turnstile remoteip (line ~1330) and signup_ip/waitlist ip (~1469, ~1577) also store the LB IP. Use _client_ip(request)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AdminFairUseCard.setEffective", "issue": "Impossible but well-formed dates pass validation and roll over. Typing '2026-02-30' saved paid_limits_effective_at as 2026-03-02 with a 'Saved' toast. In preview that date is in the past (server date 2026-11-06), so it switched paid limits ON at once. I reset it to null straight away. Fix: after parsing, check that toISOString().slice(0,10) === day, or validate on the server.", "selector": "[data-testid='fair-use-set-effective']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin Settings > Fair use & spending", "issues": ["The 'Set date' prompt says the date is UK, but it is saved as T00:00:00Z. During BST, limits start at 01:00 UK. This is minor; convert from Europe/London if exact midnight matters.", "There is no confirmation before saving an effective date that is already in the past. Paid limits switch on immediately."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter48_stage3_fixes.py", "/app/backend/tests/test_iter47_stage3_fair_use.py", "/app/backend/tests/test_stage3_limits.py", "/app/test_reports/pytest/iter48_stage3.xml", "/app/test_reports/pytest/iter48_regression.xml"],
+  "action_items": [
+    "AdminFairUse.js setEffective: reject rolled-over dates (e.g. 2026-02-30), and consider confirming before saving a past date.",
+    "Use _client_ip(request) instead of request.client.host in /auth/resend-verification (per-IP limit), turnstile remoteip, and the stored signup_ip/waitlist ip."
+  ],
+  "critical_code_review_comments": [
+    "_client_ip logic is sound for the observed chain '<spoofed...>,<real>,<cloudflare>,<google LB>'. Requests that skip Cloudflare still resolve to the attacker's real IP, not the spoof. Caveat: the 3-per-network signup cap and the 20-per-IP login cap are now keyed to real egress IPs. Shared NAT, office and mobile CGNAT users will share them, which is expected behaviour.",
+    "update_settings has the precedence expression `k in allowed and v is not None or k == 'paid_limits_effective_at'`. It is correct, but add parentheses for readability.",
+    "Saving any non-null paid_limits_effective_at runs _snapshot_yearly_grandfathering. No yearly users were changed in this run (none had s3_grandfather_until afterwards)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter48_stage3_fixes.py"],
+  "success_rate": {"backend": "100% (20/20 new + 15/15 iter47 + 14/14 unit)", "frontend": "100% of the FIX 6 checks; 1 new MEDIUM edge case (date rollover)"},
+  "seed_data_creation": "I created test_s3r_<hex>@advocate.app (x2, pytest) and test_s3ui_e740b5@advocate.app (UI exempt/un-exempt). All were deleted, along with their usage, device counter, s3_events and chat docs. login_attempts rows from my runs were cleared (collection now 0). free_signups_per_network_7d was raised to 20 during the runs and set back to 3. Final stage3 settings: all switches true, plus flag 1.5, paid_limits_effective_at null, brake running. The 2 pre-existing test_router_* users (not mine) were left untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@aiadvocate.co.uk/AdminLex2026!, appstore.reviewer@aiadvocate.co.uk/Review2026!Lex, test@advocate.app/Test12345! (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Since the XFF fix, every request from this container counts as one real IP (136.108.30.124; the egress IP may change). The signup network cap is 3 per 7 days per IP, so raise free_signups_per_network_7d through PUT /api/admin/fair-use/settings before signup tests and set it back to 3 afterwards. The iter48 suite does this itself. Run the per-IP lockout test on its own and clear login_attempts by key afterwards (the suite does this). Server clock is 2026-11-06, so any 'past' effective date turns paid limits on."
+}

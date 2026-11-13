@@ -8,6 +8,7 @@ import {
   Download, Trash2, Video, Lock, Unlock, ShieldCheck, AlertTriangle, Share2, KeyRound, Fingerprint, Sparkles, Volume2, ChevronDown, Paperclip, FileType, Mail, BarChart3
 } from "lucide-react";
 import { STRINGS, t, RTL_LANGS } from "@/i18n";
+import { setAutoTranslateLang } from "@/autoTranslate";
 import { setAppIconBadge } from "@/appBadge";
 import { setSentryUser, clearSentryUser } from "@/sentry";
 import { identify as identifyAnalytics, resetAnalytics, track } from "@/analytics";
@@ -23,8 +24,11 @@ import { AdminStripeResyncCard } from "@/AdminStripeResync";
 import { AdminSubscribersCard } from "@/AdminSubscribers";
 import { AdminFinanceCard } from "@/AdminFinance";
 import { AdminLexLessonsCard } from "@/AdminLexLessons";
+import { AdminFairUseCard } from "@/AdminFairUse";
+import { FairUseNotice } from "@/FairUseNotice";
 import ConveyancingModal from "@/Conveyancing";
 import { TrustpilotPrompt, AdminTestimonialsCard } from "@/Reviews";
+import { LawWatchAdminCard } from "./components/LawWatchAdminCard";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
 // we hide all Subscribe / Upgrade buttons (and replace them with a web-billing notice).
@@ -399,7 +403,7 @@ function LanguagePicker({ initial, onConfirm, lang }) {
     <div className="modal-bg" data-testid="lang-modal">
       <div className="modal-card" style={{ padding: 20 }}>
         <h2 className="brand-font gold" style={{ fontSize: 22, marginTop: 6 }}>{t(lang, "selectLanguage")}</h2>
-        <div style={{ overflowY: "auto", maxHeight: "60vh", marginTop: 10 }}>
+        <div data-no-translate="" style={{ overflowY: "auto", maxHeight: "60vh", marginTop: 10 }}>
           {LANGS.map(l => (
             <button key={l.code} onClick={() => setSel(l.code)}
               data-testid={`lang-${l.code}`}
@@ -410,7 +414,7 @@ function LanguagePicker({ initial, onConfirm, lang }) {
                 marginBottom: 6, color: "var(--text)", textAlign: "left", cursor: "pointer"
               }}>
               <Flag cc={l.cc} size={22} alt={l.name} />
-              <span style={{ flex: 1, marginLeft: 4 }}>{l.name}</span>
+              <span lang={l.code} style={{ flex: 1, marginLeft: 4 }}>{l.name}</span>
               <span style={{ color: "var(--text-muted)", fontSize: 13 }}>({l.code})</span>
             </button>
           ))}
@@ -463,6 +467,11 @@ function TermsScreen({ lang, onAccept, onDecline, onChangeLang }) {
         <p style={{ color: "var(--text-dim)", fontSize: 13, flexShrink: 0 }}>
           {t(lang, "effectiveDate", { date: dateStr })}
         </p>
+        {!lang.startsWith("en") && (
+          <p data-testid="terms-translation-note" style={{ color: "var(--text-muted)", fontSize: 11, flexShrink: 0, marginTop: 2, fontStyle: "italic" }}>
+            Translations are provided for convenience. If a translation differs from the English version, the English version applies.
+          </p>
+        )}
         {note && (
           <p style={{ color: "var(--gold-soft)", fontSize: 11, flexShrink: 0, marginTop: 4, fontStyle: "italic" }}>
             {note}
@@ -2202,6 +2211,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
     // We use fetch + ReadableStream (EventSource doesn't support POST).
     // If the stream fails for any reason we fall back to the buffered endpoint.
     let streamed = false;
+    let incomplete = false;
     try {
       const token = localStorage.getItem("aa_token");
       const resp = await fetch(`${API}/lex/chat/stream`, {
@@ -2306,7 +2316,14 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
             finalDone = payload;
             // If `done` arrived before any tokens (rare error path), make sure
             // we still surface the full_text the backend computed.
-            if (!assembled && payload.full_text) assembled = payload.full_text;
+            // The server's final text includes citation/research safety checks, so it replaces the raw tokens.
+            if (payload.full_text) assembled = payload.full_text;
+            if (Array.isArray(payload.citations)) {
+              setMessages(ms => ms.map((mm, idx) => idx === lexMsgIndex ? { ...mm, citations: payload.citations } : mm));
+            }
+          } else if (payload.type === "error" && payload.code === "lex_incomplete") {
+            // Server already retried and refunded the message — show its notice instead of retrying again.
+            assembled = payload.message; incomplete = true;
           } else if (payload.type === "error") {
             throw new Error(payload.message || "stream error");
           }
@@ -2317,6 +2334,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
       // revealing whatever's left then mark the bubble as no longer typing.
       streamDone = true;
       streamed = true;
+      if (incomplete) return;
 
       // Post-stream side effects (smart category, deep-think usage, reminders/deadlines)
       const finalText = stripMarkers(finalDone?.full_text || assembled);
@@ -2337,7 +2355,9 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
       }
       const fd = new FormData();
       fd.append("message", text); fd.append("language", lang); fd.append("country", country);
-      if (!(finalDone?.saved_reminders || []).length) api.post("/reminders/detect", fd).then(r => {
+      const proposed = finalDone?.proposed_reminders || [];
+      if (proposed.length) setMessages(m => [...m, { role: "deadlines", proposed: true, content: "", at: new Date().toISOString(), deadlines: proposed }]);
+      else if (!finalDone?.hypothetical && !(finalDone?.saved_reminders || []).length) api.post("/reminders/detect", fd).then(r => {
         const dls = r.data?.deadlines || [];
         if (dls.length) setMessages(m => [...m, { role: "deadlines", content: "", at: new Date().toISOString(), deadlines: dls }]);
       }).catch(() => {});
@@ -2358,7 +2378,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
         setSessionId(data.session_id);
         const fullText = data.response;
         const lexMsg = { role: "lex", content: "", _fullContent: fullText, at: new Date().toISOString(), model: data.model, replyLang: data.reply_language, connectedSessionId: data.connected_session_id || null, citations: data.citations || [], savedReminders: data.saved_reminders || [], _typing: true };
-        setMessages(m => [...m, lexMsg]);
+        setMessages(m => [...m, lexMsg, ...((data.proposed_reminders || []).length ? [{ role: "deadlines", proposed: true, content: "", at: new Date().toISOString(), deadlines: data.proposed_reminders }] : [])]);
         let revealed = 0;
         const step = 30;
         const tick = () => {
@@ -2380,8 +2400,12 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
   };
 
   const addDeadlineAsReminder = async (dl, idx) => {
+    const ok = await aaConfirm({ title: "Add this reminder?", confirmLabel: "Yes, add reminder",
+      message: `Only add this if it is your real situation, not an example.${dl.deadline_label ? ` Legal deadline: ${dl.deadline_label}.` : ""} ${dl.note || "Check the date on your papers or with an adviser."}` });
+    if (!ok) return;
     try {
-      await api.post("/reminders", { title: dl.title, due_at: dl.due_at, kind: dl.kind || "deadline", case_id: caseId || undefined, session_id: sessionId || undefined });
+      await api.post("/reminders", { title: dl.title, description: dl.note || "", due_at: dl.due_at, kind: dl.kind || "deadline", case_id: caseId || undefined, session_id: sessionId || undefined,
+        deadline_label: dl.deadline_label || undefined, deadline_basis: dl.deadline_basis || undefined, deadline_time_confirmed: dl.deadline_time_confirmed });
       // Mark this deadline as "added" in the local message
       setMessages(ms => ms.map((m, i) => {
         if (m.role !== "deadlines") return m;
@@ -2571,12 +2595,17 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
               ) : m.role === "deadlines" ? (
                 <div data-testid={`deadline-card-${i}`} style={{ background: "rgba(220,38,38,0.15)", border: "1px solid #fca5a5", borderRadius: 12, padding: 12, width: "100%", marginTop: 4 }}>
                   <div style={{ color: "#fca5a5", fontWeight: 700, fontSize: 12, marginBottom: 6 }}>⏰ {t(lang, "deadlineFound")}</div>
+                  {m.proposed && <div data-testid={`deadline-proposed-note-${i}`} style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 8 }}>Worked out from the dates you gave. Nothing has been saved — add a reminder only if this is your real situation.</div>}
                   {(m.deadlines || []).map((dl, di) => (
                     <div key={di} style={{ marginBottom: 6 }}>
                       <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>{dl.title}</div>
                       <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>
-                        Due {new Date(dl.due_at).toLocaleString()}
+                        {dl.deadline_label
+                          ? <span data-testid={`deadline-label-${i}-${di}`}>Legal deadline: {dl.deadline_label}</span>
+                          : <>Due {new Date(dl.due_at).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "Europe/London" })} — cut-off time to be confirmed</>}
                       </div>
+                      {dl.deadline_basis && <div data-testid={`deadline-basis-${i}-${di}`} style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>{dl.deadline_basis} {dl.reminder_schedule ? `${dl.reminder_schedule}.` : ""}</div>}
+                      {dl.note && <div data-testid={`deadline-note-${i}-${di}`} style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>{dl.note}</div>}
                       <button data-testid={`add-deadline-${i}-${di}`} onClick={() => addDeadlineAsReminder(dl, di)} disabled={dl._added}
                         style={{ background: dl._added ? "var(--bg-card)" : "var(--gold)", color: dl._added ? "var(--text-muted)" : "#1a1300",
                                  border: "none", borderRadius: 12, padding: "5px 12px", fontSize: 11, fontWeight: 600, cursor: dl._added ? "default" : "pointer" }}>
@@ -2632,7 +2661,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                           );
                         })()}
                         <div className={m.role === "user" ? "bubble-user" : "bubble-lex"}
-                             data-testid={`msg-${m.role}-${i}`}
+                             data-testid={`msg-${m.role}-${i}`} data-no-translate=""
                              style={{ padding: "10px 14px", borderRadius: 14, maxWidth: "82%", whiteSpace: m.role === "user" ? "pre-wrap" : "normal", lineHeight: 1.5, fontSize: 14 }}>
                           {m.role === "lex"
                             ? renderLexMarkdown(meta.body, (txt, k) => (Array.isArray(m.citations) && m.citations.length > 0
@@ -2866,7 +2895,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                   )}
                   {m.at && (
                     <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2, padding: "0 6px" }} data-testid={`ts-${i}`}>
-                      {new Date(m.at).toLocaleString()}
+                      {new Date(m.at).toLocaleString(document.documentElement.lang || "en-GB")}
                     </div>
                   )}
                 </>
@@ -2884,6 +2913,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
           )}
         </div>
 
+        <FairUseNotice api={api} refreshKey={busy} />
         <div className="flex items-center gap-2" style={{ padding: "12px 12px 56px", borderTop: "1px solid var(--line)", position: "relative" }}>
           <button onClick={onMic} data-testid="mic-btn"
                   style={{ background: "#000", border: `2px solid ${recording ? "var(--danger)" : "var(--gold)"}`,
@@ -3037,7 +3067,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                                opacity: paywallBusy ? 0.6 : 1 }}>
                 Upgrade to Plus £19.99/mo
                 <div style={{ fontSize: 9.5, fontWeight: 500, marginTop: 1, opacity: 0.85 }}>
-                  10/day · 25-page docs · unlimited chat
+                  300 messages/month · 25-page docs
                 </div>
               </button>
             </div>
@@ -4231,7 +4261,7 @@ function CourtroomModal({ lang, country, onClose }) {
                       display: "flex", alignItems: "center", gap: 8,
                     }}>
                       <Check size={14} />
-                      <span>Session saved · {advice.length} turn{advice.length === 1 ? "" : "s"} · started {lStartedAtRef.current ? new Date(lStartedAtRef.current).toLocaleString() : "just now"}</span>
+                      <span>Session saved · {advice.length} turn{advice.length === 1 ? "" : "s"} · started {lStartedAtRef.current ? new Date(lStartedAtRef.current).toLocaleString(document.documentElement.lang || "en-GB") : "just now"}</span>
                     </div>
                     <button data-testid="export-live-pdf" onClick={async () => {
                       try {
@@ -4522,7 +4552,7 @@ function PastSessionsBrowser() {
                   style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600 }}>
-                      {new Date(s.first_at).toLocaleString()}
+                      {new Date(s.first_at).toLocaleString(document.documentElement.lang || "en-GB")}
                     </div>
                     <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 2 }}>
                       {s.count} turn{s.count === 1 ? "" : "s"} · ID {s.session_id.slice(0, 8)}
@@ -5461,7 +5491,7 @@ function FilesModal({ lang, onClose }) {
                 <button onClick={() => setOpen(f)} className="w-full" data-testid={`file-${f.id}`}
                         style={{ flex: 1, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 10, padding: 14, color: "var(--text)", textAlign: "left", cursor: "pointer" }}>
                   <div style={{ color: "var(--gold)", fontWeight: 600 }}>{f.filename || f.type}</div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{new Date(f.created_at).toLocaleString()}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{new Date(f.created_at).toLocaleString(document.documentElement.lang || "en-GB")}</div>
                 </button>
                 <button data-testid={`file-delete-${f.id}`} title="Delete file" disabled={busy}
                         onClick={(e) => removeFile(f.id, e)}
@@ -6559,7 +6589,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
             <button className="btn-ghost" onClick={() => setOpen(null)} style={{ marginBottom: 12, padding: "6px 12px", fontSize: 13 }}><ArrowLeft size={14} /> {t(lang, "backToList")}</button>
             <h3 style={{ color: "var(--gold)", marginBottom: 4 }}>{open.name}</h3>
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 14 }}>
-              {t(lang, "timestamp")}: {new Date(open.created_at).toLocaleString()}
+              {t(lang, "timestamp")}: {new Date(open.created_at).toLocaleString(document.documentElement.lang || "en-GB")}
             </div>
             <div className="flex gap-2" style={{ marginBottom: 14, flexWrap: "wrap" }}>
               <button className="btn-ghost" onClick={rename} data-testid="rename-case-btn" style={{ flex: 1, fontSize: 12 }}>{t(lang, "renameCase")}</button>
@@ -6733,7 +6763,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
                   </div>
                 )}
                 <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6 }}>
-                  {new Date(it.timestamp_utc || it.created_at).toLocaleString()}
+                  {new Date(it.timestamp_utc || it.created_at).toLocaleString(document.documentElement.lang || "en-GB")}
                   {it.location && ` · 📍 ${it.location}`}
                   {it.sha256 && ` · sha256:${it.sha256.slice(0,8)}…`}
                 </div>
@@ -6808,7 +6838,7 @@ function CaseFilesModal({ lang, onClose, openCaseId }) {
                               {ev.title}
                             </div>
                             <div style={{ fontSize: 10, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-                              {ev.at ? new Date(ev.at).toLocaleString() : ""}
+                              {ev.at ? new Date(ev.at).toLocaleString(document.documentElement.lang || "en-GB") : ""}
                             </div>
                           </div>
                           {ev.kind === "lex_turn" && (
@@ -6908,8 +6938,9 @@ function RemindersModal({ lang, onClose }) {
                 </div>
                 {r.description && <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>{r.description}</div>}
                 <div style={{ fontSize: 11, color: urgent ? "#fca5a5" : "var(--text-muted)", marginTop: 6 }}>
-                  Due {due.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "Europe/London" })} · {daysOut > 0 ? `${daysOut}d left` : `${-daysOut}d overdue`}
+                  Due {due.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "Europe/London" })} · {Math.abs(daysOut)} {daysOut > 0 ? "days left" : "days overdue"}
                 </div>
+                {r.deadline_label && <div data-testid={`rem-deadline-${r.id}`} style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Legal deadline: {r.deadline_label}</div>}
                 <button className="btn-ghost" onClick={() => markDone(r.id)} data-testid={`done-${r.id}`} style={{ marginTop: 8, padding: "4px 10px", fontSize: 11 }}>
                   ✓ {t(lang, "reminderMarkDone")}
                 </button>
@@ -7933,6 +7964,8 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             <AdminTestimonialsCard api={api} toast={aaToast} />
             <AdminSubscribersCard api={api} toast={aaToast} />
             <AdminLexLessonsCard api={api} toast={aaToast} prompt={aaPrompt} confirm={aaConfirm} />
+            <LawWatchAdminCard api={api} />
+            <AdminFairUseCard api={api} toast={aaToast} prompt={aaPrompt} confirm={aaConfirm} />
             <AdminFinanceCard api={api} toast={aaToast} />
             <AdminStripeResyncCard api={api} toast={aaToast} />
             {/* 💷 OWNER ONLY — founder cost dashboard: MRR, Stripe fees, LLM burn, net margin */}
@@ -8350,7 +8383,7 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
                     {pack.tagline}
                   </div>
                   <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-                    Valid for {pack.duration_hours >= 24 ? `${Math.round(pack.duration_hours / 24)} day${pack.duration_hours >= 48 ? "s" : ""}` : `${pack.duration_hours}h`} after purchase.
+                    {!pack.duration_hours ? "Never expires." : <>Valid for {pack.duration_hours >= 24 ? `${Math.round(pack.duration_hours / 24)} day${pack.duration_hours >= 48 ? "s" : ""}` : `${pack.duration_hours}h`} after purchase.</>}
                   </div>
                   <button
                     data-testid={`buy-topup-${pack.id}-btn`}
@@ -9240,7 +9273,7 @@ function AdminSuggestionsCard({ lang }) {
                   {item.user_email || "(anonymous)"}
                 </button>
                 <span style={{ color: "var(--text-muted)", fontSize: 10 }}>
-                  {item.created_at ? new Date(item.created_at).toLocaleString() : ""}
+                  {item.created_at ? new Date(item.created_at).toLocaleString(document.documentElement.lang || "en-GB") : ""}
                 </span>
               </div>
               <div style={{ color: "var(--text)", fontSize: 13, lineHeight: 1.4, marginBottom: 8, whiteSpace: "pre-wrap" }}>
@@ -10232,7 +10265,7 @@ function AdminFounderSignatureCard() {
       ) : state.is_set ? (
         <div style={{ background: "#fff", border: "1px solid var(--line)", borderRadius: 8, padding: 10, marginBottom: 10, textAlign: "center" }}>
           <img src={state.data_url} alt="Saved signature" style={{ maxHeight: 80, maxWidth: "100%" }} data-testid="founder-sig-preview" />
-          <div style={{ fontSize: 10, color: "#666", marginTop: 6 }}>Saved {state.saved_at ? new Date(state.saved_at).toLocaleString() : ""}</div>
+          <div style={{ fontSize: 10, color: "#666", marginTop: 6 }}>Saved {state.saved_at ? new Date(state.saved_at).toLocaleString(document.documentElement.lang || "en-GB") : ""}</div>
         </div>
       ) : null}
 
@@ -10888,13 +10921,21 @@ function CompProAdminCard({ lang }) {
   const loadFounding = () => {
     api.get("/admin/founding-100").then(r => setFounding(r.data || { users: [], slots_taken: 0, slots_total: 100, pending: 0 })).catch(() => {});
   };
-  const loadRecent = async () => {
+  const [listGroup, setListGroup] = useState("genuine");
+  const [listPage, setListPage] = useState(1);
+  const [listMeta, setListMeta] = useState({ total: 0, has_more: false });
+  const [signupStats, setSignupStats] = useState(null);
+  const loadRecent = async (group = listGroup, page = 1) => {
     try {
-      const r = await api.get("/admin/users/recent?limit=30");
-      setResults(r.data?.users || []);
+      const r = await api.get(`/admin/signups/list?group=${group}&page=${page}&page_size=25`);
+      const rows = r.data?.users || [];
+      setResults(prev => (page > 1 ? [...prev, ...rows] : rows));
+      setListPage(page);
+      setListMeta({ total: r.data?.total || 0, has_more: !!r.data?.has_more });
     } catch (e) { /* no-op */ }
   };
-  useEffect(() => { loadComps(); loadRecent(); loadFounding(); }, []);
+  const loadSignupStats = () => api.get("/admin/signups/stats").then(r => setSignupStats(r.data)).catch(() => {});
+  useEffect(() => { loadComps(); loadRecent(); loadFounding(); loadSignupStats(); }, []);
 
   const search = async () => {
     if (!query.trim()) { loadRecent(); return; }
@@ -11059,10 +11100,14 @@ function CompProAdminCard({ lang }) {
               style={{ width: "100%", background: "transparent", border: "none", padding: 0, marginBottom: 6,
                        display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
         <span style={{ fontSize: 10.5, color: "var(--text-muted)", fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-          {showRecent ? "▼" : "▶"} {query ? `${results.length} match${results.length === 1 ? "" : "es"}` : `Recent users · ${results.length}`}
+          {showRecent ? "▼" : "▶"} {query ? `${results.length} match${results.length === 1 ? "" : "es"}` : `${{ genuine: "Genuine users", test: "Test accounts", internal: "Internal accounts" }[listGroup]} · ${listMeta.total}`}
         </span>
         {searching && <span style={{ color: "var(--gold)", fontSize: 10.5 }}>Searching…</span>}
       </button>
+
+      {signupStats && <SignupStatsLine stats={signupStats} />}
+      {showRecent && !query && <SignupGroupTabs group={listGroup} stats={signupStats}
+        onChange={(g) => { setListGroup(g); loadRecent(g, 1); }} />}
 
       {/* Search / recent results — tappable list */}
       {showRecent && results.length > 0 ? (
@@ -11081,7 +11126,8 @@ function CompProAdminCard({ lang }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.email}</div>
                   <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>
-                    {u.full_name || "—"} · {u.tier || "free"}
+                    {u.created_at && <span data-testid={`signup-date-${u.id}`}>{String(u.created_at).slice(0, 10)} · </span>}
+                    {u.full_name || "—"} · {u.tier || "free"}{u.subscription_status && u.subscription_status !== (u.tier || "free") ? ` · ${u.subscription_status}` : ""}
                     {hasComp && <span style={{ color: "var(--gold)" }}> · comp until {u.comp_pro_until.slice(0,10)}</span>}
                   </div>
                 </div>
@@ -11104,6 +11150,12 @@ function CompProAdminCard({ lang }) {
               </div>
             );
           })}
+          {!query && listMeta.has_more && (
+            <button data-testid="signup-load-more" className="btn-ghost" onClick={() => loadRecent(listGroup, listPage + 1)}
+              style={{ padding: "8px 10px", fontSize: 12 }}>
+              Load more ({results.length} of {listMeta.total})
+            </button>
+          )}
         </div>
       ) : showRecent ? (
         <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "14px 8px", marginBottom: 12, textAlign: "center", border: "1px dashed var(--line)", borderRadius: 8 }}>
@@ -11836,7 +11888,7 @@ function WinbackGiftBanner({ user, lang, refreshUser }) {
             Looks like you've been hitting the free limit. Here's a free 24h Plus pass — no card, no catch.
           </div>
           <div style={{ fontSize: 10.5, color: "var(--gold-soft)", marginTop: 4, opacity: 0.85 }}>
-            ✓ Unlimited Lex chats · ✓ 5 evidence photos · ✓ Voice mode
+            ✓ 50 Lex messages · ✓ 5 evidence photos · ✓ Voice mode
           </div>
         </div>
       </div>
@@ -12402,8 +12454,8 @@ function Dashboard({ user, lang, country, setLang, setCountry, onLogout, refresh
         badges={{ reminders: casesBadge }}
         onNav={(k) => {
           if (k === "lex") {
-            // Tapping Lex centre button → open Siri-style Voice Mode (Plus+ only)
-            if (!hasTier("plus")) { setSubPreset("plus"); setShowSub(true); return; }
+            // Tapping Lex centre button → Voice Mode (Plus+); Free users get the text chat for their free questions
+            if (!hasTier("plus")) { setModal({ type: "chat", title: t(lang, "askLex"), category: "ask_lex" }); return; }
             setVoiceMode({ initialText: "" });
           }
           else if (k === "vault") setModal({ type: "vault" });
@@ -12587,7 +12639,7 @@ function CostEstimateModal({ lang, country, onClose }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
           <div style={{ color: isAA ? "var(--gold)" : "var(--text)", fontWeight: 700, fontSize: 14 }}>{c.label}</div>
           <div style={{ color: isAA ? "var(--gold)" : "var(--text)", fontSize: 16, fontWeight: 700, textAlign: "right" }}>
-            {totalLow === totalHigh ? `£${totalLow.toLocaleString()}` : `£${totalLow.toLocaleString()} – £${totalHigh.toLocaleString()}`}
+            {totalLow === totalHigh ? `£${totalLow.toLocaleString(document.documentElement.lang || "en-GB")}` : `£${totalLow.toLocaleString(document.documentElement.lang || "en-GB")} – £${totalHigh.toLocaleString(document.documentElement.lang || "en-GB")}`}
           </div>
         </div>
         {(c.pros || []).slice(0, 3).map((p, i) => (
@@ -12642,7 +12694,7 @@ function CostEstimateModal({ lang, country, onClose }) {
               <>
                 <div style={{ textAlign: "center", margin: "8px 0 12px" }}>
                   <div style={{ color: "var(--text-muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>Likely solicitor fee</div>
-                  <div style={{ color: "var(--gold)", fontSize: 32, fontWeight: 700, marginTop: 4 }}>£{r.low_estimate_gbp?.toLocaleString()} – £{r.high_estimate_gbp?.toLocaleString()}</div>
+                  <div style={{ color: "var(--gold)", fontSize: 32, fontWeight: 700, marginTop: 4 }}>£{r.low_estimate_gbp?.toLocaleString(document.documentElement.lang || "en-GB")} – £{r.high_estimate_gbp?.toLocaleString(document.documentElement.lang || "en-GB")}</div>
                   <div style={{ color: "var(--text-dim)", fontSize: 12, marginTop: 2 }}>+ court fees ≈ £{r.court_fees_gbp || 0}</div>
                   {r.postcode_region && r.postcode_multiplier !== 1.0 && (
                     <div data-testid="cost-region-badge" style={{ display: "inline-block", marginTop: 6, padding: "3px 10px", background: "rgba(247,201,72,0.12)", border: "1px solid var(--gold-deep)", borderRadius: 10, color: "var(--gold)", fontSize: 10.5, fontWeight: 600, letterSpacing: "0.04em" }}>
@@ -12671,7 +12723,7 @@ function CostEstimateModal({ lang, country, onClose }) {
                   <div style={{ color: "var(--text-dim)", marginTop: 4 }}>{r.ai_advocate_saving}</div>
                   {r.aa_pro_saving_vs_solicitor_gbp > 0 && (
                     <div data-testid="cost-saving-banner" style={{ marginTop: 8, padding: 8, background: "rgba(34,197,94,0.10)", borderRadius: 8, color: "#86efac", fontSize: 12.5 }}>
-                      💷 Save ≈ £{r.aa_pro_saving_vs_solicitor_gbp.toLocaleString()} ({r.aa_pro_saving_percent}%) vs full solicitor.
+                      💷 Save ≈ £{r.aa_pro_saving_vs_solicitor_gbp.toLocaleString(document.documentElement.lang || "en-GB")} ({r.aa_pro_saving_percent}%) vs full solicitor.
                     </div>
                   )}
                 </div>
@@ -15654,7 +15706,7 @@ function StatsWall({ lang }) {
     api.get("/stats/public").then(r => setS(r.data)).catch(() => {});
   }, []);
   if (!s) return null;
-  const fmt = (n) => (n || 0).toLocaleString();
+  const fmt = (n) => (n || 0).toLocaleString(document.documentElement.lang || "en-GB");
   const items = [
     { label: t(lang, "statsPeopleHelped"), value: fmt(s.users_helped_total) },
     { label: t(lang, "statsCasesTracked"), value: fmt(s.cases_active) },
@@ -15821,6 +15873,10 @@ const TOS_TEXT = `# Terms of Service
 **5. Vault.** The Lex Vault uses end-to-end encryption with a PIN that only you know. If you lose your PIN, your vault items are PERMANENTLY UNRECOVERABLE. We do not hold a copy.
 
 **6. Subscriptions & auto-renewal.** Paid plans renew automatically at £19.99/mo (Plus), £34.99/mo (Pro), or £319.99/yr (Yearly Pro). All payments are processed by Stripe. Cancel any time 24h before renewal via Settings → Manage Subscription.
+
+**6a. Fair use.** Each plan includes the monthly allowances shown on our pricing page (Free: 2 lifetime Lex questions, shared across chat, letters and document checks). Allowances reset on the 1st of each month (UK time) and do not roll over. Answers that fail, come back blank or are cut off are not counted. To protect the service from automated or abnormal use, we may apply a temporary one-hour pause if an account's AI usage in a single day is far above normal use (and pause until midnight if it continues). We will never switch a paid plan to a lower-quality AI model. If a pause affects you in error, contact support@aiadvocate.co.uk and we will lift it.
+
+**6b. Legal sources.** Lex checks legislation it cites against legislation.gov.uk. Contains public sector information licensed under the Open Government Licence v3.0.
 
 **7. Misuse.** You may not use the App for: harassment, illegal recording, defamation, doxing, or building tools that compete with the App.
 
@@ -16904,7 +16960,7 @@ function App() {
     }
   }, []);
 
-  useEffect(() => { localStorage.setItem("aa_lang", lang); document.documentElement.dir = RTL_LANGS.includes(lang) ? "rtl" : "ltr"; }, [lang]);
+  useEffect(() => { localStorage.setItem("aa_lang", lang); document.documentElement.dir = RTL_LANGS.includes(lang) ? "rtl" : "ltr"; document.documentElement.lang = lang; setAutoTranslateLang(lang); }, [lang]);
   useEffect(() => { localStorage.setItem("aa_country", country); }, [country]);
 
   // Bootstrap
@@ -17510,3 +17566,29 @@ function EngagementFileShare({ lang, eid, onClose, onUploaded }) {
 }
 
 export default App;
+
+
+export const SignupStatsLine = ({ stats }) => (
+  <div data-testid="signup-stats" style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>
+    <span data-testid="signup-stats-genuine"><b style={{ color: "var(--gold)" }}>{stats.genuine}</b> genuine users</span>
+    <span data-testid="signup-stats-today">{stats.today} today</span>
+    <span data-testid="signup-stats-24h">{stats.last_24h} in 24h</span>
+    <span data-testid="signup-stats-7d">{stats.last_7d} in 7 days</span>
+    <span data-testid="signup-stats-30d">{stats.last_30d} in 30 days</span>
+    <span data-testid="signup-stats-test">{stats.test} test accounts</span>
+    <span data-testid="signup-stats-internal">{stats.internal} internal</span>
+  </div>
+);
+
+export const SignupGroupTabs = ({ group, stats, onChange }) => (
+  <div data-testid="signup-group-tabs" style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+    {[["genuine", "Genuine"], ["test", "Test"], ["internal", "Internal"]].map(([g, label]) => (
+      <button key={g} data-testid={`signup-group-${g}`} onClick={() => onChange(g)}
+        style={{ flex: 1, padding: "6px 8px", fontSize: 11, fontWeight: 700, borderRadius: 999, cursor: "pointer",
+                 border: "1px solid var(--line)", background: group === g ? "var(--gold)" : "transparent",
+                 color: group === g ? "#1a1300" : "var(--text-muted)", transition: "background-color 150ms" }}>
+        {label}{stats ? ` (${stats[g]})` : ""}
+      </button>
+    ))}
+  </div>
+);

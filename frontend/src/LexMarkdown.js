@@ -88,7 +88,7 @@ export function renderLexMarkdown(body, renderText = (t) => t) {
     }
   });
   flush();
-  return blocks;
+  return <div data-no-translate="">{blocks}</div>;
 }
 
 // Plain-text version for read-aloud / copying — no markdown symbols.

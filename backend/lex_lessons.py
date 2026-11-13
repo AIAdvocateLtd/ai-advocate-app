@@ -15,6 +15,7 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 logger = logging.getLogger(__name__)
 LESSON_MODEL = ("anthropic", "claude-sonnet-5-5")
+from lex_output import gen_params  # noqa: E402
 MAX_LESSONS_IN_PROMPT = 80
 _cache = {"block": "", "packs": {}, "at": 0.0}
 _job_lock = asyncio.Lock()
@@ -30,10 +31,26 @@ async def refresh_if_stale(db, max_age: int = 300) -> None:
         await refresh_lessons(db)
 
 
+HUMAN_APPROVED_SOURCES = {"manual", "report", "thumbs_down", "law_watch"}  # only reach "approved" via an admin action
+
+
+def is_signed_off(r: dict) -> bool:
+    """Only facts a person has signed off are given to Lex. Machine-seeded rows (fact packs, unknown sources) need an
+    explicit reviewed_by/reviewed_at record; anything flagged needs_review is withheld regardless of source."""
+    if r.get("status") != "approved" or r.get("needs_review"):
+        return False
+    if r.get("reviewed_by") and r.get("reviewed_at"):
+        return True
+    return r.get("source") in HUMAN_APPROVED_SOURCES and bool(r.get("approved_at"))
+
+
 async def refresh_lessons(db) -> None:
     _cache["at"] = time.time()
-    rows = await db.lex_lessons.find({"status": "approved"}, {"_id": 0, "text": 1, "source": 1, "category": 1}) \
-        .sort("approved_at", -1).to_list(300)
+    rows = await db.lex_lessons.find({"status": "approved"}, {"_id": 0, "text": 1, "source": 1, "category": 1, "approved_at": 1,
+                                                              "needs_review": 1, "reviewed_by": 1, "reviewed_at": 1,
+                                                              "status": 1}).sort("approved_at", -1).to_list(300)
+    _cache["withheld"] = sum(1 for r in rows if not is_signed_off(r))
+    rows = [r for r in rows if is_signed_off(r)]
     packs: dict = {}
     for r in rows:
         if r.get("source") == "fact_pack":
@@ -69,7 +86,8 @@ def fact_pack_block(message: str, context: str = "") -> str:
     lines = [t for cat in picked for t in _cache.get("packs", {}).get(cat, [])]
     if not lines:
         return ""
-    return ("\n\nVERIFIED UK FACTS (current as of the date above — use these exactly; if the user's UK nation is unclear "
+    return ("\n\nUK FACTS SIGNED OFF BY AI ADVOCATE'S REVIEWER (built-in knowledge, not text retrieved for this answer — "
+            "use these exactly; if the user's UK nation is unclear "
             "and the rules differ, ask or give each nation's rule):\n- " + "\n- ".join(lines) + "\n")
 
 
@@ -103,8 +121,9 @@ def _parse_json_list(raw: str) -> list:
 
 
 async def _llm(api_key: str, system: str, prompt: str) -> str:
+    _gen = gen_params(LESSON_MODEL[1], 1500)
     chat = LlmChat(api_key=api_key, session_id=f"lessons-{uuid.uuid4()}", system_message=system) \
-        .with_model(*LESSON_MODEL).with_params(max_tokens=1500)
+        .with_model(*LESSON_MODEL).with_params(max_tokens=_gen[0], **_gen[1])
     return await chat.send_message(UserMessage(text=prompt))
 
 
@@ -182,9 +201,10 @@ IMMIGRATION_PACK_V1 = [
 ]
 
 
-from fact_packs import EMPLOYMENT_PACK_V1, HOUSING_PACK_V1, FAMILY_PACK_V1, BENEFITS_PACK_V1  # noqa: E402
+from fact_packs import EMPLOYMENT_PACK_V1, EMPLOYMENT_PACK_V2, HOUSING_PACK_V1, FAMILY_PACK_V1, BENEFITS_PACK_V1  # noqa: E402
 
 PACKS = {"immigration_pack_v1": ("immigration", None), "employment_pack_v1": ("employment", EMPLOYMENT_PACK_V1),
+         "employment_pack_v2": ("employment", EMPLOYMENT_PACK_V2),
          "housing_pack_v1": ("housing", HOUSING_PACK_V1), "family_pack_v1": ("family", FAMILY_PACK_V1),
          "benefits_pack_v1": ("benefits", BENEFITS_PACK_V1)}
 
@@ -201,6 +221,41 @@ async def seed_fact_packs(db) -> None:
                 "created_at": now, "approved_at": now,
             })
         await db.seeds_applied.insert_one({"_id": pack_id, "at": now})
+    await seed_review_records(db)
+
+
+async def seed_review_records(db) -> None:
+    """Attaches the Phase 2A-1 review record to each built-in fact (text and approval untouched) and adds the former
+    fixed law-change notes as pending items. Never signs anything off."""
+    if await db.seeds_applied.find_one({"_id": "fact_review_v3"}):
+        return
+    from fact_review import REVIEW, LAW_NOTES, CHECKED
+    now = datetime.now(timezone.utc).isoformat()
+    fields = ("jurisdiction", "source_url", "effective", "verification", "recommendation", "reason", "unconfirmed_parts")
+    async for r in db.lex_lessons.find({"source": "fact_pack"}, {"_id": 0, "id": 1, "text": 1}):
+        rec = REVIEW.get(r["text"][:45])
+        if not rec:
+            continue
+        meta = dict(zip(fields, rec[:7]), checked_at=CHECKED, next_review=rec[8])
+        await db.lex_lessons.update_one({"id": r["id"], "reviewed_by": {"$in": [None]}}, {"$set": {
+            "proposed_text": rec[7], "review_meta": meta}})
+        await db.lex_lessons.update_one({"id": r["id"], "original_text": {"$exists": False}},
+                                        {"$set": {"original_text": r["text"]}})
+    for i, (text, *rec) in enumerate(LAW_NOTES):
+        meta = dict(zip(fields, rec), checked_at=CHECKED, next_review="2027-05-11")
+        existing = await db.lex_lessons.find_one({"source": "law_note", "$or": [{"note_index": i}, {"text": text}]},
+                                                 {"_id": 0, "id": 1, "text": 1, "reviewed_by": 1})
+        if existing:
+            if not existing.get("reviewed_by") and existing["text"] != text:  # refresh unsigned notes; keep old wording
+                await db.lex_lessons.update_one({"id": existing["id"]}, {
+                    "$set": {"text": text, "review_meta": meta, "note_index": i},
+                    "$push": {"versions": {"text": existing["text"], "replaced_at": now, "by": "fact_review_v3"}}})
+            continue
+        await db.lex_lessons.insert_one({"note_index": i,
+            "id": str(uuid.uuid4()), "text": text, "category": "general", "why": "Former fixed law-change note",
+            "status": "pending", "source": "law_note", "source_ref": "law_notes_v1", "created_at": now, "approved_at": None,
+            "review_meta": meta})
+    await db.seeds_applied.insert_one({"_id": "fact_review_v3", "at": now})
 
 
 def build_router(db, get_user, require_admin, encrypt_text, decrypt_text, api_key, today_line, tavily_search):
@@ -282,6 +337,8 @@ def build_router(db, get_user, require_admin, encrypt_text, decrypt_text, api_ke
     async def list_lessons(admin: dict = Depends(require_admin)):
         rows = await db.lex_lessons.find({"status": {"$ne": "rejected"}}, {"_id": 0}).sort("created_at", -1).to_list(300)
         rows.sort(key=lambda r: r["status"] != "pending")
+        for r in rows:
+            r["used_by_lex"] = is_signed_off(r)
         since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
         stats = {k: await db.lex_feedback.count_documents({"rating": k, "created_at": {"$gte": since}})
                  for k in ("up", "down", "wrong")}
@@ -295,7 +352,8 @@ def build_router(db, get_user, require_admin, encrypt_text, decrypt_text, api_ke
         now = datetime.now(timezone.utc).isoformat()
         await db.lex_lessons.insert_one({"id": str(uuid.uuid4()), "text": text, "category": data.category or "general",
                                          "why": "Added manually", "status": "approved", "source": "manual",
-                                         "created_at": now, "approved_at": now})
+                                         "created_at": now, "approved_at": now,
+                                         "reviewed_by": admin.get("email") or admin.get("id"), "reviewed_at": now})
         await refresh_lessons(db)
         return {"ok": True}
 
@@ -304,14 +362,31 @@ def build_router(db, get_user, require_admin, encrypt_text, decrypt_text, api_ke
         upd = {}
         if data.text is not None:
             upd["text"] = data.text.strip()[:600]
+        now = datetime.now(timezone.utc).isoformat()
+        row = await db.lex_lessons.find_one({"id": lesson_id}, {"_id": 0})
+        if not row:
+            raise HTTPException(404, "Lesson not found")
+        push, who = None, admin.get("email") or admin.get("id")
+        version = None
+        if data.text is not None and upd["text"] != row.get("text"):
+            version = {"text": row.get("text"), "replaced_at": now, "by": who}
+            if data.status != "approved":
+                upd.update(reviewed_by=None, reviewed_at=None)  # changed wording needs a fresh sign-off
         if data.status is not None:
             if data.status not in ("approved", "rejected", "pending"):
                 raise HTTPException(400, "Invalid status")
             upd["status"] = data.status
-            upd["approved_at"] = datetime.now(timezone.utc).isoformat() if data.status == "approved" else None
-        r = await db.lex_lessons.update_one({"id": lesson_id}, {"$set": upd})
-        if not r.matched_count:
-            raise HTTPException(404, "Lesson not found")
+            upd["approved_at"] = now if data.status == "approved" else None
+            if data.status == "approved":  # a person signing the fact off; the old flag is kept in review_history
+                upd.update(reviewed_by=who, reviewed_at=now, needs_review=False,
+                           next_review_at=(row.get("review_meta") or {}).get("next_review"))
+                push = {"action": "signed_off", "by": upd["reviewed_by"], "at": now,
+                        "previous_flag": row.get("review_reason") if row.get("needs_review") else None}
+            else:
+                upd.update(reviewed_by=None, reviewed_at=None)
+                push = {"action": data.status, "by": admin.get("email") or admin.get("id"), "at": now}
+        pushes = {k: v for k, v in (("review_history", push), ("versions", version)) if v}
+        await db.lex_lessons.update_one({"id": lesson_id}, {"$set": upd, **({"$push": pushes} if pushes else {})})
         await refresh_lessons(db)
         return {"ok": True}
 

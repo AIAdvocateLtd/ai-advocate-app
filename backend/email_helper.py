@@ -100,6 +100,28 @@ def _wrap(html_body: str, preview: str = "", kind: str = "user") -> str:
 </body></html>"""
 
 
+# Optional hooks set by server.py at startup: resolve a recipient's app language, and translate an email.
+_lang_resolver = None
+_translator = None
+
+
+def set_email_translation(resolver, translator) -> None:
+    global _lang_resolver, _translator
+    _lang_resolver, _translator = resolver, translator
+
+
+async def _localise(to_email: str, subject: str, html: str):
+    if not (_lang_resolver and _translator):
+        return subject, html
+    try:
+        lang = await _lang_resolver(to_email)
+        if lang and not lang.startswith("en"):
+            return await _translator(lang, subject, html)
+    except Exception as e:
+        logger.warning(f"[email-translate-fail] {to_email}: {e!r}")
+    return subject, html
+
+
 _UNDELIVERABLE_DOMAINS = {"example.com", "example.org", "example.net", "test.com", "advocate.app"}
 
 
@@ -117,6 +139,7 @@ async def _send(to_email: str, subject: str, html: str, attachments: Optional[li
     if domain in _UNDELIVERABLE_DOMAINS or domain.endswith((".test", ".invalid", ".example", ".local")):
         logger.info(f"[email-skip] {to_email} | {subject!r} (reserved test domain)")
         return False
+    subject, html = await _localise(to_email, subject, html)
     try:
         resend.api_key = api_key
         params = {
@@ -173,9 +196,9 @@ async def send_welcome(email: str, full_name: str = "") -> bool:
         2. <strong>Open a Case File.</strong> Keep your documents, evidence and timeline together in one place<br>
         3. <strong>Install the app.</strong> Add AI Advocate to your home screen for one-tap access (Android &amp; iPhone)
       </p>
-      <p style="font-size:14px; line-height:1.6; margin-bottom:6px;"><strong>You're on the Free plan</strong>, which includes Lex chat with daily limits and our core tools. When you need more:</p>
+      <p style="font-size:14px; line-height:1.6; margin-bottom:6px;"><strong>You're on the Free plan</strong>, which includes 2 free Lex questions and our core tools. When you need more:</p>
       <p style="font-size:14px; line-height:1.7; margin-top:0;">
-        &bull; <strong>Plus, £19.99/month</strong>: unlimited Lex chat, letter writer, evidence analysis<br>
+        &bull; <strong>Plus, £19.99/month</strong>: 300 Lex messages a month, 20 letters, evidence analysis<br>
         &bull; <strong>Pro, £34.99/month</strong>: our most advanced AI, outcome prediction, Devil's Advocate &amp; more
       </p>
       <p style="text-align:center; margin:22px 0;">

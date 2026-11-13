@@ -1,0 +1,50 @@
+{
+  "summary": "Backend-only testing of Lex Stage 2 (preview). I ran the unit tests (44/44 pass), the Stage 1 smoke tests (9/9 pass) and 10 new live pytest checks in two files. Those checks used 8 Lex chat calls in total, within the 10-call limit, all from fictional users that were cloned and then deleted. 9 of 10 live checks pass. The one failure: the risk classifier treats an illegal lock-out by a landlord (category 'property', no keyword match) as LOW risk. So when research fails, the deterministic 'couldn't check' note is not added and [CONFIDENCE: HIGH] is kept. The same quota-exhaustion path with a clear high-risk keyword (section 21 / evict, streaming) works: research_status quota_exhausted, deterministic note added, no [n] markers, confidence downgraded to MEDIUM, no Tavily calls made.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/lex/chat (lex_safety.risk_level / HIGH_RISK_CATEGORIES)", "issue": "Urgent housing scenarios are classified LOW risk. Examples: 'landlord changed the locks and put my belongings on the street' (category=property), 'landlord kicked me out', 'threw me out'. HIGH_RISK_RE has no lock-out wording and 'property' is not in HIGH_RISK_CATEGORIES. Live result with quota_exhausted: no deterministic research note and the answer ended with [CONFIDENCE: HIGH]. That breaks requirement (c): high-risk => confidence not HIGH plus a clear warning. The LLM did write its own 'I can't check live official sources right now' sentence, so the customer saw some limitation text, but it is not guaranteed.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "/api/lex/chat high-risk + research failed", "issue": "Answers still give definitive conclusions (e.g. 'a landlord cannot validly use a section 21 notice from 1 May 2026'), even though research_block tells the model not to. The [SOURCES: ...] tail still lists Acts that were never retrieved. This is prompt-only enforcement, with no server-side check."},
+      {"endpoint": "/api/lex/chat (deposit in Cardiff)", "issue": "This message counts as high risk only because 'refusing' matches refus\\w*. Classifying by incidental words like this is fragile."},
+      {"endpoint": "/api/lex/chat/stream", "issue": "The deterministic note and the confidence downgrade appear only in done.full_text, not in the streamed tokens. The frontend must replace the streamed text with full_text, otherwise the user never sees the note. Frontend was not tested in this round."},
+      {"endpoint": "auth (pre-existing, not Stage 2)", "issue": "CORS returns access-control-allow-origin '*' together with allow-credentials true. Auth uses a Bearer token, not httpOnly cookies. Passwords are bcrypt $2b$ (OK). I did not run the brute-force lockout test, to avoid locking the shared test account."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter45_stage2_live.py",
+    "/app/backend/tests/test_iter45_stage2_quota_stream.py",
+    "/app/test_reports/pytest/iter45_stage2_live.xml",
+    "/app/test_reports/pytest/iter45_quota_stream.xml"
+  ],
+  "verified_passing": [
+    "Unit tests: test_stage2_safety.py + test_stage1_memory_usage.py: 44 passed",
+    "POST /api/lex/chat returns session_id, response, citations, saved_reminders, model, connected_session_id, research_status ('ok') and jurisdiction_check (False for an England ACAS question)",
+    "ACAS regression: 'dismissed on 2 November 2026 in England' => reminder 'Contact ACAS (tribunal time limit)', due 2027-05-01T09:00+01:00; the answer contains '1 May 2027'",
+    "Streaming: meta event has research_status 'ok'; done.full_text present; markers {1,2} are a subset of citations {1..5}",
+    "Quota exhausted (regular and streaming): research_status quota_exhausted, citations [], no Tavily rows written. The Tavily count was recorded and restored both times (now 118 = original 106 + 12 real calls from this run)",
+    "Jurisdiction conflict: Scotland profile + Cardiff deposit => jurisdiction_check true; the answer opens with 'Which UK nation is the rented property in — Wales (Cardiff) or somewhere else?'; the profile jurisdiction stays 'scotland'",
+    "Cross-conversation: a fictional agent name from session A is not used in a new session B; another user's GET /api/lex/sessions/{A} does not expose it; the owner can read it; a follow-up inside session A does recall it",
+    "GET /api/admin/llm-spend returns total_gbp, calls, by_model, top_users, cost_basis {measured, estimated, flat_rate} and cost_basis_note; non-admin gets 401/403",
+    "llm_usage: every LLM row from this run has measured:true and tokens_source 'provider'; Tavily rows are not_applicable/measured:false; tokens_source always matches the measured flag",
+    "GET /api/admin/lex-lessons: 46 lessons, 25 with needs_review and a review_reason"
+  ],
+  "action_items": [
+    "Widen lex_safety.HIGH_RISK_RE to cover lock-out / illegal eviction wording, e.g. 'changed the locks', 'locked (me )?out', 'kicked (me )?out', 'threw me out', 'thrown out', 'belongings (out|on the street)', 'unlawful eviction', 'disrepair', 'mould', 'gas leak'. Consider adding 'property' (or housing topics) to HIGH_RISK_CATEGORIES. Add a unit test for this.",
+    "Optional: when research has failed, strip or annotate the [SOURCES: ...] tail so it does not look like verified sources",
+    "Make sure the frontend stream handler replaces the streamed text with done.full_text so the deterministic note and confidence downgrade are visible"
+  ],
+  "critical_code_review_comments": [
+    "risk_level depends on keywords only; the most urgent housing scenario (lock-out) falls through to low",
+    "In /lex/chat, if rag_research raises, research keeps the default {'status':'unavailable'}, so citations stay [] and the research block is applied. Correct.",
+    "server.py is over 17k lines (pre-existing); the new Stage 2 logic is kept in lex_safety.py, which is good"
+  ],
+  "updated_files": ["/app/backend/tests/test_iter45_stage2_live.py", "/app/backend/tests/test_iter45_stage2_quota_stream.py"],
+  "success_rate": {"backend": "90% (9/10 live checks); unit tests 100% (44/44)", "frontend": "not tested"},
+  "seed_data_creation": "Created and then deleted 3 fictional users (iter45.a/b/scot@stage2-fictional-test.co.uk) and their conversations and reminders. tavily_usage for 2026-11 was restored after both exhaustion simulations. No seed or production data was modified.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "8 Lex calls used (budget 10). To re-check the fix offline at no cost: python -c \"import lex_safety as s; print(s.risk_level('my landlord changed the locks', 'property'))\" should print 'high'. The live tests clone test@advocate.app with tier plus; the module fixture cleans up. Known pre-existing failures (test_lex_routing, test_iter41 acas dup) were not run or counted.",
+  "rca of the issue": "Repro: set db.tavily_usage{month:2026-11}.count=100000, then POST /api/lex/chat with category=property and the message 'my landlord in Bristol changed the locks while I was out and put my belongings on the street. What are my rights right now?'. risk_level returns 'low' (no regex match, and property is not a high-risk category). finalize_answer only adds the note and downgrades [CONFIDENCE: HIGH] when risk=='high' or the answer claims verification, so neither happens. Fix: extend HIGH_RISK_RE / HIGH_RISK_CATEGORIES."
+}

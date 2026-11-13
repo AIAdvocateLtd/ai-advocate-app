@@ -1,0 +1,45 @@
+{
+ "cost_gbp": 0.048,
+ "lex_rows": [
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "length",
+   "reasoning_tokens": 0,
+   "tokens_out": 1200,
+   "output_chars": 3433,
+   "cost_gbp": 0.010482
+  },
+  {
+   "model_requested": "claude-haiku-5-5",
+   "call_site": "lex_stream",
+   "attempt": "primary",
+   "finish_reason": "length",
+   "reasoning_tokens": 0,
+   "tokens_out": 1200,
+   "output_chars": 1524,
+   "cost_gbp": 0.009524
+  }
+ ],
+ "passed": 2,
+ "total": 2,
+ "results": [
+  {
+   "case": "free_complex_stream",
+   "chars": 3502,
+   "blank": false,
+   "cut_note": true,
+   "ending_markers": false,
+   "pass": true
+  },
+  {
+   "case": "free_urdu_stream",
+   "chars": 1592,
+   "blank": false,
+   "cut_note": false,
+   "ending_markers": false,
+   "pass": true
+  }
+ ]
+}

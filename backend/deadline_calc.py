@@ -19,7 +19,7 @@ _HINT_RE = re.compile(
     r"\b(dismiss|sacked|fired|redundan|tribunal|acas|lra|discriminat|wages|ilr|indefinite leave|settle|citizenship|naturalis|"
     r"visa|overstay|expir|section 8|section 21|section 173|notice|evict|possession|landlord|tenan|deposit|debt|owe|contract|"
     r"injur|accident|negligen|limitation|small claim|benefit|universal credit|pip|esa|dwp|reconsideration|appeal|divorce|"
-    r"deadline|how long|when can|how much time|time limit|too late)\w*", re.I)
+    r"deadline|how long|when can|how much time|time limit|too late|court|claim form|defence|ccj|summons|hearing|sheriff)\w*", re.I)
 _DATE_RE = re.compile(r"\d|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|\b(today|yesterday|tomorrow|"
                       r"last|next|ago|week|month|year)\b", re.I)
 
@@ -40,34 +40,99 @@ def _months_less_day(ev: date, months: int) -> date:
     return t if t.day != ev.day else t - timedelta(days=1)
 
 
-def _working_days(start: date, n: int) -> date:
+_BH_EW = {"2025": ["01-01", "04-18", "04-21", "05-05", "05-26", "08-25", "12-25", "12-26"],
+          "2026": ["01-01", "04-03", "04-06", "05-04", "05-25", "08-31", "12-25", "12-28"],
+          "2027": ["01-01", "03-26", "03-29", "05-03", "05-31", "08-30", "12-27", "12-28"]}
+_BH_SCOT = {"2025": ["01-01", "01-02", "04-18", "05-05", "05-26", "08-04", "12-01", "12-25", "12-26"],
+            "2026": ["01-01", "01-02", "04-03", "05-04", "05-25", "08-03", "11-30", "12-25", "12-28"],
+            "2027": ["01-01", "01-04", "03-26", "05-03", "05-31", "08-02", "11-30", "12-27", "12-28"]}
+_BH_NI = {"2025": _BH_EW["2025"] + ["03-17", "07-14"], "2026": _BH_EW["2026"] + ["03-17", "07-13"],
+          "2027": _BH_EW["2027"] + ["03-17", "07-12"]}
+BANK_HOLIDAY_YEARS = (2025, 2027)  # official GOV.UK lists; outside this range only weekends are excluded
+
+
+def bank_holidays(nation: str) -> set:
+    table = _BH_SCOT if (nation or "").startswith("scot") else _BH_NI if (nation or "").startswith("northern") else _BH_EW
+    return {date.fromisoformat(f"{y}-{md}") for y, mds in table.items() for md in mds}
+
+
+def _working_days(start: date, n: int, nation: str = "england") -> date:
+    hols = bank_holidays(nation)
     d = start
     while n:
         d += timedelta(days=1)
-        if d.weekday() < 5:
+        if d.weekday() < 5 and d not in hols:
             n -= 1
     return d
+
+
+def _closed_day_note(d: date, nation: str = "england") -> str:
+    if d.weekday() >= 5 or d in bank_holidays(nation):
+        what = "a weekend" if d.weekday() >= 5 else "a bank holiday"
+        return (f" Note: this date falls on {what} — do not assume the deadline moves to the next working day; act before it.")
+    if not (BANK_HOLIDAY_YEARS[0] <= d.year <= BANK_HOLIDAY_YEARS[1]):
+        return " (Bank holidays for that year were not checked.)"
+    return ""
+
+
+def _unknown(j) -> bool:
+    return (j or "unknown").lower() in ("", "unknown", "none", "null")
+
+
+def _month_end_note(ev: date, months: int) -> str:
+    return (f" Because {fmt(ev)} is near a month end, some advisers count this one day earlier — treat the earlier day as "
+            "the safe deadline." if (ev + relativedelta(months=months)).day != ev.day else "")
 
 
 def _et(c) -> List[Item]:
     ev = _d(c.get("event_date"))
     if not ev:
         return []
-    if (c.get("jurisdiction") or "").lower().startswith("northern"):
-        limit = _months_less_day(ev, 3)
-        return [(f"Northern Ireland industrial tribunal: act/dismissal on {fmt(ev)} → 3 months less one day ends {fmt(limit)}. "
-                 "Early conciliation is with the Labour Relations Agency (LRA), not ACAS, and must start by then.",
-                 "Contact the LRA / tribunal time limit", limit)]
+    j = (c.get("jurisdiction") or "").lower()
+    ni_limit = _months_less_day(ev, 3)
+    ni_text = (f"Northern Ireland industrial tribunal: act/dismissal on {fmt(ev)} → 3 months less one day ends {fmt(ni_limit)}. "
+               "Early conciliation is with the Labour Relations Agency (LRA), not ACAS, and must start by then."
+               + _month_end_note(ev, 3) + _closed_day_note(ni_limit, "northern_ireland"))
+    if j.startswith("northern"):
+        return [(ni_text, "Latest date to start LRA early conciliation", ni_limit),
+                ("Industrial tribunal claim: the normal time limit is the same date, but starting LRA early conciliation in time "
+                 "extends it — recalculate once the LRA certificate is issued.",
+                 "Industrial tribunal claim — normal time limit (can be extended by LRA early conciliation)", ni_limit)]
     months = 6 if ev >= ET_NEW_LIMIT_FROM else 3
     limit = _months_less_day(ev, months)
-    out: List[Item] = [(f"Employment tribunal (England, Wales, Scotland): act/dismissal on {fmt(ev)} → normal time limit "
-                        f"({months} months less one day) ends {fmt(limit)}. ACAS early conciliation must be started on or before this date.",
-                        "Contact ACAS (tribunal time limit)", limit)]
+    gb_text = (f"Employment tribunal (England, Wales, Scotland): act/dismissal on {fmt(ev)} → normal time limit "
+               f"({months} months less one day) ends {fmt(limit)}. ACAS early conciliation must be started on or before this date."
+               + _month_end_note(ev, months) + _closed_day_note(limit))
+    if _unknown(j):
+        safe = min(limit, ni_limit)
+        return [(f"UK nation of the workplace not confirmed. {gb_text} {ni_text} Until confirmed, treat {fmt(safe)} as the "
+                 "safe date.", "Latest date to start ACAS/LRA early conciliation (safe date)", safe)]
+    if months == 3 and limit >= date(2026, 10, 1):
+        gb_text += (" The limit rose to 6 months for matters from 1 October 2026; transitional rules may give this claim longer, "
+                    "so treat this as the safe date — if it has passed, do not assume the claim is out of time: contact ACAS and get "
+                    "advice urgently.")
+    out: List[Item] = [(gb_text, "Latest date to start ACAS Early Conciliation", limit)]
     a, b = _d(c.get("acas_date")), _d(c.get("certificate_date"))
-    if a and b and b >= a and a <= limit:
+    if a and a > limit:
+        out.append((f"ACAS was contacted on {fmt(a)}, after the normal time limit ended — the early-conciliation extension does "
+                    "not apply, so the claim may already be out of time. Get urgent advice (late claims are only allowed in "
+                    "limited circumstances).", None, None))
+    elif a and b and b >= a:
         final = max(limit + timedelta(days=(b - a).days), b + relativedelta(months=1))
-        out.append((f"With ACAS contacted {fmt(a)} and certificate issued {fmt(b)}, the ET1 claim deadline becomes {fmt(final)}.",
-                    "Submit ET1 tribunal claim", final))
+        out.append((f"With ACAS contacted {fmt(a)} and certificate issued {fmt(b)}, the ET1 claim deadline becomes {fmt(final)}."
+                    + _closed_day_note(final), "Submit ET1 tribunal claim (after ACAS certificate)", final))
+    elif a and not b:
+        out.append((f"ACAS was contacted on {fmt(a)} but no certificate date is known yet: the clock is paused during "
+                    "conciliation, so the final ET1 deadline can only be calculated once the certificate is issued (it will be "
+                    "at least one month after the certificate date). Do not rely on any exact ET1 date until then.", None, None))
+    else:
+        out.append((f"Tribunal claim (ET1): {fmt(limit)} is the normal time limit before any extension. ACAS Early Conciliation is "
+                    "normally required first; starting it on or before that date pauses the clock, and the ET1 deadline is then "
+                    "recalculated from the ACAS certificate (at least one month after the certificate date). Keep the ACAS date "
+                    "and the ET1 date separate. The customer has not given an ACAS notification date: any Early Conciliation "
+                    "adjustment cannot be calculated until the ACAS notification and certificate dates are known — ask whether "
+                    "ACAS has been contacted and, if so, on what date.", "ET1 tribunal claim — normal time limit (can be extended by ACAS Early Conciliation)",
+                    limit))
     return out
 
 
@@ -101,13 +166,24 @@ def _visa(c) -> List[Item]:
         return []
     return [(f"Visa expiry {fmt(exp)}: apply to extend/switch on or before this date so existing permission continues while "
              f"it is decided (section 3C). After it, the person is an overstayer; a late application by {fmt(exp + timedelta(days=14))} "
-             "may only be accepted if there was a good reason beyond their control.", "Visa expires — apply before this date", exp)]
+             "may only be accepted if there was a good reason beyond their control." + _closed_day_note(exp), "Visa expires — apply before this date", exp)]
+
+
+def _all_nations(fn, c, what: str) -> List[Item]:
+    parts = [t for n in ("england", "wales", "scotland", "northern_ireland") for t, _, _ in fn({**c, "jurisdiction": n})]
+    if not parts:
+        return [(f"{what}: the UK nation where the property is has not been confirmed and the rules differ — no exact date "
+                 "can be given until it is.", None, None)]
+    return [(f"{what}: the UK nation where the property is has not been confirmed, and the rules differ. If it is in — "
+             + " | ".join(parts) + " Confirm the nation before relying on any date.", None, None)]
 
 
 def _tenancy_notice(c) -> List[Item]:
     served = _d(c.get("served_date"))
     if not served:
         return []
+    if _unknown(c.get("jurisdiction")):
+        return _all_nations(_tenancy_notice, c, "Landlord's notice")
     j = (c.get("jurisdiction") or "england").lower()
     ts = _d(c.get("tenancy_start_date"))
     if j.startswith("wales"):
@@ -154,10 +230,12 @@ def _deposit(c) -> List[Item]:
     got = _d(c.get("paid_date"))
     if not got:
         return []
+    if _unknown(c.get("jurisdiction")):
+        return _all_nations(_deposit, c, "Deposit protection")
     j = (c.get("jurisdiction") or "england").lower()
     if j.startswith("scot"):
         start = _d(c.get("tenancy_start_date")) or got
-        due = _working_days(start, 30)
+        due = _working_days(start, 30, "scotland")
         return [(f"Scotland: deposit must be lodged in an approved scheme within 30 working days of the tenancy start "
                  f"({fmt(start)}) → by {fmt(due)}. Penalty up to 3× the deposit via the First-tier Tribunal.",
                  "Deposit must be protected by", due)]
@@ -177,6 +255,11 @@ def _limitation(c) -> List[Item]:
         end = ev + relativedelta(years=3)
         return [(f"Personal injury (all UK nations): 3 years from the injury or date of knowledge — from {fmt(ev)} the court "
                  f"claim must be issued by {fmt(end)}. Under-18s: clock starts at 18.", "Personal injury claim time limit", end)]
+    if _unknown(j):
+        end = ev + relativedelta(years=5)
+        return [(f"Contract/debt claims: 6 years in England, Wales & Northern Ireland, but 5 years (prescription) in Scotland — "
+                 f"the UK nation is not confirmed, so from {fmt(ev)} treat {fmt(end)} as the safe date. A written "
+                 "acknowledgment or part-payment of a debt can restart the clock.", "Contract / debt claim time limit (safe date)", end)]
     yrs, where = (5, "Scotland (prescription)") if j.startswith("scot") else (6, "England, Wales & Northern Ireland")
     end = ev + relativedelta(years=yrs)
     return [(f"{where}: contract/debt claims must be brought within {yrs} years — from {fmt(ev)} that is by {fmt(end)}. "
@@ -207,11 +290,16 @@ def _divorce(c) -> List[Item]:
     app = _d(c.get("application_date"))
     if not app:
         return []
+    j = (c.get("jurisdiction") or "").lower()
+    if j.startswith("scot") or j.startswith("northern"):
+        return [("Divorce timings in Scotland and Northern Ireland follow different rules from England & Wales — the app does "
+                 "not calculate them; check with the court or a family solicitor.", None, None)]
     co = app + timedelta(weeks=20)
     fo = co + timedelta(weeks=6, days=1)
+    reminder = "Earliest date to apply for divorce conditional order" if j in ("england", "wales") else None
     return [(f"Divorce (England & Wales): application issued {fmt(app)} → earliest conditional order application "
              f"{fmt(co)} (20 weeks); earliest final order about {fmt(fo)} (6 weeks and 1 day after the conditional order is made, "
-             "so later if the conditional order takes longer).", "Earliest date to apply for divorce conditional order", co)]
+             "so later if the conditional order takes longer).", reminder, co if reminder else None)]
 
 
 CALCS = {"employment_tribunal": _et, "citizenship_after_ilr": _citizenship, "ilr_eligibility": _ilr,
@@ -220,7 +308,12 @@ CALCS = {"employment_tribunal": _et, "citizenship_after_ilr": _citizenship, "ilr
 
 EXTRACT_SYSTEM = """Extract dated legal events from the user's message (and recent context) so software can calculate deadlines.
 Resolve relative dates ("last Friday", "next week", "3 weeks ago") using TODAY. Only include items where a date is stated or clearly implied.
-jurisdiction is one of england|wales|scotland|northern_ireland (use the user's stated or profile location; default england).
+jurisdiction is one of england|wales|scotland|northern_ireland|unknown — the nation where the matter is (property / workplace /
+court). Use APP JURISDICTION if it is not "unknown"; otherwise use only what the user clearly states; if unclear use "unknown".
+Never guess a date that is not stated or clearly implied — leave the item out instead.
+Each date field must come from the customer's words about THAT event: acas_date only if they say they contacted/notified
+ACAS (or the LRA) and when; certificate_date only if they mention the certificate and its date; mrn_date only for a mandatory
+reconsideration notice. Never copy the dismissal/decision/notice date into another field — use null.
 Reply ONLY with JSON: {"calcs": [ ... ]} — empty list if none. Allowed items:
 {"type":"employment_tribunal","event_date":"YYYY-MM-DD","acas_date":"YYYY-MM-DD|null","certificate_date":"YYYY-MM-DD|null","jurisdiction":"..."}
 {"type":"citizenship_after_ilr","ilr_date":"YYYY-MM-DD","married_to_british":true|false}
@@ -248,30 +341,94 @@ def compute(calcs: list) -> List[Item]:
 
 async def build_deadlines(message: str, context: str, api_key: str, jurisdiction: Optional[str] = None):
     """Returns (prompt_block, [(title, date)] future reminder dates)."""
-    if not (_HINT_RE.search(message or "") and _DATE_RE.search(message or "")):
+    if not _HINT_RE.search(message or ""):
         return "", []
+    if not _DATE_RE.search(message or ""):
+        return NO_CALC_BLOCK, []
     today = datetime.now(UK).date()
     try:
         chat = LlmChat(api_key=api_key, session_id=f"deadline-{uuid.uuid4()}", system_message=EXTRACT_SYSTEM) \
             .with_model("anthropic", "claude-haiku-4-5-20251001").with_params(max_tokens=500)
         raw = await chat.send_message(UserMessage(
-            text=f"TODAY: {today.isoformat()} ({fmt(today)})\nUSER PROFILE JURISDICTION: {jurisdiction or 'unknown'}\n\n"
+            text=f"TODAY: {today.isoformat()} ({fmt(today)})\nAPP JURISDICTION: {jurisdiction or 'unknown'}\n\n"
                  f"RECENT CONTEXT:\n{(context or '')[-1500:]}\n\nMESSAGE:\n{message[:3000]}"))
         m = re.search(r"\{.*\}", raw or "", re.S)
         calcs = json.loads(m.group(0)).get("calcs", []) if m else []
     except Exception as e:
         logger.warning(f"deadline extraction failed: {e!r}")
         return "", []
+    import date_guard
+    calcs, guard_notes = date_guard.validate(calcs, f"{context or ''}\n{message}")
+    facts = ("\nDATE SAFEGUARD (the app checked which dates the customer actually gave):\n- " + "\n- ".join(guard_notes) +
+             "\n") if guard_notes else ""
+    facts += ("Each date belongs only to the event it is stated for. Never say the customer contacted ACAS, received a "
+              "certificate, appealed, asked for reconsideration or submitted a claim — or give a date for it — unless they "
+              "said so. If an important date is missing or unclear, ask for it.\n")
     items = compute(calcs)
     if not items:
-        return "", []
+        return NO_CALC_BLOCK + facts, []
     block = ("\n\nEXACT DATES CALCULATED BY THE APP — use these dates exactly, do not recalculate or round them. "
              "Say they are based on the dates the user gave and that a regulated adviser should confirm. "
-             "Future dates are saved to the user's Reminders automatically and they will be emailed 7, 3 and 1 day before — "
-             "mention this briefly:\n- " + "\n- ".join(i[0] for i in items) + "\n")
-    reminders = [(t, d) for _, t, d in items if t and d and d >= today]
-    return block, reminders
+             "Nothing has been saved: the app will OFFER to add future dates to Reminders only after the customer confirms "
+             "this is their real situation — do NOT say any reminder was saved or that emails will be sent. Keep the ACAS/LRA "
+             "early-conciliation date separate from the tribunal claim deadline; for a dismissal, ask the customer to confirm "
+             "the effective date of termination. Never reassure about time (e.g. 'you have plenty of time', 'no rush') — state "
+             "the date and urge prompt action. Great Britain employment time limits end at 11:59pm UK time on the last day (Acas); "
+             "never give 9am or any other time as a legal cut-off, and for other deadlines do not state a cut-off time:\n- " + "\n- ".join(i[0] for i in items) +
+             "\nOnly the dates above are app-calculated. Any other deadline: explain the rule and what to check, "
+             "but do not state a precise calendar date.\n" + facts)
+    return block, [{"title": t, "due": d, "note": reminder_note(t)} for _, t, d in items if t and d and d >= today]
+
+
+ET_NOTE = ("Based on the dismissal date you gave — confirm your effective date of termination (on your dismissal letter or "
+           "payslip). Starting ACAS Early Conciliation (LRA in Northern Ireland) in time extends the tribunal claim deadline; "
+           "recalculate once you have the certificate. Check with a regulated adviser.")
+
+
+def reminder_note(title: str) -> str:
+    if re.search(r"ACAS|LRA|ET1|tribunal", title or ""):
+        return ET_NOTE
+    return "Worked out by Lex from the dates you gave. Check with a regulated adviser."
+
+
+NO_CALC_BLOCK = (
+    "\n\nDEADLINES — NO APP-CALCULATED DATE THIS TURN: the app could not calculate an exact deadline (the triggering date, "
+    "the UK nation or the type of deadline is missing or not supported). Do NOT state a precise calendar deadline. "
+    "Explain the rule in general terms (e.g. '3 months less one day from the dismissal'), say exactly which facts are needed "
+    "(e.g. the date the notice or claim form was received, how it was served, the date on the decision letter, the UK nation), "
+    "and tell the customer to check the date on their papers or with the court/tribunal/adviser. Court papers usually state "
+    "the response deadline — tell them to act on that.\n")
 
 
 def reminder_due_iso(d: date) -> str:
     return datetime(d.year, d.month, d.day, 9, 0, tzinfo=UK).isoformat()
+
+
+def deadline_iso(d: date) -> str:
+    """Legal deadline = end of the last day, UK local time (GMT or BST as applicable)."""
+    return datetime(d.year, d.month, d.day, 23, 59, tzinfo=UK).isoformat()
+
+
+ACAS_TL_URL = "https://www.acas.org.uk/employment-tribunal-time-limits"
+
+
+def deadline_label(d: date, title: str) -> dict:
+    """What the customer is shown about the cut-off time. Only GB employment limits have an authoritative 11:59pm
+    (Acas: the time limit 'ends at 11:59pm' on the last day); everything else is labelled as needing confirmation."""
+    day = datetime(d.year, d.month, d.day, 23, 59, tzinfo=UK)
+    when = f"{fmt(d)}"
+    gb_et = bool(re.search(r"ACAS|ET1", title or "")) and not re.search(r"LRA|Industrial", title or "")
+    if gb_et and "ACAS" in title and "ET1" not in title:
+        basis = ("Legal deadline: the time limit ends at 11:59pm UK time on this day (Acas guidance). Notifying Acas online "
+                 "can be done at any time; the Acas phone line is only open during its opening hours, so do not leave it "
+                 "to the last day.")
+    elif gb_et:
+        basis = ("Legal deadline: the time limit ends at 11:59pm UK time on this day (Acas guidance), unless Early "
+                 "Conciliation has extended it. Submit the ET1 online well before then.")
+    else:
+        basis = ("Legal deadline date only — the exact cut-off time has not been confirmed. Check the time on your papers or "
+                 "with the court, tribunal or office, and act well before the day.")
+    return {"deadline_label": f"{when}, 11:59pm UK time ({day.tzname()})" if gb_et else f"{when} — cut-off time to be confirmed",
+            "deadline_time_confirmed": gb_et, "deadline_basis": basis,
+            "deadline_source": ACAS_TL_URL if gb_et else "",
+            "reminder_schedule": "Reminder emails at 8am UK time, 7, 3 and 1 days before"}

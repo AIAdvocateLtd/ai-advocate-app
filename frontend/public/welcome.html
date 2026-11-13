@@ -94,7 +94,7 @@
           "name": "Free tier",
           "price": "0",
           "priceCurrency": "GBP",
-          "description": "5 Lex chats a day — no card required"
+          "description": "2 free Lex questions — no card required"
         },
         {
           "@type": "Offer",
@@ -130,7 +130,7 @@
           "name": "How much does AI Advocate cost?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Free is £0 forever with 5 Lex chats a day, no card required. Plus is £19.99/month for unlimited Lex chats (fair use), unlimited letters, Contract Review and Court Prep. Pro is £34.99/month, or £319.99/year (save £100), for everything in Plus plus Deep Think for complex cases, hearing notes and transcription, and priority legal research. One-off packs are also available from £4.99. Prices shown are the total you pay. Cancel any time."
+            "text": "Free is £0 forever with 2 free Lex questions, no card required. Plus is £19.99/month for 300 Lex messages a month, 20 letters, Contract Review and Court Prep. Pro adds 600 Lex messages a month. Pro is £34.99/month, or £319.99/year (save £100), for everything in Plus plus Deep Think for complex cases, hearing notes and transcription, and priority legal research. One-off packs are also available from £4.99. Prices shown are the total you pay. Cancel any time."
           }
         },
         {
@@ -154,7 +154,7 @@
           "name": "What languages does AI Advocate support?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "11 languages: English (UK), Arabic, French, Spanish, Polish, Punjabi, Urdu, Bengali, Portuguese, Romanian and Somali. Lex understands questions in any supported language and can reply in the same language — legal terms are automatically kept in the original English legal term with a translated explanation."
+            "text": "11 languages: English (UK), Spanish, French, Arabic, Polish, German, Hindi, Urdu, Italian, Portuguese and Simplified Chinese. Lex understands questions in any supported language and can reply in the same language — legal terms are automatically kept in the original English legal term with a translated explanation."
           }
         },
         {
@@ -508,6 +508,7 @@
       <a href="#pricing">Pricing</a>
       <a href="/for-firms">For Law Firms</a>
       <a href="/for-organisations">For Councils &amp; Charities</a>
+      <select id="aa-lang-picker" data-testid="landing-lang-picker" aria-label="Language" data-no-translate style="background:transparent;color:inherit;border:1px solid rgba(247,201,72,0.4);border-radius:8px;padding:4px 6px;font-size:13px;cursor:pointer;"><option value="en-GB" style="color:#000">English</option><option value="es-ES" style="color:#000">Español</option><option value="fr-FR" style="color:#000">Français</option><option value="ar-IQ" style="color:#000">العربية</option><option value="pl-PL" style="color:#000">Polski</option><option value="de-DE" style="color:#000">Deutsch</option><option value="hi-IN" style="color:#000">हिन्दी</option><option value="ur-PK" style="color:#000">اردو</option><option value="it-IT" style="color:#000">Italiano</option><option value="pt-PT" style="color:#000">Português</option><option value="zh-CN" style="color:#000">中文</option></select>
       <a href="/app" class="nav-cta">Sign up</a>
     </div>
   </div>
@@ -666,9 +667,8 @@
         <div class="plan-name">Free</div>
         <div class="plan-price">£0 <small>/forever</small></div>
         <ul>
-          <li>5 Lex chats / day</li>
-          <li>1 photo evidence / month</li>
-          <li>1 letter / month</li>
+          <li>2 free Lex questions<sup>*</sup></li>
+          <li>Chat, letter or document check</li>
           <li>Emergency Rights, read aloud (always free)</li>
           <li>Encrypted Vault</li>
         </ul>
@@ -678,9 +678,9 @@
         <div class="plan-name">Plus</div>
         <div class="plan-price">£19.99 <small>/month</small></div>
         <ul>
-          <li>Unlimited Lex chats<sup>*</sup></li>
-          <li>15 photo evidence / month</li>
-          <li>Unlimited letters</li>
+          <li>300 Lex messages / month<sup>*</sup></li>
+          <li>15 evidence &amp; document analyses / month</li>
+          <li>20 letters / month</li>
           <li>Contract Review</li>
           <li>Court Prep mode</li>
           <li>Talk to Lex by voice</li>
@@ -695,6 +695,8 @@
         <div class="yearly-line">or <strong>£319.99/year</strong> · save <strong>£100</strong></div>
         <ul>
           <li>Everything in Plus</li>
+          <li>600 Lex messages / month<sup>*</sup></li>
+          <li>50 letters + 25 document analyses / month</li>
           <li>Hearing notes &amp; transcription<sup>†</sup></li>
           <li>Deep Think for complex cases</li>
           <li>Priority legal research</li>
@@ -705,7 +707,7 @@
       </div>
     </div>
     <p class="pricing-fineprint" data-testid="pricing-fineprint" style="text-align:center; font-size:12px; color:var(--text-muted); max-width:640px; margin:22px auto 0; line-height:1.6;">
-      <sup>*</sup> Fair use: up to 100 Lex chats a day on Plus. <sup>†</sup> Never record a court or tribunal hearing without the court's permission — it's a criminal offence in the UK. Prices shown are the total you pay.
+      <sup>*</sup> Free: 2 lifetime questions. Fair use: up to 40 Lex messages a day on Plus and 80 on Pro. Failed answers never count. Read-Aloud: 100 replies a month on Plus, 150 on Pro. Pro also includes Translation Mode (150 a month), Live Legal Assist (6 sessions a month, up to 60 responses each) and the Hearing Recorder (5 hours a month). <sup>†</sup> Never record a court or tribunal hearing without the court's permission — it's a criminal offence in the UK. Prices shown are the total you pay.
     </p>
   </div>
 </section>
@@ -805,10 +807,10 @@
     <h2 style="text-align:center;">Frequently asked questions</h2>
     <div style="margin-top:20px;" data-testid="landing-faq-list">
       <details data-testid="landing-faq-item-0" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">Is AI Advocate a real lawyer?</summary><p style="color:var(--text-dim); margin:10px 0 0;">No. AI Advocate is a legal-information assistant — not a law firm and not regulated by the SRA. It gives you instant, plain-English information about UK law and helps you draft letters and organise your case, but it is not a substitute for regulated legal advice from a qualified solicitor. For complex matters, we signpost you to Citizens Advice, Legal Aid Agency or an independent solicitor.</p></details>
-      <details data-testid="landing-faq-item-1" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">How much does AI Advocate cost?</summary><p style="color:var(--text-dim); margin:10px 0 0;">Free is £0 forever with 5 Lex chats a day, no card required. Plus is £19.99/month for unlimited Lex chats (fair use), unlimited letters, Contract Review and Court Prep. Pro is £34.99/month, or £319.99/year (save £100), for everything in Plus plus Deep Think for complex cases, hearing notes and transcription, and priority legal research. One-off packs are also available from £4.99. Prices shown are the total you pay. Cancel any time.</p></details>
+      <details data-testid="landing-faq-item-1" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">How much does AI Advocate cost?</summary><p style="color:var(--text-dim); margin:10px 0 0;">Free is £0 forever with 2 free Lex questions, no card required. Plus is £19.99/month for 300 Lex messages a month, 20 letters, Contract Review and Court Prep. Pro adds 600 Lex messages a month. Pro is £34.99/month, or £319.99/year (save £100), for everything in Plus plus Deep Think for complex cases, hearing notes and transcription, and priority legal research. One-off packs are also available from £4.99. Prices shown are the total you pay. Cancel any time.</p></details>
       <details data-testid="landing-faq-item-2" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">What areas of UK law does AI Advocate cover?</summary><p style="color:var(--text-dim); margin:10px 0 0;">Employment (unfair dismissal, discrimination, wages), housing (deposits, evictions, disrepair), family (divorce, child arrangements), consumer (refunds, faulty goods), small claims, debt, immigration, welfare benefits, personal injury basics, will drafting basics, and neighbour disputes. Primary training is England &amp; Wales law with Scotland and Northern Ireland variations flagged where relevant.</p></details>
       <details data-testid="landing-faq-item-3" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">Is my data private and secure?</summary><p style="color:var(--text-dim); margin:10px 0 0;">Yes. Chat messages and case files are encrypted at rest. Lex Vault items are encrypted client-side with a PIN only you know — we cannot read them. We store data in EU-West MongoDB Atlas (UK-GDPR compliant). We never sell data to advertisers or data brokers. You can export or delete your data any time via Settings → Manage My Data.</p></details>
-      <details data-testid="landing-faq-item-4" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">What languages does AI Advocate support?</summary><p style="color:var(--text-dim); margin:10px 0 0;">11 languages: English (UK), Arabic, French, Spanish, Polish, Punjabi, Urdu, Bengali, Portuguese, Romanian and Somali. Lex understands questions in any supported language and can reply in the same language — legal terms are automatically kept in the original English legal term with a translated explanation.</p></details>
+      <details data-testid="landing-faq-item-4" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">What languages does AI Advocate support?</summary><p style="color:var(--text-dim); margin:10px 0 0;">11 languages: English (UK), Spanish, French, Arabic, Polish, German, Hindi, Urdu, Italian, Portuguese and Simplified Chinese. Lex understands questions in any supported language and can reply in the same language — legal terms are automatically kept in the original English legal term with a translated explanation.</p></details>
       <details data-testid="landing-faq-item-5" style="border-bottom:1px solid var(--line); padding:14px 0;"><summary style="cursor:pointer; font-weight:700;">Do I need to be in the UK to use AI Advocate?</summary><p style="color:var(--text-dim); margin:10px 0 0;">The app is primarily trained on UK law. You can use it from anywhere in the world, but for jurisdictions outside the UK we display a warning that legal answers may not fully apply to your country. If you need advice on non-UK matters, we recommend consulting a qualified lawyer in your jurisdiction.</p></details>
     </div>
   </div>
@@ -819,7 +821,7 @@
   <div class="container">
     <h2>Get started in 30 seconds.</h2>
     <p class="section-sub" style="margin-bottom: 32px;">
-      Ask your first question free without signing up, then get 5 Lex chats a day on the free plan. No card required.
+      Ask your first question free without signing up, then get 2 more free Lex questions with a free account. No card required.
     </p>
     <div style="display:flex; gap:12px; flex-wrap:wrap; justify-content:center;">
       <a href="/app" class="nav-cta" style="display: inline-block;">Sign up free</a>
@@ -905,7 +907,7 @@
     function used() {
       input.disabled = true; btn.disabled = true;
       status.className = 'ask-status';
-      status.textContent = "You've used your free question. Create a free account for 5 Lex chats a day.";
+      status.textContent = "You've used your free question. Create a free account for 2 more free Lex questions.";
       signup.hidden = false;
     }
     function render(md) {
@@ -980,5 +982,6 @@
     });
   }
 </script>
+<script src="/i18n/auto.js" defer></script>
 </body>
 </html>

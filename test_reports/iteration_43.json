@@ -1,0 +1,40 @@
+{
+  "summary": "Frontend retest of the 10 iteration_42 fixes on mobile 390x844 and desktop 1920, using admin and test@advocate.app. FIXED and verified: (1) Arabic/Urdu letter-spacing is 0. Computed styles show 0 elements with Arabic text and letter-spacing != 0 on welcome.html?lang=ar-IQ, ur-PK, the guides, terms and privacy; lang/dir=rtl are set. (2) The Will Writer tile title and sub translate in es/pl/de/fr. The Will Writer screen title and the subtitle 'Answer a few questions…' are in Spanish. (3) The Lex chat buttons translate in pl, including after the toggle: 'Najlepszy i najgorszy scenariusz' -> 'Ukryj najlepszy i najgorszy scenariusz', 'Ich argument' -> 'Ukryj ich argumentację'. The outcome-ladder and devil-advocate APIs return 200. (4) The 'not a law firm' footer translates in es ('no es un despacho de abogados') and pl. Timestamps use the locale ('4/11/2026, 0:54:07' in es, '4.11.2026, 00:56:05' in pl). (5) The Conveyancing modal title is fully translated ('Asistente de Compraventa de Vivienda'). (6) The Country select options translate (Reino Unido, Estados Unidos, España…). (8) The contracts hub shows '💾 MIS CONTRATOS GUARDADOS (1)'. (9) Letter Library rows are right-aligned in Arabic (direction rtl, text-align right). (10) for-organisations.html (and the /for-organisations route) translates with the saved language (es: 98 nodes translated; de h1 translated); reset/gift/track now load auto.js. Regression: the picker shows native names while in Spanish. After 6 quick switches back to English: lang en-GB, dir ltr, no non-Latin or Polish leftovers, 0 DOM mutations in 3s idle (no loop). Chat bubbles keep data-no-translate. No page errors. Both accounts are restored to en-GB (verified via /api/auth/me). REMAINING ISSUES below: (6b) UK legal system options, (7) Reminders, the French footer, and the JS-injected strings on reset/gift/track.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Reminders card (App.js:6917) + es-ES/de-DE dictionaries", "issue": "Item 7 is NOT fully fixed. The 'days left' key maps to garbage 'd be replaced by' in es-ES and de-DE. 'days overdue' maps to 'días restantes' (es) and 'Tage verbleibend' (de), which both mean 'days left'. An overdue reminder therefore says it has days remaining: observed 'Vencimiento Sat, 17 Oct 2026 · 17 días restantes' and 'Fällig Sat, 17 Oct 2026 · 17 Tage verbleibend'. The date is also hard-coded toLocaleDateString('en-GB'), so 'Sat, 17 Oct 2026' stays English in every language (ar/fr/de/es). ar/fr/pl show the correct overdue wording.", "selector": "[data-testid='reminders-modal']", "priority": "HIGH"},
+      {"component": "Settings UK legal system select (App.js:7845-7848)", "issue": "Item 6 is only partly fixed. The Country options translate, but the 4 jurisdiction options ('🏴 England (Housing Act, England & Wales courts)', Wales…, Scotland…, Northern Ireland…) are not in any dictionary, so they stay English. The label 'UK legal system' itself translates.", "selector": "[data-testid='settings-uk-jurisdiction-select'] option", "priority": "MEDIUM"},
+      {"component": "fr-FR.json", "issue": "The 'not a law firm' key is missing in French, so the bold part of the chat footer and the Will Writer disclaimer stay English in fr. hi-IN is missing 'United Kingdom' (Country option).", "selector": "chat footer strong", "priority": "LOW"},
+      {"component": "Lex chat secondary UI", "issue": "Missing dictionary keys: the voice avatar status 'Thinking…' (App.js:1618) and 'Your weakest point (honest)' (App.js:1808). The ladder headings 'BEST CASE'/'MODERATE' come from the LLM payload and stay English.", "selector": "voice overlay / devil panel", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "reset.html / gift.html / track.html", "issue": "auto.js now loads (static labels translate), but the strings set by each page's JS are not in the dictionaries, so they stay English in es. reset: 'Reset link missing', 'This URL is missing the reset token…'. gift: the pack names and descriptions ('Day Pass', '24 hours', 'Letter Pack', 'Weekend Pass', 'Crisis Pack', 'RECOMMENDED', 'One urgent question…'). track: 'NOT FOUND', 'Tracking session not found or already cleaned up.'. Add these strings to the extractor (it should scan the public/*.html inline scripts).", "affected_selectors": ["#heading (reset.html)", "gift pack cards", "track meta box"]}
+    ],
+    "design_issues": [
+      {"screen": "Letter Library (ar)", "issues": ["Alignment is fixed, but the template titles and the MONEY/WORK/POLICE categories are still English (backend-sourced; carried over from iteration_42)."]},
+      {"screen": "Paywall (fr)", "issues": ["The plan feature bullets and 'Subscribe — £19.99/mo' are still English (backend-sourced; carried over from iteration_42)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_i18n_dictionaries.py", "/app/test_reports/pytest/i18n_dicts.xml"],
+  "action_items": [
+    "HIGH: Fix the es-ES and de-DE entries for 'days left' (currently 'd be replaced by') and 'days overdue' (currently means 'days left'). Re-check all languages so that 'days left' and 'days overdue' are different and correct.",
+    "Format the reminder due date with the active locale (document.documentElement.lang) instead of the hard-coded 'en-GB' (App.js:6917 and App.js:158).",
+    "Add the 4 UK jurisdiction <option> strings to the dictionaries. The leading flag emoji may need stripping, as was done for other emoji prefixes.",
+    "Add 'not a law firm' to fr-FR and 'United Kingdom' to hi-IN.",
+    "Extract the JS-injected strings in reset.html, gift.html and track.html into the dictionaries.",
+    "Minor: add 'Thinking…' and 'Your weakest point (honest)' to the dictionaries."
+  ],
+  "critical_code_review_comments": [
+    "The dictionary generator produced at least one misaligned translation (keys shifted: 'days left' -> fragment of another sentence, 'days overdue' -> the 'days left' translation) in es and de. That suggests a batch/index misalignment in the LLM translation step. Add a validation pass, e.g. reject values containing English fragments not present in the key, and check pairs of short keys.",
+    "auto.js MutationObserver still handles only addedNodes. This is fine for textContent= (which adds nodes), but nodeValue changes will not translate.",
+    "The console warning '<span> cannot be a child of <option>' comes from the dev visual-editor instrumentation (x-excluded spans), not app code. It is benign in preview."
+  ],
+  "updated_files": ["/app/backend/tests/test_i18n_dictionaries.py"],
+  "success_rate": {"backend": "N/A (frontend only)", "frontend": "~85% — 8 of 10 retest items fully fixed; #6 partial (UK jurisdiction options), #7 partial (wrong/garbage es/de wording + English date); #10 pages load auto.js but JS-injected strings untranslated"},
+  "test_credentials": "admin@aiadvocate.co.uk / AdminLex2026!, test@advocate.app / Test12345! — both restored to en-GB",
+  "seed_data_creation": "None. Three short Lex chat messages were sent from admin (es/pl), which create normal chat sessions.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Login via POST /api/auth/login, then set localStorage aa_token + the onboarding flags (see iteration_42) and goto /app. Switch language in-app: lang-toggle-btn -> lang-{code} -> lang-ok-btn, using dispatch_event('click'). Lex chat opens via tile-ask_lex (nav-lex opens the voice avatar instead). The test user is free tier, so tile-will opens the paywall; use admin for Will Writer. Run pytest /app/backend/tests/test_i18n_dictionaries.py -p no:xdist for the dictionary sanity checks (4 fails currently: fr 'not a law firm', hi 'United Kingdom', es/de days left/overdue)."
+}

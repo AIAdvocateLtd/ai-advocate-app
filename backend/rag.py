@@ -22,6 +22,8 @@ returns an empty context. Lex is never blocked.
 from __future__ import annotations
 
 import os
+import re
+import time
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -29,9 +31,12 @@ from typing import List, Dict, Optional
 
 import httpx
 
+import content_guard
+
 logger = logging.getLogger("rag")
 
 TAVILY_ENDPOINT = "https://api.tavily.com/search"
+QUOTA_STATUS_CODES = (402, 429, 432, 433)  # rate limit / plan or pay-as-you-go limit reached
 
 # Official UK legal sources — Tavily is told to *prefer* these so case law /
 # statutes outrank random blog spam.
@@ -41,6 +46,7 @@ AUTHORITY_DOMAINS = [
     "judiciary.uk",
     "supremecourt.uk",
     "gov.uk",
+    "acas.org.uk",
     "caselaw.nationalarchives.gov.uk",
 ]
 
@@ -101,17 +107,17 @@ async def _increment_usage(db, n: int = 1) -> None:
         logger.warning("Failed to increment Tavily usage counter: %s", e)
 
 
-async def _tavily_search(
+async def _tavily_search_ex(
     query: str,
     *,
     include_domains: Optional[List[str]] = None,
     max_results: int = 3,
     search_depth: str = "basic",
-) -> List[Dict]:
-    """One Tavily API call. Returns list of {title, url, content} dicts."""
+):
+    """One Tavily API call. Returns (results, status) — status: ok | not_configured | quota_exhausted | unavailable."""
     key = _get_key()
     if not key:
-        return []
+        return [], "not_configured"
 
     payload = {
         "api_key": key,
@@ -125,11 +131,19 @@ async def _tavily_search(
         payload["include_domains"] = include_domains
 
     try:
+        import ai_usage
+        _t0 = time.monotonic()
         async with httpx.AsyncClient(timeout=8.0) as client:
             r = await client.post(TAVILY_ENDPOINT, json=payload)
+            _ok = r.status_code == 200
+            _credits = (2 if search_depth == "advanced" else 1) if _ok else 0
+            ai_usage.record(provider="tavily", model_requested=f"search-{search_depth}", call_site="legal_research",
+                            status="ok" if _ok else "error", latency_ms=(time.monotonic() - _t0) * 1000,
+                            cost_gbp=round(_credits * ai_usage.TAVILY_GBP_PER_CREDIT, 6),
+                            cost_source="estimated_tavily_credit_rate", units={"credits": _credits})
             if r.status_code != 200:
                 logger.warning("Tavily %s: %s", r.status_code, r.text[:200])
-                return []
+                return [], ("quota_exhausted" if r.status_code in QUOTA_STATUS_CODES else "unavailable")
             data = r.json()
             results = data.get("results", []) or []
             out = []
@@ -139,10 +153,14 @@ async def _tavily_search(
                     "url": (item.get("url") or "").strip(),
                     "content": (item.get("content") or "").strip(),
                 })
-            return out
+            return out, "ok"
     except Exception as e:
         logger.warning("Tavily call failed: %s", e)
-        return []
+        return [], "unavailable"
+
+
+async def _tavily_search(query: str, **kw) -> List[Dict]:
+    return (await _tavily_search_ex(query, **kw))[0]
 
 
 def _looks_like_legal_question(text: str) -> bool:
@@ -164,77 +182,145 @@ def _format_block(label: str, items: List[Dict], start_index: int = 1) -> str:
     for i, it in enumerate(items, start_index):
         title = it.get("title") or "(untitled)"
         url = it.get("url") or ""
-        snippet = (it.get("content") or "")[:350].replace("\n", " ").strip()
+        cap = 4000 if "legislation.gov.uk/" in url and "/section/" in url else 1800 if it.get("acas_key") else 350
+        snippet = (it.get("content") or "")[:cap].replace("\n", " ").strip()
         lines.append(f"[{i}] {title}\n    {url}\n    {snippet}")
     return "\n".join(lines)
 
 
 async def build_rag_context(message: str, country: str = "GB", db=None):
-    """
-    Returns a tuple `(prompt_block, citations)` where:
-      • `prompt_block` is the citation-tagged context string appended to Lex's
-        system prompt (or "" if RAG is disabled / smalltalk / monthly cap hit).
-      • `citations` is a list of {n, title, url, source} dicts so the frontend
-        can render `[1] [2]` markers as clickable links to the source URL.
+    r = await research(message, country=country, db=db)
+    return r["block"], r["citations"]
 
-    Pass `db` (the Motor database handle) to enable usage-cap protection.
-    """
-    if not is_enabled():
-        return ("", [])
-    if not _looks_like_legal_question(message):
-        return ("", [])
 
-    # 🚧 Usage cap — never exceed the configured monthly cap.
-    if db is not None and not await _under_cap(db):
-        logger.info("Tavily monthly cap reached — serving Lex without RAG this turn.")
-        return ("", [])
+_PII = [
+    (re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), ""),
+    (re.compile(r"https?://\S+"), ""),
+    (re.compile(r"\b(?:\+44\s?|0)(?:\d[\s-]?){9,10}\b"), ""),
+    (re.compile(r"\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b", re.I), ""),
+    (re.compile(r"\b[A-Z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-D]\b", re.I), ""),
+    (re.compile(r"\b(?:my name is|i am called|i'm called|called|named)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?", re.I), ""),
+    (re.compile(r"\b\d{6,}\b"), ""),
+]
+NATION_HINT = {"england": " England law", "wales": " Wales law", "scotland": " Scotland law",
+               "northern_ireland": " Northern Ireland law"}
 
-    # Bias query toward jurisdiction for better UK / Scotland / NI hits.
-    jurisdiction_hint = ""
+
+def scrub(text: str) -> str:
+    """Remove contact details, postcodes, NI numbers, names and long numbers before sending to a search provider."""
+    for rx, rep_ in _PII:
+        text = rx.sub(rep_, text or "")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def build_query(message: str, context: str = "", nation: Optional[str] = None, country: str = "GB") -> str:
+    q = scrub(message)
+    follow_up = re.match(r"^(and|but|so|or|what about|what if|how about|they|he|she|it|then|also|ok|okay)\b", q, re.I)
+    if context and (len(q.split()) < 8 or follow_up):
+        last = scrub(context.strip().split("\n")[-1])[:160]
+        q = f"{last} {q}".strip()
     cc = (country or "GB").upper()
-    if cc in ("GB", "UK", "ENG", "WAL"):
-        jurisdiction_hint = " UK law"
-    elif cc == "SCT":
-        jurisdiction_hint = " Scotland law"
-    elif cc == "NIR":
-        jurisdiction_hint = " Northern Ireland law"
+    hint = NATION_HINT.get(nation or "") or (" Scotland law" if cc == "SCT" else " Northern Ireland law" if cc == "NIR"
+                                             else " Wales law" if cc == "WAL" else " UK law")
+    return f"{q[:300]}{hint}"
 
-    base_q = f"{message.strip()[:280]}{jurisdiction_hint}"
 
-    calls_made = 0
+_STOP = set("this that with from have what your about under does would could should which when where will their there been "
+             "into them they than then also only just very more most some such like make made were want need know tell "
+             "england wales scotland northern ireland britain united kingdom please help".split())
+_OFF_TOPIC = re.compile(r"\b(constitution|standing orders|minutes of|agenda|committee meeting|council meeting|scheme of delegation|"
+                        r"annual report|press release)\b", re.I)
+
+
+def _relevant(it: dict, query: str) -> bool:
+    """Drops search results that don't match the question (e.g. a council constitution for a dismissal query)."""
+    title = it.get("title") or ""
+    if _OFF_TOPIC.search(title) and not _OFF_TOPIC.search(query):
+        return False
+    blob = f"{title} {it.get('url') or ''} {it.get('content') or ''}".lower()
+    terms = {w[:5] for w in re.findall(r"[a-z]{4,}", (query or "").lower()) if w not in _STOP}
+    return sum(1 for t in terms if t in blob) >= min(2, len(terms))
+
+
+PARTLY_REMOVED = " (partly removed: text aimed at AI systems was left out)"
+
+
+def _guard_items(items: List[Dict], keep_suspicious: bool):
+    """Cleans each retrieved item and removes sentences aimed at AI systems. A web page whose instructions can't be
+    cleanly separated (or whose title carries them) is left out; official records are kept without those sentences."""
+    kept, dropped, kinds = [], 0, set()
+    for it in items:
+        content, k1 = content_guard.inspect(it.get("content") or "")
+        title, k2 = content_guard.inspect(it.get("title") or "")
+        found = set(k1) | set(k2)
+        kinds |= found
+        if content_guard.suspicious(list(found)):
+            clean_text, removed, safe = content_guard.separate(content)
+            if not keep_suspicious and (content_guard.suspicious(k2) or not safe):
+                dropped += 1
+                continue
+            content = clean_text
+            title = title + (PARTLY_REMOVED if removed else "")
+        kept.append({**it, "content": content, "title": title})
+    return kept, dropped, kinds
+
+
+async def research(message: str, country: str = "GB", db=None, context: str = "", nation: Optional[str] = None) -> Dict:
+    """Returns {status, block, citations, sources}. status: ok | not_needed | not_configured |
+    quota_exhausted | unavailable | no_results. `sources` keeps snippets for server-side citation checks."""
+    res = {"status": "not_needed", "block": "", "citations": [], "sources": []}
+    if not _looks_like_legal_question(message):
+        return res
+    # Paid web search is gated by its key and the monthly cap; the free official lookups below run regardless.
+    paid = "ok"
+    if not is_enabled():
+        paid = "not_configured"
+    elif db is not None and not await _under_cap(db):
+        logger.info("Tavily monthly cap reached — paid search skipped; free official lookups still run.")
+        paid = "quota_exhausted"
+
+    base_q = build_query(message, context, nation, country)
+    import legal_sources
+
+    async def _statute():
+        try:
+            return await legal_sources.grounding_sources(f"{message}\n{context}", nation)
+        except Exception as e:
+            logger.info("legislation grounding skipped: %s", e)
+            return []
+
+    import official_guidance
+
+    async def _guidance():
+        try:
+            return await official_guidance.guidance_sources(message, context)
+        except Exception as e:
+            logger.info("acas guidance skipped: %s", e)
+            return [], []
+
+    async def _paid(include_domains, n):
+        if paid != "ok":
+            return [], paid
+        try:
+            return await asyncio.wait_for(_tavily_search_ex(base_q, include_domains=include_domains, max_results=n,
+                                                            search_depth="basic"), timeout=8.5)
+        except asyncio.TimeoutError:
+            return [], "unavailable"
+
     try:
-        official_task = _tavily_search(
-            base_q,
-            include_domains=AUTHORITY_DOMAINS,
-            max_results=3,
-            search_depth="basic",
-        )
-        web_task = _tavily_search(
-            base_q,
-            include_domains=None,
-            max_results=2,
-            search_depth="basic",
-        )
-        # Whole RAG budget hard-capped at ~9s so a slow Tavily call never tanks
-        # Lex's perceived response time.
-        official, web = await asyncio.wait_for(
-            asyncio.gather(official_task, web_task), timeout=9.0
-        )
-        calls_made = 2  # we attempted 2 search credits regardless of result count
+        (official, s1), (web, s2), statute, (guidance, g_failed) = await asyncio.wait_for(asyncio.gather(
+            _paid(AUTHORITY_DOMAINS, 3), _paid(None, 2), _statute(), _guidance(),
+        ), timeout=9.0)
     except asyncio.TimeoutError:
         logger.warning("Tavily RAG block timed out — continuing without grounding.")
-        return ("", [])
+        return {**res, "status": "unavailable"}
     except Exception as e:
         logger.warning("RAG gather failed: %s", e)
-        return ("", [])
+        return {**res, "status": "unavailable"}
+    await _increment_usage(db, sum(1 for st in (s1, s2) if st == "ok"))
 
-    # Count the credits we actually consumed (Tavily charges per call attempted,
-    # not per result returned).
-    if calls_made:
-        await _increment_usage(db, calls_made)
-
-    # Dedupe by URL — web search will sometimes return the same authority hit.
     seen = set()
+
     def dedupe(items):
         out = []
         for it in items:
@@ -244,36 +330,53 @@ async def build_rag_context(message: str, country: str = "GB", db=None):
                 out.append(it)
         return out
 
-    official = dedupe(official)
-    web = dedupe(web)
-
+    rel_q = scrub(message)
+    paid_official = [it for it in dedupe(official) if _relevant(it, rel_q)]
+    # A result only counts as official if its real host is an official domain, whatever its title or text claims.
+    official = dedupe(statute) + dedupe(guidance) + [it for it in paid_official if content_guard.official_url(it.get("url"))]
+    web = [it for it in paid_official if not content_guard.official_url(it.get("url"))] + \
+        [it for it in dedupe(web) if _relevant(it, rel_q)]
+    official, _, k1 = _guard_items(official, keep_suspicious=True)
+    web, dropped, k2 = _guard_items(web, keep_suspicious=False)
+    g_meta = {"guidance_keys": [it["acas_key"] for it in guidance], "guidance_failed": g_failed,
+              "paid_search": "ok" if "ok" in (s1, s2) else (paid if paid != "ok" else "unavailable"),
+              "injection": {"dropped": dropped, "kinds": sorted(k1 | k2)}}
     if not official and not web:
-        return ("", [])
+        failed = {s1, s2} - {"ok"}
+        status = (paid if paid != "ok" else ("quota_exhausted" if "quota_exhausted" in failed else "unavailable")) \
+            if failed else "no_results"
+        return {**res, "status": status, **g_meta}
 
-    blocks = []
-    citations = []
-    next_idx = 1
-    if official:
-        blocks.append(_format_block("OFFICIAL UK LEGAL SOURCES (statute / case law)", official, start_index=next_idx))
-        for it in official:
-            citations.append({"n": next_idx, "title": it.get("title") or "(untitled)", "url": it.get("url") or "", "source": "official"})
+    blocks, citations, sources, next_idx = [], [], [], 1
+    for label, items, kind in (("OFFICIAL UK LEGAL SOURCES (statute / case law)", official, "official"),
+                               ("SUPPORTING WEB SOURCES", web, "web")):
+        if not items:
+            continue
+        blocks.append(_format_block(label, items, start_index=next_idx))
+        for it in items:
+            citations.append({"n": next_idx, "title": it.get("title") or "(untitled)", "url": it.get("url") or "", "source": kind})
+            sources.append({"n": next_idx, "title": it.get("title") or "", "content": it.get("content") or "",
+                            "guidance": bool(it.get("acas_key"))})
             next_idx += 1
-    if web:
-        blocks.append(_format_block("SUPPORTING WEB SOURCES", web, start_index=next_idx))
-        for it in web:
-            citations.append({"n": next_idx, "title": it.get("title") or "(untitled)", "url": it.get("url") or "", "source": "web"})
-            next_idx += 1
-
-    body = "\n\n".join(blocks)
-
-    return (
-        (
-            "\n\n=== LIVE LEGAL RESEARCH (retrieved just now) ===\n"
-            f"{body}\n\n"
-            "USE THESE SOURCES: Ground your answer in the material above. When you state "
-            "a rule, cite the source like [1] or [2] matching the numbered list. If the "
-            "retrieved material does NOT cover the user's question, say so and give your "
-            "best general guidance — never invent a citation."
-        ),
-        citations,
+    body = content_guard.fence("\n\n".join(blocks), "RETRIEVED RESEARCH (web pages and official records)")
+    if g_meta["paid_search"] != "ok":
+        body += ("\n\nNOTE: only the free official lookups above (legislation.gov.uk / acas.org.uk) were available for this "
+                 "answer — wider research could not be run. Rely on these sources for what they cover; for anything else, "
+                 "say plainly that it could not be checked against current sources just now.")
+    block = (
+        "\n\n=== LIVE LEGAL RESEARCH (retrieved just now) ===\n"
+        f"{body}\n\n"
+        "USE THESE SOURCES: Ground your answer in the material above. When you state "
+        "a rule, cite the source like [1] or [2] matching the numbered list — only numbers 1 to "
+        f"{next_idx - 1} exist. Only cite a number if that source actually says what you are claiming. Legislation and "
+        "official guidance take priority: supporting web sources may add context but never override them. The territorial "
+        "extent shown for legislation is where it is law — never infer UK-wide or Northern Ireland extent beyond it, and "
+        "keep extent separate from whether it applies to the customer in practice. A legislation STATUS CHECK only confirms a "
+        "provision exists and is in force; RETRIEVED WORDING shows what it says; neither proves your interpretation — say "
+        "which applies, and if you rely on wording you were not given, say so plainly. Sources marked 'acas.org.uk "
+        "(official guidance; wording retrieved …)' were fetched from Acas just now — cite them for points about Acas "
+        "guidance or the Acas Code. UK FACTS SIGNED OFF BY AI ADVOCATE'S REVIEWER are built-in knowledge, not retrieved text — where retrieved official sources conflict with them, say so. If the "
+        "retrieved material does NOT cover the user's question, say so and give your "
+        "best general guidance — never invent a citation, case, section or URL."
     )
+    return {"status": "ok", "block": block, "citations": citations, "sources": sources, **g_meta}

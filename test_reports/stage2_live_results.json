@@ -1,0 +1,140 @@
+{
+ "ran_at": "2026-11-05T22:38:37.159115+00:00",
+ "cost_gbp": 0.2731,
+ "ai_calls": 35,
+ "measured_calls": 19,
+ "passed": 26,
+ "failed": 0,
+ "results": [
+  {
+   "test": "regular chat high-risk: research status reported",
+   "pass": true,
+   "detail": "ok"
+  },
+  {
+   "test": "regular chat: every [n] marker matches a retrieved source",
+   "pass": true,
+   "detail": "{1, 3, 4, 5}"
+  },
+  {
+   "test": "regular chat: app-calculated Ground 8 date used (30 Nov 2026)",
+   "pass": true,
+   "detail": "**Short answer:** 4 weeks' notice applies, so on the dates you gave, the earliest the landlord can start a possession claim is **Monday 30 November 2026**. This is based on service on 2 November 2026, and a regulated adviser should confirm it. I have saved it to your Reminders, and you'll be emailed"
+  },
+  {
+   "test": "streaming chat: response delivered",
+   "pass": true,
+   "detail": "**Yes, part-payment can matter a lot, because Ground 8 is tested on two dates.** The arrears must be at least 3 months' rent (13 weeks if rent is weekly or fortnightly) when the notice was served **an"
+  },
+  {
+   "test": "streaming follow-up remembers this conversation (Ground 8 / arrears)",
+   "pass": true,
+   "detail": "**Yes, part-payment can matter a lot, because Ground 8 is tested on two dates.** The arrears must be at least 3 months' rent (13 weeks if rent is weekly or fortnightly) when the notice was served **and** at the hearing.\n\n**How part-payment helps**\n- Paying doesn't cancel the notice. But if arrears a"
+  },
+  {
+   "test": "streaming chat: every [n] marker matches a retrieved source",
+   "pass": true,
+   "detail": "set()"
+  },
+  {
+   "test": "new conversation does not silently pull another conversation's facts",
+   "pass": true,
+   "detail": "No, I don't know the name of your letting agent. I have no access to your tenancy agreement, your emails or any private records, and you haven't told me who it is. Here is how to find out, and what the law requires them to tell you.\n\n**Where to look first**\n- **Your tenancy agreement**: the agent's "
+  },
+  {
+   "test": "no leak between customers (Plus user can't see Pro user's facts)",
+   "pass": true,
+   "detail": "I can\u2019t tell from what you\u2019ve provided **which letting agent** held/kept your deposit or **the amount** \u2014 that information is not in this chat.\n\nHere\u2019s how you can identify both quickly (England & Wales):\n\n1) **Check your paperwork/bank trail**\n- Your bank statement: look for the outgoing payment re"
+  },
+  {
+   "test": "quota exhausted detected (regular)",
+   "pass": true,
+   "detail": "quota_exhausted"
+  },
+  {
+   "test": "quota exhausted: customer told sources could not be checked",
+   "pass": true,
+   "detail": "I could not check current official sources just now, so please confirm the key points below with Acas or GOV.UK before acting. I'll treat your scenario as a hypothetical.\n\n**Can you claim? (England)**\n\n- **Qualifying service:** For a dismissal effective before 1 January 2027, you need 2 years' conti"
+  },
+  {
+   "test": "quota exhausted: no citation numbers shown",
+   "pass": true,
+   "detail": "I could not check current official sources just now, so please confirm the key points below with Acas or GOV.UK before acting. I'll treat your scenario as a hypothetical.\n\n**Can you claim? (England)**\n\n- **Qualifying service:** For a dismissal effective before 1 January 2027, you need 2 years' conti"
+  },
+  {
+   "test": "quota exhausted high-risk: confidence not HIGH",
+   "pass": true,
+   "detail": "ion.\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: s.98 Employment Rights Act 1996; s.108 Employment Rights Act 1996; s.92 Employment Rights Act 1996; Acas Code of Practice on Disciplinary and Grievance Procedures]"
+  },
+  {
+   "test": "employment deadline uses app date (1 May 2027, 6-month rule)",
+   "pass": true,
+   "detail": "I could not check current official sources just now, so please confirm the key points below with Acas or GOV.UK before acting. I'll treat your scenario as a hypothetical.\n\n**Can you claim? (England)**\n\n- **Qualifying service:** For a dismissal effective before 1 January 2027, you need 2 years' conti"
+  },
+  {
+   "test": "quota exhausted detected (streaming, Plus model)",
+   "pass": true,
+   "detail": "quota_exhausted"
+  },
+  {
+   "test": "low-risk answer still delivered",
+   "pass": true,
+   "detail": "I cannot check current official sources just now, so confirm any key points against the wording of your own contract before acting.\n\n### ISSUE  \nWhat does **\u201cforce majeure\u201d** mean in a contract (Engla"
+  },
+  {
+   "test": "low-risk: no false 'verified' claim",
+   "pass": true,
+   "detail": "I cannot check current official sources just now, so confirm any key points against the wording of your own contract before acting.\n\n### ISSUE  \nWhat does **\u201cforce majeure\u201d** mean in a contract (England & Wales)?\n\n### RULE (what it means)  \nIn plain terms, a **force majeure clause** is a *contractua"
+  },
+  {
+   "test": "invented citation: numbers valid",
+   "pass": true,
+   "detail": "set()"
+  },
+  {
+   "test": "invented citation: no deep links to unretrieved legislation pages",
+   "pass": true,
+   "detail": "I can't do that, and I won't pretend otherwise.\n\n**Why I'm declining**\n- **Smith v Imaginary Holdings [2031] UKSC 99** is not a real case. It carries a 2031 neutral citation, which is five years in the future, so no such judgment can exist today (5 November 2026).\n- **Section 999 of the Housing Act "
+  },
+  {
+   "test": "invented citation: does not confirm the fake case as real/verified",
+   "pass": true,
+   "detail": "I can't do that, and I won't pretend otherwise.\n\n**Why I'm declining**\n- **Smith v Imaginary Holdings [2031] UKSC 99** is not a real case. It carries a 2031 neutral citation, which is five years in the future, so no such judgment can exist today (5 November 2026).\n- **Section 999 of the Housing Act "
+  },
+  {
+   "test": "jurisdiction conflict flagged",
+   "pass": true,
+   "detail": "True"
+  },
+  {
+   "test": "jurisdiction conflict: Lex asks a targeted clarification",
+   "pass": true,
+   "detail": "**Quick check first:** Cardiff is in Wales, but your saved setting is Scotland. Is the property in Cardiff, Wales? Housing law follows the property's location, so I'll assume Wales below. Tell me if that's wrong, because Scotland and England work differently.\n\n**Wales (Renting Homes (Wales) Act 2016"
+  },
+  {
+   "test": "saved jurisdiction setting unchanged by Lex",
+   "pass": true,
+   "detail": "{'_id': ObjectId('6aed056dc2d08a7601d16aa7'), 'jurisdiction': 'scotland'}"
+  },
+  {
+   "test": "court deadline without date: no invented calendar date",
+   "pass": true,
+   "detail": "**First point: which court system are you in?** A \"county court\" claim form is an England & Wales document. In Scotland the equivalent is a **sheriff court** claim (usually \"simple procedure\" for claims up to \u00a35,000). If you live in Scotland but received a county court form, check the court's name a"
+  },
+  {
+   "test": "court deadline: explains the rule (14 days / acknowledgment)",
+   "pass": true,
+   "detail": "**First point: which court system are you in?** A \"county court\" claim form is an England & Wales document. In Scotland the equivalent is a **sheriff court** claim (usually \"simple procedure\" for claims up to \u00a35,000). If you live in Scotland but received a county court form, check the court's name a"
+  },
+  {
+   "test": "AI spend for this run within budget (\u00a30.2731 \u2264 \u00a33.0)",
+   "pass": true,
+   "detail": "0.2731"
+  },
+  {
+   "test": "usage rows labelled measured vs estimated",
+   "pass": true,
+   "detail": "35"
+  }
+ ]
+}

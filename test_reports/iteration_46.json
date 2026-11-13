@@ -1,0 +1,46 @@
+{
+  "summary": "Final pre-deployment regression of the blank-reply fix and Stage 1/2, run on preview only. I used 7 of the 15 allowed Lex calls (5 API, 2 UI), 1 letter and 1 document analysis. The no-cost suite passed 52/52. The new live suite passed 14/14. Every tier gave a non-blank, complete answer ending with the usual closing lines: Free (claude-haiku-5-5, desktop UI and mobile UI), Pro chat and stream (claude-sonnet-5-5), Deep Think stream, and Plus clone (gpt-5.2). None hit a cut-off or the 'couldn't finish' message. Every new llm_usage row has measured=true, finish_reason='stop' and a reasoning_tokens field. Stage 1 memory worked: the follow-up recalled 'Mr Quill, Bristol, £950'. research_status and jurisdiction_check are present, and the [n] markers all point to returned citations. Admin checks passed: llm-spend has total_gbp, calls, by_model, cost_basis and lex_reply_health; Lex's Brain card loads 46 lessons (25 needs_review). Non-admin users get 403. Security and gating passed: wrong password 401, missing or invalid token 401, unverified clone 403 email_not_verified, Free deep_think 402 on both chat and stream, plan screen renders with no Stripe calls. Mobile 390x844 has no horizontal overflow. Reminders, Case Files, My Legal Files and Settings load with no 4xx/5xx and no page errors. No regressions found. The remaining issues are minor or older, and listed below.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/auth/login", "issue": "Older issue: no brute-force lockout. 6 wrong passwords (all 401) on a TEST clone, then the correct password returned 200. CORS still returns '*' with allow-credentials true. Auth is Bearer in localStorage with no httpOnly cookie. Passwords are bcrypt $2b$ (OK)."},
+      {"endpoint": "ai_usage.record (Anthropic claude-sonnet-5-5 with thinking enabled / Deep Think)", "issue": "reasoning_tokens is 0 on every Sonnet 5.5 row, including Deep Think. The provider/litellm probably doesn't report thinking tokens separately in completion_tokens_details, so this field can't confirm that thinking happened or how many tokens it used. Don't rely on it for budget health."},
+      {"endpoint": "/api/document/analyze", "issue": "The suggested_response letter was dated '2024-01-20' for a notice dated 3 Jan 2026. The analyser prompt seems to lack the date anchor (_date_anchor) that Lex chat uses."},
+      {"endpoint": "/api/lex/chat (content accuracy)", "issue": "Two answers (Pro stream on wage deductions, Free on final wages) cite the 'Wages Act 1986' as current law. It was repealed and folded into ERA 1996 Part II. Suggest a Lex's Brain fact-pack lesson."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "My Legal Files modal", "issue": "Admin's first file row has no title, only a date (17/10/2026 15:56:13).", "selector": "[data-testid=tile-files] modal", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Stream error -> fallback", "issue": "App.js ~2317: an SSE 'error' event (e.g. FAILED_MSG after a blank reply plus blank fallback) throws before `streamed` is set. The client then calls the buffered /lex/chat again. One blank incident can cost up to 4 model calls, and quota is charged again after the refund. The user only sees FAILED_MSG if the second try also fails. Consider showing payload.message directly when it equals FAILED_MSG instead of retrying.", "affected_selectors": ["[data-testid=send-btn]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter46_blank_reply_live.py",
+    "/app/backend/tests/test_iter46_auth_playbook.py",
+    "/app/backend/tests/test_blank_reply_fix.py",
+    "/app/test_reports/pytest/iter46_live.xml"
+  ],
+  "action_items": [
+    "(Optional, older issue) Add login brute-force lockout and set explicit CORS origins.",
+    "(Optional) Don't re-call /lex/chat after an SSE error whose message is FAILED_MSG. Show the message instead.",
+    "(Optional) Add the date anchor to the document analyser prompt, so the suggested reply letter isn't dated 2024.",
+    "(Optional) Add a lesson: Wages Act 1986 is repealed; cite ERA 1996 Part II."
+  ],
+  "critical_code_review_comments": [
+    "gen_params matches the spec: Haiku thinking disabled at 1200; Sonnet thinking 1024 / max 2600; Deep Think 1500 / 4000; gpt-5.2 unchanged.",
+    "_refund_lex decrements usage with count>0, the same doc shape as check_quota_and_increment. OK.",
+    "lex_reply_health.blank counts output_chars==0 rows. The current 2 blanks are from before the fix (22:22, Haiku, tokens_out 1200, no finish_reason). There are no blanks after the fix.",
+    "Older issue: server.py is about 16.9k lines and App.js about 17.5k lines. These should be split."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter46_blank_reply_live.py", "/app/backend/tests/test_iter46_auth_playbook.py"],
+  "success_rate": {"backend": "100% of requested regression scope (52/52 no-cost, 14/14 live); auth playbook 0/2 (older issues: lockout, CORS)", "frontend": "100% of tested flows"},
+  "seed_data_creation": "No seed data. Created and then deleted: a Plus clone, an unverified clone and a lockout clone (@stage2-fictional-test.co.uk), 5 admin/clone conversations, 2 Free UI conversations, 1 legal_files letter, and 1 orphan usage row. Side effects: test@advocate.app daily lex_chat count went 2 -> 4, and admin's monthly deep_think count went up by 1 to 11.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Onboarding order on /app: lang-en-GB + lang-ok-btn, then agree-checkbox + age-gate-checkbox + accept-terms-btn, then welcome-tour-skip, then the login form. After login, a non-uk-warning-continue modal and taster-close may appear. Don't use force=True on auth-submit (it can hit try-lex-free-btn). The first send opens a 'Before you ask Lex' modal with the button 'I understand — continue to Lex'. Admin cards are in Settings (admin-lex-lessons-card). LiveLLMSpendStrip only appears inside the expanded Founder Finance card. test@advocate.app had 1 Free Lex message left on 2026-11-05.",
+  "test_credentials": "From /app/memory/test_credentials.md: admin@aiadvocate.co.uk / AdminLex2026!, test@advocate.app / Test12345!"
+}

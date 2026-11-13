@@ -1,0 +1,42 @@
+{
+  "summary": "Stage 3 fair-use WORDING/UI check (no AI calls made, no Lex messages sent, no settings changed). Backend: /api/subscription/tiers and /api/topups/packs now return the approved wording (9/9 pytest pass). In-app: the upgrade modal (desktop 1920 and mobile 390) shows the new Free/Plus/Pro/Yearly wording with the existing styling and no horizontal overflow. The one-time top-ups tab shows the new taglines. The free user's Ask Lex panel shows '2 of 2 free Lex questions left.' The admin 'Fair use & spending' card renders. terms.html has 6c Fair use between 6b and 7. BLOCKER: the real public pricing page is /welcome.html, where every logged-out visitor to '/' is redirected, and it still shows the old wording: '5 Lex chats / day', 'Unlimited Lex chats', 'Unlimited letters', 'Fair use: up to 100 Lex chats a day on Plus', plus old JSON-LD/FAQ copy. MarketingSite.jsx was updated correctly but nothing imports or routes it, so /pricing and /terms do not render it and the edit has no visible effect.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "backend/email_helper.py ~L199-201 (welcome email)", "issue": "Customer-facing welcome email still says 'Lex chat with daily limits' (Free) and 'Plus, £19.99/month: unlimited Lex chat'. Needs the approved wording."},
+      {"endpoint": "GET /api/legal/terms (server.py TERMS_BODY_EN ~L4019)", "issue": "These are the Terms users must accept at onboarding. They contain no Fair use clause. Only terms.html, the App.js settings TOS and MarketingSite TOS got 6c. Owner should decide whether the acceptance Terms need it too."},
+      {"endpoint": "GET /api/subscription/usage", "issue": "The legacy 'usage.lex_chat' still reports limit 5 / daily for free users, next to fair_use.free_actions limit 2 lifetime. The UI does not show it today, but API consumers could be confused."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "public/welcome.html pricing section (L660-710), JSON-LD offers (L97, L133), FAQ (L809-823), taster status text (L909)", "issue": "Old customer-facing wording still live on the public landing/pricing page: Free '5 Lex chats / day', '1 letter / month'; Plus 'Unlimited Lex chats*', 'Unlimited letters'; footnote 'Fair use: up to 100 Lex chats a day on Plus'; FAQ 'then get 5 Lex chats a day on the free plan'; taster message 'Create a free account for 5 Lex chats a day.' Plus also contradicts the new 20 letters/month cap.", "selector": ".pricing, [data-testid=landing-faq-item-1]", "priority": "HIGH"},
+      {"component": "MarketingSite.jsx (PricingPage/TermsPage)", "issue": "The file is not imported anywhere (grep finds no import of MarketingSite/PricingPage). /pricing and /terms load the main SPA with the cookie banner. The updated pricing bullets and TOS 6c are not reachable by users.", "selector": "[data-testid=page-pricing]", "priority": "MEDIUM"},
+      {"component": "LegalDocModal (App.js ~L15909) and StaticDocPage (MarketingSite)", "issue": "TOS text is rendered as raw text with whiteSpace pre-wrap, so '**6c. Fair use.**' shows literal asterisks and '# Terms of Service' shows a literal '#'. This was already true for all sections before this change, but the request expected a bold heading.", "selector": "[data-testid=legal-tos-modal]", "priority": "LOW"},
+      {"component": "Top-ups tab, Doc Pack card", "issue": "Shows 'Valid for 0h after purchase.' while the tagline says 'Never expires'. duration_hours=0 is not handled in App.js ~L8369.", "selector": "[data-testid=subscribe-modal]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "In-app TOS (Settings > Terms)", "issues": ["Numbering jumps 6 > 6c > 7; there is no 6a/6b in this copy (they exist in terms.html). This reads oddly. Consider numbering it 6a or adding the missing sections."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter49_stage3_wording.py", "/app/test_reports/pytest/iter49.xml"],
+  "action_items": [
+    "HIGH: Update /app/frontend/public/welcome.html with the approved wording in the pricing cards, the fair-use footnote, the JSON-LD offer/FAQ text (L97, L133), the FAQ answer (L823) and the taster status message (L909). Remove '5 Lex chats', 'Unlimited Lex chats', 'Unlimited letters' and '100 Lex chats a day'.",
+    "Update the email_helper.py welcome email (Free/Plus bullets) to drop 'unlimited Lex chat' and 'daily limits'.",
+    "Decide whether MarketingSite.jsx should be routed. If not, note that it is dead code: the public pricing is welcome.html.",
+    "Optional: add the Fair use clause to TERMS_BODY_EN (/api/legal/terms), the Terms accepted at onboarding.",
+    "Optional: render ** bold in LegalDocModal; fix 'Valid for 0h' on Doc Pack."
+  ],
+  "critical_code_review_comments": [
+    "Three separate Terms texts (terms.html, App.js TOS_TEXT/MarketingSite TOS, server TERMS_BODY_EN) have drifted apart: different numbering and different clauses. Pick one source of truth.",
+    "Plan wording is duplicated across server.py tiers, MarketingSite.jsx, welcome.html, email_helper.py and i18n JSON. Driving the static pages from /api/subscription/tiers would prevent this drift.",
+    "App.js is more than 17k lines; it should be split."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter49_stage3_wording.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "75% (6/8 checks: subscribe modal, top-ups, fair-use-notice, admin card, terms.html, in-app TOS present = pass; public pricing page stale = fail; marketing TOS/pricing unreachable = fail)"},
+  "seed_data_creation": "None. No records created or modified. No AI/Lex calls made (verified that no POST went to chat endpoints while opening Ask Lex).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "UI login trick: add_init_script setting sessionStorage aa_skip_marketing=1 and localStorage aa_welcomed=1, aa_lang=en-GB, aa_terms=1, aa_cookie_consent=accepted, aa_uk_scope_ack=1, aa_lex_upl_ack=x. Then fill email-input/password-input and click auth-submit-btn WITHOUT force=True. Free user: test@advocate.app (free tier, 2/2 free questions left). Upgrade modal: open-subscribe-btn; tabs tab-subs-btn/tab-topups-btn. Ask Lex: tile-ask_lex. nav-lex is Plus-only Voice Mode and opens the paywall for free users by design. Admin card: settings-btn > admin-fair-use-card. TOS: settings-btn > open-tos. Admin card showed Free brake estimate £28.94 today vs alert £30."
+}
