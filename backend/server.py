@@ -141,7 +141,7 @@ api_router = APIRouter(prefix="/api")
 security = HTTPBearer(auto_error=False)
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, force=True)
 
 # ==================== Models ====================
 class UserSignup(BaseModel):
@@ -595,7 +595,7 @@ async def get_user(creds: HTTPAuthorizationCredentials = Depends(security), requ
                 import sentry_sdk as _ss
                 _ss.set_user({"id": user.get("id"), "email": user.get("email"), "tier": user.get("tier")})
             except Exception: pass
-        ai_usage.set_user(user)
+        ai_usage.set_user({"id": user.get("id"), "tier": user_to_public(user).get("tier") or "free"})
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(401, "Token expired")
@@ -3561,6 +3561,23 @@ class EmergencyRequest(BaseModel):
 async def emergency_rights(data: EmergencyRequest, user: dict = Depends(get_user)):
     """Returns a jurisdiction- and language-specific RIGHTS SCRIPT the user can read aloud
     to police/officials. Also logs the emergency event in the user's record."""
+    async def _log_event():
+        await db.emergency_events.insert_one({
+            "id": str(uuid.uuid4()), "user_id": user["id"],
+            "country": data.country, "location": data.location, "note": data.note,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    _er_limits = (await stage3.settings())["emergency_rights_limits_enabled"]
+    _reusable = _er_limits and not data.note and not data.location
+    if _reusable:
+        hit = await stage3.emergency_rights_cached(data.country, data.language)
+        if hit:
+            await _log_event()
+            return {"rights_script": hit["text"], "country": data.country, "language": data.language,
+                    "reused": True, "generated_at": hit["at"]}
+    if _er_limits and not await stage3.emergency_rights_allow(user):
+        await _log_event()
+        return {"rights_script": stage3.EMERGENCY_STATIC, "country": data.country, "language": data.language, "limited": True}
     lang_name = LANG_NAMES.get(data.language, "English")
     system = f"""You are Lex. The user has just pressed the EMERGENCY button: they have been
 arrested, stopped, or detained in {data.country}. Output ONLY the following sections, IN {lang_name}, plainly formatted with bold headings:
@@ -3580,13 +3597,13 @@ Be DIRECT. No disclaimers in this output. The user is scared and needs clarity i
         rights = await chat.send_message(UserMessage(text=user_brief))
     except Exception as e:
         logger.exception("emergency error")
+        if _er_limits:
+            return {"rights_script": stage3.EMERGENCY_STATIC, "country": data.country, "language": data.language, "limited": True}
         raise HTTPException(500, f"AI error: {e}")
 
-    await db.emergency_events.insert_one({
-        "id": str(uuid.uuid4()), "user_id": user["id"],
-        "country": data.country, "location": data.location, "note": data.note,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
+    if _reusable and rights:
+        await stage3.emergency_rights_store(data.country, data.language, rights)
+    await _log_event()
     return {"rights_script": rights, "country": data.country, "language": data.language}
 
 
@@ -4980,6 +4997,14 @@ TOPUP_PACKS = {
 }
 
 
+# Proposed pass wording — shown only once passes_v2_enabled is switched on (new purchases only).
+TOPUP_TAGLINES_V2 = {
+    "day_pass": "30 Lex messages, 2 letters, 3 document analyses + 10 Read-Alouds for 24h.",
+    "weekend_pass": "Plus for 72 hours: 90 Lex messages, 5 letters, 5 analyses, 30 Read-Alouds.",
+    "letter_pack": "5 AI-drafted letters + 1 contract review + up to 40 Lex messages · 30-day use-by.",
+}
+
+
 def _get_topup_price_id(pack_id: str) -> str:
     """Maps pack ID → Stripe Price ID via env var."""
     return os.environ.get(f"STRIPE_PRICE_TOPUP_{pack_id.upper()}", "")
@@ -4992,8 +5017,11 @@ async def list_topup_packs(user: dict = Depends(get_user)):
     active = user.get("topup_active")
     if active and active.get("expires_at", "") <= now_iso:
         active = None
+    _s3 = await stage3.settings()
+    _tag = TOPUP_TAGLINES_V2 if _s3["passes_v2_enabled"] else {}
     return {
-        "packs": [{"id": k, **v, "configured": bool(_get_topup_price_id(k))} for k, v in TOPUP_PACKS.items()],
+        "packs": [{"id": k, **v, **({"tagline": _tag[k]} if k in _tag else {}), "configured": bool(_get_topup_price_id(k))}
+                  for k, v in TOPUP_PACKS.items()],
         "active": active,
     }
 
@@ -5231,6 +5259,46 @@ async def topup_checkout(data: TopupCheckoutPayload, request: Request, user: dic
     except Exception as e:
         logger.exception("Topup checkout error")
         raise HTTPException(500, f"Checkout error: {str(e)}")
+
+
+# ============= Extra Lex Credits (one-off, no auto top-up; OFF until credits_enabled) =============
+class CreditCheckoutPayload(BaseModel):
+    pack_id: str
+    consent_immediate_supply: bool = False
+
+
+@api_router.get("/credits")
+async def credits_overview(user: dict = Depends(get_user)):
+    s = await stage3.settings()
+    return {"enabled": s["credits_enabled"], "valid_days": stage3.CREDIT_VALID_DAYS, "weights": stage3.CREDIT_WEIGHT,
+            "packs": [{"id": k, **v, "configured": bool(os.environ.get(f"STRIPE_PRICE_{k.upper()}"))}
+                      for k, v in stage3.CREDIT_PACKS.items()],
+            **await stage3.credit_balance(user["id"])}
+
+
+@api_router.post("/credits/checkout")
+async def credits_checkout(data: CreditCheckoutPayload, request: Request, user: dict = Depends(get_user)):
+    if not (await stage3.settings())["credits_enabled"]:
+        raise HTTPException(403, "Extra Lex Credits are not available yet.")
+    if data.pack_id not in stage3.CREDIT_PACKS:
+        raise HTTPException(400, "Unknown credit pack.")
+    if not data.consent_immediate_supply:
+        raise HTTPException(400, "Please tick the box to confirm you want your credits available straight away.")
+    price_id = os.environ.get(f"STRIPE_PRICE_{data.pack_id.upper()}", "")
+    if not price_id or not stripe.api_key:
+        raise HTTPException(503, "Extra Lex Credits are not configured for payment yet.")
+    origin = (os.environ.get("FRONTEND_URL") or request.headers.get("origin") or APP_PUBLIC_URL).rstrip("/")
+    try:
+        session = stripe.checkout.Session.create(
+            mode="payment", payment_method_types=["card"], line_items=[{"price": price_id, "quantity": 1}],
+            customer_email=user["email"], client_reference_id=user["id"],
+            success_url=f"{origin}/?credits=success", cancel_url=f"{origin}/?credits=cancel",
+            metadata={"user_id": user["id"], "credit_pack": data.pack_id, "consent_immediate_supply": "1"},
+        )
+        return {"checkout_url": session.url, "session_id": session.id}
+    except Exception as e:
+        logger.exception("Credits checkout error")
+        raise HTTPException(500, f"Checkout error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -5725,6 +5793,15 @@ async def stripe_webhook(request: Request):
             await _activate_gifted_topup(meta)
             return {"ok": True, "gift_processed": meta.get("recipient_email")}
 
+        # 💳 Extra Lex Credits — idempotent on session id; only paid sessions grant credits
+        if meta.get("credit_pack"):
+            uid = obj.get("client_reference_id") or meta.get("user_id")
+            if obj.get("payment_status") == "paid" and uid:
+                granted = await stage3.grant_credits(uid, meta["credit_pack"], obj.get("id"), obj.get("payment_intent"),
+                                                     (obj.get("amount_total") or 0) / 100.0)
+                return {"ok": True, "credits_granted": granted}
+            return {"ok": True, "credits_granted": False}
+
         # 🎟 Consumer TOP-UP one-time payment — metadata.topup_pack is set by /api/topups/checkout
         topup_pack = meta.get("topup_pack")
         if topup_pack:
@@ -5908,6 +5985,16 @@ async def stripe_webhook(request: Request):
                 if firm:
                     await db.lawfirms.update_one({"firm_account_id": firm["id"]},
                                                  {"$set": {"featured": firm_update["featured"], "verified": firm_update["verified"]}})
+    elif etype == "charge.refunded":
+        amt = obj.get("amount") or 0
+        frac = (obj.get("amount_refunded") or 0) / amt if amt else 1.0
+        n = await stage3.revoke_credits(obj.get("payment_intent"), "refunded", frac)
+        return {"received": True, "credit_lots_updated": n}
+
+    elif etype == "charge.dispute.created":
+        n = await stage3.revoke_credits(obj.get("payment_intent"), "disputed")
+        return {"received": True, "credit_lots_updated": n}
+
     elif etype == "invoice.payment_failed":
         customer_id = obj.get("customer")
         if customer_id:
@@ -5927,6 +6014,8 @@ async def sub_status(user: dict = Depends(get_user)):
 @api_router.get("/subscription/tiers")
 async def get_tiers():
     """Public — pricing/feature info for the Subscribe modal."""
+    _pm = stage3.paid_table(await stage3.settings())
+    _msgs = lambda t: f"{_pm[t]['msgs'][0]} Lex messages / month (fair use: up to {_pm[t]['msgs'][1]} a day)"
     return {
         "tiers": [
             {"id": "free", "name": "Free", "price_gbp": 0, "period": "forever",
@@ -5934,12 +6023,12 @@ async def get_tiers():
                             "View 31 templates", "3 files", "Emergency rights (always free)",
                             "Read-Aloud rights (20 / day)"]},
             {"id": "plus", "name": "Plus", "price_gbp": 19.99, "period": "month",
-             "highlights": ["300 Lex messages / month (fair use: up to 40 a day)", "15 evidence & document analyses / month",
+             "highlights": [_msgs("plus"), "15 evidence & document analyses / month",
                             "20 letters / month", "Will Writer (England, Wales, Scotland & NI)", "Contract Review", "Court Prep modes",
                             "Voice in/out (Read-Aloud: 100 replies / month)", "Practice Mode", "50 files", "Hey Lex wake word",
                             "Premium AI (GPT-5.2)"]},
             {"id": "pro", "name": "Pro", "price_gbp": 34.99, "period": "month",
-             "highlights": ["Everything in Plus", "600 Lex messages / month (fair use: up to 80 a day)",
+             "highlights": ["Everything in Plus", _msgs("pro"),
                             "50 letters + 25 document analyses / month",
                             "Outcome Predictor + Contract Drafter + Negotiate",
                             "Live Hearing Recorder (5 hours / month)", "Live Legal Assist (6 sessions / month, up to 3 a day, 60 responses each)",
@@ -9946,6 +10035,12 @@ async def admin_llm_spend(_: dict = Depends(_check_admin_user), hours: int = 24)
         row["email"] = (u or {}).get("email") or uid
         row["tier"] = (u or {}).get("tier") or "—"
         row["spend"] = round(row["spend"], 2)
+    by_access = await db.llm_usage.aggregate([
+        {"$match": {"ts": {"$gte": cutoff}}},
+        {"$group": {"_id": {"tier": "$tier", "access": "$access"}, "spend": {"$sum": "$cost_gbp"}, "calls": {"$sum": 1},
+                    "requests": {"$addToSet": "$request_id"}}},
+        {"$sort": {"spend": -1}},
+    ]).to_list(50)
     by_basis = await db.llm_usage.aggregate([
         {"$match": {"ts": {"$gte": cutoff}}},
         {"$group": {"_id": "$tokens_source", "spend": {"$sum": "$cost_gbp"}, "calls": {"$sum": 1}}},
@@ -9973,6 +10068,8 @@ async def admin_llm_spend(_: dict = Depends(_check_admin_user), hours: int = 24)
         "by_model": [{"provider": r["_id"]["provider"], "model": r["_id"]["model"],
                       "spend": round(r["spend"], 2), "calls": r["calls"]} for r in by_model],
         "top_users": by_user,
+        "by_tier_access": [{"tier": r["_id"].get("tier"), "access": r["_id"].get("access"), "spend": round(r["spend"] or 0, 4),
+                            "calls": r["calls"], "requests": len(r["requests"])} for r in by_access],
     }
 
 
@@ -17403,6 +17500,10 @@ async def admin_fair_use(_: dict = Depends(require_admin)):
         "estimate_note": "Estimated AI cost = our calculation from each provider's published token prices. "
                          "Actual charges are on your Universal Key balance and your Tavily bill, and may differ.",
         "flags": flags, "exempt_users": exempt, "allowances": stage3.PAID, "passes": stage3.PASSES,
+        "proposed": {"allowances": stage3.PAID_V2, "passes": stage3.PASSES_V2, "credit_packs": stage3.CREDIT_PACKS,
+                     "credit_weights": stage3.CREDIT_WEIGHT, "pass_cost_allowance_gbp": stage3.PASS_COST_ALLOWANCE_GBP},
+        "credits": (await db.lex_credits.aggregate([{"$group": {"_id": "$status", "lots": {"$sum": 1},
+                                                                "sold": {"$sum": "$credits_total"}, "remaining": {"$sum": "$remaining"}}}]).to_list(10)),
     }
 
 
@@ -17426,6 +17527,18 @@ class FairUseSettings(BaseModel):
     burst_per_minute: Optional[int] = Field(None, ge=1, le=120)
     cooldown_minutes: Optional[int] = Field(None, ge=1, le=1440)
     thresholds: Optional[dict[Literal["plus", "pro", "yearly"], FairUseThreshold]] = None
+    allowances_v2_enabled: Optional[bool] = None
+    passes_v2_enabled: Optional[bool] = None
+    cost_cap_enabled: Optional[bool] = None
+    monthly_cost_caps: Optional[dict[Literal["plus", "pro", "yearly"], float]] = None
+    cost_cap_reserve_gbp: Optional[float] = Field(None, ge=0, le=5)
+    emergency_allowance_enabled: Optional[bool] = None
+    emergency_allowance: Optional[dict[Literal["free", "plus", "pro", "yearly"], list[int]]] = None
+    emergency_rights_limits_enabled: Optional[bool] = None
+    emergency_rights_daily: Optional[int] = Field(None, ge=1, le=50)
+    credits_enabled: Optional[bool] = None
+    credits_daily_max: Optional[int] = Field(None, ge=1, le=500)
+    usage_warnings_v2_enabled: Optional[bool] = None
 
 
 @api_router.put("/admin/fair-use/settings")

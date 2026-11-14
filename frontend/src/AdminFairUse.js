@@ -9,6 +9,10 @@ const SWITCHES = [
   ["login_limits_enabled", "Login protection"], ["abuse_guards_enabled", "Repeat / burst protection"],
   ["free_lifetime_enabled", "Free: 2 lifetime questions"], ["pass_limits_enabled", "Pass allowances"],
   ["spend_guard_enabled", "Paid spending safeguards"], ["site_brake_enabled", "Free site-wide brake"],
+  ["allowances_v2_enabled", "Lex 2.0 allowances (150/350)"], ["passes_v2_enabled", "Lex 2.0 pass allowances"],
+  ["cost_cap_enabled", "Monthly cost backstop"], ["emergency_allowance_enabled", "Emergency allowance"],
+  ["emergency_rights_limits_enabled", "Emergency Rights limits + reuse"], ["credits_enabled", "Extra Lex Credits"],
+  ["usage_warnings_v2_enabled", "Lex 2.0 usage warnings"],
 ];
 
 function BrakeRow({ b, onBrake }) {

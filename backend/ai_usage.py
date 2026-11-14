@@ -16,6 +16,7 @@ _request_id = contextvars.ContextVar("ai_request_id", default=None)
 _user = contextvars.ContextVar("ai_user", default=(None, None))
 _attempt = contextvars.ContextVar("ai_attempt", default="primary")
 _site = contextvars.ContextVar("ai_call_site", default="")
+_access = contextvars.ContextVar("ai_access", default=None)
 _state = {"db": None, "rates": {}, "default_rate": (2.50, 12.00), "installed": False}
 # Estimator calibrated 5 Nov 2026 against provider-measured prompt tokens (see /app/memory/stage2_token_calibration.md):
 # Claude 5.5 counts ~1.3-1.6x the o200k tokenizer for English/legal/JSON, ~1.9x Welsh, ~2.3x Urdu/Arabic; GPT-5.2 ~1.0x.
@@ -37,11 +38,17 @@ def begin_request(path: str) -> None:
     _feature.set(feature_from_path(path))
     _request_id.set(str(uuid.uuid4()))
     _attempt.set("primary")
+    _access.set(None)
 
 
 def set_user(user: dict) -> None:
     if user:
         _user.set((user.get("id"), user.get("tier")))
+
+
+def set_access(source: str) -> None:
+    """How the request was paid for: plan | free | pass:<kind> | credits | emergency."""
+    _access.set(source)
 
 
 def mark_fallback(call_site: str = "") -> None:
@@ -110,7 +117,7 @@ def record(*, provider: str, model_requested: str, model_actual: str = None, inp
         uid, tier = _user.get()
         doc = {
             "schema": SCHEMA, "ts": datetime.now(timezone.utc).isoformat(), "request_id": _request_id.get(),
-            "user_id": uid, "tier": tier, "feature": _feature.get(), "call_site": call_site or _site.get(),
+            "user_id": uid, "tier": tier, "access": _access.get(), "feature": _feature.get(), "call_site": call_site or _site.get(),
             "provider": provider, "model": model_actual, "model_requested": model_requested, "model_actual": model_actual,
             "attempt": _attempt.get(), "status": status, "latency_ms": int(latency_ms),
             "input_chars": int(input_chars), "output_chars": int(output_chars),

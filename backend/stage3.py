@@ -3,6 +3,9 @@ import os, time, hashlib, logging, contextvars
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from fastapi import HTTPException
+from pymongo import ReturnDocument
+import ai_usage
+import high_stakes
 
 logger = logging.getLogger(__name__)
 UK = ZoneInfo("Europe/London")
@@ -25,6 +28,20 @@ DEFAULTS = {
     "site_brake_manual_day": None,
     "burst_per_minute": 8,
     "cooldown_minutes": 60,
+    # Lex 2.0 financial safeguards — all OFF until the owner approves (preview build).
+    "allowances_v2_enabled": False,
+    "passes_v2_enabled": False,
+    "passes_v2_since": None,
+    "cost_cap_enabled": False,
+    "monthly_cost_caps": {"plus": 10.0, "pro": 18.0, "yearly": 18.0},
+    "cost_cap_reserve_gbp": 0.25,
+    "emergency_allowance_enabled": False,
+    "emergency_allowance": {"free": [1, 3], "plus": [3, 10], "pro": [3, 10], "yearly": [3, 10]},
+    "emergency_rights_limits_enabled": False,
+    "emergency_rights_daily": 5,
+    "credits_enabled": False,
+    "credits_daily_max": 60,
+    "usage_warnings_v2_enabled": False,
     "thresholds": {
         "plus": {"flag": 1.50, "cooldown": 4.00, "monthly_review": 12.00},
         "pro": {"flag": 3.00, "cooldown": 8.00, "monthly_review": 25.00},
@@ -37,6 +54,10 @@ _PRO = {"msgs": (600, 80), "letters": (50, None), "analyses": (25, None), "tts":
         "live_sessions": (6, None), "translations": (150, None), "hearing_min": (300, None)}
 PAID = {"plus": {"msgs": (300, 40), "letters": (20, None), "analyses": (15, None), "tts": (100, None)},
         "pro": _PRO, "yearly": _PRO}
+# Proposed Lex 2.0 allowances (used only when allowances_v2_enabled / passes_v2_enabled are switched on).
+_PRO_V2 = {**_PRO, "msgs": (350, 50)}
+PAID_V2 = {"plus": {**PAID["plus"], "msgs": (150, 20)}, "pro": _PRO_V2, "yearly": _PRO_V2}
+PASS_COST_ALLOWANCE_GBP = {"day_pass": 3.00, "weekend_pass": 8.50, "crisis_pack": 15.00, "letter_pack": 3.50}
 PASSES = {
     "day_pass": {"msgs": 50, "letters": 2, "analyses": 5, "tts": 10},
     "weekend_pass": {"msgs": 120, "letters": 5, "analyses": 5, "tts": 30},
@@ -44,7 +65,29 @@ PASSES = {
                     "hearing_min": 60, "tts": 30, "translations": 30},
     "letter_pack": {"msgs": 100, "letters": 5, "analyses": 1},
 }
+PASSES_V2 = {
+    "day_pass": {"msgs": 30, "letters": 2, "analyses": 3, "tts": 10},
+    "weekend_pass": {"msgs": 90, "letters": 5, "analyses": 5, "tts": 30},
+    "crisis_pack": PASSES["crisis_pack"],
+    "letter_pack": {"msgs": 40, "letters": 5, "analyses": 1},
+}
 FREE_KINDS = {"msgs", "letters", "analyses"}
+# Extra Lex Credits: 1 credit = 1 Lex message; bigger actions use more. Never grants Deep Think or a higher model.
+CREDIT_WEIGHT = {"msgs": 1, "letters": 2, "analyses": 4}
+CREDIT_PACKS = {
+    "credits_small": {"label": "25 Extra Lex Credits", "credits": 25, "price_gbp": 4.99},
+    "credits_medium": {"label": "60 Extra Lex Credits", "credits": 60, "price_gbp": 9.99},
+    "credits_large": {"label": "120 Extra Lex Credits", "credits": 120, "price_gbp": 17.99},
+}
+CREDIT_VALID_DAYS = 365
+HELPLINES = [
+    ("Emergency (danger to life)", "999"), ("Police non-emergency", "101"),
+    ("Civil Legal Advice (legal aid, England & Wales)", "0345 345 4345"),
+    ("Citizens Advice (England)", "0800 144 8848"), ("Citizens Advice (Wales)", "0800 702 2020"),
+    ("Citizens Advice Scotland", "0800 028 1456"), ("Shelter housing emergency", "0808 800 4444"),
+    ("National Domestic Abuse Helpline", "0808 2000 247"), ("Acas (work problems)", "0300 123 1100"),
+]
+HELPLINE_LINE = "Urgent? Call 999 if anyone is in danger. Free help: Civil Legal Advice 0345 345 4345, Citizens Advice 0800 144 8848."
 FEATURE_KIND = {"lex_chat": "msgs", "letters_generate": "letters", "evidence_analyze": "analyses",
                 "doc_analyze": "analyses", "tts": "tts", "live_assist_session": "live_sessions",
                 "deep_think": "deep_think", "translate": "translations", "hearing": "hearing_min"}
@@ -70,6 +113,9 @@ async def ensure_indexes():
     await _db.s3_flags.create_index([("user_id", 1), ("day", 1)])
     await _db.llm_usage.create_index([("user_id", 1), ("ts", 1)])
     await _db.llm_usage.create_index("ts")
+    await _db.lex_credits.create_index("stripe_session_id", unique=True)
+    await _db.lex_credits.create_index([("user_id", 1), ("status", 1), ("expires_at", 1)])
+    await _db.lex_credits.create_index("payment_intent")
 
 
 def _now():
@@ -118,8 +164,13 @@ async def settings() -> dict:
 
 
 async def update_settings(patch: dict) -> dict:
-    allowed = set(DEFAULTS) - {"site_brake_manual", "site_brake_manual_day"}
+    allowed = set(DEFAULTS) - {"site_brake_manual", "site_brake_manual_day", "passes_v2_since"}
     clean = {k: v for k, v in patch.items() if k in allowed and v is not None or k == "paid_limits_effective_at"}
+    for k in ("monthly_cost_caps", "emergency_allowance"):
+        if k in clean:
+            clean[k] = {**(await settings())[k], **{t: v for t, v in clean[k].items() if t in DEFAULTS[k]}}
+    if clean.get("passes_v2_enabled") and not (await settings()).get("passes_v2_since"):
+        clean["passes_v2_since"] = _now().isoformat()
     if clean.get("paid_limits_effective_at"):
         clean["paid_limits_effective_at"] = _parse_dt(clean["paid_limits_effective_at"]).isoformat()
     if "thresholds" in clean:
@@ -154,9 +205,9 @@ async def user_spend_today(user_id: str) -> float:
     return await _sum_cost({"user_id": user_id, "ts": {"$gte": _uk_midnight_utc().isoformat()}})
 
 
-async def user_spend_month(user_id: str) -> float:
+async def user_spend_month(user_id: str, fresh: bool = False) -> float:
     hit = _cache["monthly"].get(user_id)
-    if hit and time.monotonic() - hit[1] < 600:
+    if hit and not fresh and time.monotonic() - hit[1] < 600:
         return hit[0]
     v = await _sum_cost({"user_id": user_id, "ts": {"$gte": _uk_midnight_utc(True).isoformat()}})
     _cache["monthly"][user_id] = (v, time.monotonic())
@@ -298,6 +349,39 @@ async def check_spend(user: dict, tier: str):
         if await user_spend_month(user["id"]) >= th["monthly_review"] and \
                 not await _db.s3_flags.find_one({"user_id": user["id"], "level": "monthly_review", "day": {"$regex": f"^{month}"}}):
             await _flag(user, day, "monthly_review", await user_spend_month(user["id"]))
+    if s["cost_cap_enabled"] and enforce:
+        return await cost_cap_reached(user, tier, s)
+    return False
+
+
+def _tier_key(tier: str) -> str:
+    return "pro" if tier == "trial_pro" else tier
+
+
+def _next_month_label() -> str:
+    n = _now().astimezone(UK)
+    return f"1 {(n.replace(day=28) + timedelta(days=4)).strftime('%B')}"
+
+
+async def account_cost_cap(user: dict, tier: str, s: dict):
+    """Monthly £ backstop: plan cap (active subscription) + active pass allowance. Purchased credits are prepaid and bypass it."""
+    base_tier = user.get("tier") if user.get("subscription_status") == "active" else None
+    cap = float(s["monthly_cost_caps"].get(_tier_key(base_tier or ""), 0.0)) if base_tier in PAID_TIERS else 0.0
+    p = _active_pass(user, s["launched_at"])
+    if p:
+        cap += PASS_COST_ALLOWANCE_GBP.get(p["kind"], 0.0)
+    if cap <= 0 and _tier_key(tier) in s["monthly_cost_caps"]:
+        cap = float(s["monthly_cost_caps"][_tier_key(tier)])
+    return cap
+
+
+async def cost_cap_reached(user: dict, tier: str, s: dict) -> bool:
+    cap = await account_cost_cap(user, tier, s)
+    reserve = float(s["cost_cap_reserve_gbp"])
+    spent = await user_spend_month(user["id"])
+    if spent + reserve >= 0.8 * cap:
+        spent = await user_spend_month(user["id"], fresh=True)
+    return spent + reserve >= cap
 
 
 # ---------------- Abuse guards (chat) ----------------
@@ -306,8 +390,15 @@ async def pre_chat(user: dict, tier: str, message: str, stream: bool):
     s = await settings()
     if _is_owner(user) or user.get("s3_exempt"):
         return
+    r = _req.get()
+    if r is not None and s["emergency_allowance_enabled"]:
+        r["emergency"] = high_stakes.classify(message or "", "", None).get("level") in ("emergency", "urgent")
     if tier == "free":
-        await check_free_brake()
+        try:
+            await check_free_brake()
+        except HTTPException:
+            if not (s["credits_enabled"] and (await credit_balance(user["id"]))["balance"] > 0):
+                raise
     await check_spend(user, tier)
     if not s["abuse_guards_enabled"]:
         return
@@ -384,57 +475,114 @@ async def replaces_legacy(user: dict, tier: str, feature: str) -> bool:
     return tier in PAID_TIERS and kind in PAID.get(tier, {}) and await paid_limits_active(user)
 
 
+def paid_table(s: dict) -> dict:
+    return PAID_V2 if s["allowances_v2_enabled"] else PAID
+
+
+def pass_table(s: dict, p: dict) -> dict:
+    v2 = s["passes_v2_enabled"] and s.get("passes_v2_since") and (p.get("activated_at") or "") >= s["passes_v2_since"]
+    return (PASSES_V2 if v2 else PASSES)[p["kind"]]
+
+
+def _suffix(s: dict, kind: str) -> str:
+    out = ""
+    if s["credits_enabled"] and kind in CREDIT_WEIGHT:
+        out += " You can buy Extra Lex Credits to keep going — nothing is charged automatically."
+    if s["emergency_allowance_enabled"]:
+        out += " " + HELPLINE_LINE
+    return out
+
+
 async def consume(user: dict, tier: str, feature: str, amount: int = 1, soft: bool = False):
-    """Charge Stage 3 allowances. Raises 429 (or returns False when soft) if exhausted."""
+    """Charge allowances in order: pass -> plan -> Extra Lex Credits -> emergency allowance.
+    Raises 429 (or returns False when soft) if nothing is left."""
     s = await settings()
     kind = FEATURE_KIND.get(feature, feature)
     if _is_owner(user) or user.get("s3_exempt"):
         return True
-    entries = []
+    entries, source, denial, cap_hit = [], "plan", None, False
     if tier == "free":
         if kind in FREE_KINDS:
-            await check_free_brake()
-        if not (s["free_lifetime_enabled"] and kind in FREE_KINDS):
-            return True
-        keys = [email_key(user.get("email"))]
-        if user.get("signup_device_id"):
-            keys.append(f"device:{user['signup_device_id']}")
-        used = max([await _count(k, "s3-lifetime", "free_actions") for k in keys])
-        cap = int(s["free_lifetime_actions"])
-        if used >= cap:
-            return _deny(f"You've used your {cap} free Lex questions. Upgrade to Plus or buy a Day Pass to keep going.", soft)
-        if await _sum_cost({"user_id": user["id"], "ts": {"$gte": s["launched_at"]}}) >= float(s["free_lifetime_cost_cap_gbp"]):
-            return _deny("You've reached the free usage limit. Upgrade to Plus or buy a Day Pass to keep going.", soft)
-        entries = [(k, "s3-lifetime", "free_actions") for k in keys]
+            try:
+                await check_free_brake()
+            except HTTPException as e:
+                denial = e.detail
+        if denial is None:
+            if not (s["free_lifetime_enabled"] and kind in FREE_KINDS):
+                return True
+            keys = [email_key(user.get("email"))]
+            if user.get("signup_device_id"):
+                keys.append(f"device:{user['signup_device_id']}")
+            used = max([await _count(k, "s3-lifetime", "free_actions") for k in keys])
+            cap = int(s["free_lifetime_actions"])
+            if used >= cap:
+                denial = f"You've used your {cap} free Lex questions. Upgrade to Plus or buy a Day Pass to keep going."
+            elif await _sum_cost({"user_id": user["id"], "ts": {"$gte": s["launched_at"]}}) >= float(s["free_lifetime_cost_cap_gbp"]):
+                denial = "You've reached the free usage limit. Upgrade to Plus or buy a Day Pass to keep going."
+            else:
+                entries, source = [(k, "s3-lifetime", "free_actions") for k in keys], "free"
     else:
-        await check_spend(user, tier)
+        cap_hit = bool(await check_spend(user, tier))
         p = _active_pass(user, s["launched_at"]) if s["pass_limits_enabled"] else None
         base_tier = user.get("tier") if user.get("subscription_status") == "active" else None
-        if p and kind in PASSES[p["kind"]]:
+        if p and kind in pass_table(s, p):
             bucket = f"s3-pass-{p['activated_at']}"
-            if await _count(user["id"], bucket, kind) + amount <= PASSES[p["kind"]][kind]:
-                entries = [(user["id"], bucket, kind)]
+            if await _count(user["id"], bucket, kind) + amount <= pass_table(s, p)[kind]:
+                entries, source = [(user["id"], bucket, kind)], f"pass:{p['kind']}"
             elif base_tier not in PAID_TIERS:
-                return _deny(f"You've used all the {KIND_LABEL.get(kind, kind)} included in your {p.get('label') or 'pass'}.", soft)
+                denial = f"You've used all the {KIND_LABEL.get(kind, kind)} included in your {p.get('label') or 'pass'}."
             else:
                 tier = base_tier
-        if not entries and tier in PAID_TIERS and kind in PAID[tier] and await paid_limits_active(user):
-            monthly, daily = PAID[tier][kind]
+        table = paid_table(s)
+        if not entries and denial is None and tier in PAID_TIERS and kind in table[tier] and await paid_limits_active(user):
+            monthly, daily = table[tier][kind]
             n = _now().astimezone(UK)
             mb, db_ = f"s3m-{n:%Y-%m}", f"s3d-{n:%Y-%m-%d}"
             if monthly is not None and await _count(user["id"], mb, kind) + amount > monthly:
-                return _deny(f"You've used this month's {monthly} {KIND_LABEL[kind]} on your plan. "
-                             "Your allowance resets on the 1st of the month.", soft)
-            if daily is not None and await _count(user["id"], db_, kind) + amount > daily:
-                return _deny(f"You've reached today's fair-use limit of {daily} {KIND_LABEL[kind]}. "
-                             "It resets at midnight UK time.", soft)
-            entries = [(user["id"], mb, kind)] + ([(user["id"], db_, kind)] if daily is not None else [])
+                denial = (f"You've used this month's {monthly} {KIND_LABEL[kind]} on your plan. "
+                          "Your allowance resets on the 1st of the month.")
+            elif daily is not None and await _count(user["id"], db_, kind) + amount > daily:
+                denial = f"You've reached today's fair-use limit of {daily} {KIND_LABEL[kind]}. It resets at midnight UK time."
+            else:
+                entries = [(user["id"], mb, kind)] + ([(user["id"], db_, kind)] if daily is not None else [])
+        if cap_hit:
+            entries, denial = [], (f"You've reached this month's fair-use limit for AI use on your plan. "
+                                   f"It resets on {_next_month_label()} (UK time).")
+    lot = None
+    if denial is not None:
+        alt = await _fallback(user, tier, kind, amount, s)
+        if not alt:
+            return _deny(denial + _suffix(s, kind), soft)
+        entries, source, lot = alt
     if not entries:
         return True
-    await _inc(entries, amount)
+    n_inc = lot[1] if lot else amount
+    await _inc(entries, n_inc)
     await _db.s3_consumptions.insert_one({"user_id": user["id"], "feature": feature, "entries": entries,
-                                          "amount": amount, "at_dt": _now()})
+                                          "amount": n_inc, "at_dt": _now(), "source": source,
+                                          **({"credit_lot": lot[0], "credit_amount": lot[1]} if lot else {})})
+    ai_usage.set_access(source)
     return True
+
+
+async def _fallback(user: dict, tier: str, kind: str, amount: int, s: dict):
+    """After a normal limit: purchased credits first, then the small emergency allowance."""
+    uid, n = user["id"], _now().astimezone(UK)
+    w = CREDIT_WEIGHT.get(kind, 0) * amount
+    if s["credits_enabled"] and w and await _count(uid, f"s3cr-d-{n:%Y-%m-%d}", "credits") + w <= int(s["credits_daily_max"]):
+        lot = await _db.lex_credits.find_one_and_update(
+            {"user_id": uid, "status": "active", "expires_at": {"$gt": _now().isoformat()}, "remaining": {"$gte": w}},
+            {"$inc": {"remaining": -w}}, sort=[("expires_at", 1)], return_document=ReturnDocument.AFTER)
+        if lot:
+            # amount counts credits (not actions) in these buckets
+            return [(uid, f"s3cr-d-{n:%Y-%m-%d}", "credits"), (uid, f"s3cr-m-{n:%Y-%m}", "credits")], "credits", (lot["id"], w)
+    r = _req.get()
+    if s["emergency_allowance_enabled"] and kind == "msgs" and r is not None and r.get("emergency"):
+        daily, monthly = s["emergency_allowance"].get(_tier_key(tier), [0, 0])
+        d, m = (uid, f"s3em-d-{n:%Y-%m-%d}", "emergency"), (uid, f"s3em-m-{n:%Y-%m}", "emergency")
+        if await _count(*d) + amount <= daily and await _count(*m) + amount <= monthly:
+            return [d, m], "emergency", None
+    return None
 
 
 async def refund(user_id: str, feature: str):
@@ -445,6 +593,8 @@ async def refund(user_id: str, feature: str):
         for key, bucket, f in c["entries"]:
             await _db.usage.update_one({"user_id": key, "bucket": bucket, "feature": f, "count": {"$gt": 0}},
                                        {"$inc": {"count": -int(c.get("amount") or 1)}})
+        if c.get("credit_lot"):
+            await _db.lex_credits.update_one({"id": c["credit_lot"]}, {"$inc": {"remaining": int(c["credit_amount"])}})
 
 
 async def charge(user: dict, tier: str, feature: str, amount: int = 1):
@@ -474,12 +624,101 @@ def request_lock():
     return r["lock"] if r is not None else None
 
 
+# ---------------- Extra Lex Credits ----------------
+async def grant_credits(user_id: str, pack_id: str, session_id: str, payment_intent: str = None,
+                        amount_paid_gbp: float = None) -> bool:
+    """Idempotent on the Stripe checkout session id. Returns True only for a new grant."""
+    pack = CREDIT_PACKS.get(pack_id)
+    if not pack or not user_id or not session_id:
+        return False
+    now = _now()
+    import uuid
+    doc = {"id": str(uuid.uuid4()), "user_id": user_id, "pack": pack_id, "credits_total": pack["credits"],
+           "remaining": pack["credits"], "price_gbp": pack["price_gbp"], "amount_paid_gbp": amount_paid_gbp,
+           "purchased_at": now.isoformat(), "expires_at": (now + timedelta(days=CREDIT_VALID_DAYS)).isoformat(),
+           "stripe_session_id": session_id, "payment_intent": payment_intent, "status": "active"}
+    r = await _db.lex_credits.update_one({"stripe_session_id": session_id}, {"$setOnInsert": doc}, upsert=True)
+    return bool(r.upserted_id)
+
+
+async def revoke_credits(payment_intent: str, status: str, refunded_fraction: float = 1.0) -> int:
+    """Refund / chargeback: remove the refunded share of the credits still unused on that purchase."""
+    if not payment_intent:
+        return 0
+    n = 0
+    async for lot in _db.lex_credits.find({"payment_intent": payment_intent, "status": "active"}):
+        keep = int(lot["credits_total"] * (1 - min(1.0, max(0.0, refunded_fraction))))
+        used = lot["credits_total"] - lot["remaining"]
+        upd = {"remaining": max(0, min(lot["remaining"], keep - used))}
+        if refunded_fraction >= 1.0 or status == "disputed":
+            upd.update(remaining=0, status=status)
+        await _db.lex_credits.update_one({"id": lot["id"]}, {"$set": {**upd, "revoked_at": _now().isoformat()}})
+        n += 1
+    return n
+
+
+async def credit_balance(user_id: str) -> dict:
+    lots = await _db.lex_credits.find({"user_id": user_id, "status": "active", "remaining": {"$gt": 0},
+                                       "expires_at": {"$gt": _now().isoformat()}},
+                                      {"_id": 0, "remaining": 1, "expires_at": 1, "pack": 1}).sort("expires_at", 1).to_list(50)
+    return {"balance": sum(x["remaining"] for x in lots), "lots": lots}
+
+
+# ---------------- Emergency Rights button ----------------
+EMERGENCY_RIGHTS_VERSION = 1
+EMERGENCY_STATIC = (
+    "**WHAT TO SAY RIGHT NOW**\n\"I want free legal advice before I answer any questions.\" "
+    "\"Why am I being held?\" \"I want someone told where I am.\"\n\n"
+    "**WHAT NEVER TO SAY**\n- Do not guess or explain before you get legal advice.\n- Do not sign anything you do not understand.\n"
+    "- Do not lie.\n- Do not resist or argue with officers.\n\n"
+    "**NEXT STEPS**\n1. Ask for free legal advice (a solicitor) — at a UK police station this is free.\n"
+    "2. Ask why you are being held.\n3. Ask for someone to be told where you are.\n4. Ask for medical help if you need it.\n\n"
+    "**EMERGENCY NUMBERS**\n" + "\n".join(f"- {n}: {t}" for n, t in HELPLINES) +
+    "\n\nOutside the UK, call the local emergency number (112 works across Europe) and ask for a lawyer and your embassy."
+)
+
+
+async def emergency_rights_cached(country: str, language: str):
+    d = await _db.emergency_rights_cache.find_one({"_id": f"v{EMERGENCY_RIGHTS_VERSION}:{country}:{language}"})
+    if d and d.get("at", "") >= (_now() - timedelta(hours=24)).isoformat():
+        return d
+    return None
+
+
+async def emergency_rights_store(country: str, language: str, text: str):
+    await _db.emergency_rights_cache.update_one({"_id": f"v{EMERGENCY_RIGHTS_VERSION}:{country}:{language}"},
+                                                {"$set": {"text": text, "at": _now().isoformat()}}, upsert=True)
+
+
+async def emergency_rights_allow(user: dict) -> bool:
+    """Counts newly generated rights scripts per account per UK day."""
+    s = await settings()
+    key = (user["id"], f"s3er-{_uk_day()}", "emergency_rights")
+    if await _count(*key) >= int(s["emergency_rights_daily"]):
+        return False
+    await _inc([key], 1)
+    return True
+
+
 # ---------------- Customer usage view ----------------
 async def usage_view(user: dict, tier: str) -> dict:
     s = await settings()
     out = {"items": {}, "warnings": []}
     if _is_owner(user):
         return out
+    v2 = s["usage_warnings_v2_enabled"]
+    if v2:
+        out.update(resets={"daily": "midnight UK time", "monthly": _next_month_label()},
+                   can_buy_credits=bool(s["credits_enabled"]))
+        if s["credits_enabled"]:
+            out["credits"] = await credit_balance(user["id"])
+        if s["emergency_allowance_enabled"]:
+            n = _now().astimezone(UK)
+            daily, monthly = s["emergency_allowance"].get(_tier_key(tier), [0, 0])
+            ud = await _count(user["id"], f"s3em-d-{n:%Y-%m-%d}", "emergency")
+            um = await _count(user["id"], f"s3em-m-{n:%Y-%m}", "emergency")
+            out["emergency"] = {"remaining_today": max(0, min(daily - ud, monthly - um)), "daily": daily, "monthly": monthly}
+            out["helplines"] = [{"name": a, "number": b} for a, b in HELPLINES]
     if tier == "free" and s["free_lifetime_enabled"]:
         keys = [email_key(user.get("email"))] + \
             ([f"device:{user['signup_device_id']}"] if user.get("signup_device_id") else [])
@@ -487,13 +726,41 @@ async def usage_view(user: dict, tier: str) -> dict:
         cap = int(s["free_lifetime_actions"])
         out["items"]["free_actions"] = {"used": used, "limit": cap, "period": "lifetime"}
         if used >= cap:
-            out["warnings"].append(f"You've used your {cap} free Lex questions.")
+            out["warnings"].append(f"You've used your {cap} free Lex questions." + (_suffix(s, "msgs") if v2 else ""))
         return out
+    p = _active_pass(user, s["launched_at"]) if (v2 and s["pass_limits_enabled"]) else None
+    if p:
+        tbl, bucket = pass_table(s, p), f"s3-pass-{p['activated_at']}"
+        until = datetime.fromisoformat(p["expires_at"]).astimezone(UK).strftime("%d %b %H:%M")
+        for kind, limit in tbl.items():
+            used = await _count(user["id"], bucket, kind)
+            out["items"][f"pass_{kind}"] = {"used": used, "limit": limit, "period": "pass", "expires": until}
+            if limit and used >= 0.8 * limit:
+                out["warnings"].append(f"You've used {used} of {limit} {KIND_LABEL[kind]} on your {p.get('label') or 'pass'} "
+                                       f"— {max(0, limit - used)} left until {until} (UK time).")
     if tier in PAID_TIERS and await paid_limits_active(user):
         n = _now().astimezone(UK)
-        for kind, (monthly, _d) in PAID[tier].items():
+        for kind, (monthly, daily) in paid_table(s)[tier].items():
             used = await _count(user["id"], f"s3m-{n:%Y-%m}", kind)
             out["items"][kind] = {"used": used, "limit": monthly, "period": "monthly"}
+            if not v2:
+                if monthly and used >= 0.8 * monthly:
+                    out["warnings"].append(f"You've used {used} of {monthly} {KIND_LABEL[kind]} this month.")
+                continue
+            used_d = await _count(user["id"], f"s3d-{n:%Y-%m-%d}", kind) if daily else 0
+            out["items"][kind].update(daily_limit=daily, used_today=used_d)
             if monthly and used >= 0.8 * monthly:
-                out["warnings"].append(f"You've used {used} of {monthly} {KIND_LABEL[kind]} this month.")
+                out["warnings"].append(f"You've used {used} of your {monthly} {KIND_LABEL[kind]} this month — "
+                                       f"{max(0, monthly - used)} left. Resets on {_next_month_label()}.")
+            elif daily and used_d >= 0.8 * daily:
+                out["warnings"].append(f"You've used {used_d} of today's {daily} {KIND_LABEL[kind]} — "
+                                       f"{max(0, daily - used_d)} left. Resets at midnight UK time.")
+        if v2 and s["cost_cap_enabled"]:
+            cap = await account_cost_cap(user, tier, s)
+            if cap and await user_spend_month(user["id"]) >= 0.8 * cap:
+                out["warnings"].append(f"You're close to this month's fair-use limit for AI use. It resets on {_next_month_label()}.")
+    if v2 and out["warnings"]:
+        out["warnings"].append("When a limit is reached Lex pauses — you are never charged automatically."
+                               + (" Extra Lex Credits are available." if s["credits_enabled"] else "")
+                               + (f" Emergency answers left today: {out['emergency']['remaining_today']}." if "emergency" in out else ""))
     return out

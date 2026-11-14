@@ -26,6 +26,7 @@ import { AdminFinanceCard } from "@/AdminFinance";
 import { AdminLexLessonsCard } from "@/AdminLexLessons";
 import { AdminFairUseCard } from "@/AdminFairUse";
 import { FairUseNotice } from "@/FairUseNotice";
+import { ExtraCreditsCard } from "./components/ExtraCreditsCard";
 import ConveyancingModal from "@/Conveyancing";
 import { TrustpilotPrompt, AdminTestimonialsCard } from "@/Reviews";
 import { LawWatchAdminCard } from "./components/LawWatchAdminCard";
@@ -3187,7 +3188,7 @@ function EmergencyModal({ lang, country, user, onClose, onAddContact }) {
     try {
       const { data } = await api.post("/emergency/rights", { language: lang, country, note: n || undefined,
         location: coords ? `${coords.latitude.toFixed(4)},${coords.longitude.toFixed(4)}` : undefined });
-      setRights(data.rights_script);
+      setRights(data.rights_script + (data.limited ? "\n\n_Standard emergency guidance shown (daily limit for new personalised scripts reached). Helplines are always free._" : ""));
     } catch (e) { setRights(e?.response?.data?.detail || "Could not load rights. Stay silent. Ask for a lawyer."); }
     finally { setBusy(false); }
   }, [lang, country, coords]);
@@ -8337,6 +8338,7 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
 
         {tab === "topups" && !IS_NATIVE ? (
           <div data-testid="topups-panel" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+            <ExtraCreditsCard api={api} />
             {topups.active && (
               <div data-testid="topup-active-banner" style={{
                 background: "linear-gradient(135deg, rgba(247,201,72,0.20), rgba(247,201,72,0.05))",
