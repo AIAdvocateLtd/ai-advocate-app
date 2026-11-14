@@ -169,7 +169,7 @@ async def update_settings(patch: dict) -> dict:
     for k in ("monthly_cost_caps", "emergency_allowance"):
         if k in clean:
             clean[k] = {**(await settings())[k], **{t: v for t, v in clean[k].items() if t in DEFAULTS[k]}}
-    if clean.get("passes_v2_enabled") and not (await settings()).get("passes_v2_since"):
+    if clean.get("passes_v2_enabled") and not (await settings())["passes_v2_enabled"]:
         clean["passes_v2_since"] = _now().isoformat()
     if clean.get("paid_limits_effective_at"):
         clean["paid_limits_effective_at"] = _parse_dt(clean["paid_limits_effective_at"]).isoformat()
@@ -506,7 +506,7 @@ async def consume(user: dict, tier: str, feature: str, amount: int = 1, soft: bo
             try:
                 await check_free_brake()
             except HTTPException as e:
-                denial = e.detail
+                denial, cap_hit = e.detail, True  # site brake: only prepaid credits may continue
         if denial is None:
             if not (s["free_lifetime_enabled"] and kind in FREE_KINDS):
                 return True
@@ -550,7 +550,7 @@ async def consume(user: dict, tier: str, feature: str, amount: int = 1, soft: bo
                                    f"It resets on {_next_month_label()} (UK time).")
     lot = None
     if denial is not None:
-        alt = await _fallback(user, tier, kind, amount, s)
+        alt = await _fallback(user, tier, kind, amount, s, braked=(tier == "free" and cap_hit))
         if not alt:
             return _deny(denial + _suffix(s, kind), soft)
         entries, source, lot = alt
@@ -565,7 +565,7 @@ async def consume(user: dict, tier: str, feature: str, amount: int = 1, soft: bo
     return True
 
 
-async def _fallback(user: dict, tier: str, kind: str, amount: int, s: dict):
+async def _fallback(user: dict, tier: str, kind: str, amount: int, s: dict, braked: bool = False):
     """After a normal limit: purchased credits first, then the small emergency allowance."""
     uid, n = user["id"], _now().astimezone(UK)
     w = CREDIT_WEIGHT.get(kind, 0) * amount
@@ -577,7 +577,7 @@ async def _fallback(user: dict, tier: str, kind: str, amount: int, s: dict):
             # amount counts credits (not actions) in these buckets
             return [(uid, f"s3cr-d-{n:%Y-%m-%d}", "credits"), (uid, f"s3cr-m-{n:%Y-%m}", "credits")], "credits", (lot["id"], w)
     r = _req.get()
-    if s["emergency_allowance_enabled"] and kind == "msgs" and r is not None and r.get("emergency"):
+    if s["emergency_allowance_enabled"] and not braked and kind == "msgs" and r is not None and r.get("emergency"):
         daily, monthly = s["emergency_allowance"].get(_tier_key(tier), [0, 0])
         d, m = (uid, f"s3em-d-{n:%Y-%m-%d}", "emergency"), (uid, f"s3em-m-{n:%Y-%m}", "emergency")
         if await _count(*d) + amount <= daily and await _count(*m) + amount <= monthly:

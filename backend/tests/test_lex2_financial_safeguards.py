@@ -308,3 +308,18 @@ def test_settings_patch_merges_nested_caps():
     s = _set(monthly_cost_caps={"plus": 13.0})
     assert s["monthly_cost_caps"] == {"plus": 13.0, "pro": 18.0, "yearly": 18.0}
     _set(monthly_cost_caps={"plus": 10.0})
+
+
+def test_free_emergency_allowance_respects_site_brake():
+    _set(emergency_allowance_enabled=True, emergency_allowance={"free": [3, 3]})
+    u = _user("free", signup_device_id=f"{TAG}-dev-brake")
+    run(stage3.consume(u, "free", "lex_chat")); run(stage3.consume(u, "free", "lex_chat"))
+    r = stage3._req.get(); r["emergency"] = True
+    assert run(stage3.consume(u, "free", "lex_chat"))  # 1 emergency answer a day for Free
+    run(stage3.set_brake("pause"))
+    r["emergency"] = True
+    _deny(stage3.consume(u, "free", "lex_chat"))
+    run(stage3.set_brake("resume"))
+    r["emergency"] = True
+    assert run(stage3.consume(u, "free", "lex_chat"))
+    _set(emergency_allowance_enabled=False, emergency_allowance={"free": [1, 3]})
