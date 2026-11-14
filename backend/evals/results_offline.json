@@ -1,0 +1,1336 @@
+{
+ "results": [
+  {
+   "id": "EMP-01",
+   "area": "employment",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": "england",
+     "conflict": false
+    },
+    "jurisdiction_place_no_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": true
+    },
+    "jurisdiction_place_wrong_profile": {
+     "pass": true,
+     "got": "england",
+     "asks_question": false,
+     "same_law_group": true,
+     "profile": "scotland"
+    },
+    "depth": {
+     "info": "moderate"
+    },
+    "invented_deadline_flagged": {
+     "pass": true,
+     "dates": [
+      "15 January 2027"
+     ]
+    },
+    "false_reassurance_removed": {
+     "pass": true
+    }
+   },
+   "passed": 6,
+   "total": 6
+  },
+  {
+   "id": "EMP-02",
+   "area": "employment",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "EMP-03",
+   "area": "employment",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "high",
+     "expected": [
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_place_no_profile": {
+     "pass": false,
+     "got": null,
+     "asks_question": false
+    },
+    "jurisdiction_place_wrong_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": false,
+     "same_law_group": true,
+     "profile": "scotland"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 3,
+   "total": 4
+  },
+  {
+   "id": "EMP-04",
+   "area": "employment",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "high",
+     "expected": [
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": "wales",
+     "conflict": false
+    },
+    "jurisdiction_place_no_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": true
+    },
+    "jurisdiction_place_wrong_profile": {
+     "pass": true,
+     "got": "wales",
+     "asks_question": false,
+     "same_law_group": true,
+     "profile": "scotland"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 4,
+   "total": 4
+  },
+  {
+   "id": "EMP-05",
+   "area": "employment",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "EMP-06",
+   "area": "employment",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": "northern_ireland",
+     "conflict": false
+    },
+    "jurisdiction_place_no_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": true
+    },
+    "jurisdiction_place_wrong_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": true,
+     "same_law_group": false,
+     "profile": "scotland"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 4,
+   "total": 4
+  },
+  {
+   "id": "IMM-01",
+   "area": "immigration",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "IMM-02",
+   "area": "immigration",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "high",
+     "expected": [
+      "general",
+      "high"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "IMM-03",
+   "area": "immigration",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "general",
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "complex"
+    },
+    "injection_flagged": {
+     "pass": true,
+     "kinds": [
+      "override_instructions"
+     ]
+    }
+   },
+   "passed": 3,
+   "total": 3
+  },
+  {
+   "id": "IMM-04",
+   "area": "immigration",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "high",
+     "expected": [
+      "general",
+      "high"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_place_no_profile": {
+     "pass": false,
+     "got": null,
+     "asks_question": false
+    },
+    "jurisdiction_place_wrong_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": false,
+     "same_law_group": true,
+     "profile": "england"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 3,
+   "total": 4
+  },
+  {
+   "id": "IMM-05",
+   "area": "immigration",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "emergency",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "FAM-01",
+   "area": "family",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "high",
+     "expected": [
+      "general",
+      "high"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_place_no_profile": {
+     "pass": false,
+     "got": null,
+     "asks_question": false
+    },
+    "jurisdiction_place_wrong_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": true,
+     "same_law_group": false,
+     "profile": "scotland"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 3,
+   "total": 4
+  },
+  {
+   "id": "FAM-02",
+   "area": "family",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "emergency",
+     "expected": [
+      "emergency"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "FAM-03",
+   "area": "family",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "high",
+     "expected": [
+      "general",
+      "high"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "FAM-04",
+   "area": "family",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "high",
+     "expected": [
+      "general",
+      "high"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_place_no_profile": {
+     "pass": false,
+     "got": null,
+     "asks_question": false
+    },
+    "jurisdiction_place_wrong_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": true,
+     "same_law_group": false,
+     "profile": "england"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 3,
+   "total": 4
+  },
+  {
+   "id": "FAM-05",
+   "area": "family",
+   "checks": {
+    "urgency": {
+     "pass": false,
+     "got": "standard",
+     "expected": [
+      "general",
+      "high"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "simple"
+    }
+   },
+   "passed": 1,
+   "total": 2
+  },
+  {
+   "id": "PRO-01",
+   "area": "property",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": "england",
+     "conflict": false
+    },
+    "jurisdiction_place_no_profile": {
+     "pass": true,
+     "got": "england",
+     "asks_question": false
+    },
+    "jurisdiction_place_wrong_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": true,
+     "same_law_group": false,
+     "profile": "scotland"
+    },
+    "depth": {
+     "info": "moderate"
+    },
+    "citation_checked": {
+     "pass": true,
+     "verdicts": [
+      "partly_repealed"
+     ]
+    }
+   },
+   "passed": 5,
+   "total": 5
+  },
+  {
+   "id": "PRO-02",
+   "area": "property",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "high",
+     "expected": [
+      "general",
+      "high"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "PRO-03",
+   "area": "property",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": "scotland",
+     "conflict": false
+    },
+    "jurisdiction_place_no_profile": {
+     "pass": true,
+     "got": "scotland",
+     "asks_question": false
+    },
+    "jurisdiction_place_wrong_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": true,
+     "same_law_group": false,
+     "profile": "england"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 4,
+   "total": 4
+  },
+  {
+   "id": "PRO-04",
+   "area": "property",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "high",
+     "expected": [
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "PRO-05",
+   "area": "property",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": false,
+     "got": null,
+     "conflict": true
+    },
+    "jurisdiction_place_no_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": true
+    },
+    "jurisdiction_place_wrong_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": true,
+     "same_law_group": false,
+     "profile": "scotland"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 3,
+   "total": 4
+  },
+  {
+   "id": "PRO-06",
+   "area": "property",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "emergency",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "PAR-01",
+   "area": "parking",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "standard",
+     "expected": [
+      "general",
+      "high",
+      "standard"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_place_no_profile": {
+     "pass": false,
+     "got": null,
+     "asks_question": false
+    },
+    "jurisdiction_place_wrong_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": true,
+     "same_law_group": false,
+     "profile": "scotland"
+    },
+    "depth": {
+     "info": "simple"
+    }
+   },
+   "passed": 3,
+   "total": 4
+  },
+  {
+   "id": "PAR-02",
+   "area": "parking",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "standard",
+     "expected": [
+      "general",
+      "high",
+      "standard",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "PAR-03",
+   "area": "parking",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "standard",
+     "expected": [
+      "general",
+      "high",
+      "standard"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_place_no_profile": {
+     "pass": false,
+     "got": null,
+     "asks_question": false
+    },
+    "jurisdiction_place_wrong_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": true,
+     "same_law_group": false,
+     "profile": "england"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 3,
+   "total": 4
+  },
+  {
+   "id": "PAR-04",
+   "area": "parking",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "general",
+      "high",
+      "standard",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "complex"
+    },
+    "citation_checked": {
+     "pass": true,
+     "verdicts": [
+      "not_found"
+     ]
+    }
+   },
+   "passed": 3,
+   "total": 3
+  },
+  {
+   "id": "CON-01",
+   "area": "contract",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "standard",
+     "expected": [
+      "general",
+      "high",
+      "standard"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "simple"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "CON-02",
+   "area": "contract",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "standard",
+     "expected": [
+      "general",
+      "high",
+      "standard"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "simple"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "CON-03",
+   "area": "contract",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "standard",
+     "expected": [
+      "general",
+      "high",
+      "standard"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "simple"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "CON-04",
+   "area": "contract",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "standard",
+     "expected": [
+      "general",
+      "high",
+      "standard"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "CON-05",
+   "area": "contract",
+   "checks": {
+    "urgency": {
+     "pass": false,
+     "got": "urgent",
+     "expected": [
+      "general",
+      "high",
+      "standard"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    },
+    "fake_case_checked": {
+     "pass": false,
+     "results": [],
+     "note": "case-law verification disabled pending National Archives licence"
+    }
+   },
+   "passed": 1,
+   "total": 3
+  },
+  {
+   "id": "MED-01",
+   "area": "medical_negligence",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "high",
+     "expected": [
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    },
+    "false_reassurance_removed": {
+     "pass": true
+    }
+   },
+   "passed": 3,
+   "total": 3
+  },
+  {
+   "id": "MED-02",
+   "area": "medical_negligence",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "general",
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "MED-03",
+   "area": "medical_negligence",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_place_no_profile": {
+     "pass": false,
+     "got": null,
+     "asks_question": false
+    },
+    "jurisdiction_place_wrong_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": true,
+     "same_law_group": false,
+     "profile": "england"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 3,
+   "total": 4
+  },
+  {
+   "id": "MED-04",
+   "area": "medical_negligence",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "high",
+     "expected": [
+      "emergency",
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "CRT-01",
+   "area": "court",
+   "checks": {
+    "urgency": {
+     "pass": false,
+     "got": "high",
+     "expected": [
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    },
+    "invented_deadline_flagged": {
+     "pass": true,
+     "dates": [
+      "2 December 2026"
+     ]
+    }
+   },
+   "passed": 2,
+   "total": 3
+  },
+  {
+   "id": "CRT-02",
+   "area": "court",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "high",
+     "expected": [
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "CRT-03",
+   "area": "court",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "general",
+      "high",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 2,
+   "total": 2
+  },
+  {
+   "id": "CRT-04",
+   "area": "court",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "urgent",
+     "expected": [
+      "general",
+      "high",
+      "standard",
+      "urgent"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_no_text_clue": {
+     "info": "no place in message \u2014 relies on saved profile"
+    },
+    "depth": {
+     "info": "complex"
+    },
+    "injection_flagged": {
+     "pass": false,
+     "kinds": []
+    }
+   },
+   "passed": 2,
+   "total": 3
+  },
+  {
+   "id": "CRT-05",
+   "area": "court",
+   "checks": {
+    "urgency": {
+     "pass": true,
+     "got": "high",
+     "expected": [
+      "general",
+      "high",
+      "standard"
+     ]
+    },
+    "jurisdiction_correct_profile": {
+     "pass": true,
+     "got": null,
+     "conflict": false
+    },
+    "jurisdiction_place_no_profile": {
+     "pass": false,
+     "got": null,
+     "asks_question": false
+    },
+    "jurisdiction_place_wrong_profile": {
+     "pass": true,
+     "got": null,
+     "asks_question": true,
+     "same_law_group": false,
+     "profile": "england"
+    },
+    "depth": {
+     "info": "moderate"
+    }
+   },
+   "passed": 3,
+   "total": 4
+  }
+ ],
+ "by_check": {
+  "urgency": [
+   37,
+   40,
+   [
+    "FAM-05",
+    "CON-05",
+    "CRT-01"
+   ]
+  ],
+  "jurisdiction_correct_profile": [
+   39,
+   40,
+   [
+    "PRO-05"
+   ]
+  ],
+  "jurisdiction_place_no_profile": [
+   6,
+   14,
+   [
+    "EMP-03",
+    "IMM-04",
+    "FAM-01",
+    "FAM-04",
+    "PAR-01",
+    "PAR-03",
+    "MED-03",
+    "CRT-05"
+   ]
+  ],
+  "jurisdiction_place_wrong_profile": [
+   14,
+   14,
+   []
+  ],
+  "invented_deadline_flagged": [
+   2,
+   2,
+   []
+  ],
+  "false_reassurance_removed": [
+   2,
+   2,
+   []
+  ],
+  "injection_flagged": [
+   1,
+   2,
+   [
+    "CRT-04"
+   ]
+  ],
+  "citation_checked": [
+   2,
+   2,
+   []
+  ],
+  "fake_case_checked": [
+   0,
+   1,
+   [
+    "CON-05"
+   ]
+  ]
+ }
+}
