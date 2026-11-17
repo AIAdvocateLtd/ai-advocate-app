@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 53 tested Lex 2.0 pass queueing, switch-driven customer copy and the new cap defaults. All 4 unit suites pass, each in its own process (pass_queue 10/10, financial_safeguards 18/18, stage3_limits 16/16, iter49_wording 9/9). The new API file passes 4/4 and the iter52 regression passes 10/10. Defaults are correct: caps 14/28/28, v2 review levels 10/18/18, v1 review thresholds still 12/25. GET /api/plans/allowances and /subscription/tiers return 300/40 and 600/80 with an empty note while switches are OFF, and 150/20 and 350/50 plus the full fair-use and cost-limit note when ON. UI with switches OFF: welcome.html shows 300/600 and 40/80, terms.html #fair-use-lex2 is hidden, and the subscribe modal has no note. UI with switches ON: welcome.html shows 150/350 and the new note, terms-fair-use-lex2 is visible, the subscribe modal shows 150/20 and 350/50, and subscribe-fair-use-note is present. Pass queue UI with seeded data: topup-active-banner is visible, topup-queued-list shows 'Weekend Pass · starts 18 Nov, 09:21 · ends 21 Nov, 09:21' with the explanation sentence, and /topups/packs returns queued starts_at equal to the active expires_at and ends_at 72h later. Regression: extra-credits-card is hidden while credits_enabled is OFF, and the admin Fair use card renders all 13 fair-use-switch-* switches (the 7 new ones OFF). One finding: the React /pricing and /terms pages cannot be reached because MarketingSite.jsx is never imported or routed, so those two spec items could not be tested. All switches were restored to OFF and checked through the API afterwards. Seeded pass fields were $unset. No AI, Tavily or Stripe calls were made and no Lex messages were sent.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "_activate_topup_for_user / _claim_topup_session", "issue": "The Stripe session is claimed (inserted into topup_grants) before the pass is granted. If the grant step throws (DB blip), Stripe's retry is treated as 'duplicate' and the paid pass is never granted. Consider deleting the claim on exception, or recording a status on the claim and only skipping when status=done."},
+      {"endpoint": "topup_queue_view / _promote_queued_topups", "issue": "Timestamps are compared as ISO strings (expires_at <= now.isoformat(), max(cursor, now)). This works for the '+00:00' format but breaks silently for 'Z'-suffixed or naive values (e.g. data written by other code paths or manual admin edits). Parse to datetime before comparing."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "MarketingSite.jsx PricingPage / TermsPage", "issue": "MarketingSite.jsx is not imported anywhere (grep finds no import), so the /pricing and /terms React routes do not exist. They render the app sign-in screen instead. The switch-driven copy in PricingPage (pricing-fair-use-note) and TermsPage ('Fair-use limits.') is dead code that customers never see. Either route these pages or treat welcome.html, terms.html and the subscribe modal as the only customer copy.", "selector": "[data-testid='page-pricing']", "priority": "MEDIUM"},
+      {"component": "welcome.html JSON-LD FAQPage schema (line ~133)", "issue": "The structured-data FAQ answer hardcodes '300 Lex messages ... Pro adds 600' and does not follow allowances_v2. Search-engine rich results will show 300/600 after the switch is turned on.", "selector": "script[type='application/ld+json']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Subscribe modal (pass-only user)", "issues": ["A user who only has an active Day Pass sees 'You're on PLUS' and a 'Manage subscription' button even though they have no Stripe subscription. Probably pre-existing; this is confusing next to the queued-pass list."]},
+      {"screen": "Admin Fair use card", "issues": ["The card does not show the new monthly cost caps (£14/£28) or the v2 review levels (£10/£18). The admin cannot see them before switching v2 on; they are only visible through the API."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter53_pass_queue_allowances_api.py", "/app/backend/tests/test_iter52_lex2_safeguards_api.py", "/app/backend/tests/test_lex2_pass_queue.py", "/app/backend/tests/test_lex2_financial_safeguards.py", "/app/backend/tests/test_stage3_limits.py", "/app/backend/tests/test_iter49_stage3_wording.py", "/app/test_reports/pytest/iter53.xml"],
+  "action_items": [
+    "Decide on /pricing and React /terms: either route MarketingSite pages (PricingPage, TermsPage) or remove the dead code. They are currently unreachable.",
+    "Make the welcome.html JSON-LD FAQ answer follow allowances, or make it allowance-neutral.",
+    "Make the topup session claim safe on failure: release the claim if the grant raises.",
+    "Parse ISO timestamps to datetime in topup_queue_view, _promote_queued_topups and the activation filter instead of comparing strings.",
+    "Optional: show the cost caps and v2 review levels in the admin Fair use card; hide 'Manage subscription' for users who only have a pass."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 18k lines; the topup and fair-use logic should move to its own module.",
+    "_activate_topup_for_user correctly makes the active slot conditional on an empty queue and an expired or absent active pass, so concurrent buys queue rather than overwrite. Promotion is guarded by topup_queue.0.queue_id, so it is race-safe.",
+    "Different pass types queue in order (FIFO) and each keeps its own allowance and duration. Mixed types are serialised rather than merged, which matches the spec."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter53_pass_queue_allowances_api.py"],
+  "success_rate": {"backend": "100% (53 unit + 4 new API + 10 regression)", "frontend": "~85% (all reachable surfaces pass; /pricing and React /terms unreachable)"},
+  "test_credentials": "test@advocate.app / Test12345!, admin@aiadvocate.co.uk / AdminLex2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "test@advocate.app was temporarily given topup_active (day_pass, +10h) and topup_queue [weekend_pass x1], both in the API test and in the UI test. The fields were $unset afterwards and confirmed None. No other data was changed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "UI login: add_init_script setting sessionStorage aa_skip_marketing=1 and localStorage aa_welcomed, aa_lang=en-GB, aa_terms, aa_cookie_consent=accepted, aa_uk_scope_ack, aa_lex_upl_ack. When the user has an active pass, open-subscribe-btn is not rendered; use open-pro-upgrade-btn (dispatch_event click), then tab-topups-btn. Change switches through page.context.request PUT /api/admin/fair-use/settings and restore all 7 new switches to False in finally. /pricing and /terms React routes do not exist (MarketingSite.jsx is unimported). Seed helper: /tmp/seed.py seed|unseed (ephemeral)."
+}

@@ -990,6 +990,10 @@
     set('plus-monthly', a.plus.monthly); set('pro-monthly', a.pro.monthly);
     set('plus-daily', a.plus.daily); set('pro-daily', a.pro.daily);
     if (a.fair_use_note) set('fair-use', a.fair_use_note);
+    document.querySelectorAll('script[type="application/ld+json"]').forEach(function (el) {
+      el.textContent = el.textContent.replace('for 300 Lex messages', 'for ' + a.plus.monthly + ' Lex messages')
+        .replace('Pro adds 600 Lex messages', 'Pro adds ' + a.pro.monthly + ' Lex messages');
+    });
   }).catch(function () {});
 </script>
 </body>

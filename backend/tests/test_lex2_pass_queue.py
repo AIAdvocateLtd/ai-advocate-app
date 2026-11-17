@@ -160,3 +160,28 @@ def test_review_levels_v1_until_activation_then_10_18():
     assert s["monthly_review_v2"] == {"plus": 10.0, "pro": 18.0, "yearly": 18.0}
     assert s["monthly_cost_caps"]["plus"] in (14.0, 10.0)
     assert stage3.DEFAULTS["monthly_cost_caps"] == {"plus": 14.0, "pro": 28.0, "yearly": 28.0}
+
+
+def test_failed_grant_releases_claim_so_stripe_retry_succeeds():
+    uid, sid = _user(), _sid()
+    real = server._grant_topup
+
+    async def boom(*a, **k):
+        raise RuntimeError("db blip")
+    server._grant_topup = boom
+    try:
+        with pytest.raises(RuntimeError):
+            run(server._activate_topup_for_user(uid, "day_pass", session_id=sid))
+    finally:
+        server._grant_topup = real
+    assert run(server._activate_topup_for_user(uid, "day_pass", session_id=sid)) == "active"
+
+
+def test_z_suffixed_expiry_is_handled():
+    uid = _user(topup_active={"kind": "day_pass", "activated_at": "2026-01-01T00:00:00Z", "expires_at": "2026-01-02T00:00:00Z",
+                              "label": "Day Pass", "grants_tier": "plus"},
+                topup_queue=[{"kind": "weekend_pass", "label": "Weekend Pass", "grants_tier": "plus", "duration_hours": 72,
+                              "purchased_at": "2026-01-01T01:00:00+00:00", "queue_id": "q1", "queued_at": "2026-01-01T01:00:00+00:00"}])
+    run(server._promote_queued_topups(uid))
+    act = _get(uid)["topup_active"]
+    assert act["kind"] == "weekend_pass" and act["activated_at"].startswith("2026-01-02T00:00:00")

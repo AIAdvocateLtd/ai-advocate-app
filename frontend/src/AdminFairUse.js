@@ -89,6 +89,10 @@ export function AdminFairUseCard({ api, toast, prompt, confirm }) {
                   onClick={() => save({ [k]: !s[k] })}>{label}: {s[k] ? "On" : "Off"}</button>
         ))}
       </div>
+      <div data-testid="fair-use-lex2-caps" style={{ ...muted, marginBottom: 6 }}>
+        Lex 2.0 cost limit (enforced when switched on): Plus £{s.monthly_cost_caps?.plus} · Pro £{s.monthly_cost_caps?.pro} · Yearly £{s.monthly_cost_caps?.yearly}.
+        {" "}Review email after Lex 2.0 allowances: Plus £{s.monthly_review_v2?.plus} · Pro £{s.monthly_review_v2?.pro}.
+      </div>
       <div style={{ ...muted, margin: "6px 0" }}>
         Paid allowances start: <b data-testid="fair-use-effective">{s.paid_limits_effective_at ? s.paid_limits_effective_at.slice(0, 10) : "not set (current terms apply)"}</b>{" "}
         <button data-testid="fair-use-set-effective" style={btn("transparent", "var(--gold)")} onClick={setEffective}>Set date</button>

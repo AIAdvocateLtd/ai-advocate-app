@@ -568,7 +568,8 @@ async def get_user(creds: HTTPAuthorizationCredentials = Depends(security), requ
             raise HTTPException(401, "User not found")
         if user.get("deleted"):
             raise HTTPException(401, "Account has been deleted")
-        if user.get("topup_queue") and (user.get("topup_active") or {}).get("expires_at", "") <= datetime.now(timezone.utc).isoformat():
+        _ta = (user.get("topup_active") or {}).get("expires_at")
+        if user.get("topup_queue") and (not _ta or _iso_dt(_ta) <= datetime.now(timezone.utc)):
             await _promote_queued_topups(user["id"])
             user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
         # 📧 Email-verification gate. We block authed access if the user signed up
@@ -5413,10 +5414,10 @@ async def _promote_queued_topups(user_id: str) -> None:
         queue = (u or {}).get("topup_queue") or []
         act = (u or {}).get("topup_active") or {}
         now = datetime.now(timezone.utc)
-        if not queue or act.get("expires_at", "") > now.isoformat():
+        if not queue or (act.get("expires_at") and _iso_dt(act["expires_at"]) > now):
             return
         nxt = queue[0]
-        start = datetime.fromisoformat(act["expires_at"]) if act.get("expires_at") else now
+        start = _iso_dt(act["expires_at"]) if act.get("expires_at") else now
         payload = {k: v for k, v in nxt.items() if k != "queued_at"}
         payload.update(activated_at=start.isoformat(),
                        expires_at=(start + timedelta(hours=nxt["duration_hours"])).isoformat(), queued_at=nxt.get("queued_at"))
@@ -5438,6 +5439,20 @@ async def _activate_topup_for_user(user_id: str, pack_id: str, session_id: str =
     if session_id and not await _claim_topup_session(session_id, user_id, pack_id):
         logger.info(f"Top-up webhook repeat ignored for session {session_id}")
         return "duplicate"
+    try:
+        return await _grant_topup(user_id, pack_id, pack, session_id, gift)
+    except Exception:
+        if session_id:  # let Stripe's retry grant it
+            await db.topup_grants.delete_one({"_id": session_id})
+        raise
+
+
+def _iso_dt(v) -> datetime:
+    d = v if isinstance(v, datetime) else datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
+async def _grant_topup(user_id: str, pack_id: str, pack: dict, session_id, gift) -> str:
     now = datetime.now(timezone.utc)
 
     # 📎 Doc Pack is COUNT-based, not time-based — it adds 5 to doc_pack_remaining
@@ -5492,11 +5507,13 @@ async def _activate_topup_for_user(user_id: str, pack_id: str, session_id: str =
 
 def topup_queue_view(u: dict) -> list:
     """Queued passes with their expected start/end (each starts when the one before ends)."""
-    out, cursor = [], ((u or {}).get("topup_active") or {}).get("expires_at") or datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc)
+    act = ((u or {}).get("topup_active") or {}).get("expires_at")
+    out, cursor = [], _iso_dt(act) if act else now
     for q in (u or {}).get("topup_queue") or []:
-        start = max(cursor, datetime.now(timezone.utc).isoformat())
-        end = (datetime.fromisoformat(start) + timedelta(hours=q.get("duration_hours", 0))).isoformat()
-        out.append({"kind": q["kind"], "label": q["label"], "starts_at": start, "ends_at": end,
+        start = max(cursor, now)
+        end = start + timedelta(hours=q.get("duration_hours", 0))
+        out.append({"kind": q["kind"], "label": q["label"], "starts_at": start.isoformat(), "ends_at": end.isoformat(),
                     "purchased_at": q.get("purchased_at")})
         cursor = end
     return out
