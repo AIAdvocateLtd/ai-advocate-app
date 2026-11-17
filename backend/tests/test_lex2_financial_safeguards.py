@@ -91,6 +91,8 @@ def _fresh_request():
     ai_usage.begin_request("/api/lex/chat")
     stage3._cache["monthly"].clear()
     yield
+    run(db.llm_usage.delete_many({"user_id": {"$regex": TAG}}))
+    stage3._cache["site_spend"] = (0.0, 0.0)
 
 
 def test_all_new_switches_default_off():
@@ -98,7 +100,7 @@ def test_all_new_switches_default_off():
     for k in ("allowances_v2_enabled", "passes_v2_enabled", "cost_cap_enabled", "emergency_allowance_enabled",
               "emergency_rights_limits_enabled", "credits_enabled", "usage_warnings_v2_enabled"):
         assert d[k] is False
-    assert d["monthly_cost_caps"] == {"plus": 10.0, "pro": 18.0, "yearly": 18.0}
+    assert d["monthly_cost_caps"] == {"plus": 14.0, "pro": 28.0, "yearly": 28.0}
 
 
 def test_pricing_copy_follows_allowance_version():
@@ -126,13 +128,13 @@ def test_v2_daily_and_monthly_allowances():
 def test_cost_cap_blocks_with_reserve_and_only_when_enabled():
     _paid_on()
     u = _user("plus")
-    run(db.llm_usage.insert_one({"user_id": u["id"], "ts": stage3._now().isoformat(), "cost_gbp": 9.80}))
+    run(db.llm_usage.insert_one({"user_id": u["id"], "ts": stage3._now().isoformat(), "cost_gbp": 13.80}))
     assert run(stage3.consume(u, "plus", "lex_chat"))
     _set(cost_cap_enabled=True)
     stage3._cache["monthly"].clear()
     assert "fair-use limit for AI use" in _deny(stage3.consume(u, "plus", "letters_generate"))
     pro = _user("pro")
-    run(db.llm_usage.insert_one({"user_id": pro["id"], "ts": stage3._now().isoformat(), "cost_gbp": 17.0}))
+    run(db.llm_usage.insert_one({"user_id": pro["id"], "ts": stage3._now().isoformat(), "cost_gbp": 27.0}))
     assert run(stage3.consume(pro, "pro", "lex_chat"))
     _set(cost_cap_enabled=False, paid_limits_effective_at=None)
 
@@ -140,9 +142,9 @@ def test_cost_cap_blocks_with_reserve_and_only_when_enabled():
 def test_cost_cap_uses_fresh_spend_near_limit():
     _paid_on(); _set(cost_cap_enabled=True)
     u = _user("plus")
-    run(db.llm_usage.insert_one({"user_id": u["id"], "ts": stage3._now().isoformat(), "cost_gbp": 8.5}))
+    run(db.llm_usage.insert_one({"user_id": u["id"], "ts": stage3._now().isoformat(), "cost_gbp": 12.0}))
     assert run(stage3.consume(u, "plus", "lex_chat"))
-    run(db.llm_usage.insert_one({"user_id": u["id"], "ts": stage3._now().isoformat(), "cost_gbp": 1.5}))
+    run(db.llm_usage.insert_one({"user_id": u["id"], "ts": stage3._now().isoformat(), "cost_gbp": 2.0}))
     _deny(stage3.consume(u, "plus", "lex_chat"))  # cached value ignored once within 80% of the cap
     _set(cost_cap_enabled=False, paid_limits_effective_at=None)
 
@@ -197,7 +199,7 @@ def test_credits_allowed_past_cost_cap_and_daily_max():
     _paid_on(); _set(credits_enabled=True, cost_cap_enabled=True, credits_daily_max=2)
     u = _user("plus")
     _grant(u["id"])
-    run(db.llm_usage.insert_one({"user_id": u["id"], "ts": stage3._now().isoformat(), "cost_gbp": 9.80}))
+    run(db.llm_usage.insert_one({"user_id": u["id"], "ts": stage3._now().isoformat(), "cost_gbp": 13.80}))
     assert run(stage3.consume(u, "plus", "lex_chat"))
     assert run(stage3.consume(u, "plus", "lex_chat"))
     _deny(stage3.consume(u, "plus", "lex_chat"))  # daily credit max
@@ -306,8 +308,8 @@ def test_emergency_rights_reuse_and_daily_limit_without_ai():
 
 def test_settings_patch_merges_nested_caps():
     s = _set(monthly_cost_caps={"plus": 13.0})
-    assert s["monthly_cost_caps"] == {"plus": 13.0, "pro": 18.0, "yearly": 18.0}
-    _set(monthly_cost_caps={"plus": 10.0})
+    assert s["monthly_cost_caps"] == {"plus": 13.0, "pro": 28.0, "yearly": 28.0}
+    _set(monthly_cost_caps={"plus": 14.0})
 
 
 def test_free_emergency_allowance_respects_site_brake():

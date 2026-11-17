@@ -33,7 +33,8 @@ DEFAULTS = {
     "passes_v2_enabled": False,
     "passes_v2_since": None,
     "cost_cap_enabled": False,
-    "monthly_cost_caps": {"plus": 10.0, "pro": 18.0, "yearly": 18.0},
+    "monthly_cost_caps": {"plus": 14.0, "pro": 28.0, "yearly": 28.0},
+    "monthly_review_v2": {"plus": 10.0, "pro": 18.0, "yearly": 18.0},
     "cost_cap_reserve_gbp": 0.25,
     "emergency_allowance_enabled": False,
     "emergency_allowance": {"free": [1, 3], "plus": [3, 10], "pro": [3, 10], "yearly": [3, 10]},
@@ -166,7 +167,7 @@ async def settings() -> dict:
 async def update_settings(patch: dict) -> dict:
     allowed = set(DEFAULTS) - {"site_brake_manual", "site_brake_manual_day", "passes_v2_since"}
     clean = {k: v for k, v in patch.items() if k in allowed and v is not None or k == "paid_limits_effective_at"}
-    for k in ("monthly_cost_caps", "emergency_allowance"):
+    for k in ("monthly_cost_caps", "monthly_review_v2", "emergency_allowance"):
         if k in clean:
             clean[k] = {**(await settings())[k], **{t: v for t, v in clean[k].items() if t in DEFAULTS[k]}}
     if clean.get("passes_v2_enabled") and not (await settings())["passes_v2_enabled"]:
@@ -319,7 +320,9 @@ async def check_spend(user: dict, tier: str):
     tt = _threshold_tier(tier)
     if not s["spend_guard_enabled"] or not tt or user.get("s3_exempt"):
         return
-    th = s["thresholds"][tt]
+    th = dict(s["thresholds"][tt])
+    if s["allowances_v2_enabled"] and tt in s["monthly_review_v2"]:
+        th["monthly_review"] = float(s["monthly_review_v2"][tt])
     day = _uk_day()
     flags = await _db.s3_flags.find({"user_id": user["id"], "day": day}, {"_id": 0}).to_list(50)
     now_iso = _now().isoformat()
@@ -480,8 +483,25 @@ def paid_table(s: dict) -> dict:
 
 
 def pass_table(s: dict, p: dict) -> dict:
-    v2 = s["passes_v2_enabled"] and s.get("passes_v2_since") and (p.get("activated_at") or "") >= s["passes_v2_since"]
+    bought = p.get("purchased_at") or p.get("activated_at") or ""
+    v2 = s["passes_v2_enabled"] and s.get("passes_v2_since") and bought >= s["passes_v2_since"]
     return (PASSES_V2 if v2 else PASSES)[p["kind"]]
+
+
+def fair_use_note(s: dict) -> str:
+    """Customer wording; empty until a Lex 2.0 switch is on so live copy is unchanged."""
+    if not (s["allowances_v2_enabled"] or s["cost_cap_enabled"] or s["emergency_allowance_enabled"]):
+        return ""
+    pm = paid_table(s)
+    out = (f"Fair use: up to {pm['plus']['msgs'][1]} Lex messages a day on Plus and {pm['pro']['msgs'][1]} on Pro. "
+           "Failed, blank or cut-off answers never count.")
+    if s["cost_cap_enabled"]:
+        out += (" Each plan also has a monthly fair-use limit on AI cost. Most customers never reach it, but unusually heavy use "
+                "(for example many long documents or Deep Think answers) can pause Lex before your message allowance is used up. "
+                "We warn you at 80%, Lex pauses until your allowance resets, and you are never charged automatically.")
+    if s["emergency_allowance_enabled"]:
+        out += " If you face an urgent legal emergency after reaching a limit, Lex gives a small number of extra emergency answers, and emergency helplines are always free."
+    return out
 
 
 def _suffix(s: dict, kind: str) -> str:

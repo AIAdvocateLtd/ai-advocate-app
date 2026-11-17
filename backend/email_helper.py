@@ -185,7 +185,7 @@ async def send_waitlist_ack(email: str, full_name: str = "") -> bool:
     return await _send(email, "You're on the AI Advocate waitlist 🎉", html)
 
 
-async def send_welcome(email: str, full_name: str = "") -> bool:
+async def send_welcome(email: str, full_name: str = "", plus_msgs: int = 300) -> bool:
     name = (full_name or "").strip().split(" ")[0] or "there"
     html = _wrap(f"""
       <h2 style="margin:0 0 12px 0; color:#1a1300; font-size:22px;">Welcome, {name} 👋</h2>
@@ -198,7 +198,7 @@ async def send_welcome(email: str, full_name: str = "") -> bool:
       </p>
       <p style="font-size:14px; line-height:1.6; margin-bottom:6px;"><strong>You're on the Free plan</strong>, which includes 2 free Lex questions and our core tools. When you need more:</p>
       <p style="font-size:14px; line-height:1.7; margin-top:0;">
-        &bull; <strong>Plus, £19.99/month</strong>: 300 Lex messages a month, 20 letters, evidence analysis<br>
+        &bull; <strong>Plus, £19.99/month</strong>: {plus_msgs} Lex messages a month, 20 letters, evidence analysis<br>
         &bull; <strong>Pro, £34.99/month</strong>: our most advanced AI, outcome prediction, Devil's Advocate &amp; more
       </p>
       <p style="text-align:center; margin:22px 0;">

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { useAllowances, FairUseFootnote } from "./useAllowances";
 import {
   ShieldCheck, Lock, Globe, Sparkles, FileText, Scale, MessageCircle,
   Mic, Briefcase, Check, ChevronRight, Mail, MapPin, ExternalLink, KeyRound,
@@ -267,7 +268,9 @@ export function TermsPage() {
 **11. Contact.** support@aiadvocate.co.uk
 
 Last updated: 2026-02-18.`;
-  return <StaticDocPage title="Terms of Service" content={TOS} testid="page-terms" />;
+  const al = useAllowances();
+  const tos = al.fair_use_note ? TOS.replace("**7. Misuse.**", `**Fair-use limits.** ${al.fair_use_note}\n\n**7. Misuse.**`) : TOS;
+  return <StaticDocPage title="Terms of Service" content={tos} testid="page-terms" />;
 }
 
 export function PrivacyPage() {
@@ -362,6 +365,7 @@ Last updated: 2026-02-18.`;
 }
 
 export function PricingPage() {
+  const al = useAllowances();
   return (
     <div data-testid="page-pricing" style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text)" }}>
       <MarketingHeader />
@@ -372,8 +376,8 @@ export function PricingPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 }}>
           {[
             { name: "Free", price: "£0", period: "forever", highlight: false, bullets: ["2 free Lex questions (lifetime — chat, letter or document check)", "Find a lawyer & legal aid finder", "Emergency Mode (unlimited)", "Lex Vault (5 items)"] },
-            { name: "Plus", price: "£19.99", period: "/ month", highlight: false, bullets: ["Everything in Free", "300 Lex messages / month (up to 40 a day)", "20 letters + 15 document analyses / month", "All category chats (employment, property, immigration, medical, etc.)", "Courtroom practice mode", "Record legal interactions", "Lex Vault (25 items)"] },
-            { name: "Pro", price: "£34.99", period: "/ month", highlight: true, bullets: ["Everything in Plus", "600 Lex messages / month (up to 80 a day)", "50 letters + 25 document analyses / month", "Outcome Predictor (Deep Think)", "Contract Drafter + Contract Negotiate", "Live Hearing Recorder + transcription", "30 Deep Think reasoning queries / month", "Lex Vault (200 items)", "Priority AI processing"] },
+            { name: "Plus", price: "£19.99", period: "/ month", highlight: false, bullets: ["Everything in Free", `${al.plus.monthly} Lex messages / month (up to ${al.plus.daily} a day)`, "20 letters + 15 document analyses / month", "All category chats (employment, property, immigration, medical, etc.)", "Courtroom practice mode", "Record legal interactions", "Lex Vault (25 items)"] },
+            { name: "Pro", price: "£34.99", period: "/ month", highlight: true, bullets: ["Everything in Plus", `${al.pro.monthly} Lex messages / month (up to ${al.pro.daily} a day)`, "50 letters + 25 document analyses / month", "Outcome Predictor (Deep Think)", "Contract Drafter + Contract Negotiate", "Live Hearing Recorder + transcription", "30 Deep Think reasoning queries / month", "Lex Vault (200 items)", "Priority AI processing"] },
             { name: "Yearly Pro", price: "£319.99", period: "/ year", highlight: false, savings: "Save £100", bullets: ["Everything in Pro", "50 Deep Think queries / month", "12 months locked in — no monthly faff", "Equivalent to £26.66 / month"] },
           ].map((p, i) => (
             <div key={i} style={{ position: "relative", padding: 22, background: p.highlight ? "rgba(247,201,72,0.08)" : "var(--bg-card)", border: p.highlight ? "2px solid var(--gold)" : "1px solid var(--line)", borderRadius: 14 }}>
@@ -397,6 +401,7 @@ export function PricingPage() {
         </div>
 
         <div style={{ marginTop: 50, padding: 20, background: "rgba(247,201,72,0.04)", border: "1px solid var(--gold-deep)", borderRadius: 14, fontSize: 13, color: "var(--text-dim)", lineHeight: 1.7 }}>
+          <FairUseFootnote testid="pricing-fair-use-note" style={{ fontSize: 12.5, marginBottom: 8 }} />
           <strong style={{ color: GOLD }}>Fair pricing promise.</strong> No hidden fees. No usage-based surcharges. Cancel anytime 24h before renewal. All payments processed securely by Stripe. UK VAT included where applicable.
         </div>
       </main>

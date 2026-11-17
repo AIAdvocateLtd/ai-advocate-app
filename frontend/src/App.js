@@ -27,6 +27,8 @@ import { AdminLexLessonsCard } from "@/AdminLexLessons";
 import { AdminFairUseCard } from "@/AdminFairUse";
 import { FairUseNotice } from "@/FairUseNotice";
 import { ExtraCreditsCard } from "./components/ExtraCreditsCard";
+import { QueuedPassesList } from "./components/QueuedPassesList";
+import { AllowanceText, FairUseFootnote } from "./useAllowances";
 import ConveyancingModal from "@/Conveyancing";
 import { TrustpilotPrompt, AdminTestimonialsCard } from "@/Reviews";
 import { LawWatchAdminCard } from "./components/LawWatchAdminCard";
@@ -3068,7 +3070,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                                opacity: paywallBusy ? 0.6 : 1 }}>
                 Upgrade to Plus £19.99/mo
                 <div style={{ fontSize: 9.5, fontWeight: 500, marginTop: 1, opacity: 0.85 }}>
-                  300 messages/month · 25-page docs
+                  <AllowanceText plan="plus" /> · 25-page docs
                 </div>
               </button>
             </div>
@@ -8208,7 +8210,7 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
   // Lazy-fetch top-up packs on first tab switch (also on mount so the badge/active state is fresh)
   useEffect(() => {
     if (IS_NATIVE) return;
-    api.get("/topups/packs").then(r => setTopups({ packs: r.data.packs || [], active: r.data.active, loaded: true }))
+    api.get("/topups/packs").then(r => setTopups({ packs: r.data.packs || [], active: r.data.active, queued: r.data.queued || [], loaded: true }))
       .catch(() => setTopups({ packs: [], active: null, loaded: true }));
   }, []);
 
@@ -8355,8 +8357,10 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
                 </div>
               </div>
             )}
+            <QueuedPassesList queued={topups.queued} />
             <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.4 }}>
               Need help right now but don't want to subscribe? Buy a one-off pack. No auto-renew.
+              {topups.active ? " Buying another pass now queues it — it starts automatically when your current pass ends, with its full time and allowance." : ""}
             </div>
             {!topups.loaded && <div style={{ textAlign: "center", color: "var(--text-muted)", padding: 20 }}><span className="spinner" /></div>}
             {topups.loaded && topups.packs.map(pack => {
@@ -8482,6 +8486,7 @@ function SubscribeModal({ lang, user, onClose, onActivated, presetPlan }) {
           <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, textAlign: "center" }}>
             Cancel any time. Powered by Stripe. Subscribing on the web saves you the Apple/Google fee.
           </div>
+          <FairUseFootnote testid="subscribe-fair-use-note" style={{ marginTop: 6, textAlign: "center" }} />
         </div>
         )}
       </div>

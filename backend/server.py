@@ -568,6 +568,9 @@ async def get_user(creds: HTTPAuthorizationCredentials = Depends(security), requ
             raise HTTPException(401, "User not found")
         if user.get("deleted"):
             raise HTTPException(401, "Account has been deleted")
+        if user.get("topup_queue") and (user.get("topup_active") or {}).get("expires_at", "") <= datetime.now(timezone.utc).isoformat():
+            await _promote_queued_topups(user["id"])
+            user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
         # 📧 Email-verification gate. We block authed access if the user signed up
         # via email/password and hasn't clicked the verify link yet.
         # Whitelisted: a small set of self-service endpoints the user needs to
@@ -1668,7 +1671,7 @@ async def signup(data: UserSignup, request: Request):
     # the task isn't garbage-collected before completion. Resend is fast (~300ms).
     try:
         from email_helper import send_welcome
-        await send_welcome(data.email, data.full_name or "")
+        await send_welcome(data.email, data.full_name or "", plus_msgs=stage3.paid_table(await stage3.settings())["plus"]["msgs"][0])
     except Exception:
         logger.exception("welcome email dispatch failed")
 
@@ -2126,7 +2129,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
     # Daily quota for chat
     ok, used, limit = await check_quota_and_increment(user["id"], tier, "lex_chat", "daily")
     if not ok:
-        raise HTTPException(429, f"Daily limit reached ({used}/{limit} Lex messages on Free). Upgrade to Plus for 300 messages a month.")
+        raise HTTPException(429, f"Daily limit reached ({used}/{limit} Lex messages on Free). Upgrade to Plus for {stage3.paid_table(await stage3.settings())['plus']['msgs'][0]} messages a month.")
 
     # Auto-detect: if the user's message is in a different language than UI, follow them.
     reply_language = data.language
@@ -2349,7 +2352,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
                 raise HTTPException(429, f"Deep Think monthly limit reached ({used_dt}/{limit_dt}). Turn Deep Think off to keep chatting within your monthly allowance, or upgrade to Yearly Pro for 50/mo.")
     ok, used, limit = await check_quota_and_increment(user["id"], tier, "lex_chat", "daily")
     if not ok:
-        raise HTTPException(429, f"Daily limit reached ({used}/{limit} Lex messages on Free). Upgrade to Plus for 300 messages a month.")
+        raise HTTPException(429, f"Daily limit reached ({used}/{limit} Lex messages on Free). Upgrade to Plus for {stage3.paid_table(await stage3.settings())['plus']['msgs'][0]} messages a month.")
 
     # Language auto-detect
     reply_language = data.language
@@ -5023,6 +5026,7 @@ async def list_topup_packs(user: dict = Depends(get_user)):
         "packs": [{"id": k, **v, **({"tagline": _tag[k]} if k in _tag else {}), "configured": bool(_get_topup_price_id(k))}
                   for k, v in TOPUP_PACKS.items()],
         "active": active,
+        "queued": topup_queue_view(user),
     }
 
 
@@ -5086,7 +5090,7 @@ async def gift_checkout(data: GiftCheckoutPayload, request: Request):
         raise HTTPException(500, f"Checkout error: {e}")
 
 
-async def _activate_gifted_topup(metadata: dict):
+async def _activate_gifted_topup(metadata: dict, session_id: str = None):
     """Stripe webhook calls this for `is_gift=1` checkouts. Activates the pack
     on the recipient's account (if it exists) or stores a pending gift otherwise.
     Idempotent: uses Stripe session_id to dedupe."""
@@ -5097,6 +5101,9 @@ async def _activate_gifted_topup(metadata: dict):
         logger.warning(f"Gift activation: missing fields {metadata}")
         return
 
+    if session_id and not await _claim_topup_session(f"gift:{session_id}", recipient_email, pack_id):
+        logger.info(f"Gift webhook repeat ignored for session {session_id}")
+        return
     gifter_name = metadata.get("gifter_name", "")
     gifter_email = (metadata.get("gifter_email") or "").lower().strip()
     message = metadata.get("gift_message", "")
@@ -5105,15 +5112,10 @@ async def _activate_gifted_topup(metadata: dict):
     recipient = await db.users.find_one({"email": recipient_email}, {"_id": 0})
     if recipient:
         # Recipient has an account — activate immediately
-        await _activate_topup_for_user(recipient["id"], pack_id)
-        # Stamp a gift note on the activation
-        await db.users.update_one(
-            {"id": recipient["id"]},
-            {"$set": {"topup_active.gift": {
-                "gifter_name": gifter_name, "gifter_email": gifter_email,
-                "message": message, "received_at": now.isoformat(),
-            }}},
-        )
+        await _activate_topup_for_user(recipient["id"], pack_id, gift={
+            "gifter_name": gifter_name, "gifter_email": gifter_email,
+            "message": message, "received_at": now.isoformat(),
+        })
         # Audit log
         await db.gift_topups.insert_one({
             "id": str(uuid.uuid4()),
@@ -5191,17 +5193,13 @@ async def _claim_pending_gifts_for(email: str, user_id: str):
     claimed = 0
     async for g in db.gift_topups.find({"recipient_email": email, "status": "pending"}):
         try:
-            await _activate_topup_for_user(user_id, g["pack_id"])
-            await db.users.update_one(
-                {"id": user_id},
-                {"$set": {"topup_active.gift": {
-                    "gifter_name": g.get("gifter_name", ""),
-                    "gifter_email": g.get("gifter_email", ""),
-                    "message": g.get("message", ""),
-                    "received_at": datetime.now(timezone.utc).isoformat(),
-                    "claimed_on_signup": True,
-                }}},
-            )
+            await _activate_topup_for_user(user_id, g["pack_id"], session_id=f"giftclaim:{g['id']}", gift={
+                "gifter_name": g.get("gifter_name", ""),
+                "gifter_email": g.get("gifter_email", ""),
+                "message": g.get("message", ""),
+                "received_at": datetime.now(timezone.utc).isoformat(),
+                "claimed_on_signup": True,
+            })
             await db.gift_topups.update_one(
                 {"id": g["id"]},
                 {"$set": {"status": "delivered", "recipient_user_id": user_id,
@@ -5396,13 +5394,50 @@ async def partner_pricing_public():
 
 
 
-async def _activate_topup_for_user(user_id: str, pack_id: str):
-    """Called from the Stripe webhook on successful checkout.session.completed
-    when the session's metadata contains `topup_pack`. Idempotent."""
+async def _claim_topup_session(key: str, user_ref: str, pack_id: str) -> bool:
+    """First delivery of a Stripe session wins; repeats return False (no duplicate or restarted pass)."""
+    from pymongo.errors import DuplicateKeyError
+    try:
+        await db.topup_grants.insert_one({"_id": key, "user": user_ref, "pack_id": pack_id,
+                                          "at": datetime.now(timezone.utc).isoformat()})
+        return True
+    except DuplicateKeyError:
+        return False
+
+
+async def _promote_queued_topups(user_id: str) -> None:
+    """When the active pass has expired, start the next queued pass at that exact expiry time
+    (full duration + its own allowance). Chains through several expired passes."""
+    for _ in range(20):
+        u = await db.users.find_one({"id": user_id}, {"_id": 0, "topup_active": 1, "topup_queue": 1})
+        queue = (u or {}).get("topup_queue") or []
+        act = (u or {}).get("topup_active") or {}
+        now = datetime.now(timezone.utc)
+        if not queue or act.get("expires_at", "") > now.isoformat():
+            return
+        nxt = queue[0]
+        start = datetime.fromisoformat(act["expires_at"]) if act.get("expires_at") else now
+        payload = {k: v for k, v in nxt.items() if k != "queued_at"}
+        payload.update(activated_at=start.isoformat(),
+                       expires_at=(start + timedelta(hours=nxt["duration_hours"])).isoformat(), queued_at=nxt.get("queued_at"))
+        r = await db.users.update_one(
+            {"id": user_id, "topup_queue.0.queue_id": nxt["queue_id"]},
+            {"$set": {"topup_active": payload}, "$pop": {"topup_queue": -1}, "$push": {"topup_history": payload}})
+        if not r.modified_count:
+            return
+
+
+async def _activate_topup_for_user(user_id: str, pack_id: str, session_id: str = None, gift: dict = None) -> str:
+    """Grants a top-up. Returns active | queued | duplicate | unknown.
+    Idempotent per Stripe session id. A pass bought while another is active is QUEUED — the
+    current pass keeps its expiry and allowance; the new one starts when it ends."""
     pack = TOPUP_PACKS.get(pack_id)
     if not pack:
         logger.warning(f"Activate topup: unknown pack {pack_id}")
-        return
+        return "unknown"
+    if session_id and not await _claim_topup_session(session_id, user_id, pack_id):
+        logger.info(f"Top-up webhook repeat ignored for session {session_id}")
+        return "duplicate"
     now = datetime.now(timezone.utc)
 
     # 📎 Doc Pack is COUNT-based, not time-based — it adds 5 to doc_pack_remaining
@@ -5418,29 +5453,53 @@ async def _activate_topup_for_user(user_id: str, pack_id: str):
                  "doc_grants": int(pack.get("doc_grants", 5)),
                  "label": pack["label"],
                  "price_gbp": pack["price_gbp"],
+                 "session_id": session_id,
              }}},
         )
         logger.info(f"Activated Doc Pack for user {user_id} (+{pack.get('doc_grants', 5)} docs)")
-        return
+        return "active"
 
-    expires = now + timedelta(hours=pack["duration_hours"])
-    payload = {
+    entry = {
         "kind": pack_id,
         "grants_tier": pack["grants_tier"],
-        "activated_at": now.isoformat(),
-        "expires_at": expires.isoformat(),
         "label": pack["label"],
         "price_gbp": pack["price_gbp"],
+        "duration_hours": pack["duration_hours"],
+        "purchased_at": now.isoformat(),
+        "session_id": session_id,
+        "queue_id": str(uuid.uuid4()),
     }
     if pack_id == "letter_pack":
-        payload["letter_quota"] = pack["letter_quota"]
-        payload["contract_quota"] = pack["contract_quota"]
-    await db.users.update_one(
-        {"id": user_id},
-        {"$set": {"topup_active": payload},
-         "$push": {"topup_history": payload}},
+        entry["letter_quota"] = pack["letter_quota"]
+        entry["contract_quota"] = pack["contract_quota"]
+    if gift:
+        entry["gift"] = gift
+    await _promote_queued_topups(user_id)
+    payload = {**entry, "activated_at": now.isoformat(),
+               "expires_at": (now + timedelta(hours=pack["duration_hours"])).isoformat()}
+    r = await db.users.update_one(
+        {"id": user_id, "topup_queue.0": {"$exists": False},
+         "$or": [{"topup_active": None}, {"topup_active.expires_at": {"$lte": now.isoformat()}}]},
+        {"$set": {"topup_active": payload}, "$push": {"topup_history": payload}},
     )
-    logger.info(f"Activated top-up {pack_id} for user {user_id} until {expires.isoformat()}")
+    if r.modified_count:
+        logger.info(f"Activated top-up {pack_id} for user {user_id} until {payload['expires_at']}")
+        return "active"
+    await db.users.update_one({"id": user_id}, {"$push": {"topup_queue": {**entry, "queued_at": now.isoformat()}}})
+    logger.info(f"Queued top-up {pack_id} for user {user_id}")
+    return "queued"
+
+
+def topup_queue_view(u: dict) -> list:
+    """Queued passes with their expected start/end (each starts when the one before ends)."""
+    out, cursor = [], ((u or {}).get("topup_active") or {}).get("expires_at") or datetime.now(timezone.utc).isoformat()
+    for q in (u or {}).get("topup_queue") or []:
+        start = max(cursor, datetime.now(timezone.utc).isoformat())
+        end = (datetime.fromisoformat(start) + timedelta(hours=q.get("duration_hours", 0))).isoformat()
+        out.append({"kind": q["kind"], "label": q["label"], "starts_at": start, "ends_at": end,
+                    "purchased_at": q.get("purchased_at")})
+        cursor = end
+    return out
 
 
 def _effective_topup_tier(user: dict) -> Optional[str]:
@@ -5790,7 +5849,7 @@ async def stripe_webhook(request: Request):
         meta = obj.get("metadata") or {}
         # 🎁 GIFTED top-up — metadata.is_gift=1 set by /api/topups/gift/checkout
         if meta.get("is_gift") == "1":
-            await _activate_gifted_topup(meta)
+            await _activate_gifted_topup(meta, obj.get("id"))
             return {"ok": True, "gift_processed": meta.get("recipient_email")}
 
         # 💳 Extra Lex Credits — idempotent on session id; only paid sessions grant credits
@@ -5807,9 +5866,9 @@ async def stripe_webhook(request: Request):
         if topup_pack:
             user_id = obj.get("client_reference_id") or meta.get("user_id")
             if user_id:
-                await _activate_topup_for_user(user_id, topup_pack)
-                logger.info(f"Top-up {topup_pack} activated for {user_id} via Stripe webhook")
-                return {"ok": True, "topup_activated": topup_pack}
+                result = await _activate_topup_for_user(user_id, topup_pack, session_id=obj.get("id"))
+                logger.info(f"Top-up {topup_pack} for {user_id} via Stripe webhook: {result}")
+                return {"ok": True, "topup_activated": topup_pack, "result": result}
 
         # 🎖 SANITY CHECK — metadata.kind=sanity_check set by /api/sanity-checks/checkout
         if meta.get("kind") == "sanity_check":
@@ -6011,12 +6070,25 @@ async def stripe_webhook(request: Request):
 async def sub_status(user: dict = Depends(get_user)):
     return user_to_public(user)
 
+@api_router.get("/plans/allowances")
+async def plan_allowances():
+    """Public — message allowances + fair-use wording for pricing pages (follows the active allowance version)."""
+    s = await stage3.settings()
+    pm = stage3.paid_table(s)
+    return {"version": "v2" if s["allowances_v2_enabled"] else "v1",
+            "plus": {"monthly": pm["plus"]["msgs"][0], "daily": pm["plus"]["msgs"][1]},
+            "pro": {"monthly": pm["pro"]["msgs"][0], "daily": pm["pro"]["msgs"][1]},
+            "cost_cap": bool(s["cost_cap_enabled"]), "fair_use_note": stage3.fair_use_note(s)}
+
+
 @api_router.get("/subscription/tiers")
 async def get_tiers():
     """Public — pricing/feature info for the Subscribe modal."""
-    _pm = stage3.paid_table(await stage3.settings())
+    _s3 = await stage3.settings()
+    _pm = stage3.paid_table(_s3)
     _msgs = lambda t: f"{_pm[t]['msgs'][0]} Lex messages / month (fair use: up to {_pm[t]['msgs'][1]} a day)"
     return {
+        "fair_use_note": stage3.fair_use_note(_s3),
         "tiers": [
             {"id": "free", "name": "Free", "price_gbp": 0, "period": "forever",
              "highlights": ["2 free Lex questions (lifetime — chat, letter or document check)",
@@ -17531,6 +17603,7 @@ class FairUseSettings(BaseModel):
     passes_v2_enabled: Optional[bool] = None
     cost_cap_enabled: Optional[bool] = None
     monthly_cost_caps: Optional[dict[Literal["plus", "pro", "yearly"], float]] = None
+    monthly_review_v2: Optional[dict[Literal["plus", "pro", "yearly"], float]] = None
     cost_cap_reserve_gbp: Optional[float] = Field(None, ge=0, le=5)
     emergency_allowance_enabled: Optional[bool] = None
     emergency_allowance: Optional[dict[Literal["free", "plus", "pro", "yearly"], list[int]]] = None
