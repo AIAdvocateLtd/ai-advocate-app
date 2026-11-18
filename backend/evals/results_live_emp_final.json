@@ -1,0 +1,343 @@
+{
+ "runs": [
+  {
+   "started": "2026-11-18T16:53:17.670897+00:00",
+   "ids": [
+    "EMP-03",
+    "EMP-04"
+   ],
+   "by_tier": {
+    "free": {
+     "gbp": 0.036365999999999996,
+     "calls": 6,
+     "tavily_credits": 2,
+     "tavily_gbp": 0.0126
+    },
+    "plus": {
+     "gbp": 0.061931,
+     "calls": 6,
+     "tavily_credits": 2,
+     "tavily_gbp": 0.0126
+    },
+    "pro": {
+     "gbp": 0.049062,
+     "calls": 6,
+     "tavily_credits": 0,
+     "tavily_gbp": 0.0
+    }
+   },
+   "grader_gbp_est": 0.0337,
+   "research_calls": 2,
+   "stopped": null,
+   "total_gbp": 0.1811
+  }
+ ],
+ "results": {
+  "EMP-03": {
+   "free": {
+    "ok": true,
+    "response": "**Your position, in plain terms**\n\nCutting your hours and putting you on a performance plan soon after you told your employer you were pregnant may be pregnancy discrimination and/or detriment for a pregnancy-related reason. Your rights are different from ordinary performance management, so a dated paper trail matters.\n\n**Key points (with their basis)**\n\n- **Official guidance:** Employers must follow a fair procedure before dismissing for capability or conduct, and should support an employee to improve first [1].\n- **Your facts:** You told them in August; the hours cut and performance plan followed. Timing like this is significant evidence, but a tribunal will look at the reasons.\n- **Our reading:** Protection against pregnancy-related detriment and discrimination applies to employees and, in many cases, workers. Whether you have employee status affects some claims, so check your contract and payslips.\n\n**Urgent steps**\n\n1. **Write down dates now:** when you told them, every change to your hours, each meeting about the plan, and anything said.\n2. **Keep everything:** emails, texts, the plan itself, rota changes, payslips showing lost pay.\n3. **Don't sign anything** or resign without advice.\n4. **Ask in writing** for the reasons for the hours change and the plan's objectives and review dates.\n5. **Get advice quickly:** Acas (0300 123 1100) offers free confidential help and must be contacted before most employment tribunal claims. Your union, if you have one, or a Citizens Advice adviser can also help.\n\n**Deadlines**\n\nTribunal time limits are usually short (generally three months less one day from the act complained of, extended for early conciliation). Because the limit depends on the date of each act, which I don't have yet, I can't give you a precise deadline. Please tell me the date of the hours change, the date the plan was issued and whether you have contacted Acas, and I'll work it through.\n\n**Questions that change the answer**\n\n- What is your employment status (employee, worker, agency)?\n- What are the exact dates: when you told them, when hours were cut, when the plan started?\n- Has Acas early conciliation started?\n\n**Time-limit points to check** (official-source rules, not reviewed by a lawyer \u2014 confirm with Acas or an adviser):\n- The limit depends on the date of the act: on or after 1 October 2026 most claims have 6 months less one day; before that, 3 months less one day (Employment Rights Act 2025 Sch.12; SI 2026/954).\n- If the treatment continued over a period, time usually runs from the END of that period (Equality Act 2010 s.123(3)) \u2014 so earlier incidents may still be in time.\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: Acas guidance on dismissals for capability or conduct; Acas early conciliation]",
+    "model": "claude-haiku-5-5",
+    "research_status": "ok",
+    "citations": 1,
+    "jurisdiction_check": false,
+    "seconds": 37.4,
+    "checks": {
+     "answered": true,
+     "length_words": 460,
+     "research_status": "ok",
+     "sources_cited": 1,
+     "law_named": "1/2",
+     "asks_clarification": true,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [
+      "1 october 2026"
+     ],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 1,
+     "jurisdiction": 2,
+     "deadlines": 1,
+     "citations": 1,
+     "missing_facts": 2,
+     "reasoning": 1,
+     "uncertainty_escalation": 2,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "The main Deadlines section says generally three months less one day, and only the later checklist adds the 6-month rule, which is inconsistent.",
+      "It does not identify Equality Act 2010 s.18 pregnancy and maternity discrimination, and it cites a capability/conduct dismissal guidance source that is only loosely relevant.",
+      "It suggests protection depends on employee status, which is unclear for Equality Act claims."
+     ],
+     "needs_professional_check": [
+      "Application of the 6-month limit under SI 2026/954 and the transitional rules to continuing acts",
+      "Whether workers' status affects the pregnancy discrimination claim"
+     ],
+     "summary": "The answer is cautious and practical, asks for the right dates, and covers continuing acts and the 1 Oct 2026 change. It never names s.18, has a muddled deadline headline, gives weak sourcing, and omits grievance and the dismissal protection (ERA s.99)."
+    }
+   },
+   "plus": {
+    "ok": true,
+    "response": "What you describe raises **two overlapping legal risks for the employer**: (1) **pregnancy/maternity discrimination** and (2) **unfair / flawed capability management** being used as a cover for a pregnancy-related decision.\n\n### 1) Your position in plain language\n- If your hours were cut **because you are pregnant**, that is likely **unlawful discrimination**. Employers must not treat you worse due to pregnancy, and dressing it up as \u201cperformance\u201d does not make it lawful.\n- Being put on a **Performance Improvement Plan (PIP)** is not automatically unlawful, but **it should be a genuine capability process** with support, training and fair procedure \u2014 and it should not start suddenly right after you disclose pregnancy without clear evidence.\n\n### 2) Basis for the key points\n- **Official guidance:** Acas says that to dismiss (or manage towards dismissal) for capability/conduct, an employer must follow a **fair procedure**, align with the **Acas Code**, and should provide **support and adequate resources (including training)**; dismissal should be a **last resort** [1]. If the employer has its own capability procedure, it must follow it [1].\n- **Official guidance:** Acas provides a template for notifying pregnancy and notes maternity rights attach to **employees** (status can matter) [2].\n- **Our reading:** A sudden hours cut + PIP soon after pregnancy disclosure is a classic fact pattern Tribunals scrutinise closely for discriminatory motive.\n\n### 3) Deadlines (important)\nEmployment Tribunal time limits run from the **date of the act complained of** (for example, the date your hours were cut; the date you were put on a PIP; any later detrimental acts). You normally must start **Acas Early Conciliation** within the limitation period, and it \u201cstops the clock\u201d while it runs (official-source rule provided to me; not yet lawyer-reviewed). I can\u2019t calculate your exact deadline without the dates.\n\n### 4) The 3 most important missing facts\n1) Are you an **employee** (not self-employed/contractor)?  \n2) **Exact dates**: when were hours cut; when did the PIP start?  \n3) Have you started **Acas Early Conciliation** yet (and any certificate date)?\n\n### 5) What to do now (in order)\n1) **Get evidence**: rota changes, messages, the PIP document, performance history pre-pregnancy, any praise/metrics, meeting notes.  \n2) **Write a short email**: ask for the written reason for the hours reduction and the objective evidence behind the PIP; say you\u2019re pregnant and are concerned about unfavourable treatment. Keep it factual.  \n3) **Raise a formal grievance** if they won\u2019t reverse/justify it.  \n4) **Call Acas (0300 123 1100)** and ask about Early Conciliation and pregnancy discrimination. In Bristol, Acas is the right route.\n\n### 6) What the employer will say (and how to counter)\n- They\u2019ll say it\u2019s \u201cbusiness needs/performance\u201d. You counter with: timing after disclosure, lack of prior concerns, inconsistent treatment vs colleagues, and failure to provide support/training as Acas describes [1].\n\nIf you tell me the **dates** of the hours cut and PIP start, and whether you\u2019re an employee, I\u2019ll map out the likely claims and the limitation timetable.\n\n**Official guidance check (acas.org.uk):**\n- The official Acas Code of Practice could not be retrieved from acas.org.uk for this answer \u2014 points about it come from Lex's built-in knowledge and have not been checked against the Code text. Read the Code at https://acas.org.uk before relying on them.\n\nSource check: some legal references in this answer could not be matched to a source the app retrieved, so unmatched links or numbers were removed. Check any case or section on legislation.gov.uk or caselaw.nationalarchives.gov.uk before relying on it.\n\n**Time-limit points to check** (official-source rules, not reviewed by a lawyer \u2014 confirm with Acas or an adviser):\n- The limit depends on the date of the act: on or after 1 October 2026 most claims have 6 months less one day; before that, 3 months less one day (Employment Rights Act 2025 Sch.12; SI 2026/954).\n- If the treatment continued over a period, time usually runs from the END of that period (Equality Act 2010 s.123(3)) \u2014 so earlier incidents may still be in time.\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.  \n[CONFIDENCE: MEDIUM]  \n[SOURCES: https://www.acas.org.uk/performance-management/dismissals-for-capability-or-conduct [1]; https://www.acas.org.uk/template-letter-to-tell-your-employer-youre-pregnant [2]]",
+    "model": "gpt-5.2",
+    "research_status": "ok",
+    "citations": 1,
+    "jurisdiction_check": false,
+    "seconds": 37.4,
+    "checks": {
+     "answered": true,
+     "length_words": 683,
+     "research_status": "ok",
+     "sources_cited": 1,
+     "law_named": "1/2",
+     "asks_clarification": true,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [
+      "1 october 2026"
+     ],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 1,
+     "jurisdiction": 1,
+     "deadlines": 1,
+     "citations": 0,
+     "missing_facts": 1,
+     "reasoning": 1,
+     "uncertainty_escalation": 1,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "Never cites Equality Act 2010 s.18 or ERA 1996 s.99; the legal basis is only generic discrimination (\"likely unlawful discrimination\")",
+      "Main body says time limits run from the date of each act and gives no figures; the 3/6-month rule only appears in the appended note",
+      "\"In Bristol, Acas is the right route\" is odd and overstated, as is the implied employee-status condition"
+     ],
+     "needs_professional_check": [
+      "Whether the 6-month limit under SI 2026/954 applies to these continuing acts",
+      "Whether the hours cut and PIP count as a continuing act under s.123(3)",
+      "Application of s.18 to the unfavourable treatment"
+     ],
+     "summary": "Sensible practical steps and a mostly adequate deadline note, but it never names s.18 or the pregnancy-specific law, and its main deadline text is vague. The appended time-limit note partly rescues it. Citations are weak and focus on capability guidance."
+    }
+   },
+   "pro": {
+    "ok": true,
+    "response": "I'm sorry you're dealing with this. What you describe, hours cut and then a performance plan shortly after you announced a pregnancy, is something the law takes seriously. Bristol is in England, so I'm applying England & Wales law.\n\n**Your position in plain language**\n\n- **Your facts:** You told your employer in August; hours were then cut; a performance plan followed.\n- **Our reading:** Treating you unfavourably *because of* pregnancy is pregnancy and maternity discrimination under s.18 Equality Act 2010. The timing is relevant evidence, but it doesn't prove the reason. Your employer will say there were genuine business or performance reasons, so the question is what really caused the decisions.\n- **Our reading:** A cut in hours could also be an unlawful deduction or a breach of contract if they changed your terms without agreement. If it's serious enough, you could resign and claim constructive dismissal (*Western Excavating v Sharp* [1978]; *a court decision (reference removed \u2014 it could not be verified against a trusted source)* [1997] on trust and confidence). That is a high-risk step, so take advice first.\n- **Official guidance:** Employers must follow a fair procedure for capability issues, support the employee to improve first, and give adequate resources and training. Dismissal should be a last resort [1]. Maternity leave applies to employees [2].\n\n**Deadlines (important)**\n\n- **Official-source rule, not yet reviewed by a lawyer:** Tribunal time limits depend on the date of the act complained of. For acts on or after 1 October 2026, most claims have 6 months less one day; before that, 3 months less one day. Your hours cut may have happened before 1 October, so the shorter limit could apply to it. Conduct continuing over a period runs from its end (s.123(3) Equality Act 2010).\n- **Acas early conciliation** must be started within the limit and pauses the clock.\n- I can't calculate an exact deadline because I don't have the date of the hours cut or the plan. **Don't wait.**\n\n**Missing facts (most important)**\n\n1. The date the hours were cut, and by how much (and whether you agreed in writing).\n2. The date the performance plan started, and whether you had any prior performance concerns.\n3. Whether you're an employee or on a zero-hours or agency arrangement.\n\n**Next steps, most urgent first**\n\n1. **Write a dated timeline** of when you told them, the hours change and the plan.\n2. **Keep evidence:** your pregnancy disclosure, emails, rotas, payslips, past appraisals and the plan itself.\n3. **Raise a written grievance** saying you believe these steps are connected to your pregnancy.\n4. **Don't resign or sign anything** before advice.\n5. **Contact Acas (0300 123 1100)**, your union if you have one, or an employment solicitor. Many offer a free first call.\n\nSource check: some legal references in this answer could not be matched to a source the app retrieved, so unmatched links or numbers were removed. Check any case or section on legislation.gov.uk or caselaw.nationalarchives.gov.uk before relying on it.\n\n**Time-limit points to check** (official-source rules, not reviewed by a lawyer \u2014 confirm with Acas or an adviser):\n- If the treatment continued over a period, time usually runs from the END of that period (Equality Act 2010 s.123(3)) \u2014 so earlier incidents may still be in time.\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: s.18 Equality Act 2010; s.123(3) Equality Act 2010; Western Excavating (ECC) Ltd v Sharp [1978] QB 761; Malik v Bank of Credit and Commerce International SA [1997] UKHL 23]",
+    "model": "claude-sonnet-5-5",
+    "research_status": "ok",
+    "citations": 5,
+    "jurisdiction_check": false,
+    "seconds": 37.6,
+    "checks": {
+     "answered": true,
+     "length_words": 593,
+     "research_status": "ok",
+     "sources_cited": 5,
+     "law_named": "1/2",
+     "asks_clarification": false,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 1,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [
+      "1 october 2026"
+     ],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 1,
+     "jurisdiction": 2,
+     "deadlines": 2,
+     "citations": 1,
+     "missing_facts": 2,
+     "reasoning": 2,
+     "uncertainty_escalation": 2,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "Case reference removed, with the Malik citation still listed in SOURCES, leaves a dangling/unverified reference",
+      "Says the hours cut 'may have happened before 1 October' without noting that, from August, the 3-month limit could already be near (a gap in urgency)",
+      "Constructive dismissal mention could distract, though it is suitably caveated"
+     ],
+     "needs_professional_check": [
+      "Application of the 6-month vs 3-month limit under SI 2026/954 to continuing acts",
+      "Whether the hours cut might be a separate breach/unlawful deduction claim with different limits",
+      "Accuracy of Malik citation [1997] UKHL 23"
+     ],
+     "summary": "Correctly applies s.18, flags the split 3/6-month limits and continuing acts, and asks for the right facts. Minor issues are the removed or unverified case citation and no explicit warning that an August act may be close to the 3-month limit. Overall it is sound."
+    }
+   }
+  },
+  "EMP-04": {
+   "free": {
+    "ok": true,
+    "response": "**Unpaid wages and holiday pay in Cardiff (Wales)**\n\nI've assumed Welsh law applies, as Cardiff is in Wales; the same rules apply across England, Wales and Scotland.\n\n**Options, most urgent first**\n\n- **Check whether you are still employed.** If you were dismissed or resigned because of the non-payment, the deadlines below may run from the end of employment, so note that date.\n- **Write to your employer now.** Ask in writing for the unpaid wages and holiday pay, state the amounts and the payment date you expect, and keep a copy. Acas says that if your employer does not resolve a pay issue by the next pay day, you can take formal steps [1] [2].\n- **Use the Acas Early Conciliation service.** You must start this before you can bring an employment tribunal claim. It pauses the time limit and can settle the dispute without a hearing. Call 0300 123 1100.\n- **Make an employment tribunal claim for unauthorised deduction from wages.** You can claim wages owed and holiday pay owed, including for any holiday you have not been paid for [4]. You may be able to claim for loss caused by the non-payment too [2].\n- **If your employer has stopped trading**, you can still claim, and you may be able to ask the Redundancy Payments Service for help if the employer is insolvent [3].\n\n**Deadlines**\n\n- The time limit for a claim for unauthorised deduction from wages generally runs **three months less one day** from the last deduction or the date payment should have been made. Where a series of unpaid payments continues, it usually runs from the last one. The rules changed for claims on or after 1 October 2026, so please check which applies to your dates. I cannot calculate your exact deadline without the date payment was due and whether you were still employed on that date.\n- Start Acas early conciliation **as soon as possible**, because it must begin within the time limit.\n\n**Information to gather**\n\n- Your contract, payslips and holiday records\n- The dates wages should have been paid, and the amounts owed\n- Any written communication about the non-payment\n\nPlease tell me your last working day and the date each unpaid payment was due, and I can help you work out the time limit.\n\n**Legislation check (legislation.gov.uk):**\n- \u201cEmployment Rights Act 1996, section 23\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n_Contains public sector information licensed under the Open Government Licence v3.0._\n\n**Time-limit points to check** (official-source rules, not reviewed by a lawyer \u2014 confirm with Acas or an adviser):\n- The limit depends on the date of the act: on or after 1 October 2026 most claims have 6 months less one day; before that, 3 months less one day (Employment Rights Act 2025 Sch.12; SI 2026/954).\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: Employment Rights Act 1996 s.23; Acas guidance on unpaid wages; Citizens Advice guidance on problems getting paid]",
+    "model": "claude-haiku-5-5",
+    "research_status": "ok",
+    "citations": 4,
+    "jurisdiction_check": false,
+    "seconds": 36.3,
+    "checks": {
+     "answered": true,
+     "length_words": 509,
+     "research_status": "ok",
+     "sources_cited": 4,
+     "law_named": "1/2",
+     "asks_clarification": false,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [
+      "1 october 2026"
+     ],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 1,
+     "jurisdiction": 2,
+     "deadlines": 1,
+     "citations": 1,
+     "missing_facts": 1,
+     "reasoning": 1,
+     "uncertainty_escalation": 2,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "States the limit as \"three months less one day\" in the main text, with the 6-month rule only mentioned vaguely as 'rules changed'",
+      "Says the limit runs from \"the date payment should have been made\" (imprecise)",
+      "Claims holiday pay is recoverable as an unauthorised deduction (holiday pay may sit under WTR or breach of contract, depending)"
+     ],
+     "needs_professional_check": [
+      "Exact transitional rule under SI 2026/954 and which limit applies",
+      "Whether holiday pay claims follow the same time limit and route as unlawful deduction claims",
+      "Redundancy Payments Service route if the employer is insolvent"
+     ],
+     "summary": "Correctly treats employment law as GB-wide and covers the series-of-deductions rule, Acas early conciliation and insolvency. But the main deadline text states 3 months and relegates the 6-month change to a vague caveat. Holiday pay routes are blurred and the s.23 citation is unverified.",
+     "summary_note": "No fail modes triggered."
+    }
+   },
+   "plus": {
+    "ok": true,
+    "response": "Because you\u2019re working in **Cardiff (Wales)**, the usual **Great Britain employment tribunal** routes apply.\n\n## 1) Your position (plain English)\nNon-payment of wages and holiday pay is typically an **unlawful deduction / non-payment of wages** issue and also a **breach of contract**. In practice, you can push for payment internally, escalate formally, and\u2014if needed\u2014claim through an **employment tribunal** (or sometimes the civil courts) to recover what you\u2019re owed.\n\n## 2) Key points and the basis for them\n- **Official guidance:** If an employer does not pay wages, they are **in breach of contract** and a worker can claim **wages owed** and potentially other losses caused by the non-payment (for example, bank charges) [2].  \n- **Official guidance:** If the issue may involve **minimum wage** (because what you actually received over the period drops you below the legal minimum), Acas flags that as a separate angle to raise formally if it isn\u2019t fixed by the next payday [1].  \n- **Official guidance / Our reading:** Acas recommends raising it with your employer (often payroll/HR) and then handling it as an unpaid wages problem if not resolved [1] [2].\n\n## 3) Deadlines (important)\n- **Official-source rule (not yet reviewed by a lawyer):** In England & Wales, most employment tribunal claims are now **6 months less one day** if the \u201cact\u201d happened **on/after 1 October 2026**; otherwise **3 months less one day**. For wages/holiday pay, time usually runs from the **date of the last deduction / non-payment** in a series. **Starting Acas Early Conciliation pauses the clock.**  \nI can\u2019t give your exact deadline without the date you were last paid (and the dates the missed payments were due).\n\n## 4) The 3 facts I need (to pin this down)\n1) Were you working in **Great Britain** throughout (not Northern Ireland)?  \n2) What was your **last actual pay date**, and what are the **dates the missing wages were due**?  \n3) Have you started **Acas Early Conciliation** yet (and do you have a certificate)?\n\n## 5) Practical options (most urgent first)\n1) **Put it in writing today** to payroll/HR: \u201cYou owe me \u00a3X wages for [months] and \u00a3Y holiday pay. Please confirm payment date within 7 days.\u201d Keep payslips, contract, rota, bank statements.  \n2) If no swift fix: raise a **formal grievance** (short, factual).  \n3) **Start Acas Early Conciliation** promptly (it\u2019s the gateway to a tribunal claim in most wage disputes).  \n4) Consider whether to claim:  \n   - **Employment tribunal** for unpaid wages/holiday pay (often the main route).  \n   - **Civil court** breach of contract (sometimes used, but tribunal is commonly more straightforward for workers).  \n5) If the employer is failing/closing, there are additional steps (including insolvency routes).\n\n## 6) Getting help\nCall **Acas: 0300 123 1100**. If you\u2019re in a union, involve them immediately; otherwise an employment solicitor can help quantify the claim and send a \u201cletter before action\u201d.\n\nSource check: some legal references in this answer could not be matched to a source the app retrieved, so unmatched links or numbers were removed. Check any case or section on legislation.gov.uk or caselaw.nationalarchives.gov.uk before relying on it.\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.  \n[CONFIDENCE: HIGH]  \n[SOURCES: https://www.acas.org.uk/if-your-wages-are-not-paid/raising-an-issue-with-your-employer; https://www.acas.org.uk/if-your-wages-are-not-paid/handling-unpaid-wages; https://www.acas.org.uk/if-your-wages-are-not-paid/if-the-employer-is-no-longer-trading]",
+    "model": "gpt-5.2",
+    "research_status": "ok",
+    "citations": 4,
+    "jurisdiction_check": false,
+    "seconds": 36.3,
+    "checks": {
+     "answered": true,
+     "length_words": 531,
+     "research_status": "ok",
+     "sources_cited": 4,
+     "law_named": "0/2",
+     "asks_clarification": true,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [
+      "1 october 2026"
+     ],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 1,
+     "jurisdiction": 2,
+     "deadlines": 2,
+     "citations": 1,
+     "missing_facts": 1,
+     "reasoning": 1,
+     "uncertainty_escalation": 1,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "Says Acas EC 'pauses the clock' without noting that it only extends time if started within the primary limit",
+      "'[CONFIDENCE: HIGH]' despite unreviewed deadline rule and removed citations",
+      "Calls it 'breach of contract' and 'unlawful deduction' without citing ERA 1996 s.13/23 or the Working Time Regulations"
+     ],
+     "needs_professional_check": [
+      "6 months less one day for acts on/after 1 Oct 2026 (SI 2026/954)",
+      "Whether Acas early conciliation extends time as described",
+      "Holiday pay claim route and time limits under WTR"
+     ],
+     "summary": "Correctly treats Wales as GB-wide and gives the series-of-deductions rule with the 3/6-month split. Weak on statutory citations, insolvency detail (Redundancy Payments Service) and whether the employer is insolvent. EC explanation is oversimplified. Overconfident label.",
+     "accuracy_note": "Mostly sound"
+    }
+   },
+   "pro": {
+    "ok": true,
+    "response": "I've assumed Welsh (Great Britain) employment law applies because your employer is in Cardiff. Tell me if the work was done elsewhere.\n\n## Your position\n\nYour employer has not paid two months' wages plus holiday pay. **Your facts:** this is unpaid wages and untaken/accrued holiday pay. **Official guidance:** failing to pay workers is a breach of contract, and you can claim wages owed and any loss that results [2]. Unpaid wages can also be an unauthorised deduction from wages, claimable at an employment tribunal by employees and workers, including agency workers [4]. If your pay is below the minimum wage, that is a separate issue with its own enforcement routes [1].\n\n## Options, most urgent first\n\n1. **Write to your employer now.** Ask for the exact amount, with a payment date (e.g. 7 days). Keep it factual. Acas suggests raising the issue informally or formally first [1].\n2. **Gather evidence:** contract, payslips, bank statements, texts or emails about pay, holiday records, and a record of hours worked.\n3. **Contact Acas (0300 123 1100).** Early conciliation is normally required before a tribunal claim, and it pauses the time limit.\n4. **Tribunal claim** for unauthorised deductions (Employment Rights Act 1996) and for unpaid holiday pay on termination (Working Time Regulations 1998 or breach of contract). Our reading: if you are still employed, holiday pay may only be due as you take leave, while accrued untaken leave becomes payable on leaving.\n5. **If the employer is insolvent or has stopped trading,** contact the Redundancy Payments Service. You may be able to claim certain arrears from the National Insurance Fund, and Acas notes you can still claim at tribunal [3].\n6. **Resigning** is a risk. Non-payment can amount to a fundamental breach (constructive dismissal; see *Western Excavating v Sharp* [1978] QB 761), but you generally need two years' service for an unfair dismissal claim. Take advice before resigning.\n\n## Time limits\n\nOfficial-source rule, not yet reviewed by a lawyer: tribunal limits run from the date of the act. For acts **on or after 1 October 2026** most claims have **6 months less one day**; for earlier acts, **3 months less one day** (Employment Rights Act 2025 s.152 and Sch.12, commenced by SI 2026/954). For a **series of deductions**, time runs from the **last deduction** (ERA 1996 s.23(3)). Because some of your unpaid wages may fall before 1 October, don't assume the longer period applies. Early conciliation must be started within the limit. I can't give an exact deadline without your dates, so act promptly.\n\n## What I need from you\n\n- The date each payment was missed, and the date of the last payment.\n- Whether you are still employed, or if not, your last day.\n- Whether you have contacted Acas yet.\n\n## Get help\n\nAcas, a trade union, Citizens Advice, or an employment solicitor can help, especially if the employer may be insolvent.\n\nSource check: some legal references in this answer could not be matched to a source the app retrieved, so unmatched links or numbers were removed. Check any case or section on legislation.gov.uk or caselaw.nationalarchives.gov.uk before relying on it.\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: Employment Rights Act 1996 s.23(3); Employment Rights Act 2025 s.152 and Sch.12; SI 2026/954; Working Time Regulations 1998; Western Excavating (ECC) Ltd v Sharp [1978] QB 761]",
+    "model": "claude-sonnet-5-5",
+    "research_status": "ok",
+    "citations": 9,
+    "jurisdiction_check": false,
+    "seconds": 36.8,
+    "checks": {
+     "answered": true,
+     "length_words": 565,
+     "research_status": "ok",
+     "sources_cited": 9,
+     "law_named": "2/2",
+     "asks_clarification": false,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [
+      "1 october 2026"
+     ],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 2,
+     "jurisdiction": 2,
+     "deadlines": 2,
+     "citations": 1,
+     "missing_facts": 2,
+     "reasoning": 2,
+     "uncertainty_escalation": 2,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "Says \"Welsh (Great Britain) employment law\" - slightly muddled wording, though it treats the law as GB-wide",
+      "\"Early conciliation... pauses the time limit\" - correct in essence, but the answer does not explain the extension mechanics",
+      "Cites Employment Rights Act 2025 s.152 and Sch.12 - the section number is unverified"
+     ],
+     "needs_professional_check": [
+      "ERA 2025 s.152 and Sch.12 commencement via SI 2026/954",
+      "Whether the 6-month limit applies to wages claims and the 1 Oct 2026 transitional split",
+      "Western Excavating citation and the 2-year unfair dismissal qualifying period as at 2026"
+     ],
+     "summary": "Strong answer. It treats employment law as GB-wide, states the series-of-deductions rule and the 6-month/3-month split by 1 Oct 2026, and covers ACAS and insolvency. Minor issues: the 'Welsh (Great Britain)' wording and some unverified statutory references."
+    }
+   }
+  }
+ },
+ "spent_gbp": 0.1811
+}
