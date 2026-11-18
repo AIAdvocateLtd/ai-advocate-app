@@ -37,6 +37,16 @@ def _passage(claim: str, content: str) -> str:
     return " ".join(paras)[:PASSAGE_CHARS]
 
 
+def _locate(out: str, text: str) -> str:
+    """The claim's sentence as it appears in the answer, allowing [n] markers between words."""
+    words = re.findall(r"\S+", re.sub(r"[.!?]+$", "", text or "").strip())
+    if not words:
+        return ""
+    rx = r"(?:\s*\[\d+\])*\s+".join(re.escape(w) for w in words) + r"(?:\s*\[\d+\])*\s*[.!?]?"
+    m = re.search(rx, out)
+    return m.group(0) if m else ""
+
+
 async def _ask(claim: str, passage: str) -> dict:
     from emergentintegrations.llm.chat import LlmChat, UserMessage
     chat = LlmChat(api_key=os.environ.get("EMERGENT_LLM_KEY"), session_id=f"srccheck-{uuid.uuid4()}", system_message=SYSTEM) \
@@ -61,6 +71,10 @@ async def run(db, text: str, claim_support: List[dict], sources: List[dict], hs:
     ask = ask or _ask
     out = text
     for c in todo:
+        raw = c.get("raw") if c.get("raw") and c["raw"] in out else _locate(out, c.get("text", ""))
+        if not raw:
+            rep["unplaced"] = rep.get("unplaced", 0) + 1  # sentence changed later — skip (no call, no charge)
+            continue
         passage = _passage(c["text"], by_n[c["n"]])
         key = hashlib.sha256(f"{c['text']}\n{passage}".encode()).hexdigest()
         hit = _cache.get(key)
@@ -72,21 +86,17 @@ async def run(db, text: str, claim_support: List[dict], sources: List[dict], hs:
                 res = await ask(c["text"], passage)
             except Exception as e:
                 logger.info(f"AI source check failed: {e!r}")
-                res = {"verdict": "uncertain", "why": "check failed"}
+                rep["failed"] = rep.get("failed", 0) + 1
+                continue  # not cached, not charged; the claim keeps its free-check status
             _cache[key] = (time.time() + CACHE_TTL, res)
             rep["checked"] += 1
             rep["est_gbp"] = round(rep["est_gbp"] + EST_GBP_PER_CLAIM, 4)
         c["ai_check"] = res["verdict"]
         rep["results"].append({"n": c["n"], **res})
         if res["verdict"] in ("unsupported", "partly"):
-            anchor = re.escape(c["text"][:60])
-            m = re.search(anchor, out)
-            if m:
-                end = out.find("\n", m.end())
-                end = len(out) if end == -1 else end
-                cut = out.rfind(".", m.start(), end)
-                pos = cut if cut > m.start() else end
-                out = out[:pos] + QUALIFIER + out[pos:]
-                c["status"] = "unsupported" if res["verdict"] == "unsupported" else "uncertain"
-                rep["qualified"] += 1
+            tail = re.search(r"(?:\s*\[\d+\])*\s*[.!?]?\s*$", raw)
+            cut = tail.start() if tail else len(raw)
+            out = out.replace(raw, raw[:cut] + QUALIFIER + raw[cut:], 1)
+            c["status"] = "unsupported" if res["verdict"] == "unsupported" else "uncertain"
+            rep["qualified"] += 1
     return out, rep

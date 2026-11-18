@@ -263,14 +263,17 @@ def _periods_in(sentence: str, src: str) -> Optional[bool]:
         return None
     for num, _unit in found:
         d = _NUMW.get(num.lower().replace("  ", " "), num)
-        if not (re.search(rf"\b{d}\b", src) or (d in _WORDN and _WORDN[d] in src)):
+        if not (re.search(rf"\b{d}\b", src) or (d in _WORDN and re.search(rf"\b{_WORDN[d]}\b", src))):
             return False
     return True
 
 
-def _guidance_supported(sentence: str, src: str) -> bool:
-    """A sentence citing official guidance must share at least two meaningful terms with the retrieved wording."""
+def _guidance_supported(sentence: str, src: str) -> Optional[bool]:
+    """A sentence citing official guidance must share at least two meaningful terms with the retrieved wording.
+    None when the sentence has no meaningful terms to compare (nothing to check — not 'supported')."""
     terms = {w[:6] for w in re.findall(r"[a-z]{4,}", re.sub(r"\[\d+\]", "", sentence).lower()) if w not in _GSTOP}
+    if not terms:
+        return None
     return sum(1 for t in terms if t in src) >= min(2, len(terms))
 
 
@@ -394,7 +397,11 @@ def verify_citations(text: str, citations: List[dict], sources: List[dict], cust
     out = re.sub(r"\x00(\d+)\x00", lambda m: stash[int(m.group(1))], out)
 
     def fix_sentence(sent: str) -> str:
+        entries, last = [], [0]
+
         def mark(m):
+            clause = sent[last[0]:m.start()]
+            last[0] = m.end()
             nums = [int(x) for x in re.findall(r"\d+", m.group(1))]
             keep = []
             for n in nums:
@@ -411,18 +418,23 @@ def verify_citations(text: str, citations: List[dict], sources: List[dict], cust
                 if ok and nation and sn and sn != nation:
                     ok, why = False, f"the cited source covers {sn.replace('_', ' ').title()}, not this matter's UK nation"
                 status = "unsupported" if ok is False else "unchecked" if ok is None else "source_supported"
-                if ok and n in src_by_n and _periods_in(sent, src) is False:
+                if ok and n in src_by_n and _periods_in(clause, src) is False:
                     status, why = "uncertain", "the time period stated was not found in the cited source"
                     rep["uncertain_periods"].append(n)
-                rep["claim_support"].append({"n": n, "status": status, "why": why,
-                                             "text": re.sub(r"\s+", " ", _NUM_MARK.sub("", sent)).strip()[:160]})
+                entry = {"n": n, "status": status, "why": why,
+                         "text": re.sub(r"\s+", " ", _NUM_MARK.sub("", sent)).strip()[:160]}
+                rep["claim_support"].append(entry)
+                entries.append(entry)
                 rep["per_source"].setdefault(n, set()).add({True: "supported", False: "not_confirmed", None: "unchecked"}[ok])
                 if ok is False:
                     rep["unsupported_markers"] += 1
                     continue
                 keep.append(n)
             return (" [" + "][".join(str(n) for n in keep) + "]") if keep else ""
-        return _NUM_MARK.sub(mark, sent)
+        result = _NUM_MARK.sub(mark, sent)
+        for e in entries:
+            e["raw"] = result.strip()  # the sentence exactly as it now appears in the answer (for later qualifiers)
+        return result
 
     out = "".join(fix_sentence(p) for p in re.split(r"((?<=[.!?])\s+|\n)", out))
     all_src = " ".join(src_by_n.values())

@@ -457,7 +457,7 @@ Sources: AI-drafted, unsourced
 
 Decision: [ ] Approve  [ ] Amend  [ ] Reject   Reviewer: ________  Date: ________
 
-## B. Official-source rules given to Lex
+## B. Official-source rules given to Lex (16)
 _Checked against the linked official pages on 18 Nov 2026. In use in preview, labelled to Lex as not yet reviewed by a lawyer._
 
 **R-01** — et_time_limits

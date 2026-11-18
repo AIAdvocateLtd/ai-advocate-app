@@ -441,6 +441,12 @@ def _parking(c) -> List[Item]:
               "within 28 days of the Notice of Rejection." if j.startswith("scot") else
               " If representations are rejected, appeal to the independent tribunal (London Tribunals in London, otherwise the "
               "Traffic Penalty Tribunal) within 28 days of the Notice of Rejection.")
+    if j.startswith("scot"):
+        last = nd + timedelta(days=13)
+        return [(f"Council PCN (Scotland) dated {fmt(nd)}: 14 days to pay at the discounted rate — SAFE WORKING DATE "
+                 f"{fmt(last)} (check the date on the PCN; challenging in that period does not stop you contesting it). If unpaid "
+                 "after 28 days the council issues a Notice to Owner, and representations must then be made." + appeal,
+                 "Parking PCN discount ends (safe date)", last)]
     if served == "windscreen":
         last = nd + timedelta(days=13)
         return [(f"Council PCN fixed to the vehicle on {fmt(nd)}: the reduced (50%) rate is available for 14 days beginning with "
@@ -456,7 +462,7 @@ def _parking(c) -> List[Item]:
     return [(f"Council PCN dated {fmt(nd)}, service method not given: if it was fixed to the vehicle or handed over, the "
              f"reduced (50%) rate ran for 14 days beginning with that date — SAFE WORKING DATE {fmt(win)}; if it was sent by post "
              "(camera/CCTV), the 21 days run from the date of service, which is later than the date on the notice"
-             + ("" if j.startswith("scot") else f" — at least until {fmt(post)}") + ". Check how it arrived. Formal "
+             f" — at least until {fmt(post)}. Check how it arrived. Formal "
              "representations are made within 28 days of a Notice to Owner (or of service of a postal PCN)." + appeal
              + (f" ALREADY PASSED on the 'fixed to the vehicle' timing (today is {fmt(datetime.now(UK).date())}) — say so plainly; "
                 "the discount may also have ended if it was posted." if datetime.now(UK).date() > win else ""), None, None)]
@@ -646,12 +652,16 @@ async def build_deadlines(message: str, context: str, api_key: str, jurisdiction
     return block, [{"title": t, "due": d, "note": reminder_note(t)} for _, t, d in items if t and d and d >= today]
 
 
-_PASSED_WORDS = re.compile(r"\b(passed|expired|missed|ended|out of time|too late|late claim|ago)\b", re.I)
+_PASSED_WORDS = re.compile(r"\b(?:deadline|time limit|date|period|discount|window|limit)\b[^.\n]{0,40}\b(?:has|have|had|already)?\s*"
+                           r"(?:passed|expired|been missed|missed|ended|run out)\b|\bout of time\b|\btoo late\b|\blate claim\b|"
+                           r"\balready passed\b", re.I)
 
 
 def _date_in(answer: str, d: date) -> bool:
     a = re.sub(r"\s+", " ", answer or "")
-    return f"{d.day} {d.strftime('%B')} {d.year}" in a or d.strftime("%d/%m/%Y") in a or f"{d.day}/{d.month}/{d.year}" in a
+    mon = d.strftime("%B")
+    return bool(re.search(rf"\b0?{d.day}(?:st|nd|rd|th)?(?: of)? {mon},? {d.year}\b|\b{mon} 0?{d.day}(?:st|nd|rd|th)?,? {d.year}\b",
+                          a, re.I)) or d.strftime("%d/%m/%Y") in a or f"{d.day}/{d.month}/{d.year}" in a
 
 
 def ensure_dates(answer: str, items: list, block: str) -> Tuple[str, dict]:

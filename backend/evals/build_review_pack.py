@@ -67,11 +67,11 @@ def _sections(packs):
     rules = [(f"R-{i + 1:02d}", r[0], r[3], ", ".join(r[4])) for i, r in enumerate(lex_guidance.RULES)]
     cases = [(f"C-{i + 1:02d}", e[5], f"{e[2]} {'; '.join(e[3])}", e[4]) for i, e in enumerate(landmark_cases.CASES)]
     return [
-        ("A. Reference scenarios (40)", REFERENCE_STATUS, [(a, b, c, d) for a, b, c, d in sc]),
-        ("B. Official-source rules given to Lex", "Checked against the linked official pages on 18 Nov 2026. In use in preview, "
+        (f"A. Reference scenarios ({len(sc)})", REFERENCE_STATUS, [(a, b, c, d) for a, b, c, d in sc]),
+        (f"B. Official-source rules given to Lex ({len(rules)})", "Checked against the linked official pages on 18 Nov 2026. In use in preview, "
          "labelled to Lex as not yet reviewed by a lawyer.", rules),
-        ("C. Landmark cases (41)", landmark_cases.REVIEW_STATUS, cases),
-        ("D. Legacy fact packs (38)", "Held back from Lex until a person signs them off (0 signed off in preview).",
+        (f"C. Landmark cases ({len(cases)})", landmark_cases.REVIEW_STATUS, cases),
+        (f"D. Legacy fact packs ({len(packs)})", "Held back from Lex until a person signs them off (0 signed off in preview).",
          [(a, b, c, d) for a, b, c, d, _ in packs]),
         ("E. Employment tribunal commencement and transitional issues", "Open questions — interpretation needed.",
          [(a, "ERA 2025 / SI 2026/954", t, "") for a, t in ET_ISSUES]),

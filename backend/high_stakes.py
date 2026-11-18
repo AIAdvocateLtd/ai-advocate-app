@@ -18,8 +18,9 @@ DOMAINS: Dict[str, Dict[str, re.Pattern]] = {
     "immigration": {
         "topic": re.compile(r"\b(visas?|leave to remain|ilr|indefinite leave|brp|evisa|home office|deport\w*|removal|"
                             r"overstay\w*|asylum|curtail\w*|sponsor\w*|immigration|settlement|euss|settled status|"
-                            r"reporting centre|detention centre|removal centre|(?:will|to|going to) be removed|being removed|"
-                            r"detained(?=[^.\n]{0,80}\b(?:removed|removal|deport\w*|home office|immigration|flight)))\b", _I),
+                            r"reporting centre|detention centre|removal centre|"
+                            r"(?:be|being) removed(?=[^.\n]{0,60}\b(?:from the uk|from the country|flight|deport\w*))|"
+                            r"detained(?=[^.\n]{0,80}\b(?:removed|deport\w*|home office|immigration|flight)))\b", _I),
         "urgent": re.compile(r"\b(visa (?:expires|expired|has expired|ends|is ending|runs out|ran out)|overstay\w*|"
                              r"removal (?:directions|notice|window)|detain\w*|deport\w*|refus\w*|curtail\w*|"
                              r"appeal (?:deadline|window)|reporting|section 3c|no leave)\b", _I),
@@ -60,8 +61,9 @@ DOMAINS: Dict[str, Dict[str, re.Pattern]] = {
     "employment": {
         "topic": re.compile(r"\b(dismiss\w*|sacked|fired|redundan\w*|employment tribunal|tribunal|acas|disciplinary|grievance|"
                             r"constructive(?:ly)? dismiss\w*|whistleblow\w*|discriminat\w*|unpaid wages|notice pay|"
-                            r"settlement agreement|pregnan\w*|maternity|cut (?:my|our) hours|performance (?:plan|improvement plan)|"
-                            r"wages|holiday pay|my employer)\b", _I),
+                            r"settlement agreement|maternity|cut (?:my|our) hours|performance (?:plan|improvement plan)|"
+                            r"wages|holiday pay|my employer|(?:employer|boss|manager|work|job)[^.\n]{0,40}pregnan\w*|"
+                            r"pregnan\w*[^.\n]{0,40}(?:employer|boss|manager|work|job|hours))\b", _I),
         "urgent": re.compile(r"\b(dismissed|sacked|fired|let go|made redundant|last day|tribunal|early conciliation|"
                              r"deadline|time limit|settlement agreement|disciplinary (?:hearing|meeting))\b", _I),
     },

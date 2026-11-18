@@ -9,7 +9,7 @@ _GB = {"england", "wales", "scotland", None}
 
 # (id, topic regex, nations it applies to (None = nation unknown), text, sources)
 RULES = [
-    ("et_time_limits", r"employ|dismiss|sacked|fired|redundan|employment tribunal|acas|wages?|discriminat|pregnan|holiday pay", _GB,
+    ("et_time_limits", r"employ|dismiss|sacked|fired|redundan|employment tribunal|acas|wages?|discriminat|holiday pay", _GB,
      "Employment tribunal time limits (England, Wales, Scotland) depend on the DATE OF THE ACT (for unfair dismissal, the "
      "effective date of termination), not today's date: on or after 1 October 2026 most claims have 6 months less one day; "
      "before 1 October 2026, 3 months less one day (statutory redundancy pay and equal pay already had 6 months). The change "
@@ -47,7 +47,7 @@ RULES = [
      "prescribe after 5 years; divorce is based on irretrievable breakdown, commonly shown by 1 year's separation with "
      "consent or 2 years without (Divorce (Scotland) Act 1976 s.1) — the England & Wales 20-week period does not apply.",
      [f"{LEG}/ukpga/2012/9/schedule/4", f"{LEG}/ukpga/1973/52/section/17", f"{LEG}/ukpga/1976/39/section/1"]),
-    ("immigration_core", r"visas?\b|ilr\b|indefinite leave|settled status|pre-settled|home office|abroad|detain|removal|removed tomorrow|deport", {"england", "wales", "scotland", "northern_ireland", None},
+    ("immigration_core", r"visas?\b|ilr\b|indefinite leave|settled status|pre-settled|home office|abroad|deport|removal directions|removal centre|detain\w*(?=[^.\n]{0,80}(?:removed|deport|home office|immigration|flight))", {"england", "wales", "scotland", "northern_ireland", None},
      "Immigration (UK-wide): an ordinary visitor visa refusal carries NO right of appeal — appeals exist only where a human "
      "rights or protection claim was refused; otherwise the routes are a fresh application or, if the decision was unlawful, "
      "judicial review (apply promptly). Treat a document that claims an appeal right for a visitor refusal with caution. ILR "
@@ -121,7 +121,7 @@ RULES = [
      "papers.",
      ["https://www.legislation.gov.uk/ukpga/2012/9/schedule/4/paragraph/9", "https://www.popla.co.uk/appeal-guide",
       "https://www.gov.uk/government/publications/private-parking-code-of-practice"]),
-    ("emergency_detention", r"detain|removal|removed tomorrow|deport|removal centre|immigration centre|flight tonight",
+    ("emergency_detention", r"(?:immigration|home office)[^.\n]{0,60}detain|detain\w*(?=[^.\n]{0,80}(?:removed|removal|deport|home office|immigration|flight))|removal directions|removal centre|deport|immigration centre|be removed from the uk",
      {"england", "wales", "scotland", "northern_ireland", None},
      "Immigration detention / imminent removal (UK): the urgent step is a regulated immigration solicitor or OISC adviser NOW. "
      "People in immigration removal centres can get free 30-minute legal advice sessions through the legal aid Detention Duty "

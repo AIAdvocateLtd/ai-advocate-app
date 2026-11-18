@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="16" skipped="0" tests="34" time="2.082" timestamp="2026-11-18T16:17:03.879453+00:00" hostname="agent-env-99b5bebe-9f08-4692-ba1b-011288199bff"><testcase classname="tests.test_lex2_final_probe_iter55" name="test_hint_positive_variants" time="0.042" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_ensure_dates_zero_padded_day_not_duplicated" time="0.000" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_ensure_dates_ordinal_or_us_format_counts_as_present" time="0.001"><failure message="AssertionError: Reject it by 5th January 2027.&#10;assert 1 == 0">def test_ensure_dates_ordinal_or_us_format_counts_as_present():
+        """An answer that states the date as '5th January 2027' or 'January 5, 2027' already has it — no duplicate section."""
+        items = [{"title": "Last day to reject faulty goods", "due": date(2027, 1, 5)}]
+        for a in ("Reject it by 5th January 2027.", "Reject it by January 5, 2027."):
+            out, rep = dc.ensure_dates(a, items, BLOCK)
+&gt;           assert rep["restored"] == 0, a
+E           AssertionError: Reject it by 5th January 2027.
+E           assert 1 == 0
+
+tests/test_lex2_final_probe_iter55.py:41: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_ensure_dates_before_sources_tail_and_max4" time="0.001" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_ensure_dates_never_adds_with_nocalc_facts_block" time="0.000" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_passed_flag_not_suppressed_by_customer_restating_ago" time="0.000"><failure message="assert False is True">def test_passed_flag_not_suppressed_by_customer_restating_ago():
+        """'You bought it 3 weeks ago' is not the answer acknowledging that a deadline has passed."""
+        out, rep = dc.ensure_dates("You bought the laptop 3 weeks ago, so ask the shop for a repair.", [],
+                                   BLOCK + "ALREADY PASSED: this date was 2 day(s) ago")
+&gt;       assert rep["passed_flagged"] is True
+E       assert False is True
+
+tests/test_lex2_final_probe_iter55.py:61: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_passed_flag_not_suppressed_by_employment_ended" time="0.001"><failure message="assert False is True">def test_passed_flag_not_suppressed_by_employment_ended():
+        out, rep = dc.ensure_dates("Your employment ended on 1 March; contact ACAS.", [],
+                                   BLOCK + "ALREADY PASSED: this date was 2 day(s) ago")
+&gt;       assert rep["passed_flagged"] is True
+E       assert False is True
+
+tests/test_lex2_final_probe_iter55.py:67: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_private_parking_unknown_issuer_england_has_no_date" time="0.000" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_council_wales_windscreen_and_post" time="0.000" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_scotland_postal_pcn_not_described_as_service_method_not_given" time="0.002"><failure message="AssertionError: assert 'service method not given' not in 'Council PCN...f Rejection.'&#10;  &#10;  'service method not given' is contained here:&#10;    ber 2026, service method not given: if it was fixed to the vehicle or handed over, the reduced (50%) rate ran for 14 days beginning with that date — SAFE WORKING DATE Monday 23 November 2026; if it was sent by post (camera/CCTV), the 21 days run from the date of service, which is later than the date on the notice. Check how it arrived. Formal representations are made within 28 days of a Notice to Owner (or of service of a postal PCN). If representations are rejected, appeal to the First-tier Tribunal for Scotland (General Reg...&#10;  &#10;  ...Full output truncated (2 lines hidden), use '-vv' to show">def test_scotland_postal_pcn_not_described_as_service_method_not_given():
+        """A Scottish PCN the customer says came by post must not get the 'service method not given' text or the
+        England &amp; Wales 21-day camera/postal rule."""
+        t = _park(issuer="council", served="post", jurisdiction="scotland")[0][0]
+&gt;       assert "service method not given" not in t
+E       AssertionError: assert 'service method not given' not in 'Council PCN...f Rejection.'
+E         
+E         'service method not given' is contained here:
+E           ber 2026, service method not given: if it was fixed to the vehicle or handed over, the reduced (50%) rate ran for 14 days beginning with that date — SAFE WORKING DATE Monday 23 November 2026; if it was sent by post (camera/CCTV), the 21 days run from the date of service, which is later than the date on the notice. Check how it arrived. Formal representations are made within 28 days of a Notice to Owner (or of service of a postal PCN). If representations are rejected, appeal to the First-tier Tribunal for Scotland (General Reg...
+E         
+E         ...Full output truncated (2 lines hidden), use '-vv' to show
+
+tests/test_lex2_final_probe_iter55.py:91: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_scotland_unknown_service_no_21_day_rule" time="0.001"><failure message="AssertionError: Council PCN dated Tuesday 10 November 2026, service method not given: if it was fixed to the vehicle or handed over, the reduced (50%) rate ran for 14 days beginning with that date — SAFE WORKING DATE Monday 23 November 2026; if it was sent by post (camera/CCTV), the 21 days run from the date of service, which is later than the date on the notice. Check how it arrived. Formal representations are made within 28 days of a Notice to Owner (or of service of a postal PCN). If representations are rejected, appeal to the First-tier Tribunal for Scotland (General Regulatory Chamber) within 28 days of the Notice of Rejection.&#10;assert '21 days' not in 'Council PCN...f Rejection.'&#10;  &#10;  '21 days' is contained here:&#10;    CTV), the 21 days run from the date of service, which is later than the date on the notice. Check how it arrived. Formal representations are made within 28 days of a Notice to Owner (or of service of a postal PCN). If representations are rejected, appeal to the First-tier Tribunal for Scotland (General Regulatory Chamber) within 28 days of the Notice of Rejection.&#10;  ?           +++++++">def test_scotland_unknown_service_no_21_day_rule():
+        t = _park(issuer="council", served="unknown", jurisdiction="scotland")[0][0]
+&gt;       assert "21 days" not in t, t
+E       AssertionError: Council PCN dated Tuesday 10 November 2026, service method not given: if it was fixed to the vehicle or handed over, the reduced (50%) rate ran for 14 days beginning with that date — SAFE WORKING DATE Monday 23 November 2026; if it was sent by post (camera/CCTV), the 21 days run from the date of service, which is later than the date on the notice. Check how it arrived. Formal representations are made within 28 days of a Notice to Owner (or of service of a postal PCN). If representations are rejected, appeal to the First-tier Tribunal for Scotland (General Regulatory Chamber) within 28 days of the Notice of Rejection.
+E       assert '21 days' not in 'Council PCN...f Rejection.'
+E         
+E         '21 days' is contained here:
+E           CTV), the 21 days run from the date of service, which is later than the date on the notice. Check how it arrived. Formal representations are made within 28 days of a Notice to Owner (or of service of a postal PCN). If representations are rejected, appeal to the First-tier Tribunal for Scotland (General Regulatory Chamber) within 28 days of the Notice of Rejection.
+E         ?           +++++++
+
+tests/test_lex2_final_probe_iter55.py:97: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_ni_private_and_council_guidance_rules" time="0.001" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_police_detention_stays_criminal" time="0.000" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_police_detention_does_not_get_immigration_detention_rule" time="0.001"><failure message="AssertionError: ['immigration_core', 'emergency_detention']&#10;assert 'emergency_detention' not in ['immigration_core', 'emergency_detention']">def test_police_detention_does_not_get_immigration_detention_rule():
+        rules = [r[0] for r in G.matched("I was arrested and detained at the police station overnight", "", "england")]
+&gt;       assert "emergency_detention" not in rules, rules
+E       AssertionError: ['immigration_core', 'emergency_detention']
+E       assert 'emergency_detention' not in ['immigration_core', 'emergency_detention']
+
+tests/test_lex2_final_probe_iter55.py:115: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_non_immigration_removed_phrases_not_immigration" time="0.001"><failure message="AssertionError: I want my name to be removed from the joint tenancy agreement&#10;assert 'immigration' not in ['immigration', 'housing']">def test_non_immigration_removed_phrases_not_immigration():
+        for m in ("I want my name to be removed from the joint tenancy agreement",
+                  "My landlord says the shed will be removed next week"):
+&gt;           assert "immigration" not in H.classify(m)["domains"], m
+E           AssertionError: I want my name to be removed from the joint tenancy agreement
+E           assert 'immigration' not in ['immigration', 'housing']
+
+tests/test_lex2_final_probe_iter55.py:121: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_non_immigration_removal_not_emergency_detention" time="0.001"><failure message="AssertionError: The removal company damaged my sofa when I moved house&#10;assert 'emergency_detention' not in ['immigration_core', 'emergency_detention']">def test_non_immigration_removal_not_emergency_detention():
+        for m in ("The removal company damaged my sofa when I moved house",
+                  "Can the board vote for the removal of a director?"):
+&gt;           assert "emergency_detention" not in [r[0] for r in G.matched(m, "", "england")], m
+E           AssertionError: The removal company damaged my sofa when I moved house
+E           assert 'emergency_detention' not in ['immigration_core', 'emergency_detention']
+
+tests/test_lex2_final_probe_iter55.py:127: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_immigration_removal_detected" time="0.000" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_removed_abandoned_car_not_immigration" time="0.001"><failure message="AssertionError: assert 'immigration' not in ['immigration', 'family']">def test_removed_abandoned_car_not_immigration():
+&gt;       assert "immigration" not in H.classify("The council says the car will be removed from outside my house")["domains"]
+E       AssertionError: assert 'immigration' not in ['immigration', 'family']
+
+tests/test_lex2_final_probe_iter55.py:136: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_pregnant_tenant_not_employment" time="0.001"><failure message="AssertionError: {'child_risk': False, 'cohabiting': False, 'danger': False, 'domains': ['housing', 'employment'], ...}&#10;assert 'employment' not in ['housing', 'employment']">def test_pregnant_tenant_not_employment():
+        hs = H.classify("My wife is pregnant and our landlord has served a section 21 notice")
+&gt;       assert "employment" not in hs["domains"], hs
+E       AssertionError: {'child_risk': False, 'cohabiting': False, 'danger': False, 'domains': ['housing', 'employment'], ...}
+E       assert 'employment' not in ['housing', 'employment']
+
+tests/test_lex2_final_probe_iter55.py:141: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_paraphrase_keeps_legitimate_marker" time="0.001" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_period_matching_digits_and_words" time="0.001" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_wrong_period_flagged_uncertain" time="0.000" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_number_word_substring_not_treated_as_found" time="0.001"><failure message="AssertionError: [{'n': 3, 'status': 'source_supported', 'text': 'Under section 173 the landlord notice is two months.', 'why': 'the Act/section named is in the cited source'}]&#10;assert 'source_supported' == 'uncertain'&#10;  &#10;  - uncertain&#10;  + source_supported">def test_number_word_substring_not_treated_as_found():
+        """'two' inside 'network' is not the period 'two months'."""
+        out, rep = _vc("Under section 173 the landlord notice is two months [3].")
+&gt;       assert rep["claim_support"][0]["status"] == "uncertain", rep["claim_support"]
+E       AssertionError: [{'n': 3, 'status': 'source_supported', 'text': 'Under section 173 the landlord notice is two months.', 'why': 'the Act/section named is in the cited source'}]
+E       assert 'source_supported' == 'uncertain'
+E         
+E         - uncertain
+E         + source_supported
+
+tests/test_lex2_final_probe_iter55.py:179: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_scottish_source_ok_for_scotland_rejected_for_england" time="0.001" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_no_nation_known_keeps_marker" time="0.000" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_unrelated_sentence_marker_removed" time="0.000" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_ai_enabled_must_be_literal_true" time="0.001" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_ai_short_claim_from_real_pipeline_gets_qualifier" time="0.001"><failure message="AssertionError: Early conciliation usually lasts up to 8 weeks [1].&#10;  &#10;  **Source check:** a time period stated next to [1] was not found in that source's text, so treat it as unconfirmed and check it on the official page, your papers or with an adviser before relying on it.&#10;  &#10;  &#10;assert (1 == 1 and 0 == 1)">def test_ai_short_claim_from_real_pipeline_gets_qualifier():
+        """Layer-1 claim text drops the marker but keeps the full stop ('... 8 weeks.'), so the 60-char anchor never matches
+        '... 8 weeks [1].' — the check is paid for but no qualifier is added."""
+        out, rep = _pipeline("Early conciliation usually lasts up to 8 weeks [1].", "partly")
+&gt;       assert rep["checked"] == 1 and rep["qualified"] == 1 and AI.QUALIFIER in out, out
+E       AssertionError: Early conciliation usually lasts up to 8 weeks [1].
+E         
+E         **Source check:** a time period stated next to [1] was not found in that source's text, so treat it as unconfirmed and check it on the official page, your papers or with an adviser before relying on it.
+E         
+E         
+E       assert (1 == 1 and 0 == 1)
+
+tests/test_lex2_final_probe_iter55.py:241: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_ai_qualifier_attached_to_the_claim_sentence_not_next_sentence" time="0.001"><failure message="AssertionError: Early conciliation is free and it usually lasts up to 8 weeks before you can go on to claim [1]. Call Acas today (the cited source does not clearly support this — treat it as unconfirmed).&#10;  &#10;  **Source check:** a time period stated next to [1] was not found in that source's text, so treat it as unconfirmed and check it on the official page, your papers or with an adviser before relying on it.&#10;  &#10;  &#10;assert (' (the cited source does not clearly support this — treat it as unconfirmed)' in 'Early conciliation is free and it usually lasts up to 8 weeks before you can go on to claim [1]. Call Acas today (the...so treat it as unconfirmed and check it on the official page, your papers or with an adviser before relying on it.\n\n' and 112 &lt; 97)&#10; +  where ' (the cited source does not clearly support this — treat it as unconfirmed)' = AI.QUALIFIER&#10; +  and   112 = &lt;built-in method index of str object at 0xaae4d2d4fbb0&gt;(' (the cited source does not clearly support this — treat it as unconfirmed)')&#10; +    where &lt;built-in method index of str object at 0xaae4d2d4fbb0&gt; = 'Early conciliation is free and it usually lasts up to 8 weeks before you can go on to claim [1]. Call Acas today (the...so treat it as unconfirmed and check it on the official page, your papers or with an adviser before relying on it.\n\n'.index&#10; +    and   ' (the cited source does not clearly support this — treat it as unconfirmed)' = AI.QUALIFIER&#10; +  and   97 = &lt;built-in method index of str object at 0xaae4d2d4fbb0&gt;('Call Acas')&#10; +    where &lt;built-in method index of str object at 0xaae4d2d4fbb0&gt; = 'Early conciliation is free and it usually lasts up to 8 weeks before you can go on to claim [1]. Call Acas today (the...so treat it as unconfirmed and check it on the official page, your papers or with an adviser before relying on it.\n\n'.index">def test_ai_qualifier_attached_to_the_claim_sentence_not_next_sentence():
+        out, rep = _pipeline("Early conciliation is free and it usually lasts up to 8 weeks before you can go on to claim [1]. "
+                             "Call Acas today.", "unsupported")
+&gt;       assert AI.QUALIFIER in out and out.index(AI.QUALIFIER) &lt; out.index("Call Acas"), out
+E       AssertionError: Early conciliation is free and it usually lasts up to 8 weeks before you can go on to claim [1]. Call Acas today (the cited source does not clearly support this — treat it as unconfirmed).
+E         
+E         **Source check:** a time period stated next to [1] was not found in that source's text, so treat it as unconfirmed and check it on the official page, your papers or with an adviser before relying on it.
+E         
+E         
+E       assert (' (the cited source does not clearly support this — treat it as unconfirmed)' in 'Early conciliation is free and it usually lasts up to 8 weeks before you can go on to claim [1]. Call Acas today (the...so treat it as unconfirmed and check it on the official page, your papers or with an adviser before relying on it.\n\n' and 112 &lt; 97)
+E        +  where ' (the cited source does not clearly support this — treat it as unconfirmed)' = AI.QUALIFIER
+E        +  and   112 = &lt;built-in method index of str object at 0xaae4d2d4fbb0&gt;(' (the cited source does not clearly support this — treat it as unconfirmed)')
+E        +    where &lt;built-in method index of str object at 0xaae4d2d4fbb0&gt; = 'Early conciliation is free and it usually lasts up to 8 weeks before you can go on to claim [1]. Call Acas today (the...so treat it as unconfirmed and check it on the official page, your papers or with an adviser before relying on it.\n\n'.index
+E        +    and   ' (the cited source does not clearly support this — treat it as unconfirmed)' = AI.QUALIFIER
+E        +  and   97 = &lt;built-in method index of str object at 0xaae4d2d4fbb0&gt;('Call Acas')
+E        +    where &lt;built-in method index of str object at 0xaae4d2d4fbb0&gt; = 'Early conciliation is free and it usually lasts up to 8 weeks before you can go on to claim [1]. Call Acas today (the...so treat it as unconfirmed and check it on the official page, your papers or with an adviser before relying on it.\n\n'.index
+
+tests/test_lex2_final_probe_iter55.py:247: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_multi_claim_sentence_period_check_is_per_marker" time="0.001"><failure message="AssertionError: [{'n': 1, 'status': 'uncertain', 'text': 'Early conciliation usually lasts up to 6 weeks and the time limit is 3 month...eeks and the time limit is 3 months less one day.', 'why': 'the time period stated was not found in the cited source'}]&#10;assert ['uncertain', 'uncertain'] == ['source_supp...ce_supported']&#10;  &#10;  At index 0 diff: 'uncertain' != 'source_supported'&#10;  Use -v to get more diff">def test_multi_claim_sentence_period_check_is_per_marker():
+        """'6 weeks [1] ... 3 months less one day [2]': each source supports its own period — neither should be 'uncertain'."""
+        src = [{"n": 1, "title": "EC", "url": "https://www.acas.org.uk/ec", "content": "Early conciliation usually lasts up to 6 weeks."},
+               {"n": 2, "title": "TL", "url": "https://www.acas.org.uk/tl", "content": "The time limit is 3 months less one day from dismissal."}]
+        out, rep = L.finalize_answer("Early conciliation usually lasts up to 6 weeks [1] and the time limit is 3 months less one day [2].",
+                                     citations=[{"n": s["n"], "url": s["url"]} for s in src], sources=src, research_status="ok",
+                                     risk="high", language="en", legal_question=True, nation="england")
+&gt;       assert [c["status"] for c in rep["claim_support"]] == ["source_supported", "source_supported"], rep["claim_support"]
+E       AssertionError: [{'n': 1, 'status': 'uncertain', 'text': 'Early conciliation usually lasts up to 6 weeks and the time limit is 3 month...eeks and the time limit is 3 months less one day.', 'why': 'the time period stated was not found in the cited source'}]
+E       assert ['uncertain', 'uncertain'] == ['source_supp...ce_supported']
+E         
+E         At index 0 diff: 'uncertain' != 'source_supported'
+E         Use -v to get more diff
+
+tests/test_lex2_final_probe_iter55.py:257: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_ai_qualifier_found_when_marker_inside_first_60_chars" time="0.001"><failure message="AssertionError: Early conciliation [1] usually lasts up to 8 weeks, and then the tribunal claim follows.&#10;assert (0 == 1)">def test_ai_qualifier_found_when_marker_inside_first_60_chars():
+        AI._cache.clear()
+    
+        async def ask(c, p):
+            return {"verdict": "unsupported", "why": ""}
+        text = "Early conciliation [1] usually lasts up to 8 weeks, and then the tribunal claim follows."
+        claim_text = "Early conciliation usually lasts up to 8 weeks, and then the tribunal claim follows."
+        cs = [{"n": 1, "status": "uncertain", "text": claim_text}]
+        out, rep = _run(_DB({"enabled": True}), text, cs, ask=ask)
+&gt;       assert rep["qualified"] == 1 and AI.QUALIFIER in out, out
+E       AssertionError: Early conciliation [1] usually lasts up to 8 weeks, and then the tribunal claim follows.
+E       assert (0 == 1)
+
+tests/test_lex2_final_probe_iter55.py:269: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_ai_failed_call_not_cached_or_charged" time="0.001"><failure message="AssertionError: a failed check was cached for 7 days, so it is never retried&#10;assert 1 == 2">def test_ai_failed_call_not_cached_or_charged():
+        AI._cache.clear()
+        n = {"c": 0}
+    
+        async def boom(c, p):
+            n["c"] += 1
+            raise RuntimeError("timeout")
+        cs = [{"n": 1, "status": "uncertain", "text": "Early conciliation usually lasts up to 8 weeks."}]
+        _run(_DB({"enabled": True}), "Early conciliation usually lasts up to 8 weeks [1].", [dict(c) for c in cs], ask=boom)
+        _run(_DB({"enabled": True}), "Early conciliation usually lasts up to 8 weeks [1].", [dict(c) for c in cs], ask=boom)
+&gt;       assert n["c"] == 2, "a failed check was cached for 7 days, so it is never retried"
+E       AssertionError: a failed check was cached for 7 days, so it is never retried
+E       assert 1 == 2
+
+tests/test_lex2_final_probe_iter55.py:282: AssertionError</failure></testcase><testcase classname="tests.test_lex2_final_probe_iter55" name="test_ai_never_described_as_professional" time="0.000" /><testcase classname="tests.test_lex2_final_probe_iter55" name="test_real_db_setting_absent_or_disabled" time="0.160" /></testsuite></testsuites>

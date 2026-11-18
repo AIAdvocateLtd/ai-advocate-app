@@ -156,7 +156,8 @@ class _DB:
         self.app_settings = _Coll(doc)
 
 
-UNC = [{"n": 2, "status": "uncertain", "text": "A section 173 notice needs two months' notice", "why": "x"}]
+UNC = [{"n": 2, "status": "uncertain", "text": "A section 173 notice needs two months' notice.", "why": "x",
+        "raw": "A section 173 notice needs two months' notice [2]."}]
 HS = {"level": "urgent"}
 
 
@@ -194,9 +195,9 @@ def test_ai_check_skips_low_stakes_and_supported_claims():
     db = _DB({"enabled": True})
     asyncio.run(AI.run(db, "x", list(UNC), SRC, {"level": "standard"}, False, ask))
     asyncio.run(AI.run(db, "x", [{**UNC[0], "status": "source_supported"}], SRC, HS, True, ask))
-    many = [{**UNC[0], "text": f"claim {i} two months"} for i in range(6)]
+    many = [{**UNC[0], "text": f"claim {i} two months", "raw": f"claim {i} two months [2]."} for i in range(6)]
     AI._cache.clear()
-    _, rep = asyncio.run(AI.run(db, "x", many, SRC, HS, True, ask))
+    _, rep = asyncio.run(AI.run(db, " ".join(c["raw"] for c in many), many, SRC, HS, True, ask))
     assert rep["checked"] == AI.MAX_CLAIMS and len(calls) == AI.MAX_CLAIMS
 
 

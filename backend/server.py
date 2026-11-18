@@ -2239,6 +2239,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         if auto_reminders and _HYPOTHETICAL_RE.search(data.message or ""):
             auto_reminders = []
             _dl_block += _HYPOTHETICAL_NOTE
+            juris["deadline_items"] = []
         system_msg = system_msg + _fact_pack_block(data.message, _ctx) + lex_guidance.block(
             data.message, _ctx, _juris_nation(juris) or user.get("jurisdiction"), provider, data.country) + _dl_block
     except Exception as e:
@@ -2458,6 +2459,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
         if auto_reminders and _HYPOTHETICAL_RE.search(data.message or ""):
             auto_reminders = []
             _dl_block += _HYPOTHETICAL_NOTE
+            juris["deadline_items"] = []
         system_msg = system_msg + _fact_pack_block(data.message, _ctx) + lex_guidance.block(
             data.message, _ctx, _juris_nation(juris) or user.get("jurisdiction"), provider, data.country) + _dl_block
     except Exception as e:
