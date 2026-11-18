@@ -92,7 +92,9 @@ def _et(c) -> List[Item]:
     j = (c.get("jurisdiction") or "").lower()
     ni_limit = _months_less_day(ev, 3)
     ni_text = (f"Northern Ireland industrial tribunal: act/dismissal on {fmt(ev)} → 3 months less one day ends {fmt(ni_limit)}. "
-               "Early conciliation is with the Labour Relations Agency (LRA), not ACAS, and must start by then."
+               "Early conciliation is with the Labour Relations Agency (LRA, 03300 552 220, lra.org.uk), not ACAS, and must start by "
+               "then. The Great Britain change to 6 months (Employment Rights Act 2025) does not apply to most Northern Ireland "
+               "industrial tribunal claims."
                + _month_end_note(ev, 3) + _closed_day_note(ni_limit, "northern_ireland"))
     if j.startswith("northern"):
         return [(ni_text, "Latest date to start LRA early conciliation", ni_limit),
@@ -108,10 +110,20 @@ def _et(c) -> List[Item]:
         safe = min(limit, ni_limit)
         return [(f"UK nation of the workplace not confirmed. {gb_text} {ni_text} Until confirmed, treat {fmt(safe)} as the "
                  "safe date.", "Latest date to start ACAS/LRA early conciliation (safe date)", safe)]
-    if months == 3 and limit >= date(2026, 10, 1):
-        gb_text += (" The limit rose to 6 months for matters from 1 October 2026; transitional rules may give this claim longer, "
-                    "so treat this as the safe date — if it has passed, do not assume the claim is out of time: contact ACAS and get "
-                    "advice urgently.")
+    if months == 3:
+        gb_text += (" The 6-month limit (Employment Rights Act 2025 s.152 and Sch.12, in force 1 October 2026 under SI 2026/954) "
+                    "does not apply where the act or dismissal was before 1 October 2026, so the 3-month limit applies to this "
+                    "date (a few claims, such as statutory redundancy pay and equal pay, already had 6 months).")
+    else:
+        gb_text += (" This uses the 6-month limit that applies where the act or dismissal is on or after 1 October 2026 "
+                    "(Employment Rights Act 2025 s.152 and Sch.12; SI 2026/954).")
+    if j.startswith("scot"):
+        bc = 6 if ev >= date(2026, 11, 9) else 3
+        gb_text += (f" Exception: a breach of contract claim in Scotland has {bc} months less one day for a breach on this date "
+                    "(the Scottish breach-of-contract change took effect on 9 November 2026, Acas).")
+    gb_text += (" If this is one of a series of deductions from wages, or conduct extending over a period (e.g. continuing "
+                "discrimination), time usually runs from the last deduction or the end of that period — which may be later and "
+                "may fall under a different limit; get advice.")
     out: List[Item] = [(gb_text, "Latest date to start ACAS Early Conciliation", limit)]
     a, b = _d(c.get("acas_date")), _d(c.get("certificate_date"))
     if a and a > limit:
@@ -389,8 +401,14 @@ def _parking(c) -> List[Item]:
         return [(f"Council PCN sent by post, dated {fmt(nd)}: the reduced rate is available for 21 days beginning with the date of "
                  f"service, which is after the date on the notice — SAFE WORKING DATE {fmt(last)}. Representations: within 28 days "
                  "of service.", "Parking PCN discount ends (safe date)", last)]
-    return [(f"Council PCN dated {fmt(nd)}: the app needs to know how it was served (left on the vehicle or sent by post) to "
-             "calculate the discount date — check the notice.", None, None)]
+    win, post = nd + timedelta(days=13), nd + timedelta(days=20)
+    return [(f"Council PCN dated {fmt(nd)}, service method not given: if it was fixed to the vehicle or handed over, the "
+             f"reduced (50%) rate ran for 14 days beginning with that date — SAFE WORKING DATE {fmt(win)}; if it was sent by post "
+             "(camera/CCTV), the 21 days run from the date of service, which is later than the date on the notice"
+             + ("" if j.startswith("scot") else f" — at least until {fmt(post)}") + ". Check how it arrived. Formal "
+             "representations are made within 28 days of a Notice to Owner (or of service of a postal PCN)."
+             + (f" ALREADY PASSED on the 'fixed to the vehicle' timing (today is {fmt(datetime.now(UK).date())}) — say so plainly; "
+                "the discount may also have ended if it was posted." if datetime.now(UK).date() > win else ""), None, None)]
 
 
 def _consumer(c) -> List[Item]:
@@ -427,6 +445,8 @@ Resolve relative dates ("last Friday", "next week", "3 weeks ago") using TODAY. 
 jurisdiction is one of england|wales|scotland|northern_ireland|unknown — the nation where the matter is (property / workplace /
 court). Use APP JURISDICTION if it is not "unknown"; otherwise use only what the user clearly states; if unclear use "unknown".
 Never guess a date that is not stated or clearly implied — leave the item out instead.
+Add "approx": true to an item when its trigger date was worked out from a relative or vague phrase ("3 weeks ago", "last month",
+"in August") rather than stated as a calendar date; otherwise "approx": false.
 Each date field must come from the customer's words about THAT event: acas_date only if they say they contacted/notified
 ACAS (or the LRA) and when; certificate_date only if they mention the certificate and its date; mrn_date only for a mandatory
 reconsideration notice. Never copy the dismissal/decision/notice date into another field — use null.
@@ -445,6 +465,72 @@ Reply ONLY with JSON: {"calcs": [ ... ]} — empty list if none. Allowed items:
 (service_date only if the customer quotes a date of service / "deemed served" date from the court papers; posted_date = date the claim was posted or sent; received_date = when it arrived)
 {"type":"parking_notice","notice_date":"YYYY-MM-DD","issuer":"council|private|unknown","served":"windscreen|post|unknown","jurisdiction":"..."}
 {"type":"consumer_purchase","kind":"faulty_goods|online_cancel|service_cancel","delivery_date":"YYYY-MM-DD|null","contract_date":"YYYY-MM-DD|null"}"""
+
+
+REVIEW_KINDS = {"court_claim": "court procedural deadline", "employment_tribunal": "tribunal limitation date"}
+_REL = re.compile(r"\b(?:(a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d{1,3})\s+(day|week|month|year)s?"
+                  r"\s+ago|yesterday|last (week|month))\b", re.I)
+_NUM = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+        "ten": 10, "eleven": 11, "twelve": 12}
+
+
+def relative_dates(text: str, today: date) -> List[str]:
+    """Deterministic reading of 'N weeks ago' style phrases (approximate — the customer should confirm the exact date)."""
+    out = []
+    for m in _REL.finditer(text or ""):
+        w = m.group(0).lower()
+        if w == "yesterday":
+            out.append(f"'yesterday' = {fmt(today - timedelta(days=1))}")
+            continue
+        if m.group(3):
+            span = {"week": (timedelta(days=13), timedelta(days=7)), "month": None}[m.group(3)]
+            if span:
+                out.append(f"'{w}' ≈ between {fmt(today - span[0])} and {fmt(today - span[1])}")
+            else:
+                last = today.replace(day=1) - timedelta(days=1)
+                out.append(f"'{w}' ≈ between {fmt(last.replace(day=1))} and {fmt(last)}")
+            continue
+        n, unit = _NUM.get(m.group(1).lower()) or int(m.group(1)), m.group(2).lower()
+        exact = today - {"day": relativedelta(days=n), "week": relativedelta(weeks=n), "month": relativedelta(months=n),
+                         "year": relativedelta(years=n)}[unit]
+        slack = {"day": 0, "week": 3, "month": 7, "year": 30}[unit]
+        out.append(f"'{w}' ≈ {fmt(exact)}" + (f" (could be a few days either side, {fmt(exact - timedelta(days=slack))} to "
+                                             f"{fmt(exact + timedelta(days=slack))})" if slack else ""))
+    return list(dict.fromkeys(out))[:4]
+
+
+def annotate(kind: str, items: List[Item], today: date, approx: bool) -> List[Item]:
+    out = []
+    for text, title, d in items:
+        if d and d < today:
+            text += (f" ALREADY PASSED: this date was {(today - d).days} day(s) ago (today is {fmt(today)}). Say so plainly — "
+                     "do not present it as a future deadline — and explain what may still be possible"
+                     + (" (a tribunal can sometimes accept a late claim — 'not reasonably practicable' for unfair dismissal, "
+                        "'just and equitable' for discrimination — never say the claim is definitely out of time; contact "
+                        "ACAS/LRA and get advice urgently)" if kind == "employment_tribunal" else
+                        " (the full charge now applies unless the council re-offers the discount; challenge rights may remain)"
+                        if kind == "parking_notice" else "") + ".")
+        elif d and (d - today).days <= 7:
+            text += f" URGENT: only {(d - today).days} day(s) left (today is {fmt(today)}) — say this prominently."
+        if approx and d:
+            text += " This is based on an APPROXIMATE date worked out from the customer's wording — ask for the exact date."
+        if kind in REVIEW_KINDS and d:
+            text += (f" INDEPENDENT CHECK: this is a high-risk {REVIEW_KINDS[kind]} worked out by the app — tell the customer to "
+                     "have it confirmed by the court/tribunal, Acas/LRA, or a solicitor or adviser before relying on it.")
+        out.append((text, title, d))
+    return out
+
+
+def compute_annotated(calcs: list, today: date) -> List[Item]:
+    items: List[Item] = []
+    for c in calcs[:6]:
+        fn = CALCS.get((c or {}).get("type"))
+        if fn:
+            try:
+                items += annotate(c["type"], fn(c), today, str(c.get("approx")).lower() == "true")
+            except Exception as e:
+                logger.warning(f"deadline calc failed for {c}: {e!r}")
+    return items
 
 
 def compute(calcs: list) -> List[Item]:
@@ -484,7 +570,11 @@ async def build_deadlines(message: str, context: str, api_key: str, jurisdiction
     facts += ("Each date belongs only to the event it is stated for. Never say the customer contacted ACAS, received a "
               "certificate, appealed, asked for reconsideration or submitted a claim — or give a date for it — unless they "
               "said so. If an important date is missing or unclear, ask for it.\n")
-    items = compute(calcs)
+    rel = relative_dates(message, today)
+    if rel:
+        facts += ("RELATIVE DATES (approximate, worked out by the app from today's date): " + "; ".join(rel) +
+                  ". Use these only as approximate dates and ask the customer for the exact date before relying on a deadline.\n")
+    items = compute_annotated(calcs, today)
     if not items:
         return NO_CALC_BLOCK + facts, []
     block = ("\n\nEXACT DATES CALCULATED BY THE APP — use these dates exactly, do not recalculate or round them. "

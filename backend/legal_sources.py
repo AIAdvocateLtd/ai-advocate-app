@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 LEG = "https://www.legislation.gov.uk"
 TNA = "https://caselaw.nationalarchives.gov.uk"
 UA = {"User-Agent": "AIAdvocate/1.0 (+https://aiadvocate.co.uk; support@aiadvocate.co.uk)"}
-ACT_TTL, STATUS_TTL, FAIL_TTL = 7 * 86400, 6 * 3600, 300
-MAX_REFS, TIMEOUT, TEXT_CAP = 6, 6.0, 4000
+ACT_TTL, STATUS_TTL, FAIL_TTL = 3 * 86400, 6 * 3600, 300
+MAX_REFS, MAX_SIS, TIMEOUT, TEXT_CAP = 6, 4, 6.0, 4000
 EXTENT = {"england": "E", "wales": "W", "scotland": "S", "northern_ireland": "N"}
 NATION_LABEL = {"england": "England", "wales": "Wales", "scotland": "Scotland", "northern_ireland": "Northern Ireland"}
 OGL = "Contains public sector information licensed under the Open Government Licence v3.0."
@@ -26,6 +26,9 @@ NAMES = {"E": "England", "W": "Wales", "S": "Scotland", "N": "Northern Ireland"}
 _LEAD = {"Under", "The", "See", "Section", "Sections", "Part", "Schedule", "In", "By", "And", "Per", "S", "Ss", "Your",
          "This", "That", "Their", "Its", "Our", "If", "As", "Both", "Also"}
 _SENT = re.compile(r"(?<=[.!?])\s+|\n")
+_SIW = r"(?:[A-Z][A-Za-z'’\-]+|\([A-Z][A-Za-z0-9 .,'’\-]+\)|No\.\s?\d+|(?:18|19|20)\d{2})"
+_SI_RE = re.compile(rf"\b({_SIW}(?:\s+(?:{_SIW}|of|and|the|for|to|in|on|from|with))*\s+(?:Regulations|Order|Rules))\s+((?:19|20)\d{{2}})\b")
+_SI_NUM = re.compile(r"\bS\.?\s?I\.?\s?((?:19|20)\d{2})/(\d{1,4})\b")
 
 
 def _get(key):
@@ -45,14 +48,76 @@ async def _fetch(url: str) -> Tuple[int, str]:
 
 
 def _norm_title(t: str) -> str:
-    return re.sub(r"\s+", " ", (t or "").replace("’", "'")).strip().lower()
+    return re.sub(r"^the ", "", re.sub(r"\s+", " ", (t or "").replace("’", "'")).strip().lower())
+
+
+def _entry_title(e: str) -> Optional[str]:
+    """Plain or bilingual (xhtml) feed title — Welsh legislation uses <span xml:lang="en">."""
+    en = re.search(r'<span xml:lang="en">([^<]*)</span>', e)
+    t = en or re.search(r"<title>([^<]*)", e)
+    return re.sub(r"\s+", " ", t.group(1)).strip() if t else None
+
+
+def extract_sis(text: str) -> List[dict]:
+    """Statutory instrument references ('… Regulations 2021', 'SI 2026/954'). Capped at MAX_SIS."""
+    out, seen = [], set()
+    for m in _SI_RE.finditer(text or ""):
+        words = m.group(1).split()
+        while len(words) > 2 and (words[0] in _LEAD or words[0].lower() in ("of", "and", "the")):
+            words = words[1:]
+        title = " ".join(words)
+        if title.split()[0] in ("Immigration", "Civil", "Criminal", "Family") and len(words) <= 3 and title.endswith("Rules"):
+            continue  # 'Immigration Rules', 'Civil Procedure Rules' — rule books, not looked up by title
+        key = (title.lower(), m.group(2))
+        if key not in seen:
+            seen.add(key)
+            out.append({"si": title, "year": m.group(2), "label": f"{title} {m.group(2)}", "anchor": m.group(0)})
+    for m in _SI_NUM.finditer(text or ""):
+        key = ("#", m.group(1), m.group(2))
+        if key not in seen:
+            seen.add(key)
+            out.append({"si_num": f"{m.group(1)}/{m.group(2)}", "year": m.group(1), "label": f"SI {m.group(1)}/{m.group(2)}",
+                        "anchor": m.group(0)})
+    return out[:MAX_SIS]
+
+
+async def check_si(ref: dict) -> dict:
+    """Existence only: legislation.gov.uk lists an instrument with this exact title (or number)."""
+    res = {**ref, "verdict": "lookup_failed", "url": ""}
+    key = f"si:{_norm_title(ref['label'])}"
+    hit = _get(key)
+    if hit is not None:
+        return {**res, **hit}
+    try:
+        if ref.get("si_num"):
+            y, n = ref["si_num"].split("/")
+            code, body = await _fetch(f"{LEG}/uksi/{y}/{n}/introduction/made/data.xml")
+            if code not in (200, 404):
+                raise RuntimeError(f"si {code}")
+            t = re.search(r"<dc:title>([^<]*)", body or "")
+            found = {"verdict": "si_exists", "url": f"{LEG}/uksi/{y}/{n}",
+                     "official_title": t.group(1).strip() if t else ref["label"]} if code == 200 else {"verdict": "not_found"}
+            return {**res, **_put(key, found, ACT_TTL)}
+        code, body = await _fetch(f"{LEG}/secondary/{ref['year']}/data.feed?title={quote(ref['si'])}")
+        if code != 200:
+            raise RuntimeError(f"secondary feed {code}")
+        for e in re.findall(r"<entry>(.*?)</entry>", body, re.S):
+            t = _entry_title(e)
+            i_d = re.search(r"<id>https?://www\.legislation\.gov\.uk/id/([^<]+)</id>", e)
+            if t and i_d and _norm_title(t) == _norm_title(ref["label"]):
+                return {**res, **_put(key, {"verdict": "si_exists", "url": f"{LEG}/{i_d.group(1)}", "official_title": t}, ACT_TTL)}
+        return {**res, **_put(key, {"verdict": "not_found"}, ACT_TTL)}
+    except Exception as e:
+        logger.info(f"SI check failed for {ref.get('label')}: {e!r}")
+        return res
 
 
 def extract_refs(text: str) -> List[dict]:
     """Act + section references, paired within a sentence. Capped at MAX_REFS."""
     out, seen = [], set()
     for sent in _SENT.split(text or ""):
-        acts = list(_ACT_RE.finditer(sent))
+        spans = [m.span() for m in _SI_RE.finditer(sent)]
+        acts = [a for a in _ACT_RE.finditer(sent) if not any(s0 <= a.start() < s1 for s0, s1 in spans)]
         if not acts:
             continue
         secs = list(_SEC_RE.finditer(sent))
@@ -87,10 +152,10 @@ async def resolve_act(title: str, year: str) -> Optional[dict]:
         if code != 200:
             raise RuntimeError(f"legislation feed {code}")
         for e in re.findall(r"<entry>(.*?)</entry>", body, re.S):
-            t = re.search(r"<title>([^<]*)", e)
+            t = _entry_title(e)
             i_d = re.search(r"<id>https?://www\.legislation\.gov\.uk/id/([^<]+)</id>", e)
-            if t and i_d and _norm_title(t.group(1)) == _norm_title(f"{cand} {year}"):
-                return _put(key, {"id": i_d.group(1), "title": re.sub(r"\s+", " ", t.group(1)).strip()}, ACT_TTL)
+            if t and i_d and _norm_title(t) == _norm_title(f"{cand} {year}"):
+                return _put(key, {"id": i_d.group(1), "title": t}, ACT_TTL)
     _put(key, {}, ACT_TTL)
     return None
 
@@ -263,8 +328,12 @@ async def check_answer(text: str, nation: Optional[str], citations: List[dict], 
     """Status-checks every Act/section Lex cites. Problems are qualified inline (chat) and explained in a note;
     in-force sections become 'status checked' citations. Never marks the *claim* as verified."""
     t0 = time.monotonic()
-    refs = extract_refs(text)
+    refs, si_refs = extract_refs(text), extract_sis(text)
     results = await check_refs(refs, nation)
+    try:
+        si_results = list(await asyncio.wait_for(asyncio.gather(*[check_si(r) for r in si_refs]), timeout=TIMEOUT))
+    except asyncio.TimeoutError:
+        si_results = [{**r, "verdict": "lookup_failed", "url": ""} for r in si_refs]
     out, lines = reconcile(text, results, document)
     next_n = max([int(c.get("n", 0)) for c in citations or []] + [0]) + 1
     for r in results:
@@ -281,6 +350,24 @@ async def check_answer(text: str, nation: Optional[str], citations: List[dict], 
                               + " — does not confirm Lex's interpretation)",
                               "url": r["url"], "source": "legislation", "claim_check": "status_checked"})
             next_n += 1
+    for r in si_results:
+        if r["verdict"] == "not_found":
+            lines.append(f"“{r['label']}” could not be found on legislation.gov.uk under that title, so it was removed from "
+                         "the sources list — treat it as unverified.")
+            if not document and r["anchor"] in out:
+                out = out.replace(r["anchor"], f"{r['anchor']} [⚠ see legislation check]", 1)
+        elif r["verdict"] == "lookup_failed":
+            lines.append(f"“{r['label']}” could not be checked against legislation.gov.uk just now — treat it as unverified.")
+        elif r.get("url") and not any((c.get("url") or "").rstrip("/") == r["url"] for c in citations):
+            citations.append({"n": next_n, "title": f"{r.get('official_title') or r['label']} — legislation.gov.uk (existence "
+                              "checked only — not whether it is in force, amended or applies to your situation)",
+                              "url": r["url"], "source": "legislation", "claim_check": "status_checked"})
+            next_n += 1
+    gone = [r["anchor"].lower() for r in results if r["verdict"] == "not_found"] + \
+        [r["label"].lower() for r in si_results if r["verdict"] == "not_found"]
+    if gone:
+        import lex_safety
+        out, _ = lex_safety.prune_sources_line(out, lambda i: any(g in i.lower() for g in gone))
     case_results = await check_case_citations(out)
     for c in case_results:
         if c["verdict"] in ("not_found", "lookup_failed"):
@@ -290,7 +377,7 @@ async def check_answer(text: str, nation: Optional[str], citations: List[dict], 
     if lines:
         head = "Notes for you — not part of the letter" if document else "Legislation check (legislation.gov.uk)"
         block = f"\n\n**{head}:**\n" + "\n".join(f"- {ln}" for ln in lines) + f"\n_{OGL}_"
-        if any(r["verdict"] in BAD | {"lookup_failed"} for r in results) or "Find Case Law" in block:
+        if any(r["verdict"] in BAD | {"lookup_failed"} for r in results + si_results) or "Find Case Law" in block:
             out = re.sub(r"\[CONFIDENCE:\s*HIGH\]", "[CONFIDENCE: MEDIUM]", out)
         if document:
             out = out.rstrip() + "\n\n-----" + block
@@ -300,7 +387,8 @@ async def check_answer(text: str, nation: Optional[str], citations: List[dict], 
     rep = {"refs": len(refs), "verdicts": [r["verdict"] for r in results], "urls": [r["url"] for r in results if r.get("url")],
            "results": [{"act": r.get("act"), "year": r.get("year"), "section": r.get("section"), "verdict": r["verdict"],
                         "url": r.get("url")}
-                       for r in results], "cases": case_results, "ms": int((time.monotonic() - t0) * 1000)}
+                       for r in results], "cases": case_results,
+           "statutory_instruments": [{"label": r["label"], "verdict": r["verdict"], "url": r.get("url")} for r in si_results], "ms": int((time.monotonic() - t0) * 1000)}
     return out, rep
 
 

@@ -71,6 +71,7 @@ if SENTRY_DSN:
 from app_crypto import encrypt_text, decrypt_text, encrypt_bytes, decrypt_bytes, is_enabled as crypto_enabled  # noqa: E402
 import official_guidance  # noqa: E402
 import date_guard  # noqa: E402
+import lex_guidance  # noqa: E402
 from deadline_calc import build_deadlines, deadline_iso, deadline_label, NO_CALC_BLOCK, _HINT_RE as _DEADLINE_CALC_HINT_RE  # noqa: E402
 import legal_sources  # noqa: E402
 from lex_lessons import fact_pack_block as _fact_pack_block, lessons_block as _lessons_block, refresh_if_stale as _lessons_refresh_if_stale  # noqa: E402
@@ -1095,7 +1096,7 @@ ANSWER QUALITY:
 STRUCTURED METADATA (MANDATORY — these go at the END of every answer, after the disclaimer, each on its own line, exactly in this format):
 
 [CONFIDENCE: HIGH]   ← or MEDIUM or LOW. Always include.
-[SOURCES: s.13 Consumer Rights Act 2015; Housing Act 2004 s.213; Smith v Jones [2019] EWCA Civ 123]   ← Semicolon-separated list of statutes / cases / regulations you cited. Include only those you actually referenced. Use "—" if you cited no specific law (rare).
+[SOURCES: s.13 Consumer Rights Act 2015; Housing Act 2004 s.213; ParkingEye Ltd v Beavis [2015] UKSC 67]   ← Semicolon-separated list of statutes / cases / regulations you cited. Include only those you actually referenced. Use "—" if you cited no specific law (rare).
 [CONNECTED_TO: previous topic title]   ← OPTIONAL. Include ONLY if your answer genuinely references one of the user's PRIOR cases (from the RECENT CASES list). Otherwise OMIT this line entirely. Topic should be 3-7 words.
 
 These three markers MUST appear on three separate lines at the very end. They are parsed by the app — any deviation breaks the UI. Do not add anything after them.
@@ -2220,7 +2221,8 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         if auto_reminders and _HYPOTHETICAL_RE.search(data.message or ""):
             auto_reminders = []
             _dl_block += _HYPOTHETICAL_NOTE
-        system_msg = system_msg + _fact_pack_block(data.message, _ctx) + _dl_block
+        system_msg = system_msg + _fact_pack_block(data.message, _ctx) + lex_guidance.block(
+            data.message, _ctx, _juris_nation(juris) or user.get("jurisdiction"), provider, data.country) + _dl_block
     except Exception as e:
         logger.warning(f"Deadline block failed: {e}")
 
@@ -2434,7 +2436,8 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
         if auto_reminders and _HYPOTHETICAL_RE.search(data.message or ""):
             auto_reminders = []
             _dl_block += _HYPOTHETICAL_NOTE
-        system_msg = system_msg + _fact_pack_block(data.message, _ctx) + _dl_block
+        system_msg = system_msg + _fact_pack_block(data.message, _ctx) + lex_guidance.block(
+            data.message, _ctx, _juris_nation(juris) or user.get("jurisdiction"), provider, data.country) + _dl_block
     except Exception as e:
         logger.warning(f"Deadline block failed: {e}")
 
@@ -2641,7 +2644,8 @@ async def lex_taster(req: Request, data: TasterMessage):
     safety_ctx = (research.get("block") or "") + lex_safety.research_block(research["status"], risk, lex_safety.topics_of(text)) \
         + juris.get("block", "") + high_stakes.prompt_block(_hs, bool(_juris_nation(juris)), data.country) \
         + legal_reasoning.prompt_block(legal_reasoning.depth(text, "", _hs, False), False, high_stakes.is_high(_hs)) \
-        + _fact_pack_block(text, "") + (NO_CALC_BLOCK if _DEADLINE_CALC_HINT_RE.search(text) else "")
+        + _fact_pack_block(text, "") + lex_guidance.block(text, "", _juris_nation(juris), None, data.country) \
+        + (NO_CALC_BLOCK if _DEADLINE_CALC_HINT_RE.search(text) else "")
     try:
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,

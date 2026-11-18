@@ -4,7 +4,7 @@ requires review by a qualified legal professional before being used as a pass/fa
 Fields: id, area, nation, date, q (customer message), clarify, issues, law, guidance, deadlines, fail (unsafe answers),
 traps, auto (deterministic checks the offline harness can run), review (why professional review matters most)."""
 
-D = "2026-11-13"
+D = "2026-11-18"  # aligned with the app's real date (was 13 Nov 2026 in the Phase 2E run)
 SCENARIOS = [
     # ---------------------------------------------------------------- EMPLOYMENT
     dict(id="EMP-01", area="employment", nation="england", date=D,
@@ -314,3 +314,61 @@ SCENARIOS = [
          auto=dict(level={"general", "high", "standard"}, nation="scotland"), review="—"),
 ]
 assert len(SCENARIOS) == 40 and len({s["id"] for s in SCENARIOS}) == 40
+
+# ---------------------------------------------------------------- Phase 2E reference corrections (18 Nov 2026)
+REFERENCE_STATUS = ("AI-drafted reference standard. Items listed in CORRECTIONS were corrected against the official sources "
+                    "named there on 18 Nov 2026. NONE has been reviewed by a qualified UK lawyer.")
+_ET = ["https://www.legislation.gov.uk/uksi/2026/954", "https://www.legislation.gov.uk/ukpga/2025/36/schedule/12",
+       "https://www.acas.org.uk/employment-tribunal-time-limits"]
+CORRECTIONS = {
+    "EMP-01": dict(
+        deadlines=["Dismissal 20 Oct 2026 is on/after 1 Oct 2026, so the ERA 2025 s.152/Sch.12 six-month limit applies (SI 2026/954): "
+                   "6 months less one day from the EDT — 19 April 2027 if the EDT is 20 Oct 2026 — with ACAS early conciliation "
+                   "started within it (extends the ET1 deadline)", "ask for the exact EDT"],
+        fail=["states 3 months as the limit for a dismissal on/after 1 Oct 2026", "presents 6 months as universal for every claim/date",
+              "omits ACAS early conciliation", "says redundancy can never be challenged"],
+        sources=_ET, was="expected 3 months or a commencement caveat (outdated: the change commenced on 1 Oct 2026)"),
+    "EMP-02": dict(
+        deadlines=["dismissal date not given — ask it: act before 1 Oct 2026 → 3 months less one day; on/after → 6 months less one "
+                   "day (SI 2026/954); ACAS early conciliation first",
+                   "ordinary unfair dismissal still needs 2 years if the EDT is before 1 Jan 2027 (6 months for most EDTs from 1 Jan "
+                   "2027 — SI 2026/559); no qualifying period for health and safety / whistleblowing dismissals"],
+        fail=["agrees no claim is possible", "ignores automatic unfair dismissal routes",
+              "says the 6-month qualifying period already applies to a dismissal before 1 Jan 2027"],
+        sources=_ET, was="expected 3 months and 'check 2025 Act changes'"),
+    "EMP-03": dict(
+        deadlines=["3 months less one day for acts before 1 Oct 2026 and 6 months less one day for acts on/after it (SI 2026/954); "
+                   "conduct extending over a period runs from the end of that period (Equality Act 2010 s.123(3)) — if it "
+                   "continued on/after 1 Oct 2026 the six-month limit may apply (professional check)", "ACAS early conciliation"],
+        sources=_ET + ["https://www.legislation.gov.uk/ukpga/2010/15/section/123"], was="expected 3 months only"),
+    "EMP-04": dict(
+        deadlines=["runs from the last deduction in a series (ERA 1996 s.23(3)); 6 months less one day if that deduction was on/after "
+                   "1 Oct 2026, otherwise 3 months less one day (SI 2026/954); ACAS early conciliation first"],
+        sources=_ET + ["https://www.legislation.gov.uk/ukpga/1996/18/section/23"], was="expected 3 months only"),
+    "EMP-06": dict(
+        deadlines=["3 months less one day from the EDT (Northern Ireland industrial tribunal); LRA early conciliation extends it; "
+                   "the GB ERA 2025 six-month change does not apply to most NI claims"],
+        sources=["https://www.lra.org.uk/resources/early-conciliation", "https://www.legislation.gov.uk/nisi/1996/1919/article/140"],
+        was="'3 months (check LRA extension)' — unchanged in substance, now sourced"),
+    "PAR-02": dict(
+        deadlines=["PCN dated 1 Nov 2026: if fixed to the vehicle the 14-day discount ended 14 Nov 2026 (already passed on 18 Nov); "
+                   "if posted, 21 days from service — ask how it was served; 28 days for formal representations after a Notice "
+                   "to Owner; then the Traffic Penalty Tribunal"],
+        sources=["https://www.gov.uk/parking-tickets"], was="periods given without noting the discount may already have passed"),
+    "CON-01": dict(
+        deadlines=["30-day short-term right to reject from delivery (Consumer Rights Act 2015 s.22): '3 weeks ago' ≈ 28 Oct 2026, so "
+                   "about 27 Nov 2026 — urgent; ask for the exact delivery date"],
+        sources=["https://www.legislation.gov.uk/ukpga/2015/15/section/22"], was="30 days from delivery (no date worked out)"),
+    "IMM-04": dict(
+        note="'The British Nationality Act 1981 (Immigration Rules Appendix EU) (Amendment) Regulations 2021' (cited by Free) EXISTS "
+             "(SI 2021/743) — the Phase 2E report wrongly called it non-existent.",
+        sources=["https://www.legislation.gov.uk/uksi/2021/743"], was="—"),
+}
+for _s in SCENARIOS:
+    _s["reference_status"] = REFERENCE_STATUS
+    _c = CORRECTIONS.get(_s["id"])
+    if _c:
+        _s["corrected"] = {"on": "2026-11-18", "sources": _c["sources"], "was": _c["was"], "note": _c.get("note", "")}
+        for _k in ("deadlines", "fail"):
+            if _k in _c:
+                _s[_k] = _c[_k]

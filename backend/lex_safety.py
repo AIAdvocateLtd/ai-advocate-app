@@ -182,9 +182,18 @@ _URL = re.compile(r"https?://[^\s)\]>\"'<]+")
 _NUM_MARK = re.compile(r"\s?\[(\d{1,2}(?:\s*[,\u2013-]\s*\d{1,2})*)\](?!\()")
 _ACT = re.compile(r"\b((?:[A-Z][A-Za-z'’]+|of|and|the|\(\w+\))(?:\s+(?:[A-Z][A-Za-z'’]+|of|and|the|\([A-Za-z ]+\)))*\s+Act)\s+((?:19|20)\d{2})")
 _SECTION = re.compile(r"\b(?:section|s\.?)\s?(\d{1,4}[A-Z]?)\b", re.I)
-_NEUTRAL = re.compile(r"\[(?:19|20)\d{2}\]\s+(?:UKSC|UKHL|UKPC|EWCA|EWHC|EWFC|EWCOP|UKUT|UKFTT|UKEAT|EAT|CSIH|CSOH|HCJAC|"
-                      r"NICA|NIQB|NIKB|NICh|NIFam|AC|QB|KB|Ch|Fam|WLR|ICR|IRLR|HLR|All ER)\b[^\n;]{0,20}")
-_CASE_NAME = re.compile(r"\b([A-Z][A-Za-z'&.\-]+(?:\s[A-Z][A-Za-z'&.\-]+){0,3})\s+v\.?\s+([A-Z][A-Za-z'&.\-]+(?:\s[A-Z][A-Za-z'&.\-]+){0,3})")
+_SERIES = (r"(?:UKSC|UKHL|UKPC|EWCA|EWHC|EWFC|EWCOP|UKUT|UKFTT|UKEAT|EAT|CSIH|CSOH|HCJAC|NICA|NIQB|NIKB|NICh|NIFam|AC|QB|KB|"
+           r"Ch|Fam|WLR|ICR|IRLR|HLR|All ER|Lloyd's Rep|Med LR|PIQR|BMLR|FLR|EGLR|SLT|SC)")
+_DIV = r"(?:Civ|Crim|Admin|QB|KB|Ch|Fam|Comm|TCC|Pat|IPEC|IAC|AAC|LC|Exch)"
+_ONE_CITE = (rf"[\[(](?:18|19|20)\d{{2}}[\])]\s+(?:\d{{1,2}}\s+)?{_SERIES}(?:\s+{_DIV})?(?:\s+[A-Z]?\d{{1,5}})?"
+             rf"(?:\s*\({_DIV}\))?(?:\s*,\s*\d{{1,4}})?")
+_CASE_ID = r"[\[(]UKSC\s\d{4}/\d{2,4}[\])]"
+_NEUTRAL_CORE = rf"(?:{_ONE_CITE}(?:\s*[;,]\s*{_ONE_CITE})*|{_CASE_ID})"
+_NEUTRAL = re.compile(_NEUTRAL_CORE)
+_PW = r"(?:[A-Z][A-Za-z'&.\-]*|\([A-Z][A-Za-z ]{1,30}\))"
+_SIDE = rf"{_PW}(?:(?:\s(?:of|and|the|for|&))*\s{_PW}){{0,6}}"
+_LEADS = r"(?!(?:In|The|See|Under|Following|As|After|Per|Since|Like|Unlike|And|But|Also|Cases?|Applying|Per|Under)\b)"
+_CASE_NAME = re.compile(rf"\b{_LEADS}({_SIDE})\s+v\.?\s+({_SIDE})")
 
 
 def _norm(url: str) -> str:
@@ -238,28 +247,55 @@ def _guidance_supported(sentence: str, src: str) -> bool:
 
 _CASE_STOP = {"england", "wales", "scotland", "ireland", "plus", "pro", "free", "employer", "employee", "landlord", "tenant",
               "the", "and", "you", "your", "court"}
-_NEUTRAL_CORE = (r"\[(?:19|20)\d{2}\]\s+(?:UKSC|UKHL|UKPC|EWCA|EWHC|EWFC|EWCOP|UKUT|UKFTT|UKEAT|EAT|CSIH|CSOH|HCJAC|NICA|NIQB|"
-                 r"NIKB|NICh|NIFam|AC|QB|KB|Ch|Fam|WLR|ICR|IRLR|HLR|All ER)(?:\s+(?:Civ|Crim|Admin|QB|KB|Ch|Fam|Comm|TCC|Pat|IPEC|IAC|AAC|LC))?"
-                 r"(?:\s+\d{1,5})?(?:\s*\((?:Civ|Crim|Admin|QB|KB|Ch|Fam|Comm|TCC|IPEC|IAC|AAC|LC)\))?")
+_NAME_STOP = {"ltd", "limited", "plc", "llp", "co", "bv", "sa", "inc", "anor", "ors", "the", "of", "and", "for", "&", "r", "mr",
+              "mrs", "ms", "council", "secretary", "state", "chief", "constable", "london", "borough", "city", "group"}
 _CASE_REF = re.compile(rf"(?P<name>{_CASE_NAME.pattern})(?:\s*,?\s*(?P<cite>{_NEUTRAL_CORE}))?|(?P<solo>{_NEUTRAL_CORE})")
+REMOVED_CASE = "a court decision (reference removed — it could not be verified against a trusted source)"
+_ORPHAN = re.compile(rf"({re.escape(REMOVED_CASE)})(?:\s*[,;]?\s*[\[(](?:18|19|20)\d{{2}}[\])](?:\s+\d{{1,2}})?"
+                     rf"(?:\s+[A-Z][A-Za-z']{{1,6}}(?:\s[A-Z][a-z]{{1,5}})?)?(?:\s+\d{{1,5}})?)+")
 
 
-def guard_case_refs(text: str, all_src: str, customer_text: str) -> Tuple[str, int, int]:
-    """Court decisions no trusted retrieved source supports: removed when Lex introduced them; kept but labelled
-    'unverified' when the customer quoted them (so Lex can say it could not confirm the case)."""
-    cust, src, counts, seen = (customer_text or "").lower(), (all_src or "").lower(), [0, 0], set()
+def _sig(side: str) -> List[str]:
+    words = re.findall(r"[a-z0-9']+", re.sub(r"[()]", " ", side.lower()))
+    return [w for w in words if w not in _NAME_STOP and len(w) > 1]
+
+
+def _pair_in(src: str, a: List[str], b: List[str]) -> bool:
+    """Both parties named together as 'A … v … B' in one source passage — separate mentions do not count."""
+    return any(re.search(rf"\b{re.escape(x)}\b[^\n]{{0,60}}?\bv\.?\s[^\n]{{0,60}}?\b{re.escape(y)}\b", src)
+               for x in a[:3] for y in b[:3])
+
+
+def guard_case_refs(text: str, all_src: str, customer_text: str) -> Tuple[str, int, int, list]:
+    """Court decisions are kept when a retrieved source names them (both parties together, or the citation), or when they
+    are on the app's sourced landmark list with a matching citation. Unsupported ones Lex introduced are removed (with any
+    citation fragments); customer-quoted ones are kept but labelled 'unverified'. Returns (text, removed, labelled, landmarks)."""
+    import landmark_cases
+    cust, src, counts, seen, marks = (customer_text or "").lower(), (all_src or "").lower(), [0, 0], set(), []
 
     def repl(m):
         ref = m.group(0)
-        cite = (m.group("cite") or m.group("solo") or "").lower()
+        cite = (m.group("cite") or m.group("solo") or "")
+        lcite = re.sub(r"\s+", " ", cite.lower())
         if m.group("name"):
-            a, b = m.group(2).lower().split()[-1], m.group(3).lower().split()[-1]
-            if {a, b} & _CASE_STOP or len(a) < 3:
+            a, b = _sig(m.group(2)), _sig(m.group(3))
+            if not a or not b or {a[-1], b[-1]} & _CASE_STOP:
                 return ref
-            supported = (a in src and b in src) or (cite and cite in src)
-            quoted = f"{a} v" in cust or (cite and cite in cust)
+            entry = landmark_cases.find(m.group(2), m.group(3))
+            if entry and landmark_cases.cite_matches(entry, cite):
+                if entry not in marks:
+                    marks.append(entry)
+                return ref
+            if entry:  # genuine case, wrong citation: keep the name, drop the citation
+                counts[0] += 1
+                if entry not in marks:
+                    marks.append(entry)
+                return ref[:ref.find(cite)].rstrip(" ,") if cite else ref
+            supported = _pair_in(src, a, b) or bool(lcite and lcite in src)
+            quoted = _pair_in(cust, a, b) or bool(lcite and lcite in cust)
         else:
-            supported, quoted = cite in src, cite in cust
+            supported, quoted = lcite in src, lcite in cust
+            supported = supported or any(x.lower() == lcite for e in landmark_cases.CASES for x in e[3])
         if supported:
             return ref
         if quoted:
@@ -269,9 +305,26 @@ def guard_case_refs(text: str, all_src: str, customer_text: str) -> Tuple[str, i
             counts[1] += 1
             return ref + " (unverified case reference — not found in any trusted source)"
         counts[0] += 1
-        return "a court decision (reference removed — it could not be verified against a trusted source)"
+        return REMOVED_CASE
 
-    return _CASE_REF.sub(repl, text or ""), counts[0], counts[1]
+    out = _ORPHAN.sub(r"\1", _CASE_REF.sub(repl, text or ""))
+    return out, counts[0], counts[1], marks
+
+
+_SOURCES_LINE = re.compile(r"^(\s*\[SOURCES:\s*)(.*?)(\]\s*)$", re.M)
+
+
+def prune_sources_line(text: str, drop) -> Tuple[str, int]:
+    """Removes SOURCES-line entries for which drop(entry) is true; '—' if none remain."""
+    n = 0
+
+    def fix(m):
+        nonlocal n
+        items = [i.strip() for i in m.group(2).split(";") if i.strip()]
+        keep = [i for i in items if not drop(i)]
+        n += len(items) - len(keep)
+        return m.group(1) + ("; ".join(keep) or "—") + m.group(3)
+    return _SOURCES_LINE.sub(fix, text or ""), n
 
 
 def verify_citations(text: str, citations: List[dict], sources: List[dict], customer_text: str = "") -> Tuple[str, dict]:
@@ -333,7 +386,17 @@ def verify_citations(text: str, citations: List[dict], sources: List[dict], cust
         key = ref.lower()[:40] if m.re is _NEUTRAL else m.group(1).lower().split()[-1]
         if key not in all_src and ref not in rep["unverified_case_refs"]:
             rep["unverified_case_refs"].append(ref)
-    out, rep["case_refs_removed"], rep["case_refs_labelled"] = guard_case_refs(out, all_src, customer_text)
+    out, rep["case_refs_removed"], rep["case_refs_labelled"], marks = guard_case_refs(out, all_src, customer_text)
+    out, rep["sources_line_pruned"] = prune_sources_line(out, lambda i: "reference removed" in i)
+    import landmark_cases
+    rep["landmark_cases"] = [e[2] for e in marks]
+    rep["unverified_case_refs"] = [r for r in rep["unverified_case_refs"]
+                                   if not any(e[0] in r.lower() or e[1] in r.lower() for e in marks)]
+    next_n = max([int(c.get("n", 0)) for c in citations or [] if str(c.get("n", "")).isdigit()] + [0]) + 1
+    for e in marks:
+        if citations is not None and not any((c.get("url") or "") == e[4] for c in citations):
+            citations.append({"n": next_n, **landmark_cases.citation(e)})
+            next_n += 1
     for c in citations or []:
         if c.get("claim_check") == "status_checked":
             continue
