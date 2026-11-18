@@ -233,3 +233,24 @@ def test_chat_prompt_gets_official_rules_and_models_unchanged(tier, model_part, 
     assert "OFFICIAL-SOURCE RULES" in system and "section 173" in system and "ANSWER DIRECTNESS" in system
     assert (G.PLUS_EXTRA in system) is (tier == "plus")
     assert model_part in str(seen["model"]).lower()
+
+
+# ---------------------------------------------------------------- claim types + sourced case list in prompt
+def test_et_claim_types_adjust_rule():
+    rp = dc._et({"event_date": "2026-09-01", "jurisdiction": "england", "claim_type": "redundancy_pay"})[0]
+    assert "6 months less one day" in rp[0] and "s.164" in rp[0]
+    sb = dc._et({"event_date": "2026-11-01", "jurisdiction": "scotland", "claim_type": "breach_of_contract"})[0]
+    assert "3 months less one day" in sb[0] and "9 November 2026" in sb[0]
+    eq = dc._et({"event_date": "2026-10-20", "jurisdiction": "wales", "claim_type": "equal_pay"})
+    assert eq[0][2] is None and "s.129" in eq[0][0]
+    assert "CLAIM TYPE NOT CONFIRMED" in _et("2026-10-20")
+    assert "CLAIM TYPE NOT CONFIRMED" not in " ".join(
+        t for t, _, _ in dc._et({"event_date": "2026-10-20", "jurisdiction": "england", "claim_type": "unfair_dismissal"}))
+    assert '"claim_type":' in dc.EXTRACT_SYSTEM
+
+
+def test_sourced_cases_offered_in_prompt_by_topic():
+    b = G.block("A private parking company charged me £100", "", "england")
+    assert "SOURCED CASE LIST" in b and "ParkingEye Ltd v Beavis [2015] UKSC 67" in b and "NOT reviewed by" in b
+    assert "Bolam" in G.block("My GP missed my cancer — negligence?", "", "england")
+    assert G.block("A private parking company charged me £100", "", "england", None, "FR") == ""

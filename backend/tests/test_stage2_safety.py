@@ -23,7 +23,9 @@ D = date.fromisoformat
 # ------------------------------------------------------------------ jurisdiction
 @pytest.mark.parametrize("msg,profile,conflict,applicable", [
     ("My landlord in Cardiff won't return my deposit", "scotland", True, None),          # profile vs property city
-    ("I live in Glasgow but the flat I rent is in Cardiff", None, True, None),          # lives vs matter, weak clue only
+    # Updated Phase 2E: since Phase 2D (approved) housing follows where the property is, so the rented flat in Cardiff
+    # decides Wales law with a stated assumption, rather than asking (residence in Glasgow does not govern the tenancy).
+    ("I live in Glasgow but the flat I rent is in Cardiff", None, False, "wales"),
     ("I got a section 173 notice for my flat", "england", True, None),                  # Welsh legal marker vs England profile
     ("I got a section 173 notice for my flat", "wales", False, None),                   # consistent
     ("My landlord in Wales served a notice", None, False, "wales"),                     # explicit nation, no profile

@@ -12,6 +12,10 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 logger = logging.getLogger(__name__)
 ET_NEW_LIMIT_FROM = date(2026, 10, 1)
+SCOT_BC_FROM = date(2026, 11, 9)
+CLAIM_LABEL = {"unfair_dismissal": "unfair dismissal", "wages": "unlawful deduction from wages / holiday pay",
+               "discrimination": "discrimination", "breach_of_contract": "breach of contract",
+               "redundancy_pay": "statutory redundancy pay", "whistleblowing": "whistleblowing detriment"}
 UK = ZoneInfo("Europe/London")
 Item = Tuple[str, Optional[str], Optional[date]]  # (explanation, reminder title, reminder date)
 
@@ -90,35 +94,59 @@ def _et(c) -> List[Item]:
     if not ev:
         return []
     j = (c.get("jurisdiction") or "").lower()
+    ct = (c.get("claim_type") or "unknown").lower()
+    if ct == "equal_pay":
+        return [("Equal pay claim: the time limit runs differently (usually 6 months from the end of the employment or "
+                 "contract, Equality Act 2010 s.129; different in Northern Ireland), so the app does not calculate a date from "
+                 f"the act on {fmt(ev)}. Start ACAS/LRA early conciliation promptly and get advice.", None, None)]
     ni_limit = _months_less_day(ev, 3)
     ni_text = (f"Northern Ireland industrial tribunal: act/dismissal on {fmt(ev)} → 3 months less one day ends {fmt(ni_limit)}. "
                "Early conciliation is with the Labour Relations Agency (LRA, 03300 552 220, lra.org.uk), not ACAS, and must start by "
                "then. The Great Britain change to 6 months (Employment Rights Act 2025) does not apply to most Northern Ireland "
                "industrial tribunal claims."
-               + _month_end_note(ev, 3) + _closed_day_note(ni_limit, "northern_ireland"))
+               + _month_end_note(ev, 3) + _closed_day_note(ni_limit, "northern_ireland")
+               + (" Some NI claim types (e.g. statutory redundancy pay) have different limits — confirm with the LRA."
+                  if ct in ("redundancy_pay", "unknown") else ""))
     if j.startswith("northern"):
         return [(ni_text, "Latest date to start LRA early conciliation", ni_limit),
                 ("Industrial tribunal claim: the normal time limit is the same date, but starting LRA early conciliation in time "
                  "extends it — recalculate once the LRA certificate is issued.",
                  "Industrial tribunal claim — normal time limit (can be extended by LRA early conciliation)", ni_limit)]
-    months = 6 if ev >= ET_NEW_LIMIT_FROM else 3
+    scot_bc = ct == "breach_of_contract" and j.startswith("scot")
+    if ct == "redundancy_pay":
+        months = 6
+    elif scot_bc:
+        months = 6 if ev >= SCOT_BC_FROM else 3
+    else:
+        months = 6 if ev >= ET_NEW_LIMIT_FROM else 3
     limit = _months_less_day(ev, months)
-    gb_text = (f"Employment tribunal (England, Wales, Scotland): act/dismissal on {fmt(ev)} → normal time limit "
+    kind = CLAIM_LABEL.get(ct, "")
+    gb_text = (f"Employment tribunal (England, Wales, Scotland){' — ' + kind if kind else ''}: act/dismissal on {fmt(ev)} → normal time limit "
                f"({months} months less one day) ends {fmt(limit)}. ACAS early conciliation must be started on or before this date."
                + _month_end_note(ev, months) + _closed_day_note(limit))
     if _unknown(j):
         safe = min(limit, ni_limit)
         return [(f"UK nation of the workplace not confirmed. {gb_text} {ni_text} Until confirmed, treat {fmt(safe)} as the "
                  "safe date.", "Latest date to start ACAS/LRA early conciliation (safe date)", safe)]
-    if months == 3:
+    if ct == "redundancy_pay":
+        gb_text += (" Statutory redundancy pay already had a 6-month limit from the relevant date (Employment Rights Act 1996 "
+                    "s.164), before and after 1 October 2026.")
+    elif scot_bc:
+        gb_text += (" Breach of contract claims in Scotland moved to 6 months only for a breach on or after 9 November 2026 "
+                    f"(Acas), so this date has {months} months less one day.")
+    elif months == 3:
         gb_text += (" The 6-month limit (Employment Rights Act 2025 s.152 and Sch.12, in force 1 October 2026 under SI 2026/954) "
                     "does not apply where the act or dismissal was before 1 October 2026, so the 3-month limit applies to this "
                     "date (a few claims, such as statutory redundancy pay and equal pay, already had 6 months).")
     else:
         gb_text += (" This uses the 6-month limit that applies where the act or dismissal is on or after 1 October 2026 "
                     "(Employment Rights Act 2025 s.152 and Sch.12; SI 2026/954).")
-    if j.startswith("scot"):
-        bc = 6 if ev >= date(2026, 11, 9) else 3
+    if ct == "unknown":
+        gb_text += (" CLAIM TYPE NOT CONFIRMED: this is the general rule for most claims (unfair dismissal, discrimination, "
+                    "unlawful deductions); some differ (statutory redundancy pay, equal pay, breach of contract in Scotland) — "
+                    "ask which claim(s) apply before relying on the date.")
+    if j.startswith("scot") and ct == "unknown":
+        bc = 6 if ev >= SCOT_BC_FROM else 3
         gb_text += (f" Exception: a breach of contract claim in Scotland has {bc} months less one day for a breach on this date "
                     "(the Scottish breach-of-contract change took effect on 9 November 2026, Acas).")
     gb_text += (" If this is one of a series of deductions from wages, or conduct extending over a period (e.g. continuing "
@@ -451,7 +479,8 @@ Each date field must come from the customer's words about THAT event: acas_date 
 ACAS (or the LRA) and when; certificate_date only if they mention the certificate and its date; mrn_date only for a mandatory
 reconsideration notice. Never copy the dismissal/decision/notice date into another field — use null.
 Reply ONLY with JSON: {"calcs": [ ... ]} — empty list if none. Allowed items:
-{"type":"employment_tribunal","event_date":"YYYY-MM-DD","acas_date":"YYYY-MM-DD|null","certificate_date":"YYYY-MM-DD|null","jurisdiction":"..."}
+{"type":"employment_tribunal","event_date":"YYYY-MM-DD","acas_date":"YYYY-MM-DD|null","certificate_date":"YYYY-MM-DD|null","claim_type":"unfair_dismissal|wages|discrimination|breach_of_contract|redundancy_pay|equal_pay|whistleblowing|unknown","jurisdiction":"..."}
+(claim_type only if the customer's facts clearly point to one claim; several possible claims or unclear → "unknown". Add one item per clearly different claim type if they have different trigger dates)
 {"type":"citizenship_after_ilr","ilr_date":"YYYY-MM-DD","married_to_british":true|false}
 {"type":"ilr_eligibility","route_start_date":"YYYY-MM-DD","qualifying_years":5|10}
 {"type":"visa_expiry","expiry_date":"YYYY-MM-DD"}

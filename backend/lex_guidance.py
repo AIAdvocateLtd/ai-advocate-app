@@ -108,6 +108,25 @@ PLUS_EXTRA = (
     "then the uncertainty.")
 
 
+CASE_TOPICS = [
+    (r"employ|dismiss|sacked|fired|redundan|tribunal|wages?|holiday pay|discriminat|pregnan|worker|resign", ("employment", "discrimination", "holiday", "worker")),
+    (r"negligen|surgery|hospital|gp\b|doctor|consent|injur|birth", ("negligence",)),
+    (r"park|penalt|charge notice", ("parking",)),
+    (r"contract|builder|refund|faulty|invoice|damages|exclusion", ("contract",)),
+    (r"landlord|tenan|evict|deposit|possession|homeless|licen[cs]e", ("tenancy", "lease", "possession", "homelessness")),
+    (r"cohabit|common.law|divorc|separat|matrimonial|prenup|nuptial", ("cohabitants", "divorce", "nuptial")),
+    (r"visa|asylum|deport|removal|home office|immigra|tribunal decision|judicial review", ("immigration", "asylum", "judicial review")),
+    (r"claim form|court|default judgment|relief from sanctions|served|service of", ("civil procedure",)),
+]
+
+
+def case_lines(text: str) -> List[str]:
+    import landmark_cases
+    areas = {a for rx, a_s in CASE_TOPICS if re.search(rf"\b(?:{rx})", text, re.I) for a in a_s}
+    picked = [e for e in landmark_cases.CASES if any(a in e[5] for a in areas)]
+    return [f"{e[2]} {'; '.join(e[3])} — {e[5]}" for e in picked[:6]]
+
+
 def matched(message: str, context: str, nation: Optional[str]) -> List[tuple]:
     text = f"{message}\n{context or ''}"
     return [r for r in RULES if nation in r[2] and _RX[r[0]].search(text)]
@@ -117,10 +136,15 @@ def block(message: str, context: str, nation: Optional[str], provider: Optional[
     if (country or "GB").upper() not in ("GB", "UK"):
         return ""
     rules = matched(message, context, nation if nation in ("england", "wales", "scotland", "northern_ireland") else None)
+    cases = case_lines(f"{message}\n{context or ''}")
+    cases_block = ("\n\nSOURCED CASE LIST (the app has checked that these decisions exist under these citations; NOT reviewed by "
+                   "a qualified lawyer). Cite one only if it is directly relevant, using exactly this name and citation, and "
+                   "describe only its well-known principle. Never cite any other case unless it appears in the retrieved "
+                   "sources:\n- " + "\n- ".join(cases)) if cases else ""
     if not rules:
-        return ""
+        return cases_block
     lines = "\n".join(f"- {r[3]} (Sources: {', '.join(r[4])})" for r in rules[:5])
-    return (f"\n\nOFFICIAL-SOURCE RULES (checked by the app against the official pages listed on {CHECKED}; NOT yet reviewed "
+    return cases_block + (f"\n\nOFFICIAL-SOURCE RULES (checked by the app against the official pages listed on {CHECKED}; NOT yet reviewed "
             "by a qualified lawyer — rely on them over older training knowledge, apply only the ones relevant to this "
             "customer's UK nation and facts, and say a regulated adviser should confirm):\n" + lines +
             DIRECTNESS + (PLUS_EXTRA if provider == "openai" else ""))
