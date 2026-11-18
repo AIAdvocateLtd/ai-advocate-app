@@ -19,8 +19,8 @@
     },
     "jurisdiction_place_no_profile": {
      "pass": true,
-     "got": null,
-     "asks_question": true
+     "got": "england",
+     "asks_question": false
     },
     "jurisdiction_place_wrong_profile": {
      "pass": true,
@@ -90,8 +90,8 @@
      "conflict": false
     },
     "jurisdiction_place_no_profile": {
-     "pass": false,
-     "got": null,
+     "pass": true,
+     "got": "england",
      "asks_question": false
     },
     "jurisdiction_place_wrong_profile": {
@@ -105,7 +105,7 @@
      "info": "moderate"
     }
    },
-   "passed": 3,
+   "passed": 4,
    "total": 4
   },
   {
@@ -127,8 +127,8 @@
     },
     "jurisdiction_place_no_profile": {
      "pass": true,
-     "got": null,
-     "asks_question": true
+     "got": "wales",
+     "asks_question": false
     },
     "jurisdiction_place_wrong_profile": {
      "pass": true,
@@ -190,8 +190,8 @@
     },
     "jurisdiction_place_no_profile": {
      "pass": true,
-     "got": null,
-     "asks_question": true
+     "got": "northern_ireland",
+     "asks_question": false
     },
     "jurisdiction_place_wrong_profile": {
      "pass": true,
@@ -312,8 +312,8 @@
      "conflict": false
     },
     "jurisdiction_place_no_profile": {
-     "pass": false,
-     "got": null,
+     "pass": true,
+     "got": "scotland",
      "asks_question": false
     },
     "jurisdiction_place_wrong_profile": {
@@ -327,7 +327,7 @@
      "info": "moderate"
     }
    },
-   "passed": 3,
+   "passed": 4,
    "total": 4
   },
   {
@@ -375,8 +375,8 @@
      "conflict": false
     },
     "jurisdiction_place_no_profile": {
-     "pass": false,
-     "got": null,
+     "pass": true,
+     "got": "england",
      "asks_question": false
     },
     "jurisdiction_place_wrong_profile": {
@@ -390,7 +390,7 @@
      "info": "moderate"
     }
    },
-   "passed": 3,
+   "passed": 4,
    "total": 4
   },
   {
@@ -464,8 +464,8 @@
      "conflict": false
     },
     "jurisdiction_place_no_profile": {
-     "pass": false,
-     "got": null,
+     "pass": true,
+     "got": "scotland",
      "asks_question": false
     },
     "jurisdiction_place_wrong_profile": {
@@ -479,7 +479,7 @@
      "info": "moderate"
     }
    },
-   "passed": 3,
+   "passed": 4,
    "total": 4
   },
   {
@@ -487,8 +487,8 @@
    "area": "family",
    "checks": {
     "urgency": {
-     "pass": false,
-     "got": "standard",
+     "pass": true,
+     "got": "high",
      "expected": [
       "general",
       "high"
@@ -503,10 +503,10 @@
      "info": "no place in message \u2014 relies on saved profile"
     },
     "depth": {
-     "info": "simple"
+     "info": "moderate"
     }
    },
-   "passed": 1,
+   "passed": 2,
    "total": 2
   },
   {
@@ -654,14 +654,14 @@
      ]
     },
     "jurisdiction_correct_profile": {
-     "pass": false,
-     "got": null,
-     "conflict": true
+     "pass": true,
+     "got": "wales",
+     "conflict": false
     },
     "jurisdiction_place_no_profile": {
      "pass": true,
-     "got": null,
-     "asks_question": true
+     "got": "wales",
+     "asks_question": false
     },
     "jurisdiction_place_wrong_profile": {
      "pass": true,
@@ -674,7 +674,7 @@
      "info": "moderate"
     }
    },
-   "passed": 3,
+   "passed": 4,
    "total": 4
   },
   {
@@ -719,12 +719,12 @@
     },
     "jurisdiction_correct_profile": {
      "pass": true,
-     "got": null,
+     "got": "england",
      "conflict": false
     },
     "jurisdiction_place_no_profile": {
-     "pass": false,
-     "got": null,
+     "pass": true,
+     "got": "england",
      "asks_question": false
     },
     "jurisdiction_place_wrong_profile": {
@@ -738,7 +738,7 @@
      "info": "simple"
     }
    },
-   "passed": 3,
+   "passed": 4,
    "total": 4
   },
   {
@@ -785,12 +785,12 @@
     },
     "jurisdiction_correct_profile": {
      "pass": true,
-     "got": null,
+     "got": "scotland",
      "conflict": false
     },
     "jurisdiction_place_no_profile": {
-     "pass": false,
-     "got": null,
+     "pass": true,
+     "got": "scotland",
      "asks_question": false
     },
     "jurisdiction_place_wrong_profile": {
@@ -804,7 +804,7 @@
      "info": "moderate"
     }
    },
-   "passed": 3,
+   "passed": 4,
    "total": 4
   },
   {
@@ -959,8 +959,8 @@
    "area": "contract",
    "checks": {
     "urgency": {
-     "pass": false,
-     "got": "urgent",
+     "pass": true,
+     "got": "standard",
      "expected": [
       "general",
       "high",
@@ -979,12 +979,13 @@
      "info": "moderate"
     },
     "fake_case_checked": {
-     "pass": false,
-     "results": [],
-     "note": "case-law verification disabled pending National Archives licence"
+     "pass": true,
+     "labelled": 1,
+     "removed": 1,
+     "answer": "In Smith v Jones [2023] UKSC 99 (unverified case reference \u2014 not found in any trusted source) the court said refunds are due. See also a court decision (reference removed \u2014 it could not be verified against a trusted source)."
     }
    },
-   "passed": 1,
+   "passed": 3,
    "total": 3
   },
   {
@@ -1059,12 +1060,12 @@
     },
     "jurisdiction_correct_profile": {
      "pass": true,
-     "got": null,
+     "got": "scotland",
      "conflict": false
     },
     "jurisdiction_place_no_profile": {
-     "pass": false,
-     "got": null,
+     "pass": true,
+     "got": "scotland",
      "asks_question": false
     },
     "jurisdiction_place_wrong_profile": {
@@ -1078,7 +1079,7 @@
      "info": "moderate"
     }
    },
-   "passed": 3,
+   "passed": 4,
    "total": 4
   },
   {
@@ -1114,8 +1115,8 @@
    "area": "court",
    "checks": {
     "urgency": {
-     "pass": false,
-     "got": "high",
+     "pass": true,
+     "got": "urgent",
      "expected": [
       "urgent"
      ]
@@ -1138,7 +1139,7 @@
      ]
     }
    },
-   "passed": 2,
+   "passed": 3,
    "total": 3
   },
   {
@@ -1147,7 +1148,7 @@
    "checks": {
     "urgency": {
      "pass": true,
-     "got": "high",
+     "got": "urgent",
      "expected": [
       "high",
       "urgent"
@@ -1222,11 +1223,13 @@
      "info": "complex"
     },
     "injection_flagged": {
-     "pass": false,
-     "kinds": []
+     "pass": true,
+     "kinds": [
+      "role_impersonation"
+     ]
     }
    },
-   "passed": 2,
+   "passed": 3,
    "total": 3
   },
   {
@@ -1244,12 +1247,12 @@
     },
     "jurisdiction_correct_profile": {
      "pass": true,
-     "got": null,
+     "got": "scotland",
      "conflict": false
     },
     "jurisdiction_place_no_profile": {
-     "pass": false,
-     "got": null,
+     "pass": true,
+     "got": "scotland",
      "asks_question": false
     },
     "jurisdiction_place_wrong_profile": {
@@ -1263,40 +1266,25 @@
      "info": "moderate"
     }
    },
-   "passed": 3,
+   "passed": 4,
    "total": 4
   }
  ],
  "by_check": {
   "urgency": [
-   37,
    40,
-   [
-    "FAM-05",
-    "CON-05",
-    "CRT-01"
-   ]
+   40,
+   []
   ],
   "jurisdiction_correct_profile": [
-   39,
    40,
-   [
-    "PRO-05"
-   ]
+   40,
+   []
   ],
   "jurisdiction_place_no_profile": [
-   6,
    14,
-   [
-    "EMP-03",
-    "IMM-04",
-    "FAM-01",
-    "FAM-04",
-    "PAR-01",
-    "PAR-03",
-    "MED-03",
-    "CRT-05"
-   ]
+   14,
+   []
   ],
   "jurisdiction_place_wrong_profile": [
    14,
@@ -1314,11 +1302,9 @@
    []
   ],
   "injection_flagged": [
-   1,
    2,
-   [
-    "CRT-04"
-   ]
+   2,
+   []
   ],
   "citation_checked": [
    2,
@@ -1326,11 +1312,9 @@
    []
   ],
   "fake_case_checked": [
-   0,
    1,
-   [
-    "CON-05"
-   ]
+   1,
+   []
   ]
  }
 }

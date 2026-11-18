@@ -667,6 +667,21 @@ UK_JURISDICTIONS = {"england", "wales", "scotland", "northern_ireland"}
 class UKJurisdictionPayload(BaseModel):
     jurisdiction: str  # england | wales | scotland | northern_ireland
 
+def _home_nation_prompt(user: dict, juris: dict):
+    """Offer once to save the customer's usual UK nation (they choose; nothing is saved automatically)."""
+    if user.get("jurisdiction") or user.get("home_nation_prompt_dismissed") or not juris:
+        return None
+    if juris.get("conflict") or juris.get("suggest_home"):
+        return {"suggest": juris.get("suggest_home")}
+    return None
+
+
+@api_router.post("/profile/home-nation-prompt/dismiss")
+async def dismiss_home_nation_prompt(user: dict = Depends(get_user)):
+    await db.users.update_one({"id": user["id"]}, {"$set": {"home_nation_prompt_dismissed": True}})
+    return {"ok": True}
+
+
 @api_router.post("/profile/uk-jurisdiction")
 async def set_uk_jurisdiction(data: UKJurisdictionPayload, user: dict = Depends(get_user)):
     """Set the user's UK-internal jurisdiction (legal system within GB).
@@ -2055,7 +2070,8 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
     try:
         out, rep = lex_safety.finalize_answer(text or "", citations=citations, sources=research.get("sources") or [],
                                               research_status=research.get("status"), risk=risk, language=language,
-                                              legal_question=_looks_like_legal_question(message))
+                                              legal_question=_looks_like_legal_question(message),
+                                              customer_text=f"{(juris or {}).get('customer_text') or ''}\n{message}")
     except Exception as e:
         logger.warning(f"lex finalize failed (answer unchanged): {e!r}")
         return text, {"error": True}
@@ -2301,6 +2317,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         "citations": citations,
         "research_status": research["status"],
         "jurisdiction_check": bool(juris.get("conflict")),
+        "home_nation_prompt": _home_nation_prompt(user, juris),
     }
 
 
@@ -2551,7 +2568,8 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
         # Final event with metadata that needed the full text to compute
         _done = {'type': 'done', 'connected_session_id': connected_session_id, 'full_text': full_text, 'citations': citations,
                  'deep_think_auto': deep_think_auto, 'proposed_reminders': _propose_reminders(auto_reminders),
-                 'hypothetical': bool(_HYPOTHETICAL_RE.search(data.message or ""))}
+                 'hypothetical': bool(_HYPOTHETICAL_RE.search(data.message or "")),
+                 'jurisdiction_check': bool(juris.get("conflict")), 'home_nation_prompt': _home_nation_prompt(user, juris)}
         yield f"data: {_json.dumps(_done)}\n\n"
 
     async def _released_stream():

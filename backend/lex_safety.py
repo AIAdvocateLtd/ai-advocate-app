@@ -236,7 +236,45 @@ def _guidance_supported(sentence: str, src: str) -> bool:
     return sum(1 for t in terms if t in src) >= min(2, len(terms))
 
 
-def verify_citations(text: str, citations: List[dict], sources: List[dict]) -> Tuple[str, dict]:
+_CASE_STOP = {"england", "wales", "scotland", "ireland", "plus", "pro", "free", "employer", "employee", "landlord", "tenant",
+              "the", "and", "you", "your", "court"}
+_NEUTRAL_CORE = (r"\[(?:19|20)\d{2}\]\s+(?:UKSC|UKHL|UKPC|EWCA|EWHC|EWFC|EWCOP|UKUT|UKFTT|UKEAT|EAT|CSIH|CSOH|HCJAC|NICA|NIQB|"
+                 r"NIKB|NICh|NIFam|AC|QB|KB|Ch|Fam|WLR|ICR|IRLR|HLR|All ER)(?:\s+(?:Civ|Crim|Admin|QB|KB|Ch|Fam|Comm|TCC|Pat|IPEC|IAC|AAC|LC))?"
+                 r"(?:\s+\d{1,5})?(?:\s*\((?:Civ|Crim|Admin|QB|KB|Ch|Fam|Comm|TCC|IPEC|IAC|AAC|LC)\))?")
+_CASE_REF = re.compile(rf"(?P<name>{_CASE_NAME.pattern})(?:\s*,?\s*(?P<cite>{_NEUTRAL_CORE}))?|(?P<solo>{_NEUTRAL_CORE})")
+
+
+def guard_case_refs(text: str, all_src: str, customer_text: str) -> Tuple[str, int, int]:
+    """Court decisions no trusted retrieved source supports: removed when Lex introduced them; kept but labelled
+    'unverified' when the customer quoted them (so Lex can say it could not confirm the case)."""
+    cust, src, counts, seen = (customer_text or "").lower(), (all_src or "").lower(), [0, 0], set()
+
+    def repl(m):
+        ref = m.group(0)
+        cite = (m.group("cite") or m.group("solo") or "").lower()
+        if m.group("name"):
+            a, b = m.group(2).lower().split()[-1], m.group(3).lower().split()[-1]
+            if {a, b} & _CASE_STOP or len(a) < 3:
+                return ref
+            supported = (a in src and b in src) or (cite and cite in src)
+            quoted = f"{a} v" in cust or (cite and cite in cust)
+        else:
+            supported, quoted = cite in src, cite in cust
+        if supported:
+            return ref
+        if quoted:
+            if ref.lower() in seen:
+                return ref
+            seen.add(ref.lower())
+            counts[1] += 1
+            return ref + " (unverified case reference — not found in any trusted source)"
+        counts[0] += 1
+        return "a court decision (reference removed — it could not be verified against a trusted source)"
+
+    return _CASE_REF.sub(repl, text or ""), counts[0], counts[1]
+
+
+def verify_citations(text: str, citations: List[dict], sources: List[dict], customer_text: str = "") -> Tuple[str, dict]:
     """Strips citation numbers/URLs that don't match retrieved sources; drops [n] where the source
     doesn't mention the Act/section claimed in that sentence. Returns (text, report)."""
     rep = {"removed_markers": 0, "unsupported_markers": 0, "urls_removed": 0, "urls_rerouted": 0,
@@ -295,6 +333,7 @@ def verify_citations(text: str, citations: List[dict], sources: List[dict]) -> T
         key = ref.lower()[:40] if m.re is _NEUTRAL else m.group(1).lower().split()[-1]
         if key not in all_src and ref not in rep["unverified_case_refs"]:
             rep["unverified_case_refs"].append(ref)
+    out, rep["case_refs_removed"], rep["case_refs_labelled"] = guard_case_refs(out, all_src, customer_text)
     for c in citations or []:
         if c.get("claim_check") == "status_checked":
             continue
@@ -332,9 +371,9 @@ _VERIFIED_CLAIM = re.compile(r"\b(I(?:'ve| have)\s+(?:just\s+)?(?:checked|verifi
 
 
 def finalize_answer(text: str, *, citations: List[dict], sources: List[dict], research_status: str, risk: str,
-                    language: str, legal_question: bool) -> Tuple[str, dict]:
+                    language: str, legal_question: bool, customer_text: str = "") -> Tuple[str, dict]:
     out, reassure = no_false_reassurance(text)
-    out, rep = verify_citations(out, citations, sources)
+    out, rep = verify_citations(out, citations, sources, customer_text)
     rep["reassurance_removed"] = reassure
     failed = research_status in RESEARCH_FAILED and legal_question
     notes = []
@@ -343,6 +382,7 @@ def finalize_answer(text: str, *, citations: List[dict], sources: List[dict], re
         if risk == "high":
             out = re.sub(r"\[CONFIDENCE:\s*HIGH\]", "[CONFIDENCE: MEDIUM]", out)
     if rep["removed_markers"] or rep["unsupported_markers"] or rep["urls_removed"] or rep["urls_rerouted"] or \
+            rep.get("case_refs_removed") or rep.get("case_refs_labelled") or \
             (rep["unverified_case_refs"] and (failed or research_status == "ok")):
         notes.append(note("citations", language))
     if notes:
@@ -373,10 +413,22 @@ _PLACES = {
 _PLACE_RE = {k: re.compile(rf"\b({v})\b", re.I) for k, v in _PLACES.items()}
 AMBIGUOUS_PLACES = re.compile(r"\b(bangor|newcastle|newport|perth|richmond)\b", re.I)
 _LIVES = re.compile(r"(i live|i'm living|i am living|i'm based|i am based|i'm in|i am in|i moved to|i've moved to|i reside|"
-                    r"i'm from|i am from|living in|based in|my home is)\s+(?:in\s+)?(?:\w+\s+){0,2}$", re.I)
+                    r"i'm from|i am from|living in|based in|my home is|we live|we're living|we are living|we're based|"
+                    r"we are based|we're in|we are in|we moved to|we've moved to|our home is|i stay|we stay)\s+(?:in\s+)?(?:\w+\s+){0,2}$", re.I)
 _MATTER = re.compile(r"(property|house|flat|home i rent|rental|tenancy|landlord|letting|job|work(?:ed|ing)?|employer|office|"
                      r"factory|shop|store|accident|incident|court|tribunal|arrested|police|council|bought|buying|selling|"
-                     r"rent(?:ing)?)\b[^.\n]{0,30}\b(in|at|near)\s+(?:\w+\s+){0,1}$", re.I)
+                     r"rent(?:ing)?|park(?:ing)?|ticket|fine|pcn|hospital|gp|surgery|clinic|garage|company|business|school|"
+                     r"nursery|care home|dealer|builder|trader|sue|suing|claim|happened)\b[^.\n]{0,30}\b(in|at|near)\s+(?:\w+\s+){0,1}$", re.I)
+# England-only legal terms that customers elsewhere often use loosely ("section 21" in Wales) — a weaker clue than a place.
+_LOOSE_TERMS = re.compile(r"^(section 21|s\.?\s?21 notice|assured shorthold)$", re.I)
+# A short reply naming a nation or a known town ("Scotland", "It's in Cardiff") answers Lex's jurisdiction question.
+_ANSWER = re.compile(r"^\W*(?:i'?m in |i am in |we'?re in |it'?s in |it is in |in |the (?:property|job|court|matter) is in )?"
+                     r"(england|wales|scotland|northern ireland|n\.? ?ireland|ni|" + "|".join(_PLACES.values()) + r")\W*$", re.I)
+# Topics where the governing UK nation can change the answer (asked about only when nothing else tells us).
+_NATION_DIFFERS = re.compile(r"\b(landlords?|tenan\w*|evict\w*|rent\w*|deposits?|divorc\w*|separat\w*|custody|child arrangements?|"
+                             r"cohabit\w*|court|claim form|small claims?|sue|suing|parking|pcn|penalty charge|negligen\w*|"
+                             r"time limit|limitation|wills?|inherit\w*|probate|dismiss\w*|sacked|fired|tribunal|redundan\w*|"
+                             r"council tax|school|police|arrest\w*)\b", re.I)
 _EXPLICIT = re.compile(r"\b(?:under|apply|using|in)\s+(scots|scottish|welsh|english|northern irish|ni)\s+law\b", re.I)
 _EXPLICIT_MAP = {"scots": "scotland", "scottish": "scotland", "welsh": "wales", "english": "england",
                  "northern irish": "northern_ireland", "ni": "northern_ireland"}
@@ -395,7 +447,7 @@ def _group(nation: Optional[str], topic: str) -> Optional[str]:
 
 
 def _scan(text: str) -> Dict[str, set]:
-    found = {"lives": set(), "matter": set(), "mention": set(), "ambiguous": set()}
+    found = {"lives": set(), "matter": set(), "mention": set(), "ambiguous": set(), "terms": set()}
     t = re.sub(r"\bengland\s*(?:and|&)\s*wales\b", " ", text or "", flags=re.I)
     for nation in NATIONS:
         for m in _STRONG_RE[nation].finditer(t):
@@ -404,6 +456,8 @@ def _scan(text: str) -> Dict[str, set]:
             is_place_name = word in ("wales", "cymru", "scotland", "northern ireland", "n. ireland", "england")
             if _LIVES.search(before):
                 found["lives"].add(nation)
+            elif nation == "england" and _LOOSE_TERMS.match(word):
+                found["terms"].add(nation)
             elif not is_place_name or _MATTER.search(before):
                 found["matter"].add(nation)
             else:
@@ -418,6 +472,20 @@ def _scan(text: str) -> Dict[str, set]:
                 found["mention"].add(nation)
     found["ambiguous"] = {m.group(0) for m in AMBIGUOUS_PLACES.finditer(t)}
     return found
+
+
+def _answered_nation(message: str, history_text: str) -> Optional[str]:
+    """A short reply such as 'Scotland' or 'It's in Cardiff' (the latest one wins) answers the jurisdiction question."""
+    for line in [message or ""] + list(reversed((history_text or "").splitlines())):
+        m = _ANSWER.match(line.strip())
+        if m:
+            w = m.group(1).lower()
+            for n in NATIONS:
+                if _STRONG_RE[n].fullmatch(w) or _PLACE_RE[n].fullmatch(w):
+                    return n
+            if w in ("ni", "n ireland", "n. ireland", "nireland"):
+                return "northern_ireland"
+    return None
 
 
 def assess_jurisdiction(message: str, history_text: str, profile: Optional[str], country: Optional[str],
@@ -435,13 +503,24 @@ def assess_jurisdiction(message: str, history_text: str, profile: Optional[str],
         res["block"] = (f"\n\nJURISDICTION FOR THIS QUESTION: the customer explicitly asked about {LABEL[nation]} law — apply it "
                         "for this answer and say so. Their saved profile setting is unchanged.")
         return res
+    answered = _answered_nation(message, history_text)
+    _c = _scan(message)
+    if answered and (_ANSWER.match((message or "").strip()) or not (_c["matter"] | _c["lives"] | _c["mention"] | _c["terms"])):
+        res.update(applicable=answered, deadline_jurisdiction=answered,
+                   reason=f"customer said the matter is in {LABEL[answered]}")
+        if answered != profile:
+            res["block"] = (f"\n\nJURISDICTION FOR THIS MATTER: the customer has said the matter is in {LABEL[answered]} — apply "
+                            f"{LABEL[answered]} law where it differs. Do not ask again. The customer's saved setting is unchanged.")
+        return res
     cur, hist = _scan(message), _scan(history_text or "")
-    matter = cur["matter"] or hist["matter"]
+    matter = cur["matter"] or hist["matter"] or ((cur["terms"] | hist["terms"]) if not (cur["lives"] | hist["lives"] | cur["mention"])
+                                                 or profile in (None, "england") else set())
     lives = cur["lives"] or hist["lives"]
     mention = cur["mention"]
     groups = {_group(n, topic) for n in matter} - {None}
     clue_text = ", ".join(LABEL[n] for n in sorted(matter | lives | mention))
     question = None
+    assumed = ""
     if len(groups) > 1:
         question = f"the details point to more than one UK nation ({clue_text})"
     elif matter:
@@ -449,17 +528,35 @@ def assess_jurisdiction(message: str, history_text: str, profile: Optional[str],
         if profile and _group(profile, topic) != _group(nation, topic):
             question = (f"the customer's saved setting is {LABEL.get(profile, profile)} but the matter appears to be in "
                         f"{LABEL[nation]}")
-        elif not profile and not _STRONG_RE[nation].search(f"{message}\n{history_text or ''}"):
-            question = f"the only clue is a place name suggesting {LABEL[nation]}"
         else:
-            res.update(applicable=nation, deadline_jurisdiction=nation,
-                       reason=f"matter located in {LABEL[nation]}")
+            res.update(applicable=nation, deadline_jurisdiction=nation, reason=f"matter located in {LABEL[nation]}")
+            if not profile and not _STRONG_RE[nation].search(f"{message}\n{history_text or ''}"):
+                assumed = f"the matter appears to be in {LABEL[nation]} (from the place named)"
     elif lives and profile and any(_group(n, topic) != _group(profile, topic) for n in lives):
         question = (f"the customer says they live in {', '.join(LABEL[n] for n in sorted(lives))} but their saved setting is "
                     f"{LABEL.get(profile, profile)}, and where they live may not be where the matter is governed")
+    elif lives and not profile and len({_group(n, topic) for n in lives}) == 1:
+        nation = sorted(lives)[0]
+        res.update(applicable=nation, deadline_jurisdiction=nation, reason=f"customer lives in {LABEL[nation]}", suggest_home=nation)
+        assumed = f"the customer lives in {LABEL[nation]}, so {LABEL[nation]} law is assumed for this matter"
     elif (mention - ({profile} if profile else set())) and profile and \
             any(_group(n, topic) != _group(profile, topic) for n in mention):
         question = f"the message mentions {clue_text} while the saved setting is {LABEL.get(profile, profile)}"
+    elif mention and not profile:
+        nation = sorted(mention)[0]
+        if topic == "immigration" or len(mention) > 1:
+            res.update(applicable=nation if len(mention) == 1 else None, reason=f"place mentioned: {clue_text}")
+        else:
+            question = f"the message mentions {clue_text} but it is not clear that the matter is governed by {LABEL[nation]} law"
+    elif not profile and not (matter or lives or mention) and topic != "immigration" and \
+            _NATION_DIFFERS.search(f"{message}\n{history_text or ''}") and not cur["ambiguous"]:
+        question = "no UK nation is saved for this customer and none is mentioned, and the law differs between UK nations here"
+        res["ask_home"] = True
+    if assumed and not question:
+        res["block"] = (f"\n\nJURISDICTION FOR THIS MATTER: {assumed}. Apply {LABEL[res['applicable']]} law where it differs, "
+                        "say so in one short line at the start (e.g. 'I've assumed Scottish law because …'), and invite the "
+                        "customer to say if the matter is governed elsewhere. Do not ask a separate question.")
+        return res
     if cur["ambiguous"] and not question and not matter:
         res["reason"] = f"ambiguous place name(s) ignored: {', '.join(sorted(cur['ambiguous']))}"
     if question and topic != "immigration":

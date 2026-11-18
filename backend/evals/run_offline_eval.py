@@ -61,9 +61,12 @@ async def evaluate(s: dict) -> dict:
                                   any(v in ("not_found", "repealed", "partly_repealed", "not_in_force") for v in verdicts),
                                   "verdicts": verdicts}
     if a.get("fake_case"):
-        res = await L.check_case_citations(a["fake_case"])
-        ck["fake_case_checked"] = {"pass": any(x.get("verdict") == "not_found" for x in res), "results": res,
-                                   "note": "case-law verification disabled pending National Archives licence" if not res else ""}
+        # National Archives lookup stays disabled (licence pending); the free guard checks the answer against
+        # retrieved sources instead. Scripted answer repeats the customer's citation and adds one of its own.
+        ans = f"In {a['fake_case']} the court said refunds are due. See also Brown v Green [2021] EWCA Civ 1234."
+        out, rep = lex_safety.verify_citations(ans, [], [], q)
+        ck["fake_case_checked"] = {"pass": "unverified case reference" in out and "Brown v Green" not in out,
+                                   "labelled": rep["case_refs_labelled"], "removed": rep["case_refs_removed"], "answer": out}
     graded = [v["pass"] for k, v in ck.items() if "pass" in v]
     r["passed"], r["total"] = sum(graded), len(graded)
     return r

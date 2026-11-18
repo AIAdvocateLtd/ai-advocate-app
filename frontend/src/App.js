@@ -28,6 +28,7 @@ import { AdminFairUseCard } from "@/AdminFairUse";
 import { FairUseNotice } from "@/FairUseNotice";
 import { ExtraCreditsCard } from "./components/ExtraCreditsCard";
 import { QueuedPassesList } from "./components/QueuedPassesList";
+import { HomeNationPrompt } from "./components/HomeNationPrompt";
 import { AllowanceText, FairUseFootnote } from "./useAllowances";
 import ConveyancingModal from "@/Conveyancing";
 import { TrustpilotPrompt, AdminTestimonialsCard } from "@/Reviews";
@@ -2358,6 +2359,7 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
       }
       const fd = new FormData();
       fd.append("message", text); fd.append("language", lang); fd.append("country", country);
+      if (finalDone?.home_nation_prompt) setMessages(m => m.some(x => x.role === "home-nation") ? m : [...m, { role: "home-nation", content: "", suggest: finalDone.home_nation_prompt.suggest }]);
       const proposed = finalDone?.proposed_reminders || [];
       if (proposed.length) setMessages(m => [...m, { role: "deadlines", proposed: true, content: "", at: new Date().toISOString(), deadlines: proposed }]);
       else if (!finalDone?.hypothetical && !(finalDone?.saved_reminders || []).length) api.post("/reminders/detect", fd).then(r => {
@@ -2595,6 +2597,8 @@ function LexChat({ lang, country, category, title, onClose, autoMic = false, tie
                     Lex has this background — go ahead and ask your next question.
                   </div>
                 </div>
+              ) : m.role === "home-nation" ? (
+                <HomeNationPrompt api={api} suggest={m.suggest} idx={i} />
               ) : m.role === "deadlines" ? (
                 <div data-testid={`deadline-card-${i}`} style={{ background: "rgba(220,38,38,0.15)", border: "1px solid #fca5a5", borderRadius: 12, padding: 12, width: "100%", marginTop: 4 }}>
                   <div style={{ color: "#fca5a5", fontWeight: 700, fontSize: 12, marginBottom: 6 }}>⏰ {t(lang, "deadlineFound")}</div>

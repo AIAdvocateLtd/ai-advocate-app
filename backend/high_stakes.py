@@ -37,13 +37,20 @@ DOMAINS: Dict[str, Dict[str, re.Pattern]] = {
                             r"strike out|order (?:says|requires|to)|n244|n9|sheriff|simple procedure|small claims?)\b", _I),
         "urgent": re.compile(r"\b(hearing (?:is )?(?:today|tomorrow|on|next)|court (?:is |date )?(?:today|tomorrow|on|next)|"
                              r"served (?:with|on)|default judgment|respond by|reply by|within \d+ days|deadline|"
-                             r"order (?:says|requires)|appeal (?:by|within|deadline)|bailiff|enforcement)\b", _I),
+                             r"order (?:says|requires)|appeal (?:by|within|deadline)|bailiff|enforcement|"
+                             r"(?:received|got|been (?:sent|served with)|was served with|served me with) (?:a |an |the )?"
+                             r"(?:county court |court |money |small )?(?:claim form|claim|particulars of claim|n1|civil bill)|"
+                             r"claim form|particulars of claim|response pack|acknowledg(?:e)?ment of service|"
+                             r"ccj|county court judgment|charge for payment|sheriff officers?)\b", _I),
     },
     "family": {
         "topic": re.compile(r"\b(divorc\w*|separat\w*|child arrangements?|custody|contact with (?:my|the|our)|non-molestation|"
                             r"occupation order|domestic (?:abuse|violence)|coercive|controlling|social services|"
                             r"social worker|child protection|care proceedings|safeguarding|prohibited steps|abduct\w*|"
-                            r"cafcass|financial order|ex-?(?:wife|husband|partner))\b", _I),
+                            r"cafcass|financial order|ex-?(?:wife|husband|partner)|cohabit\w*|unmarried|"
+                            r"common[- ]law (?:wife|husband|partner|spouse|marriage)|(?:lived|living|live) together|"
+                            r"(?:weren'?t|wasn'?t|aren'?t|never|were not|are not) (?:\w+ )?married|split (?:up|from)|broke up|"
+                            r"my partner and i|tolata|beneficial interest|joint(?:ly)? own\w*|declaration of trust)\b", _I),
         "urgent": re.compile(r"\b(hit(?:s|ting)? me|hurt(?:s|ing)? me|beat\w*|threaten\w*|scared|afraid|frightened|unsafe|"
                              r"not safe|abus\w*|social services|social worker|care proceedings|took (?:my|the|our) (?:child|kids|"
                              r"children|son|daughter|baby)|taken (?:my|the|our) (?:child|kids|children|son|daughter|baby)|"
@@ -85,6 +92,13 @@ _CHILD_RISK = re.compile(
     rf"unsafe|in danger|not safe|at risk)\b|"
     rf"\b(?:abus\w*|neglect\w*|safeguarding concern\w*)\b[^.\n]{{0,30}}\b(?:my|our|the)\s+{_KID}\b", _I)
 _NEGATED = re.compile(r"\b(not|never|no longer|isn'?t|wasn'?t|haven'?t|hasn'?t)\s+(?:been\s+|being\s+)?$", _I)
+# "The Supreme Court decided in X v Y …" cites a precedent — it is not the customer's own court case.
+_AUTHORITY = re.compile(r"\b(?:the\s+)?(?:supreme court|court of appeal|high court|house of lords|privy council|court of session|"
+                        r"employment appeal tribunal|upper tribunal)\s+(?:has\s+)?(?:decided|ruled|held|said|found|confirmed|"
+                        r"case|judgment|decision)\b|\b[A-Z][A-Za-z'&.\-]+\s+v\.?\s+[A-Z][A-Za-z'&.\-]+(?:\s+\[\d{4}\][^.,;\n]{0,20})?",
+                        _I)
+COHAB = re.compile(r"\b(cohabit\w*|unmarried|common[- ]law (?:wife|husband|partner|spouse|marriage)|(?:lived|living|live) together|"
+                   r"(?:weren'?t|wasn'?t|aren'?t|never|were not|are not) (?:\w+ )?married)\b", _I)
 _NATION_DEPENDENT = {"criminal", "housing", "court", "family", "medical_negligence"}
 
 
@@ -94,7 +108,7 @@ def _hits(rx: re.Pattern, text: str) -> bool:
 
 def classify(message: str, context: str = "", category: Optional[str] = None) -> dict:
     """level: emergency | urgent | high | general | standard. Personal involvement is required for urgent/high."""
-    msg, ctx = message or "", context or ""
+    msg, ctx = _AUTHORITY.sub(" ", message or ""), _AUTHORITY.sub(" ", context or "")
     both = f"{ctx}\n{msg}"
     domains = [d for d, rx in DOMAINS.items() if _hits(rx["topic"], both)]
     if category in ("immigration", "employment", "medical_negligence") and category not in domains:
@@ -120,6 +134,7 @@ def classify(message: str, context: str = "", category: Optional[str] = None) ->
     else:
         level = "standard"
     return {"level": level, "domains": domains, "urgent_domains": urgent, "personal": personal,
+            "cohabiting": "family" in domains and _hits(COHAB, both),
             "danger": danger, "self_harm": self_harm, "child_risk": child}
 
 
@@ -136,7 +151,8 @@ MISSING = {
                "whether court papers, a possession order or an eviction notice have been received and their dates",
     "court": "which court or tribunal; the case number; exactly what the order, claim or letter requires; the date it was "
              "served; any hearing date",
-    "family": "which UK nation; whether anyone is in immediate danger; the children's ages and current arrangements; any "
+    "family": "which UK nation; for unmarried couples, whose name is on the property title and any written agreement; "
+              "whether anyone is in immediate danger; the children's ages and current arrangements; any "
               "existing court orders or social services involvement",
     "employment": "whether the work was in Great Britain or Northern Ireland; start date and the exact date employment ended; "
                   "whether Acas (or the LRA in NI) early conciliation has started and the certificate dates",
@@ -202,6 +218,14 @@ def prompt_block(hs: dict, nation_known: bool, country: Optional[str]) -> str:
     elif uk and not nation_known and any(d in _NATION_DEPENDENT for d in doms):
         lines.append("JURISDICTION: it is not yet known which UK nation's law applies. Ask early (one short question) which UK "
                      "nation the matter is in, and do not give nation-specific deadlines or conclusions until confirmed.")
+    if hs.get("cohabiting"):
+        lines.append("UNMARRIED PARTNERS: the customer is (or was) not married to or in a civil partnership with the other person. "
+                     "Do NOT apply divorce or financial-remedy rules for married couples, and say clearly that 'common-law "
+                     "marriage' gives no legal rights in any UK nation. Property rights between cohabitants depend on whose "
+                     "name is on the title, any declaration of trust and the evidence of contributions and shared intentions; "
+                     "the rules differ by nation (Scotland has a limited statutory claim with a strict time limit from the end of "
+                     "cohabitation). Ask which UK nation the home is in and whose name is on the title, and recommend a family "
+                     "or property solicitor early.")
     if hs.get("level") == "emergency":
         lines.append("SAFETY FIRST: the customer may be at risk now. Open with a short line on getting immediate help "
                      "(the app also adds emergency contacts), then give the legal information.")

@@ -24,7 +24,10 @@ _RULES = [
      r"\bact as an? (?:unrestricted|unfiltered|different)\b", False),
     ("override_instructions", r"\bfrom now on,? you (?:will|must|are|should)\b|\bnew (?:system )?instructions?\s*:", "ai"),
     ("role_impersonation", r"<\|\s*(?:im_start|im_end|system|assistant|user|endoftext)\s*\|>|\[/?INST\]|<</?SYS>>|"
-     r"</?\s*(?:system|assistant|instructions?)\s*>|\b(?:system|developer)\s+(?:prompt|message|override|instruction)s?\s*:|"
+     r"</?\s*(?:system|assistant|instructions?)\s*>|\b(?:system|developer|admin(?:istrator)?)\s+(?:prompt|message|override|instruction|"
+     r"note|notice|alert|update|command|directive)s?\s*:|"
+     r"\b(?:ai|lex|chat ?bot|ai assistant|virtual assistant|language model|llm)\s*[,:]\s*(?:please\s+)?(?:confirm|say|state|tell|treat|"
+     r"ignore|conclude|reply|answer|respond|report|classify|verify|approve)\b|"
      r"\b(?:message|instruction|notice|update|directive) from (?:the )?(?:ai advocate|anthropic|openai|google|"
      r"(?:the |your )?developers?|system administrator|lex'?s? (?:operator|developers?))\b|\bbegin system\b|"
      r"\bend of (?:the )?document\.?\s*new instructions\b", False),

@@ -19,7 +19,8 @@ _HINT_RE = re.compile(
     r"\b(dismiss|sacked|fired|redundan|tribunal|acas|lra|discriminat|wages|ilr|indefinite leave|settle|citizenship|naturalis|"
     r"visa|overstay|expir|section 8|section 21|section 173|notice|evict|possession|landlord|tenan|deposit|debt|owe|contract|"
     r"injur|accident|negligen|limitation|small claim|benefit|universal credit|pip|esa|dwp|reconsideration|appeal|divorce|"
-    r"deadline|how long|when can|how much time|time limit|too late|court|claim form|defence|ccj|summons|hearing|sheriff)\w*", re.I)
+    r"deadline|how long|when can|how much time|time limit|too late|court|claim form|defence|ccj|summons|hearing|sheriff|"
+    r"parking|pcn|penalty charge|refund|faulty|reject|cancel\w* (?:my|the|an|our|this) (?:order|purchase|contract|booking))\w*", re.I)
 _DATE_RE = re.compile(r"\d|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|\b(today|yesterday|tomorrow|"
                       r"last|next|ago|week|month|year)\b", re.I)
 
@@ -302,9 +303,93 @@ def _divorce(c) -> List[Item]:
              "so later if the conditional order takes longer).", reminder, co if reminder else None)]
 
 
+def _court_claim(c) -> List[Item]:
+    """England & Wales civil claim (CPR 10.3, 15.4): respond within 14 days of service of the particulars of claim
+    (28 days for the defence if an acknowledgment of service is filed in time). Service is deemed, not the day received."""
+    issued, got = _d(c.get("issue_date")), _d(c.get("received_date"))
+    j = (c.get("jurisdiction") or "").lower()
+    if j.startswith("scot"):
+        return [("Scotland (simple procedure / sheriff court): the court sets the response deadline in the timetable sent with "
+                 "the claim — the app does not calculate it. Act on the 'last date for response' on the papers, today if possible.",
+                 None, None)]
+    if j.startswith("northern"):
+        return [("Northern Ireland: county court and small claims response times follow NI court rules and the papers — the app "
+                 "does not calculate them. Check the date on the civil bill or claim notice and get advice promptly.", None, None)]
+    if _unknown(j):
+        return [("Court claim: the UK nation is not confirmed and court rules differ (England & Wales, Scotland and Northern "
+                 "Ireland each have their own) — no exact response date can be given until it is.", None, None)]
+    if not issued:
+        return [(f"England & Wales court claim received {fmt(got)}: the deadline runs from the date of SERVICE (a deemed date set "
+                 "by the court rules, not necessarily the day it arrived), so the app cannot confirm an exact date. Usually you "
+                 "must respond within 14 days of service of the particulars of claim (28 days for the defence if you file an "
+                 "acknowledgment of service in time). Check the issue date and the response pack now — if you miss the deadline "
+                 "the claimant can ask for judgment in default.", None, None)]
+    safe = issued + timedelta(days=14)
+    return [(f"England & Wales court claim issued {fmt(issued)}: SAFE WORKING DATE {fmt(safe)} — 14 days from the issue date. The "
+             "real deadline is 14 days after deemed service of the particulars of claim, which is later than the issue date, so "
+             "acting by this date keeps you safe. Filing an acknowledgment of service in time extends the defence deadline to "
+             "28 days after service. Check the response pack for the exact date.", "Respond to court claim (safe date)", safe)]
+
+
+def _parking(c) -> List[Item]:
+    """Council PCNs (England & Wales TMA 2004 regs; Scotland): reduced rate within 14 days of service (21 days for postal/camera
+    PCNs in England & Wales); formal representations within 28 days of a Notice to Owner. Private 'parking charges' are contractual."""
+    nd = _d(c.get("notice_date"))
+    if not nd:
+        return []
+    issuer, served = (c.get("issuer") or "unknown").lower(), (c.get("served") or "unknown").lower()
+    j = (c.get("jurisdiction") or "").lower()
+    if issuer != "council":
+        return [(f"Parking notice dated {fmt(nd)}: {'a private parking charge' if issuer == 'private' else 'it is not clear whether this is a council PCN or a private parking charge'}"
+                 " — private operators set their own appeal and discount periods (often 14 days for the discount and 28 days to "
+                 "appeal), and Scotland has no keeper-liability law for private parking. The app cannot confirm an exact date: "
+                 "check the dates printed on the notice.", None, None)]
+    if _unknown(j) or j.startswith("northern"):
+        return [(f"Council penalty charge notice dated {fmt(nd)}: the discount and challenge periods depend on the UK nation and "
+                 "how it was served — confirm these; the dates on the notice apply.", None, None)]
+    if served == "windscreen":
+        last = nd + timedelta(days=13)
+        return [(f"Council PCN fixed to the vehicle on {fmt(nd)}: the reduced (50%) rate is available for 14 days beginning with "
+                 f"that date — SAFE WORKING DATE {fmt(last)}. An informal challenge made in that period usually keeps the "
+                 "discount open; formal representations are made within 28 days of any Notice to Owner.",
+                 "Parking PCN discount ends (safe date)", last)]
+    if served == "post" and not j.startswith("scot"):
+        last = nd + timedelta(days=20)
+        return [(f"Council PCN sent by post, dated {fmt(nd)}: the reduced rate is available for 21 days beginning with the date of "
+                 f"service, which is after the date on the notice — SAFE WORKING DATE {fmt(last)}. Representations: within 28 days "
+                 "of service.", "Parking PCN discount ends (safe date)", last)]
+    return [(f"Council PCN dated {fmt(nd)}: the app needs to know how it was served (left on the vehicle or sent by post) to "
+             "calculate the discount date — check the notice.", None, None)]
+
+
+def _consumer(c) -> List[Item]:
+    """Consumer Rights Act 2015 s.22 (30-day short-term right to reject) and Consumer Contracts Regulations 2013 reg 30-31
+    (14-day cancellation for online/distance contracts) — UK-wide."""
+    kind = (c.get("kind") or "").lower()
+    got, made = _d(c.get("delivery_date")), _d(c.get("contract_date"))
+    if kind == "faulty_goods" and got:
+        end = got + timedelta(days=30)
+        return [(f"Faulty goods delivered {fmt(got)}: short-term right to reject for a full refund within 30 days → by {fmt(end)} "
+                 "(shorter for perishable goods). After that you can still ask for a repair or replacement.",
+                 "Last day to reject faulty goods", end)]
+    if kind == "online_cancel" and got:
+        end = got + timedelta(days=14)
+        return [(f"Online/distance purchase delivered {fmt(got)}: 14-day cancellation period starting the day after delivery → "
+                 f"tell the seller by {fmt(end)}. Some items are excluded (e.g. personalised or sealed hygiene goods once opened); "
+                 "if the seller did not give cancellation information, the period can be extended.", "Last day to cancel online order", end)]
+    if kind == "service_cancel" and made:
+        end = made + timedelta(days=14)
+        return [(f"Service agreed online/at a distance on {fmt(made)}: 14-day cancellation period starting the day after → by "
+                 f"{fmt(end)}. If you asked for the service to start sooner you may have to pay for what was provided.",
+                 "Last day to cancel service", end)]
+    return [("Consumer deadline: the app needs the type of problem (faulty goods, cancelling an online order or a service) and "
+             "the delivery or contract date to calculate it.", None, None)]
+
+
 CALCS = {"employment_tribunal": _et, "citizenship_after_ilr": _citizenship, "ilr_eligibility": _ilr,
          "visa_expiry": _visa, "tenancy_notice": _tenancy_notice, "section8_notice": _tenancy_notice,
-         "deposit_protection": _deposit, "limitation": _limitation, "benefit_challenge": _benefit, "divorce": _divorce}
+         "deposit_protection": _deposit, "limitation": _limitation, "benefit_challenge": _benefit, "divorce": _divorce,
+         "court_claim": _court_claim, "parking_notice": _parking, "consumer_purchase": _consumer}
 
 EXTRACT_SYSTEM = """Extract dated legal events from the user's message (and recent context) so software can calculate deadlines.
 Resolve relative dates ("last Friday", "next week", "3 weeks ago") using TODAY. Only include items where a date is stated or clearly implied.
@@ -324,7 +409,11 @@ Reply ONLY with JSON: {"calcs": [ ... ]} — empty list if none. Allowed items:
 {"type":"limitation","event_date":"YYYY-MM-DD","claim_kind":"contract|debt|personal_injury","jurisdiction":"..."}
 {"type":"benefit_challenge","decision_date":"YYYY-MM-DD|null","mrn_date":"YYYY-MM-DD|null","jurisdiction":"...","scottish_benefit":true|false}
 (scottish_benefit = true only for Social Security Scotland benefits such as Adult Disability Payment, Child Disability Payment, Scottish Child Payment, or a "PIP-style" disability benefit for someone living in Scotland)
-{"type":"divorce","application_date":"YYYY-MM-DD"}"""
+{"type":"divorce","application_date":"YYYY-MM-DD"}
+{"type":"court_claim","issue_date":"YYYY-MM-DD|null","received_date":"YYYY-MM-DD|null","jurisdiction":"..."}
+(issue_date only if the customer quotes the issue date printed on the claim form; received_date = when it arrived)
+{"type":"parking_notice","notice_date":"YYYY-MM-DD","issuer":"council|private|unknown","served":"windscreen|post|unknown","jurisdiction":"..."}
+{"type":"consumer_purchase","kind":"faulty_goods|online_cancel|service_cancel","delivery_date":"YYYY-MM-DD|null","contract_date":"YYYY-MM-DD|null"}"""
 
 
 def compute(calcs: list) -> List[Item]:

@@ -35,16 +35,25 @@ EVENTS = {
     "benefit_challenge": {"decision_date": r"decision|decided|letter|refus\w*|award\w*|stopped|sanction\w*|turned down",
                           "mrn_date": r"mandatory reconsideration|reconsideration notice|\bmrn\b"},
     "divorce": {"application_date": r"appl\w*|filed|issued|submitted|started"},
+    "court_claim": {"issue_date": r"issue\w*|issuing|dated|date on (?:the|my) claim",
+                    "received_date": r"receiv\w*|got|arrived|served|came|delivered|post\w*|claim form"},
+    "parking_notice": {"notice_date": r"pcn|penalty charge|parking|ticket|fine|notice|charge|issued|dated|windscreen|letter"},
+    "consumer_purchase": {"delivery_date": r"deliver\w*|arrived|received|bought|purchas\w*|ordered|collected|got",
+                          "contract_date": r"contract|agreed|signed|booked|ordered|bought|purchas\w*"},
 }
 PRIMARY = {"employment_tribunal": "event_date", "citizenship_after_ilr": "ilr_date", "ilr_eligibility": "route_start_date",
            "visa_expiry": "expiry_date", "tenancy_notice": "served_date", "deposit_protection": "paid_date",
-           "limitation": "event_date", "benefit_challenge": "decision_date", "divorce": "application_date"}
+           "limitation": "event_date", "benefit_challenge": "decision_date", "divorce": "application_date",
+           "court_claim": ("issue_date", "received_date"), "parking_notice": "notice_date", "consumer_purchase": "delivery_date"}
 LABEL = {"event_date": "the date of the event (e.g. dismissal)", "acas_date": "the ACAS/LRA early conciliation notification date",
          "certificate_date": "the early conciliation certificate date", "ilr_date": "the ILR grant date",
          "route_start_date": "the visa route start date", "expiry_date": "the visa expiry date",
          "served_date": "the date the notice was served", "tenancy_start_date": "the tenancy start date",
          "paid_date": "the deposit payment date", "decision_date": "the decision letter date",
-         "mrn_date": "the mandatory reconsideration notice date", "application_date": "the application date"}
+         "mrn_date": "the mandatory reconsideration notice date", "application_date": "the application date",
+         "issue_date": "the issue date printed on the claim form", "received_date": "the date the claim form was received",
+         "notice_date": "the date on the parking notice", "delivery_date": "the delivery (or purchase) date",
+         "contract_date": "the date the contract was made"}
 
 
 def _d(v) -> Optional[date]:
@@ -118,8 +127,9 @@ def validate(calcs: list, customer_text: str) -> Tuple[list, List[str]]:
                              "another event's date for it" + ("; ask whether ACAS has been contacted and, if so, on what date"
                                                              if field == "acas_date" else "; ask for it if it matters") + ".")
                 c[field] = None
-            if field == PRIMARY[t] and not c.get(field):
-                ok = False
+        prim = PRIMARY[t] if isinstance(PRIMARY[t], tuple) else (PRIMARY[t],)
+        if not any(c.get(f) for f in prim):
+            ok = False
         if c.get("certificate_date") and not c.get("acas_date"):
             c["certificate_date"] = None
             notes.append("A certificate date was given without an ACAS notification date — ask for the ACAS notification "
