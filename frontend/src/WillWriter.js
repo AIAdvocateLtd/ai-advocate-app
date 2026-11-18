@@ -1,5 +1,5 @@
 // Will Writer — guided questions → Lex drafts a will → PDF / email / share. Plus & Pro only.
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { X, ScrollText, Plus, Trash2, AlertTriangle, Pencil } from "lucide-react";
 import { ShareActionsRow } from "@/ShareActions";
 import { useFormDraft, DraftNotice } from "@/FormDrafts";
@@ -170,8 +170,8 @@ export default function WillWriterModal({ api, toast, onUpsell, onClose }) {
   const [current, setCurrent] = useState(null);
   const [locked, setLocked] = useState(false);
 
-  const load = () => api.get("/wills").then(r => setWills(r.data.wills || [])).catch(e => { if (e?.response?.status === 402) setLocked(true); });
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  const load = useCallback(() => api.get("/wills").then(r => setWills(r.data.wills || [])).catch(e => { if (e?.response?.status === 402) setLocked(true); }), [api]);
+  useEffect(() => { load(); }, [load]);
 
   const open = async (w) => {
     try {
