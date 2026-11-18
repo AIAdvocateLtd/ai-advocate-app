@@ -36,7 +36,9 @@ EVENTS = {
                           "mrn_date": r"mandatory reconsideration|reconsideration notice|\bmrn\b"},
     "divorce": {"application_date": r"appl\w*|filed|issued|submitted|started"},
     "court_claim": {"issue_date": r"issue\w*|issuing|dated|date on (?:the|my) claim",
-                    "received_date": r"receiv\w*|got|arrived|served|came|delivered|post\w*|claim form"},
+                    "service_date": r"served|service|deemed",
+                    "posted_date": r"post\w*|sent|emailed|left at|hand[- ]?delivered",
+                    "received_date": r"receiv\w*|got|arrived|came|delivered|claim form"},
     "parking_notice": {"notice_date": r"pcn|penalty charge|parking|ticket|fine|notice|charge|issued|dated|windscreen|letter"},
     "consumer_purchase": {"delivery_date": r"deliver\w*|arrived|received|bought|purchas\w*|ordered|collected|got",
                           "contract_date": r"contract|agreed|signed|booked|ordered|bought|purchas\w*"},
@@ -44,14 +46,15 @@ EVENTS = {
 PRIMARY = {"employment_tribunal": "event_date", "citizenship_after_ilr": "ilr_date", "ilr_eligibility": "route_start_date",
            "visa_expiry": "expiry_date", "tenancy_notice": "served_date", "deposit_protection": "paid_date",
            "limitation": "event_date", "benefit_challenge": "decision_date", "divorce": "application_date",
-           "court_claim": ("issue_date", "received_date"), "parking_notice": "notice_date", "consumer_purchase": "delivery_date"}
+           "court_claim": ("issue_date", "received_date", "service_date", "posted_date"), "parking_notice": "notice_date", "consumer_purchase": "delivery_date"}
 LABEL = {"event_date": "the date of the event (e.g. dismissal)", "acas_date": "the ACAS/LRA early conciliation notification date",
          "certificate_date": "the early conciliation certificate date", "ilr_date": "the ILR grant date",
          "route_start_date": "the visa route start date", "expiry_date": "the visa expiry date",
          "served_date": "the date the notice was served", "tenancy_start_date": "the tenancy start date",
          "paid_date": "the deposit payment date", "decision_date": "the decision letter date",
          "mrn_date": "the mandatory reconsideration notice date", "application_date": "the application date",
-         "issue_date": "the issue date printed on the claim form", "received_date": "the date the claim form was received",
+         "issue_date": "the issue date printed on the claim form", "service_date": "the date of service on the court papers",
+         "posted_date": "the date the claim was posted or sent", "received_date": "the date the claim form was received",
          "notice_date": "the date on the parking notice", "delivery_date": "the delivery (or purchase) date",
          "contract_date": "the date the contract was made"}
 

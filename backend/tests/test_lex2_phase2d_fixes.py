@@ -109,13 +109,34 @@ def test_system_note_injection_caught_without_flagging_ordinary_letters():
 
 
 # ---- deadline calculator
-def test_court_claim_deadlines():
+def test_court_claim_issue_date_alone_gives_no_deadline():
     [(t, title, d)] = dc._court_claim({"issue_date": "2026-11-02", "jurisdiction": "england"})
-    assert d == date(2026, 11, 16) and "SAFE WORKING DATE" in t and "28 days" in t
-    for c in ({"received_date": "2026-11-06", "jurisdiction": "england"}, {"issue_date": "2026-11-02", "jurisdiction": "scotland"},
-              {"issue_date": "2026-11-02", "jurisdiction": "northern_ireland"}, {"issue_date": "2026-11-02", "jurisdiction": "unknown"}):
+    assert d is None and title is None and "date of SERVICE" in t and "not the issue date" in t
+    for c in ({"received_date": "2026-11-06", "jurisdiction": "england"}, {"service_date": "2026-11-02", "jurisdiction": "scotland"},
+              {"service_date": "2026-11-02", "jurisdiction": "northern_ireland"}, {"service_date": "2026-11-02", "jurisdiction": "unknown"}):
         [(t, title, d)] = dc._court_claim(c)
         assert d is None and title is None
+
+
+def test_court_claim_deemed_service_from_posting_cpr_6_14():
+    # Posted Thu 5 Nov 2026 -> 2nd business day = Mon 9 Nov; +14 = Mon 23 Nov; +28 = Mon 7 Dec
+    out = dc._court_claim({"posted_date": "2026-11-05", "jurisdiction": "england"})
+    assert "deemed served 9 November 2026" in out[0][0].replace("Monday ", "") or out[0][2] == date(2026, 11, 23)
+    assert out[0][2] == date(2026, 11, 23) and "7 December 2026" in out[0][0]
+
+
+def test_court_claim_stated_service_date_and_closed_day_roll_cpr_2_8():
+    # served Sat 12 Dec 2026 +14 = Sat 26 Dec (Boxing Day) -> 28 Dec is a bank holiday (substitute) -> Tue 29 Dec
+    out = dc._court_claim({"service_date": "2026-12-12", "jurisdiction": "england", "aos_filed": True})
+    assert out[0][2] == date(2026, 12, 29) and out[1][2] == date(2027, 1, 11)
+
+
+def test_court_claim_separate_particulars_cpr_6_26_and_exceptions():
+    # particulars posted Fri 6 Nov -> 2nd day Sun 8 Nov not business day -> Mon 9 Nov; +14 = 23 Nov
+    assert dc._court_claim({"posted_date": "2026-11-06", "particulars_separate": True, "jurisdiction": "england"})[0][2] == date(2026, 11, 23)
+    for extra in ({"outside_uk": True}, {"claim_part": "8"}, {"particulars_to_follow": True}):
+        [(t, title, d)] = dc._court_claim({"posted_date": "2026-11-05", "jurisdiction": "england", **extra})
+        assert d is None and "cannot confirm" in t
 
 
 def test_parking_deadlines():

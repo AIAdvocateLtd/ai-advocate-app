@@ -303,10 +303,20 @@ def _divorce(c) -> List[Item]:
              "so later if the conditional order takes longer).", reminder, co if reminder else None)]
 
 
+def _cpr_due(d: date) -> date:
+    """CPR 2.8(5): if the period ends on a day the court office is closed, filing on the next open day is in time."""
+    hols = bank_holidays("england")
+    while d.weekday() >= 5 or d in hols:
+        d += timedelta(days=1)
+    return d
+
+
 def _court_claim(c) -> List[Item]:
-    """England & Wales civil claim (CPR 10.3, 15.4): respond within 14 days of service of the particulars of claim
-    (28 days for the defence if an acknowledgment of service is filed in time). Service is deemed, not the day received."""
-    issued, got = _d(c.get("issue_date")), _d(c.get("received_date"))
+    """England & Wales Part 7 claim: deemed service CPR 6.14 (claim form: 2nd business day after posting/leaving/sending)
+    and 6.26 (particulars served separately by first-class post: 2nd day after posting, or next business day).
+    Acknowledgment of service or defence within 14 days after service of the particulars (CPR 9.2, 10.3(1));
+    defence within 28 days after service of the particulars if an acknowledgment is filed (CPR 15.4(1)); parties may agree
+    up to 28 more days (CPR 15.5). Exact dates only when the service facts are known."""
     j = (c.get("jurisdiction") or "").lower()
     if j.startswith("scot"):
         return [("Scotland (simple procedure / sheriff court): the court sets the response deadline in the timetable sent with "
@@ -318,17 +328,38 @@ def _court_claim(c) -> List[Item]:
     if _unknown(j):
         return [("Court claim: the UK nation is not confirmed and court rules differ (England & Wales, Scotland and Northern "
                  "Ireland each have their own) — no exact response date can be given until it is.", None, None)]
-    if not issued:
-        return [(f"England & Wales court claim received {fmt(got)}: the deadline runs from the date of SERVICE (a deemed date set "
-                 "by the court rules, not necessarily the day it arrived), so the app cannot confirm an exact date. Usually you "
-                 "must respond within 14 days of service of the particulars of claim (28 days for the defence if you file an "
-                 "acknowledgment of service in time). Check the issue date and the response pack now — if you miss the deadline "
-                 "the claimant can ask for judgment in default.", None, None)]
-    safe = issued + timedelta(days=14)
-    return [(f"England & Wales court claim issued {fmt(issued)}: SAFE WORKING DATE {fmt(safe)} — 14 days from the issue date. The "
-             "real deadline is 14 days after deemed service of the particulars of claim, which is later than the issue date, so "
-             "acting by this date keeps you safe. Filing an acknowledgment of service in time extends the defence deadline to "
-             "28 days after service. Check the response pack for the exact date.", "Respond to court claim (safe date)", safe)]
+    rule = ("Rule (CPR 9–15): file an acknowledgment of service or a defence within 14 days after service of the particulars "
+            "of claim; if you acknowledge service in time, the defence is due 28 days after service of the particulars (the "
+            "claimant can agree up to 28 days more, CPR 15.5). If nothing is filed, the claimant can ask for judgment in default.")
+    if str(c.get("outside_uk")).lower() == "true" or str(c.get("claim_part")) == "8" or \
+            str(c.get("particulars_to_follow")).lower() == "true":
+        why = ("the claim was served outside the UK" if str(c.get("outside_uk")).lower() == "true" else
+               "it is a Part 8 claim (different response rules)" if str(c.get("claim_part")) == "8" else
+               "the particulars of claim are to follow — time runs from when they are served")
+        return [(f"England & Wales court claim: the app cannot confirm a date because {why}. {rule}", None, None)]
+    served = _d(c.get("service_date"))
+    posted = _d(c.get("posted_date"))
+    sep = str(c.get("particulars_separate")).lower() == "true"
+    if not served and posted and not sep:
+        served = _working_days(posted, 2)  # CPR 6.14: second business day after the step
+    elif not served and posted and sep:
+        served = _cpr_due(posted + timedelta(days=2))  # CPR 6.26 first-class post
+    if served:
+        aos, dfc = _cpr_due(served + timedelta(days=14)), _cpr_due(served + timedelta(days=28))
+        basis = "date of service stated on the court papers" if c.get("service_date") else f"posted/sent {fmt(posted)}"
+        out = [(f"England & Wales court claim — deemed served {fmt(served)} ({basis}). Acknowledgment of service (or defence/"
+                f"admission) by {fmt(aos)}. If you acknowledge service in time, defence by {fmt(dfc)}. Dates move to the next "
+                "court working day only when the last day is a weekend or bank holiday (CPR 2.8). Check the response pack.",
+                "Court claim: acknowledge or defend by", aos)]
+        if str(c.get("aos_filed")).lower() == "true":
+            out.append((f"Acknowledgment filed: defence due {fmt(dfc)}.", "Court claim: defence due", dfc))
+        return out
+    issued, got = _d(c.get("issue_date")), _d(c.get("received_date"))
+    seen = f"issued {fmt(issued)}" if issued else f"received {fmt(got)}" if got else "received"
+    return [(f"England & Wales court claim {seen}: the response deadline runs from the date of SERVICE, which the rules "
+             "deem from the date the claim was posted or sent (not the issue date, and not necessarily the day it arrived). "
+             "The app cannot confirm an exact date until you give the date of service shown on the court's notice of issue, "
+             f"or the date it was posted and how. {rule} Treat this as urgent and respond as early as you can.", None, None)]
 
 
 def _parking(c) -> List[Item]:
@@ -410,8 +441,8 @@ Reply ONLY with JSON: {"calcs": [ ... ]} — empty list if none. Allowed items:
 {"type":"benefit_challenge","decision_date":"YYYY-MM-DD|null","mrn_date":"YYYY-MM-DD|null","jurisdiction":"...","scottish_benefit":true|false}
 (scottish_benefit = true only for Social Security Scotland benefits such as Adult Disability Payment, Child Disability Payment, Scottish Child Payment, or a "PIP-style" disability benefit for someone living in Scotland)
 {"type":"divorce","application_date":"YYYY-MM-DD"}
-{"type":"court_claim","issue_date":"YYYY-MM-DD|null","received_date":"YYYY-MM-DD|null","jurisdiction":"..."}
-(issue_date only if the customer quotes the issue date printed on the claim form; received_date = when it arrived)
+{"type":"court_claim","issue_date":"YYYY-MM-DD|null","received_date":"YYYY-MM-DD|null","service_date":"YYYY-MM-DD|null","posted_date":"YYYY-MM-DD|null","particulars_separate":true|false|null,"particulars_to_follow":true|false|null,"aos_filed":true|false|null,"claim_part":"7|8|null","outside_uk":true|false|null,"jurisdiction":"..."}
+(service_date only if the customer quotes a date of service / "deemed served" date from the court papers; posted_date = date the claim was posted or sent; received_date = when it arrived)
 {"type":"parking_notice","notice_date":"YYYY-MM-DD","issuer":"council|private|unknown","served":"windscreen|post|unknown","jurisdiction":"..."}
 {"type":"consumer_purchase","kind":"faulty_goods|online_cancel|service_cancel","delivery_date":"YYYY-MM-DD|null","contract_date":"YYYY-MM-DD|null"}"""
 
