@@ -2088,6 +2088,9 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
     try:
         out, dates_rep = deadline_calc.ensure_dates(out, (juris or {}).get("deadline_items") or [],
                                                     (juris or {}).get("deadline_text") or "")
+        if (juris or {}).get("country", "GB") in ("GB", "UK", None):
+            out, dates_rep["et_points"] = deadline_calc.ensure_et_points(out, (juris or {}).get("customer_text") or message,
+                                                                         _juris_nation(juris))
     except Exception as e:
         logger.warning(f"deadline presence check failed (answer unchanged): {e!r}")
     ai_rep = {}

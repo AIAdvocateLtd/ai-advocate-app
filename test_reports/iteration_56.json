@@ -1,0 +1,31 @@
+{
+  "summary": "Offline backend-only rerun (AIA_NO_PAID=1, one file per pytest invocation, no paid calls, DB read-only, backend not restarted, live eval untouched). test_lex2_final_probe_iter55.py: 34/34 PASS. Regression all PASS: final_refinements 21/21, phase2e_probe_iter54 34/34, phase2e_corrections 36/36, 2a3_high_stakes 45/45, stage2_safety 44/44, 2a2_injection 91/91. New probe file test_lex2_iter56_probe.py: 31/32 pass. Scotland parking is fully fixed: windscreen/post/unknown/missing/camera/handed, in any letter case, give one 14-day discount, a safe date of notice+13, and the First-tier Tribunal for Scotland (GRC). None of them include '21 days', 'London Tribunals', 'Traffic Penalty Tribunal' or 'service method not given'. lex_guidance returns parking_council_scotland (never parking_council) for Scottish council parking questions, and the Scottish block contains no England & Wales wording. Private parking in Scotland says keeper liability does not apply. In the AI source check, failed calls are not cached or charged, and the check stays off when the setting is absent or not literally true. The real DB setting is absent or disabled (read-only check). Qualifier placement is correct for short claims, markers within the first 60 chars, multi-sentence lines and bullet lines. A remaining defect: in sentences with 2 or more claims, or with a marker after the full stop, the qualifier lands next to the wrong claim (details below).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "source_ai_check.run (qualifier placement, multi-claim sentence)", "issue": "Layer 1 gives every marker in a sentence the same 'raw' (the whole sentence), and run() always puts the qualifier at the end of that sentence. Input 'Early conciliation usually lasts up to 8 weeks [1] and the time limit is 3 months less one day [2].' with only [1] flagged gives '... 3 months less one day (the cited source does not clearly support this...) [2].' The warning attaches to claim [2], which is supported, not to the 8-weeks claim [1]. When both are flagged, the qualifier is inserted twice, back to back, before [2]. To reproduce, run tests/test_lex2_iter56_probe.py::test_mid_sentence_marker_qualifier_attaches_to_its_own_claim or /tmp/probe_extra.py.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "lex_safety.verify_citations (marker after full stop)", "issue": "'... lasts up to 8 weeks.[1] Then claim.' is normalised to '8 weeks. [1] Then claim.', and the split on (?<=[.!?])\\s+ makes [1] part of the next sentence. Layer 1 then checks 'Then claim.' with marker [1]. With the space form '8 weeks. [1] Then claim.' the wrong 8-week period was marked source_supported. With the no-space form, the AI qualifier was put on 'Then claim (qualifier).' — the wrong sentence. LLMs often place a marker after the full stop."},
+      {"endpoint": "source_ai_check.run (marker after final full stop)", "issue": "'... 8 weeks.[1]' at the end of an answer gives '8 weeks. (qualifier) [1]': the qualifier comes after the full stop, not before it. Cosmetic."},
+      {"endpoint": "lex_guidance parking_private", "issue": "The rule text 'Ignoring letters can lead to a county court claim' is also used for Scotland, where the claim would be a sheriff court simple procedure claim. This is a minor legal-accuracy wording issue."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_lex2_final_probe_iter55.py", "/app/backend/tests/test_lex2_iter56_probe.py", "/app/test_reports/pytest/test_lex2_iter56_probe.xml", "/app/test_reports/pytest/test_lex2_final_probe_iter55.xml"],
+  "action_items": [
+    "source_ai_check / lex_safety: record a per-marker anchor in claim_support, i.e. the clause up to its own [n] marker, not the whole sentence. Insert the qualifier immediately before that claim's own [n] marker, and never insert it twice for the same marker position.",
+    "lex_safety.verify_citations: attach a marker that follows the sentence's full stop ('weeks.[1]' or 'weeks. [1]') to the preceding sentence, both for the claim-support check and for raw.",
+    "Optional: when the marker comes after the final full stop, put the qualifier before the full stop.",
+    "Optional: Scotland private parking wording — say 'court claim (sheriff court in Scotland)'."
+  ],
+  "critical_code_review_comments": [
+    "source_ai_check.run line 74: c['raw'] is the whole sentence and is shared by every marker in it, so the per-marker period checks from layer 1 are lost at layer 3.",
+    "lex_safety.fix_sentence: the sentence split happens before markers are linked to sentences, so markers placed after the full stop move to the next sentence."
+  ],
+  "updated_files": ["/app/backend/tests/test_lex2_iter56_probe.py (new)"],
+  "success_rate": {"backend": "iter55 probes 34/34 (100%); regression 271/271; new probes 31/32", "frontend": "not tested (backend only)"},
+  "seed_data_creation": "None. DB read-only (app_settings lex_ai_source_check read only). No synthetic users touched.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run each file separately with AIA_NO_PAID=1. test_lex2_iter56_probe.py::test_mid_sentence_marker_qualifier_attaches_to_its_own_claim is the open defect. /tmp/probe_extra.py and /tmp/p2.py contain ad-hoc repros for multi-claim and post-full-stop markers. Do not enable app_settings lex_ai_source_check."
+}

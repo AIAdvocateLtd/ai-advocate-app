@@ -84,7 +84,7 @@ def test_parking_guidance_private_vs_council():
 # ---------------------------------------------------------------- emergency signposting
 def test_detention_emergency_rule_and_help_line():
     b = G.block("My brother has been detained and they say he will be removed tomorrow morning. What can we do tonight?", "", "england")
-    assert "Detention Duty Advice Scheme" in b and "do not use police-station" in b and "Never promise removal" in b
+    assert "Detention Duty Advice Scheme" in b and "Cite only immigration-specific sources" in b and "Never promise removal" in b
     assert "Detention Duty Advice Scheme" in H.HELP["immigration"]
 
 
@@ -215,3 +215,22 @@ def test_topic_precision_for_retest_scenarios():
     for i in ("EMP-03", "EMP-04"):
         assert H.classify(by[i]["q"])["level"] in ("high", "urgent") and "employment" in H.classify(by[i]["q"])["domains"]
     assert "emergency_detention" in [r[0] for r in G.matched(by["IMM-05"]["q"], "", "england")]
+
+
+# ---------------------------------------------------------------- after the 15-answer retest
+def test_et_points_added_only_when_missing():
+    q = "My employer in Cardiff hasn't paid my last two months' wages or my holiday pay."
+    out, rep = dc.ensure_et_points("Claim at the tribunal: 6 months less one day if on/after 1 Oct, else 3 months.", q, "wales")
+    assert rep["added"] == ["series"] and "LAST deduction" in out
+    full = "Tribunal: 6 months or 3 months; time runs from the last deduction in the series."
+    assert dc.ensure_et_points(full, q, "wales")[1]["added"] == []
+    out, rep = dc.ensure_et_points("The tribunal time limit is 3 months.", "I was pregnant and they cut my hours", "england")
+    assert rep["added"] == ["date_of_act", "continuing"] and "END of that period" in out
+    assert dc.ensure_et_points("The tribunal time limit is 3 months.", "My wages", "northern_ireland")[1]["added"] == []
+    assert dc.ensure_et_points("Ask the shop for a refund.", "I bought a laptop", "england")[1]["added"] == []
+
+
+def test_detention_rule_solicitor_only_court_and_no_police_prompt():
+    b = G.block("My brother has been detained and they say he will be removed tomorrow morning.", "", "england")
+    assert "OISC advisers cannot" in b and "High Court's duty judge" in b and "police" not in b.lower()
+    assert "police" not in H.HELP["immigration"].lower()

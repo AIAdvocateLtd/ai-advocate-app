@@ -685,6 +685,38 @@ def ensure_dates(answer: str, items: list, block: str) -> Tuple[str, dict]:
                                                  "an adviser before relying on them):\n" + "\n".join(lines)), rep
 
 
+_ET_Q = re.compile(r"\b(employ\w*|dismiss\w*|sacked|fired|redundan\w*|tribunal|acas|wages?|holiday pay|discriminat\w*|"
+                   r"pregnan\w*|maternity|harass\w*|victimis\w*)\b", re.I)
+_SERIES_Q = re.compile(r"\b(wages?|holiday pay|deduct\w*|not paid|hasn'?t paid|unpaid|underpaid)\b", re.I)
+_CONT_Q = re.compile(r"\b(discriminat\w*|pregnan\w*|maternity|harass\w*|victimis\w*|treated|bullied)\b", re.I)
+
+
+def ensure_et_points(answer: str, message: str, nation: Optional[str]) -> Tuple[str, dict]:
+    """Deterministic completeness check for GB employment-tribunal time limits: adds only the official-source points the
+    answer left out (date-of-act rule, series of deductions, continuing conduct). Never adds a calendar date."""
+    rep = {"added": []}
+    if nation == "northern_ireland" or not _ET_Q.search(message or "") or not re.search(r"\btribunal\b|time limit", answer or "", re.I):
+        return answer, rep
+    a, pts = answer or "", []
+    if not (re.search(r"\b(6|six) months\b", a, re.I) and re.search(r"\b(3|three) months\b", a, re.I)):
+        pts.append(("date_of_act", "The limit depends on the date of the act: on or after 1 October 2026 most claims have 6 months "
+                    "less one day; before that, 3 months less one day (Employment Rights Act 2025 Sch.12; SI 2026/954)."))
+    if _SERIES_Q.search(message) and not re.search(r"last (?:deduction|payment|underpayment)|series of deductions", a, re.I):
+        pts.append(("series", "For unpaid wages or holiday pay that form a series of deductions, time usually runs from the LAST "
+                    "deduction in the series (Employment Rights Act 1996 s.23(3))."))
+    if _CONT_Q.search(message) and not re.search(r"end of (?:the|that) period|continuing (?:act|conduct|discrimination)|"
+                                                 r"extending over a period", a, re.I):
+        pts.append(("continuing", "If the treatment continued over a period, time usually runs from the END of that period "
+                    "(Equality Act 2010 s.123(3)) — so earlier incidents may still be in time."))
+    if not pts:
+        return answer, rep
+    import lex_safety
+    rep["added"] = [k for k, _ in pts]
+    return lex_safety.insert_before_tail(answer, "**Time-limit points to check** (official-source rules, not reviewed by a "
+                                                 "lawyer — confirm with Acas or an adviser):\n" +
+                                         "\n".join(f"- {t}" for _, t in pts)), rep
+
+
 ET_NOTE = ("Based on the dismissal date you gave — confirm your effective date of termination (on your dismissal letter or "
            "payslip). Starting ACAS Early Conciliation (LRA in Northern Ireland) in time extends the tribunal claim deadline; "
            "recalculate once you have the certificate. Check with a regulated adviser.")

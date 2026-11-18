@@ -422,7 +422,8 @@ def verify_citations(text: str, citations: List[dict], sources: List[dict], cust
                     status, why = "uncertain", "the time period stated was not found in the cited source"
                     rep["uncertain_periods"].append(n)
                 entry = {"n": n, "status": status, "why": why,
-                         "text": re.sub(r"\s+", " ", _NUM_MARK.sub("", sent)).strip()[:160]}
+                         "text": re.sub(r"\s+", " ", _NUM_MARK.sub("", sent)).strip()[:160],
+                         "clause": _NUM_MARK.sub("", clause).strip()}
                 rep["claim_support"].append(entry)
                 entries.append(entry)
                 rep["per_source"].setdefault(n, set()).add({True: "supported", False: "not_confirmed", None: "unchecked"}[ok])
@@ -436,6 +437,7 @@ def verify_citations(text: str, citations: List[dict], sources: List[dict], cust
             e["raw"] = result.strip()  # the sentence exactly as it now appears in the answer (for later qualifiers)
         return result
 
+    out = re.sub(r"(?<=[a-z0-9)])([.!?])[ \t]*((?:\[\d+\])+)", r" \2\1", out)  # 'weeks.[1]' -> 'weeks [1].'
     out = "".join(fix_sentence(p) for p in re.split(r"((?<=[.!?])\s+|\n)", out))
     all_src = " ".join(src_by_n.values())
     for m in list(_NEUTRAL.finditer(out)) + list(_CASE_NAME.finditer(out)):

@@ -94,9 +94,20 @@ async def run(db, text: str, claim_support: List[dict], sources: List[dict], hs:
         c["ai_check"] = res["verdict"]
         rep["results"].append({"n": c["n"], **res})
         if res["verdict"] in ("unsupported", "partly"):
-            tail = re.search(r"(?:\s*\[\d+\])*\s*[.!?]?\s*$", raw)
-            cut = tail.start() if tail else len(raw)
-            out = out.replace(raw, raw[:cut] + QUALIFIER + raw[cut:], 1)
+            clause = (c.get("clause") or "").strip()
+            pos = raw.find(clause) if len(clause) >= 8 else -1
+            if pos >= 0:  # end of this claim's own clause (before its [n]), not the end of the sentence
+                cut = pos + len(clause)
+                while cut > pos and raw[cut - 1] in " ,;":
+                    cut -= 1
+            else:
+                tail = re.search(r"(?:\s*\[\d+\])*\s*[.!?]?\s*$", raw)
+                cut = tail.start() if tail else len(raw)
+            new_raw = raw[:cut] + QUALIFIER + raw[cut:]
+            out = out.replace(raw, new_raw, 1)
+            for o in todo:  # later claims in the same sentence must find the updated sentence
+                if o.get("raw") == raw:
+                    o["raw"] = new_raw
             c["status"] = "unsupported" if res["verdict"] == "unsupported" else "uncertain"
             rep["qualified"] += 1
     return out, rep

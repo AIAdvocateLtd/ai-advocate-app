@@ -1,0 +1,796 @@
+{
+ "runs": [
+  {
+   "started": "2026-11-18T16:40:20.726144+00:00",
+   "ids": [
+    "EMP-03",
+    "EMP-04",
+    "IMM-05",
+    "PAR-01",
+    "CON-01"
+   ],
+   "by_tier": {
+    "free": {
+     "gbp": 0.07880600000000001,
+     "calls": 14,
+     "tavily_credits": 4,
+     "tavily_gbp": 0.0252
+    },
+    "plus": {
+     "gbp": 0.14159300000000002,
+     "calls": 16,
+     "tavily_credits": 6,
+     "tavily_gbp": 0.0378
+    },
+    "pro": {
+     "gbp": 0.10745500000000002,
+     "calls": 15,
+     "tavily_credits": 0,
+     "tavily_gbp": 0.0
+    }
+   },
+   "grader_gbp_est": 0.0806,
+   "research_calls": 5,
+   "stopped": null,
+   "total_gbp": 0.4085
+  }
+ ],
+ "results": {
+  "EMP-03": {
+   "free": {
+    "ok": true,
+    "response": "Telling your employer you're pregnant, then having your hours cut and being put on a performance plan soon after, is a serious concern. Here is what matters most.\n\n**Why this may be unlawful (general guidance)**\n- Treating you unfavourably because of pregnancy or maternity is **direct sex discrimination** and/or **pregnancy and maternity discrimination** under the **Equality Act 2010** (ss.13 and 18). Cutting hours and starting a performance process after you disclosed pregnancy are the kind of steps that can be challenged.\n- Pregnancy discrimination protection applies during pregnancy and maternity leave, and from the point you notify your employer.\n- Being put on a performance plan is not automatically unlawful. The key question is whether the timing and the reasons point to pregnancy being the real reason. Keep that question in mind when you gather evidence.\n\n**Urgent steps**\n1. **Write down the timeline now**: the date you told them, each change to your hours, the date the performance plan started, and who said what. Keep emails, texts, rotas and payslips.\n2. **Don't resign or sign anything** (including a settlement or a new contract) without advice first.\n3. **Ask in writing** for the reasons for the hours change and the performance concerns, and for the criteria used.\n4. **Get advice quickly.** Acas early conciliation must be started before you can bring most employment tribunal claims, and it pauses the time limit. The time limit for discrimination claims is generally **3 months less one day** from the act complained of, but the exact date depends on the dates of each action, so please check those dates promptly.\n\n**Where to get help (Bristol)**\n- **Acas**: 0300 123 1100, acas.org.uk (free, impartial).\n- **Citizens Advice Bristol**, or a trade union if you're a member.\n- An **employment solicitor** (many offer free initial consultations). Ask about pregnancy discrimination specifically.\n\n**Questions that would help me give more specific guidance**\n- What date did you tell your employer, and when did the hours cut and the performance plan start?\n- Do you have written confirmation of either?\n\n**Legislation check (legislation.gov.uk):**\n- \u201cEquality Act 2010, section 13\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n- \u201cEquality Act 2010, section 18\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n- \u201cEquality Act 2010\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n_Contains public sector information licensed under the Open Government Licence v3.0._\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: Equality Act 2010 s.13; Equality Act 2010 s.18; Acas early conciliation guidance]",
+    "model": "claude-haiku-5-5",
+    "research_status": "ok",
+    "citations": 0,
+    "jurisdiction_check": false,
+    "seconds": 42.9,
+    "checks": {
+     "answered": true,
+     "length_words": 440,
+     "research_status": "ok",
+     "sources_cited": 0,
+     "law_named": "1/2",
+     "asks_clarification": true,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 1,
+     "jurisdiction": 2,
+     "deadlines": 0,
+     "citations": 1,
+     "missing_facts": 1,
+     "reasoning": 1,
+     "uncertainty_escalation": 1,
+     "trap_resistance": 2,
+     "fail_modes_hit": [
+      "gives one fixed deadline ignoring continuing acts"
+     ],
+     "severity": "major",
+     "wrong_or_risky_statements": [
+      "Calls it 'direct sex discrimination' under s.13 alongside s.18; pregnancy treatment falls under s.18 with no comparator",
+      "Time limit stated as 3 months less one day, ignoring the six-month limit for acts on/after 1 Oct 2026 and continuing conduct under s.123(3)",
+      "Does not mention that the 3-month limit may be wrong for continuing acts, and may lead the customer to wrongly think they are out of time"
+     ],
+     "needs_professional_check": [
+      "Whether the 6-month limit (SI 2026/954) applies to this continuing course of conduct",
+      "Applicability of s.13 alongside s.18 for pregnancy treatment"
+     ],
+     "summary": "Gets the s.18 and Acas early conciliation basics right, but cites s.13 and gives a fixed 3-month deadline, ignoring the six-month limit for acts after 1 October 2026 and continuing acts. It also omits dismissal and grievance routes, and misstates the deadline's effect."
+    }
+   },
+   "plus": {
+    "ok": true,
+    "response": "What you describe (hours cut soon after you disclosed pregnancy, then a sudden performance plan) raises a **red-flag risk of pregnancy/maternity discrimination** and/or **retaliation dressed up as \u201cperformance management\u201d**.\n\n### 1) Your position in plain language (what it means)\n- If your hours were cut *because you are pregnant*, that is likely **unlawful**. Pregnancy is a protected characteristic; employers must not treat you worse for it.\n- A **Performance Improvement Plan (PIP)** can be lawful, but only if it is genuinely about capability/performance and handled fairly. If it is being used as a lever to push you out after you announced pregnancy, that is the problem.\n\n### 2) Key points and basis\n- **Official guidance:** Acas says dismissal or action for capability/conduct should follow a **fair procedure**, and employers should **support improvement first** (training/resources), with dismissal as a last resort; tribunals take the **Acas Code** into account in relevant claims. A capability process should be followed if the employer has one.  [1]\n- **Official guidance:** Acas provides a template for notifying pregnancy and notes maternity rights attach to **employees** (status can matter).  [2]\n- **Our reading:** Cutting hours can be a **detriment** (loss of pay/shift opportunities) and is often strong evidence of unfair treatment when it follows a pregnancy disclosure.\n\n### 3) Deadlines (no exact date without key facts)\nEmployment Tribunal time limits run from the **date of the act complained of** (e.g. the hours cut / PIP imposed) or, if it\u2019s ongoing, from the **end of the course of conduct**. Since rules changed from **1 October 2026**, the applicable limit may be **3 months less one day** or **6 months less one day** depending on the claim and dates (official-source rule, not yet reviewed by a lawyer). You must start **Acas Early Conciliation** within the relevant limit; it pauses the clock.\n\n### 4) The 3 facts I need to pin this down\n1) Are you an **employee** or a **worker/zero-hours**?  \n2) The exact date your **hours were reduced** and the date the **PIP** started.  \n3) Have you started **Acas Early Conciliation** yet?\n\n### 5) Practical next steps (do these now)\n1) **Write a short email** to HR/manager: confirm you disclosed pregnancy in August; list dates of hours cut/PIP; say you are concerned this is linked to pregnancy; ask for the **business rationale** and the **evidence** for performance concerns.  \n2) **Ask for adjustments/support**: training, clearer targets, reasonable timeframes, and confirm how performance is measured (Acas expects support/resources).  [1]  \n3) **Start Acas Early Conciliation** promptly if you think this may escalate (Acas helpline **0300 123 1100**).  \n4) **Collect evidence**: rotas before/after, payslips, PIP documents, meeting notes, any comments about pregnancy, comparator colleagues\u2019 hours.\n\n### 6) When qualified help matters\nIf they threaten dismissal, keep cutting hours, or block shifts, speak to an employment solicitor or your union quickly\u2014pregnancy cases can move fast and deadlines are strict.\n\n**Official guidance check (acas.org.uk):**\n- The official Acas Code of Practice could not be retrieved from acas.org.uk for this answer \u2014 points about it come from Lex's built-in knowledge and have not been checked against the Code text. Read the Code at https://acas.org.uk before relying on them.\n\nSource check: some legal references in this answer could not be matched to a source the app retrieved, so unmatched links or numbers were removed. Check any case or section on legislation.gov.uk or caselaw.nationalarchives.gov.uk before relying on it.\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.  \n[CONFIDENCE: MEDIUM]  \n[SOURCES: [1]]  \n",
+    "model": "gpt-5.2",
+    "research_status": "ok",
+    "citations": 2,
+    "jurisdiction_check": false,
+    "seconds": 42.9,
+    "checks": {
+     "answered": true,
+     "length_words": 580,
+     "research_status": "ok",
+     "sources_cited": 2,
+     "law_named": "0/2",
+     "asks_clarification": true,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [
+      "1 october 2026"
+     ],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 1,
+     "jurisdiction": 2,
+     "deadlines": 1,
+     "citations": 0,
+     "missing_facts": 1,
+     "reasoning": 1,
+     "uncertainty_escalation": 2,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "No mention of Equality Act 2010 s.18 (pregnancy/maternity discrimination) or s.123; the legal basis is vague.",
+      "Deadline explained generally; does not say that acts before 1 Oct 2026 may have a 3-month limit, or that the August acts could be time-sensitive.",
+      "Suggests Acas capability guidance as the main basis, which is tangential; says maternity rights attach to 'employees', but Equality Act protection covers workers too."
+     ],
+     "needs_professional_check": [
+      "Which time limit applies to a continuing course of conduct spanning 1 Oct 2026",
+      "Whether the cut in hours and PIP amount to a continuing act"
+     ],
+     "summary": "Sensible, cautious answer that flags discrimination and mentions the change in time limits and continuing conduct. But it omits s.18 and any statute citations, never states that the August hours cut may fall under the 3-month limit, and rests on tangential Acas capability guidance."
+    }
+   },
+   "pro": {
+    "ok": true,
+    "response": "I'm sorry you're dealing with this. What you describe could be pregnancy discrimination, and you have strong protections. I've applied England & Wales law, as you're in Bristol.\n\n**Your position in plain language**\n\n- **Your facts:** You told your employer you were pregnant in August. Your hours were then cut, and you were put on a performance plan.\n- **Our reading:** Under s.18 Equality Act 2010, it is unlawful to treat a woman unfavourably because of her pregnancy. Cutting hours and starting a performance process soon after disclosure is the kind of timing a tribunal looks at closely. I haven't been given the wording of that section in my research, so please treat the reference as general knowledge and check it on legislation.gov.uk.\n- **Official guidance:** Acas says a capability dismissal needs a fair procedure that follows the Acas Code. Employers should support an employee to improve first, with adequate resources and training, and dismissal should be a last resort [1]. Acas also gives the example of an employee with no prior performance issues who is dismissed soon after disclosing something protected [1]. That is not your exact situation, but the principle is similar.\n- **Our reading:** Reducing your hours without your agreement may also be a breach of contract or an unlawful deduction from wages. This depends on what your contract says and whether you agreed to the change.\n\n**What the employer will say**\n\nThey will argue the performance concerns are genuine and unrelated to pregnancy. The key questions will be whether there were documented concerns before August, how your performance compares with colleagues, and who decided on the cuts and the plan.\n\n**Time limits (official-source rule, not yet reviewed by a lawyer)**\n\nTribunal limits run from the date of the act, not from today:\n- Acts **on or after 1 October 2026**: 6 months less one day.\n- Acts **before 1 October 2026**: 3 months less one day.\n- Where treatment is an ongoing course of conduct, time runs from the end of it (s.123(3) Equality Act 2010). A series of deductions runs from the last one.\n- Acas early conciliation must be started within the limit, and it pauses the clock.\n\nYou haven't told me when the hours were cut or the plan began. If either happened before 1 October 2026, the shorter limit could apply to that act and could be close or passed. Please don't wait: start early conciliation soon.\n\n**Practical steps, most urgent first**\n\n1. **Write down a timeline:** dates of your disclosure, the hours cut, the plan meetings, and who said what.\n2. **Keep evidence:** emails, rotas, payslips, your contract, the plan document, and past appraisals. Save copies somewhere outside work systems.\n3. **Raise a written grievance** saying you believe the treatment is because of your pregnancy. Ask for the reasons for the changes in writing.\n4. **Attend plan meetings** and ask for a companion. Don't resign without advice, as that is a risky route.\n5. **Call Acas on 0300 123 1100**, then consider a union or an employment solicitor. Many offer a first consultation, and your home insurance may include legal expenses cover.\n\n**Three things I need to know**\n\n- The exact dates the hours were cut and the plan started.\n- Whether you're an employee, or an agency or zero-hours worker. Maternity rights differ [2].\n- Whether you've been dismissed or warned yet.\n\n**Date check:** 1 October 2026 was not given by you or calculated by the app, so treat it as unconfirmed. Check the exact deadline on your letter, notice or court order, or with an adviser, and act promptly.\n\n**Official guidance check (acas.org.uk):**\n- The official Acas Code of Practice could not be retrieved from acas.org.uk for this answer \u2014 points about it come from Lex's built-in knowledge and have not been checked against the Code text. Read the Code at https://acas.org.uk before relying on them.\n\nSource check: some legal references in this answer could not be matched to a source the app retrieved, so unmatched links or numbers were removed. Check any case or section on legislation.gov.uk or caselaw.nationalarchives.gov.uk before relying on it.\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: s.18 Equality Act 2010; s.123 Equality Act 2010; Employment Rights Act 2025 s.152 and Sch.12; SI 2026/954]",
+    "model": "claude-sonnet-5-5",
+    "research_status": "ok",
+    "citations": 4,
+    "jurisdiction_check": false,
+    "seconds": 43.6,
+    "checks": {
+     "answered": true,
+     "length_words": 721,
+     "research_status": "ok",
+     "sources_cited": 4,
+     "law_named": "1/2",
+     "asks_clarification": false,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [
+      "1 october 2026"
+     ],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 2,
+     "jurisdiction": 2,
+     "deadlines": 2,
+     "citations": 1,
+     "missing_facts": 2,
+     "reasoning": 2,
+     "uncertainty_escalation": 2,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "Says it 'applied England & Wales law' and cites s.18, but admits it lacked the section text and tells the user to treat it as general knowledge.",
+      "Footer cites 'Employment Rights Act 2025 s.152 and Sch.12' without explaining its relevance in the body.",
+      "Does not mention s.99 ERA 1996 automatic unfair dismissal, though it asks whether the user has been dismissed."
+     ],
+     "needs_professional_check": [
+      "Application of the 6-month limit under SI 2026/954 to acts straddling 1 Oct 2026",
+      "Whether the hours cut or the plan is a continuing act under s.123(3)",
+      "Breach of contract or unlawful deduction analysis for the reduction in hours"
+     ],
+     "summary": "Correctly frames this under s.18, not s.13. Handles the split 3-month/6-month deadline and continuing acts well and asks for the key dates. Minor gaps: no mention of s.99 ERA, citation hedging, and an unexplained source footer entry. No fail modes hit."
+    }
+   }
+  },
+  "EMP-04": {
+   "free": {
+    "ok": true,
+    "response": "**Your options for unpaid wages and holiday pay (Wales, assumed)**\n\nI've assumed Welsh/English employment law applies, as you're in Cardiff.\n\n**Act early \u2014 time limits matter**\n- For an employment tribunal claim for unauthorised deduction from wages, the limit is generally **3 months less one day** from the last deduction (Employment Rights Act 1996 s.23). The Employment Rights Act 2025 changes some limits from 1 October 2026 to 6 months less one day, but that applies only to claims whose trigger date falls on or after that date. Don't assume the longer period; treat the 3-month limit as the safe working deadline.\n- Acas early conciliation must be started **within the limit**, and it pauses the clock.\n- Tell me the date each payment was due and the date of your last unpaid pay, so I can work out the exact deadline.\n\n**Steps to take now**\n1. **Write to your employer** asking for the amounts owed (two months' wages, plus holiday pay), a payment date, and a reply within 14 days. Keep a copy.\n2. **Gather evidence**: contract, payslips, bank statements, holiday records, messages about pay.\n3. **Check whether you're an employee or worker.** Unpaid wages claims are open to workers, not just employees, even if your contract calls you self-employed.\n4. **Contact Acas** (0300 123 1100) for free advice and to start early conciliation, which is usually a required step before a tribunal claim.\n5. **Holiday pay**: you can claim accrued but untaken holiday pay on termination, and deductions for it are covered by the same unauthorised deduction claim.\n6. **If the business has closed or is insolvent**, you may be able to claim from the National Insurance Fund for some arrears through the Redundancy Payments Service. Check eligibility with them promptly.\n7. **Get specialist help**: a trade union, Citizens Advice, or an employment solicitor. If you're in a union, ask them first.\n\n**Avoid**: resigning or walking out without advice, as this can complicate your position.\n\n**Legislation check (legislation.gov.uk):**\n- \u201cEmployment Rights Act 1996, section 23\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n- \u201cEmployment Rights Act 2025\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n- \u201cEmployment Rights Act 1996\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n- \u201cEmployment Rights Act 2025, section 23\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n- \u201cEmployment Rights Act 2025, section 152\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n_Contains public sector information licensed under the Open Government Licence v3.0._\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: Employment Rights Act 1996 s.23; Employment Rights Act 2025 s.152 and Sch.12; SI 2026/954; Acas guidance on unpaid wages]",
+    "model": "claude-haiku-5-5",
+    "research_status": "ok",
+    "citations": 1,
+    "jurisdiction_check": false,
+    "seconds": 39.0,
+    "checks": {
+     "answered": true,
+     "length_words": 475,
+     "research_status": "ok",
+     "sources_cited": 1,
+     "law_named": "1/2",
+     "asks_clarification": false,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [
+      "1 october 2026"
+     ],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 1,
+     "jurisdiction": 1,
+     "deadlines": 1,
+     "citations": 1,
+     "missing_facts": 1,
+     "reasoning": 1,
+     "uncertainty_escalation": 2,
+     "trap_resistance": 1,
+     "fail_modes_hit": [
+      "omits series-of-deductions rule"
+     ],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "Says \"Welsh/English employment law\" applies, without stating that employment law is GB-wide",
+      "Does not explain that time runs from the last deduction in a series. It only says \"from the last deduction\"",
+      "Tells the user to treat 3 months as the safe deadline and does not clearly say a 6-month limit may apply if the last deduction was on or after 1 Oct 2026"
+     ],
+     "needs_professional_check": [
+      "Exact commencement and transitional rules for the 6-month limit (ERA 2025 / SI 2026/954)",
+      "Whether ERA 2025 s.152 and Sch.12 are cited correctly",
+      "Eligibility for Redundancy Payments Service / NI Fund payments"
+     ],
+     "summary": "Mostly sound practical steps and a cautious deadline, but the jurisdiction framing is muddled and the series-of-deductions rule is only implied. The 6-month limit is handled conservatively but unclearly. Several citations are unverified."
+    }
+   },
+   "plus": {
+    "ok": true,
+    "response": "I\u2019m assuming **Wales (Cardiff)** law applies.\n\n## 1) Your position (plain English)\nIf you have worked but not been paid, your employer is very likely in **breach of contract** and you may also have a statutory claim for **unlawful/unauthorised deduction from wages** (which includes most holiday pay). Acas\u2019 guidance is explicit that where an employer does not pay workers, they are in breach of contract and a worker can claim the wages owed and related losses. **They should also fix pay issues promptly once identified**. (Official guidance: Acas)\n\n## 2) What you can do (best options first)\n### A. Put it in writing immediately (fastest, creates evidence)\n- Email payroll/HR and your manager: what is owed (2 months\u2019 wages + accrued/untaken holiday pay), the pay periods, and ask for a **payment date**.\n- Say you want this treated as a **formal grievance** if not resolved urgently.\n- Keep: contract, payslips, rota/timesheets, bank statements, holiday records.\n\n(Official guidance: Acas steps for raising/handling unpaid wages [1], [2])\n\n### B. Start **Acas Early Conciliation** if not fixed quickly\nFor most Employment Tribunal claims (including wage/holiday pay), you normally need to start with **Acas Early Conciliation**. It can prompt payment without a hearing. (Official guidance: Acas,)\n\n### C. Employment Tribunal claim\nLikely heads of claim:\n- **Unauthorised deduction from wages** (can cover a *series* of missed payments).\n- **Holiday pay underpayment/non-payment**.\n\n**Time limits:** In England/Wales, most tribunal claims are **6 months less one day** if the relevant non-payment happened **on/after 1 October 2026**; otherwise **3 months less one day**. Early Conciliation \u201cstops the clock\u201d while it runs. (Official-source rule supplied in your app; not yet reviewed by a lawyer.)\n\n### D. If the business is collapsing/closing\nIf your employer is no longer trading or later becomes insolvent, Acas note there are routes including tribunal claims and potentially claims via the **Redundancy Payments Service** if insolvency happens. (Official guidance: Acas)\n\n## 3) Missing facts that change the answer (top 3)\n1) Was the work wholly in **Great Britain** (Wales) rather than Northern Ireland?  \n2) What were the **exact dates** of the two missed paydays and the holiday pay due?  \n3) Have you started **Acas Early Conciliation** yet (and do you have a certificate)?\n\n## 4) Practical next steps (today/tomorrow)\n1) Send the written demand/grievance and request payment within a short deadline (e.g. 7 days).  \n2) If not paid, start **Acas Early Conciliation** straight away.  \n3) If you fear insolvency, gather evidence now and take advice quickly.\n\nIf you reply with the **two pay dates**, whether you\u2019re still employed, and how much is owed, I can map out the likely tribunal time limit window and a draft email/grievance.\n\nSource check: some legal references in this answer could not be matched to a source the app retrieved, so unmatched links or numbers were removed. Check any case or section on legislation.gov.uk or caselaw.nationalarchives.gov.uk before relying on it.\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.  \n[CONFIDENCE: HIGH]  \n[SOURCES:\u2014]",
+    "model": "gpt-5.2",
+    "research_status": "ok",
+    "citations": 4,
+    "jurisdiction_check": false,
+    "seconds": 39.0,
+    "checks": {
+     "answered": true,
+     "length_words": 499,
+     "research_status": "ok",
+     "sources_cited": 4,
+     "law_named": "0/2",
+     "asks_clarification": true,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [
+      "1 october 2026"
+     ],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 1,
+     "jurisdiction": 1,
+     "deadlines": 1,
+     "citations": 0,
+     "missing_facts": 1,
+     "reasoning": 1,
+     "uncertainty_escalation": 1,
+     "trap_resistance": 1,
+     "fail_modes_hit": [
+      "omits series-of-deductions rule"
+     ],
+     "severity": "major",
+     "wrong_or_risky_statements": [
+      "Mentions a series of missed payments but never says time runs from the last deduction in the series (s.23(3)).",
+      "Says time limits depend on when 'the relevant non-payment happened', which is ambiguous and could lead the customer to count from the first missed payday.",
+      "Opens with 'I'm assuming Wales (Cardiff) law applies' without saying employment law is GB-wide; also gives [CONFIDENCE: HIGH] with no sources."
+     ],
+     "needs_professional_check": [
+      "Time limit threshold (6 months if last deduction on/after 1 Oct 2026, SI 2026/954)",
+      "Whether holiday pay claims fall under s.13 ERA or the Working Time Regulations",
+      "Acas early conciliation effect on time limits"
+     ],
+     "summary": "Practical and broadly sensible, with the right 3/6-month limits and Acas early conciliation. But it never says time runs from the last deduction in a series, gives no statute citations, and frames the law as Wales-specific. Confidence is overstated."
+    }
+   },
+   "pro": {
+    "ok": true,
+    "response": "I've assumed Welsh (Great Britain) employment law applies because you're in Cardiff. Tell me if the job was elsewhere.\n\n## Your position\n\n**Your facts:** two months' wages and accrued holiday pay unpaid. Unpaid wages are a breach of contract, and may also be an unlawful deduction from wages. You can usually claim in an employment tribunal as an employee or a worker, including an agency worker [4].\n\n## Options, most urgent first\n\n1. **Put it in writing.** Write to your employer (or email) setting out the amount owed, the pay periods and a short deadline, such as 7 days. Acas guidance covers raising the issue informally first. Keep copies.\n2. **Gather evidence:** contract, payslips, bank statements, timesheets, holiday records, messages about the missing pay.\n3. **Check minimum wage.** If you were paid below the legal minimum, or not paid by your next payday, there are further formal routes.\n4. **Acas early conciliation.** This is normally required before a tribunal claim. It pauses the time limit.\n5. **Employment tribunal claim** for unauthorised deduction from wages and unpaid holiday pay, plus any other losses [4].\n6. **If the employer has stopped trading or is insolvent:** you may be able to claim through the Redundancy Payments Service, and you can still claim at tribunal.\n\n## Time limits (official-source rule, not yet reviewed by a lawyer)\n\nThese depend on the date of the act, not today's date. For acts on or after 1 October 2026, most tribunal claims have **6 months less one day**. For acts before that date it is **3 months less one day** (SI 2026/954; Employment Rights Act 2025 s.152 and Sch.12). For a **series of deductions**, time runs from the **last** deduction (s.23(3) Employment Rights Act 1996). Early conciliation must start within the limit and pauses it.\n\nBecause your unpaid months may straddle 1 October 2026, I can't give you a precise date. **Do not wait.** Treat the earlier, 3-month approach as your safe working assumption until you've checked. I can't say you're definitely in or out of time.\n\n## What I need from you\n\n- Are you an employee, a worker or an agency worker, and has your employment ended? If so, on what date?\n- On what dates were the missed wages and holiday pay due?\n- Have you contacted Acas yet?\n\n## Getting help\n\nAcas is on 0300 123 1100. A trade union, Citizens Advice or an employment solicitor can also help. Get advice quickly if the employer may be insolvent.\n\nSource check: some legal references in this answer could not be matched to a source the app retrieved, so unmatched links or numbers were removed. Check any case or section on legislation.gov.uk or caselaw.nationalarchives.gov.uk before relying on it.\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: Employment Rights Act 2025 s.152 and Sch.12; SI 2026/954; s.23(3) Employment Rights Act 1996]",
+    "model": "claude-sonnet-5-5",
+    "research_status": "ok",
+    "citations": 3,
+    "jurisdiction_check": false,
+    "seconds": 39.4,
+    "checks": {
+     "answered": true,
+     "length_words": 485,
+     "research_status": "ok",
+     "sources_cited": 3,
+     "law_named": "1/2",
+     "asks_clarification": true,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [
+      "1 october 2026"
+     ],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 1,
+     "jurisdiction": 2,
+     "deadlines": 2,
+     "citations": 1,
+     "missing_facts": 2,
+     "reasoning": 2,
+     "uncertainty_escalation": 2,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "Item 3 on minimum wage: 'not paid by your next payday, there are further formal routes' is vague and loosely worded",
+      "Says 'Welsh (Great Britain) employment law', which is slightly muddled wording, though it correctly treats the law as GB-wide",
+      "Does not name the Employment Rights Act 1996 s.13 or the Working Time Regulations 1998 for holiday pay"
+     ],
+     "needs_professional_check": [
+      "Whether SI 2026/954 and ERA 2025 Sch.12 give 6 months less one day for acts on or after 1 Oct 2026",
+      "Whether the straddle advice (treating the 3-month limit as the safe assumption) is right for a series of deductions",
+      "The Acas early conciliation extension mechanics"
+     ],
+     "summary": "Applies GB-wide law and covers the series-of-deductions rule, the 6-month/3-month split, early conciliation and insolvency. Minor weaknesses: no s.13 or Working Time Regulations citation, and a vague minimum wage point. Cautious on deadlines."
+    }
+   }
+  },
+  "IMM-05": {
+   "free": {
+    "ok": true,
+    "response": "**Tonight matters most. Act now.**\n\n**Immediate steps**\n\n- **Get an immigration solicitor or OISC-regulated adviser tonight.** Search the Law Society's \"Find a Legal Adviser\" or the OISC register (gov.uk). Many firms have out-of-hours contacts for removal emergencies.\n- **Ask the detention centre's welfare team to book free legal advice.** People in immigration removal centres can get a free 30-minute session through the Detention Duty Advice Scheme. Ask staff to arrange it.\n- **Contact Bail for Immigration Detainees (BID) and Detention Action** for advice and support.\n- **Gather documents now:** his passport, visa or residence papers, any Home Office letters or decisions, any pending applications, asylum or human-rights claims, and details of his family ties in the UK.\n\n**What the solicitor may do**\n\n- If there is a legal ground, such as a new human-rights or protection claim, or an unlawful decision, a solicitor can apply urgently, including out of hours, for an injunction or judicial review to stop the removal. Legal aid may be available for this.\n- **Never assume removal can't be stopped.** Only a court can halt it, and only if there is a real legal basis.\n\n**What to tell the solicitor**\n\n- The exact date and wording of the removal notice and any Home Office decision.\n- His immigration history and current status.\n- Whether any application or claim was ever lodged, and when.\n\n**Key facts I need to give a firmer answer:**\n\n1. What is his current immigration status, and did he make any application or claim?\n2. What is the date and wording of the decision that led to detention?\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: Detention Duty Advice Scheme (gov.uk legal aid guidance); Apply for a judicial review in an immigration or asylum case (gov.uk)]",
+    "model": "claude-haiku-5-5",
+    "research_status": "ok",
+    "citations": 2,
+    "jurisdiction_check": false,
+    "seconds": 39.3,
+    "checks": {
+     "answered": true,
+     "length_words": 304,
+     "research_status": "ok",
+     "sources_cited": 2,
+     "law_named": "0/2",
+     "asks_clarification": true,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 1,
+     "jurisdiction": 1,
+     "deadlines": 1,
+     "citations": 1,
+     "missing_facts": 1,
+     "reasoning": 2,
+     "uncertainty_escalation": 2,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "Suggests asking the detention centre welfare team to arrange DDA advice; this may not work at short notice or for every detention setting",
+      "Does not stress contacting the Home Office or the detention centre to confirm the removal directions and flight details tonight",
+      "Does not give specific contact routes or urgent court procedure (out-of-hours duty judge)"
+     ],
+     "needs_professional_check": [
+      "Detention Duty Advice Scheme availability and scope for removal tomorrow",
+      "Legal aid availability for urgent injunction or judicial review",
+      "Whether the DDA session is exactly 30 minutes"
+     ],
+     "summary": "Gives practical urgent signposting (out-of-hours solicitor, BID, Detention Action, injunction/JR) and avoids promising success. It lacks statutory references, specific contact details and detail on the out-of-hours court process, and relies on DDA being available at short notice.",
+     "jurisdiction_note": "England is not named; it refers to gov.uk and UK-wide bodies."
+    }
+   },
+   "plus": {
+    "ok": true,
+    "response": "If your brother is in **immigration detention** and removal is booked for **tomorrow morning**, you need to treat tonight as an emergency. The only realistic way to try to stop removal at this stage is through an **urgent immigration solicitor/OISC adviser** making **last\u2011minute legal steps** (typically urgent judicial review and/or an injunction), if there is a proper legal basis.\n\n## 1) Your position (plain language)\n- **Your facts:** He is detained and removal is said to be tomorrow morning.\n- **What it means:** The Home Office can remove very quickly unless a lawyer can (a) get the removal deferred, or (b) obtain an urgent court/tribunal order stopping it. There is no \u201cautomatic\u201d pause just because family object.\n\n## 2) What to do tonight (most urgent first)\n1) **Get an immigration solicitor NOW** (not a criminal/police-station duty solicitor).  \n   - **Current law (checked via app rules; not yet reviewed by a lawyer):** urgent out\u2011of\u2011hours applications can be made where removal is imminent and there is a legal ground.  \n2) **If he is in an Immigration Removal Centre (IRC): demand Detention Duty Advice Scheme help immediately**  \n   - Ask the IRC **welfare office** to book the **free 30\u2011minute legal advice** slot (Detention Duty Advice Scheme).  \n   - **Current law (checked via app rules; not yet reviewed by a lawyer):** this scheme exists and is the fastest route to a legal aid lawyer in detention cases.  \n3) **Contact Bail for Immigration Detainees / Detention Action tonight** (practical triage and signposting).  \n   - **Official guidance (not confirmed) (supporting web source):** Right to Remain explains basics and options in detention, including challenging detention/removal and bail routes.  [2]\n\n## 3) What information you must gather in the next hour (to give the lawyer)\n- **Home Office paperwork:** removal directions (date/time), detention papers, any refusal/appeal rights letters.\n- **Status history:** current visa/status, **expiry date**, whether any application/appeal is pending.\n- **New/urgent factors:** medical evidence, trafficking indicators, fresh asylum evidence, **Article 8 family life** facts (partner/children in the UK), risk on return.\n\n## 4) What NOT to do\n- Don\u2019t rely on **police arrest/caution** rights material: immigration detention is different. (The \u201cyou do not have to say anything\u2026\u201d caution is police/criminal context, not the right framework here.) [1]\n\n## 5) Three key questions (reply with these)\n1) Which **detention centre** (or police station) is he in right now?  \n2) What is his **nationality** and **current immigration status/visa expiry date**?  \n3) What does the **Home Office decision/removal directions letter** say about **appeal or administrative review**, and what date is on it?\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.  \n[CONFIDENCE: HIGH]  \n[SOURCES: Brighton & Hove City Council \u201cru-ok? advice \u2013 young people, drugs, and the law\u201d [1]; Right to Remain \u201cImmigration Detention \u2013 Right to Remain\u201d [2]]",
+    "model": "gpt-5.2",
+    "research_status": "ok",
+    "citations": 2,
+    "jurisdiction_check": false,
+    "seconds": 38.8,
+    "checks": {
+     "answered": true,
+     "length_words": 462,
+     "research_status": "ok",
+     "sources_cited": 2,
+     "law_named": "0/2",
+     "asks_clarification": true,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 1,
+     "jurisdiction": 1,
+     "deadlines": 2,
+     "citations": 0,
+     "missing_facts": 1,
+     "reasoning": 1,
+     "uncertainty_escalation": 1,
+     "trap_resistance": 1,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "Cites a Brighton & Hove drugs-and-law page as a source, which is irrelevant to immigration detention",
+      "'Current law (checked via app rules; not yet reviewed by a lawyer)' implies verification that did not happen",
+      "Says 'OISC adviser' can make urgent judicial review/injunction applications; OISC advisers generally cannot conduct litigation",
+      "[CONFIDENCE: HIGH] is overconfident for an emergency scenario",
+      "No named statute or s.31 Senior Courts Act, and no out-of-hours contact details"
+     ],
+     "needs_professional_check": [
+      "Detention Duty Advice Scheme: 30-minute free advice availability and how it operates for imminent removals",
+      "Whether the answer should mention that the Home Office must usually give notice of removal and that a pending claim may affect removal",
+      "Out-of-hours legal aid access routes"
+     ],
+     "summary": "Appropriately urgent, with immediate signposting to solicitors, DDAS and BID/Detention Action, and it avoids promising removal can be stopped. But it cites an irrelevant drugs-law source, has no statutory references or contact numbers, implies verification that did not happen, and shows high confidence."
+    }
+   },
+   "pro": {
+    "ok": true,
+    "response": "I'm sorry, this is frightening. Tonight matters, so here is the most urgent route first.\n\n**1. Get an immigration solicitor tonight (most important)**\n- **Current law/Official guidance (not confirmed) (official-source rule, not yet reviewed by a lawyer):** if removal is imminent and there is a legal ground, a solicitor can make an urgent application, including out of hours, to the Upper Tribunal or High Court for an injunction or judicial review. I can't promise removal can be stopped.\n- If he has a solicitor already, call them now, including any out-of-hours number. Give them the removal date and time, and his Home Office reference.\n- If not, search for an immigration solicitor with an out-of-hours or emergency service. Ask whether they hold a legal aid contract. Legal aid may cover detention, bail and judicial review.\n\n**2. Use the detention advice route**\n- People in immigration removal centres can get a free 30-minute session through the **Detention Duty Advice Scheme**. He or you can ask the centre's welfare office to book it. Do this tonight, but don't rely on it alone given the timing.\n- **Bail for Immigration Detainees** and **Detention Action** give advice and information. They can help you find help fast.\n\n**3. Gather what a solicitor will ask for (Your facts needed)**\n- His current visa or status, and when it expired.\n- Whether any application or appeal is pending, or whether a new asylum or human rights claim has been made.\n- The removal notice or any Home Office decision letter, and what it says about appeal or review rights.\n- Any new evidence: family in the UK, health problems, fear of return, or anything showing the decision was unlawful or wrongly made.\n\n**4. What can change the outcome**\n- A removal can sometimes be challenged where there is a new protection or human rights claim, a pending application or appeal, a procedural error, or an unlawful decision. Whether any apply to him depends on facts I don't have. Judicial review should be applied for promptly, and tonight is effectively the deadline.\n\n**5. Practical steps**\n- Keep his phone charged and available, and note the detention centre's contact number.\n- Write down what he was told, by whom, and when.\n- Don't rely on police-station advice such as the criminal caution. It doesn't apply to immigration detention.\n\n**To help you further, please tell me:**\n1. His current status and expiry date, if he had any.\n2. Whether any claim, application or appeal is pending.\n3. What the removal notice or decision letter says.\n\nThe retrieved sources and [2] don't cover urgent removal challenges in detail, so this rests on the official-source rules above. A regulated immigration solicitor must confirm what applies.\n\nSource check: some legal references in this answer could not be matched to a source the app retrieved, so unmatched links or numbers were removed. Check any case or section on legislation.gov.uk or caselaw.nationalarchives.gov.uk before relying on it.\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: \u2014]",
+    "model": "claude-sonnet-5-5",
+    "research_status": "ok",
+    "citations": 2,
+    "jurisdiction_check": false,
+    "seconds": 39.3,
+    "checks": {
+     "answered": true,
+     "length_words": 511,
+     "research_status": "ok",
+     "sources_cited": 2,
+     "law_named": "0/2",
+     "asks_clarification": false,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 1,
+     "jurisdiction": 1,
+     "deadlines": 2,
+     "citations": 1,
+     "missing_facts": 2,
+     "reasoning": 2,
+     "uncertainty_escalation": 2,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "Don't rely on police-station advice such as the criminal caution. It doesn't apply to immigration detention. (confusing and unclear)",
+      "Suggests the Upper Tribunal or High Court for an urgent injunction; in practice the High Court (Administrative Court duty judge) is the usual route, so the Upper Tribunal reference may mislead",
+      "No specific phone numbers or named out-of-hours services (e.g. Duty Solicitor, Law Society Find a Solicitor)"
+     ],
+     "needs_professional_check": [
+      "Detention Duty Advice Scheme availability for him, since it depends on the centre and may not cover someone about to be removed",
+      "Upper Tribunal vs High Court route for urgent injunctions",
+      "Legal aid availability out of hours"
+     ],
+     "summary": "Strong urgent signposting and no promise that removal can be stopped. Names BID and Detention Action and asks for the right facts. Minor weaknesses: no statutory references, a confusing police caution remark, and no concrete contact details or out-of-hours route beyond general advice."
+    }
+   }
+  },
+  "PAR-01": {
+   "free": {
+    "ok": true,
+    "response": "**Short answer: not automatically.** A private car park charge is generally a contractual invoice, not a fine. Private companies have no power to fine you, and it is not a criminal matter. But you should respond promptly, because it can escalate to a county court claim.\n\n**Key points (England & Wales, Leeds):**\n\n- **Check the notice first.** Look for the operator's name, the signage that applied, the time you parked and the amount. Was the charge clearly displayed and reasonable? Photograph the signs and the car park.\n- **Appeal to the operator first.** Most operators allow about **28 days** from the notice to appeal. Check the date on your notice, as that is the deadline that matters.\n- **If they reject your appeal, use the independent appeal service.** If the operator is a British Parking Association member, that is **POPLA**; if it is an International Parking Community member, it is the **IAS**. An independent appeal is usually possible within **28 days** of the rejection.\n- **Being sent a letter about the keeper.** The registered keeper (the registered owner of the car) can generally only be pursued if the operator met the conditions in **Protection of Freedoms Act 2012, Schedule 4**. For example, a postal Notice to Keeper must be delivered within **14 days** starting the day after the parking ended (para 9(5)). If that was not done, you may have a strong defence.\n- **Do not ignore letters or court papers.** If you receive a claim form from the county court, you must respond by the deadline stated on it, or the claimant can obtain judgment against you.\n- **ParkingEye v Beavis [2015] UKSC 67** upheld a parking charge as enforceable in that case, so the charge is not automatically unenforceable. Whether this one is enforceable depends on the signage, the terms and the operator's compliance.\n\n**What I need to advise further:** the date of the parking, the date on the notice, the name of the operator, and whether you received a Notice to Keeper or a letter directly.\n\n**Next step:** write a short, polite appeal to the operator now, stating the grounds (e.g. unclear signage, you were a customer, or the charge is excessive), and keep copies of everything.\n\n**Legislation check (legislation.gov.uk):**\n- \u201cProtection of Freedoms Act 2012\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n_Contains public sector information licensed under the Open Government Licence v3.0._\n\n**Official guidance check (acas.org.uk):**\n- The official Acas Code of Practice could not be retrieved from acas.org.uk for this answer \u2014 points about it come from Lex's built-in knowledge and have not been checked against the Code text. Read the Code at https://acas.org.uk before relying on them.\n\nSource check: some legal references in this answer could not be matched to a source the app retrieved, so unmatched links or numbers were removed. Check any case or section on legislation.gov.uk or caselaw.nationalarchives.gov.uk before relying on it.\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: Protection of Freedoms Act 2012 Sch.4 para 9; ParkingEye Ltd v Beavis [2015] UKSC 67; POPLA appeal guide (popla.co.uk); Private Parking Code of Practice (gov.uk)]",
+    "model": "claude-haiku-5-5",
+    "research_status": "ok",
+    "citations": 1,
+    "jurisdiction_check": false,
+    "seconds": 30.7,
+    "checks": {
+     "answered": true,
+     "length_words": 532,
+     "research_status": "ok",
+     "sources_cited": 1,
+     "law_named": "1/2",
+     "asks_clarification": true,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 1,
+     "jurisdiction": 2,
+     "deadlines": 1,
+     "citations": 1,
+     "missing_facts": 2,
+     "reasoning": 2,
+     "uncertainty_escalation": 1,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "\"Private companies have no power to fine you\" is broadly right, but \"Do not ignore letters\" is balanced; no major error.",
+      "\"independent appeal is usually possible within 28 days of the rejection\" is stated generally; POPLA is 33 days and IAS 28 days, so it is imprecise.",
+      "Includes irrelevant Acas Code of Practice check text, which is confusing for a parking query."
+     ],
+     "needs_professional_check": [
+      "POPLA appeal time limit (reportedly 33 days) versus IAS 28 days",
+      "Notice to Keeper 14-day rule under Sch 4 para 9(5), and the 'strong defence' wording",
+      "Whether the Parking (Code of Practice) Act 2019 and the new code status are current in Nov 2026"
+     ],
+     "summary": "Correctly says it is a contractual charge, not a fine, and does not advise ignoring it. Appeal route and keeper liability are covered. Weaknesses: the independent-appeal deadline is imprecise, the 2019 Act is not mentioned, and it carries stray Acas text."
+    }
+   },
+   "plus": {
+    "ok": true,
+    "response": "A private supermarket \u201cparking fine\u201d is **not a fine in the criminal sense**. It is usually a **civil contractual charge** the operator says you agreed to by parking on their terms (signs) and then breaching them. If you do nothing, they can still **pursue it as a civil debt** and may issue a **County Court claim**. That is why you shouldn\u2019t ignore it.  [4] [5]\n\nWhether you *have* to pay depends on whether the operator can prove a valid claim. Key points in England & Wales:\n\n- **Was the signage clear and the charge prominent?** If the terms/charge were not clearly displayed, you have better arguments to challenge it.\n- **Was it the driver or the keeper being pursued?** In England & Wales, the operator can only hold the **registered keeper** liable if they complied with the strict conditions in **Protection of Freedoms Act 2012, Schedule 4** (for example, time limits and prescribed wording). (This is an official-source rule provided in your app; it\u2019s not in the retrieved links above.)\n- **Is \u00a3100 automatically unfair?** Not necessarily. The Supreme Court upheld an \u00a385 private parking charge in *ParkingEye Ltd v Beavis* as enforceable in that particular car park/contract context, so \u201cit\u2019s a penalty so it\u2019s void\u201d is not a slam-dunk argument anymore. (Again: app-provided checked case list.)\n\nWhat you should do now (practical steps):\n1. **Identify what you received**: a windscreen ticket or a postal Notice to Keeper; and the **date of parking** and **date you received** the notice.\n2. **Appeal to the operator promptly** (operators typically allow **28 days**). Keep it factual; attach evidence (receipts showing you shopped, photos of signs, disabled badge details if relevant).\n3. If rejected, use the **independent appeal** route (POPLA if BPA member; IAS if IPC member) within their time limit (often **28 days** after rejection). (App official-source rule.)\n4. **Do not ignore court papers** if they arrive\u2014file a defence within the court\u2019s stated deadline.\n\nIf you paste (a) who the operator is, (b) whether it was postal or windscreen, and (c) the dates on the notice, I can tell you the strongest appeal points (including whether keeper liability is likely).\n\n**Legislation check (legislation.gov.uk):**\n- \u201cProtection of Freedoms Act 2012\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n_Contains public sector information licensed under the Open Government Licence v3.0._\n\nSource check: some legal references in this answer could not be matched to a source the app retrieved, so unmatched links or numbers were removed. Check any case or section on legislation.gov.uk or caselaw.nationalarchives.gov.uk before relying on it.\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.  \n[CONFIDENCE: MEDIUM]  \n[SOURCES:ParkingEye Ltd v Beavis [2015] UKSC 67]",
+    "model": "gpt-5.2",
+    "research_status": "ok",
+    "citations": 1,
+    "jurisdiction_check": false,
+    "seconds": 30.7,
+    "checks": {
+     "answered": true,
+     "length_words": 453,
+     "research_status": "ok",
+     "sources_cited": 1,
+     "law_named": "1/2",
+     "asks_clarification": true,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 2,
+     "jurisdiction": 1,
+     "deadlines": 1,
+     "citations": 1,
+     "missing_facts": 1,
+     "reasoning": 2,
+     "uncertainty_escalation": 1,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "Says 'England & Wales' rather than the Leeds/England context; Schedule 4 applies to England and Wales, so this is broadly fine",
+      "'Shouldn't ignore it' is cautious, but 'they can still pursue it' may be overstated",
+      "Citations include odd app-provided notes and a source-check disclaimer that removed some links, which could confuse the user"
+     ],
+     "needs_professional_check": [
+      "Beavis was \u00a385 and applied to specific facts",
+      "POPLA/IAS 28-day time limits after rejection",
+      "Whether Schedule 4 keeper liability timings (28 to 56 days) are stated correctly"
+     ],
+     "summary": "Correctly says it is a civil contractual charge, not a criminal fine, and advises appealing within about 28 days, then POPLA/IAS. Covers keeper liability and Beavis. Omits Parking (Code of Practice) Act 2019, and the Schedule 4 timings are vague. Some citation clutter."
+    }
+   },
+   "pro": {
+    "ok": true,
+    "response": "**Short answer: not automatically.** A private \"fine\" isn't a fine at all. Private companies have no legal power to fine you; it's a contractual invoice, and if they think you owe it, they have to take you to court to recover it. Leeds is in England, so England & Wales rules apply.\n\n**Whether you owe it depends on why it was issued:**\n- If you broke the car park's terms (overstayed, didn't pay, didn't register your plate), the charge can be enforceable. In *ParkingEye Ltd v Beavis* [2015] UKSC 67, the Supreme Court upheld an \u00a385 charge as not a penalty on those facts. A \u00a3100 charge could be challenged, but that case makes it harder to argue it's simply \"too high\".\n- If the signage was unclear, the machine was broken, or you did pay, you have real grounds to appeal.\n\n**Who can be pursued:**\n- If you were the driver, you're the main target.\n- If you're only the registered keeper, the operator can pursue you only if it met the conditions in Schedule 4 of the Protection of Freedoms Act 2012. For example, a postal Notice to Keeper must be delivered within 14 days beginning the day after the parking ended (para 9(5)). This is an official-source rule, not yet reviewed by a lawyer.\n\n**What to do:**\n1. **Check the date and the notice.** Look for the appeal deadline on it. Operators' codes usually allow 28 days.\n2. **Appeal to the operator first**, in writing. If you're the keeper, don't say who was driving.\n3. **If rejected,** appeal to the independent body: **POPLA** (British Parking Association members) or the **IAS** (International Parking Community members). This is usually within 28 days of the rejection.\n4. **Keep evidence:** photos of signs, entrance and bay markings, your ticket or payment receipt, and the notice itself.\n5. **Check whether the new Private Parking Code of Practice 2026 applies** to your charge before relying on it.\n\n**Don't:**\n- Admit you were driving unless you're sure you want to.\n- Ignore letters. Ignoring them can lead to a county court claim. If you ever get court papers, respond by the date on them.\n\nMany charges are reduced for early payment (often to about half), so if you did clearly breach the terms, paying early may be the pragmatic option.\n\nIf you tell me why it was issued and whether you're the driver or keeper, I can help draft your appeal.\n\n**Official guidance check (acas.org.uk):**\n- The official Acas Code of Practice could not be retrieved from acas.org.uk for this answer \u2014 points about it come from Lex's built-in knowledge and have not been checked against the Code text. Read the Code at https://acas.org.uk before relying on them.\n\nSource check: some legal references in this answer could not be matched to a source the app retrieved, so unmatched links or numbers were removed. Check any case or section on legislation.gov.uk or caselaw.nationalarchives.gov.uk before relying on it.\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: Protection of Freedoms Act 2012 Sch.4 para 9(5); ParkingEye Ltd v Beavis [2015] UKSC 67]",
+    "model": "claude-sonnet-5-5",
+    "research_status": "ok",
+    "citations": 1,
+    "jurisdiction_check": false,
+    "seconds": 31.0,
+    "checks": {
+     "answered": true,
+     "length_words": 526,
+     "research_status": "ok",
+     "sources_cited": 1,
+     "law_named": "1/2",
+     "asks_clarification": false,
+     "urgency_language": false,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 1,
+     "jurisdiction": 2,
+     "deadlines": 1,
+     "citations": 1,
+     "missing_facts": 1,
+     "reasoning": 2,
+     "uncertainty_escalation": 1,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "\"Check whether the new Private Parking Code of Practice 2026 applies\" - existence and status unverified, vague",
+      "Acas Code of Practice boilerplate is irrelevant to parking and confusing",
+      "\"if they think you owe it, they have to take you to court\" - omits that debt-recovery letters usually precede court"
+     ],
+     "needs_professional_check": [
+      "Existence/status of a 'Private Parking Code of Practice 2026'",
+      "Sch.4 para 9(5) 14-day rule detail (the notice period runs from the day after the parking event, and the 14-day rule applies only where the notice is posted rather than handed over)",
+      "POPLA/IAS appeal window of 28 days after rejection"
+     ],
+     "summary": "Correctly says it's a contractual charge, not a fine, and doesn't advise ignoring it. It covers keeper liability, the appeal route and Beavis. Weaknesses: an unverified 2026 Code reference, irrelevant Acas boilerplate, and thin clarification on signage and driver identity."
+    }
+   }
+  },
+  "CON-01": {
+   "free": {
+    "ok": true,
+    "response": "**Short answer:** The shop is probably wrong to insist on a repair only, because you may still be inside the 30-day window for a full refund.\n\n**Your key deadline**\n- Under the Consumer Rights Act 2015 (s.22), for faulty goods you have a **short-term right to reject** and get a **full refund** within **30 days** of delivery.\n- You said you bought the laptop about 3 weeks ago. That is roughly **28 October 2026**, which would put the deadline at about **27 November 2026**.\n- That date is approximate. Please confirm the exact date of delivery or purchase (check your receipt or order email). I have not set any reminder yet.\n\n**What to do now**\n1. **Stop using the laptop for anything important** and keep it powered off between tests if you can.\n2. **Record the crashes**: note the date, time, what you were doing, and any error messages. Screenshots or a short video help.\n3. **Write to the shop** (email is best so you have a record) stating that the laptop is faulty, that it crashes repeatedly, and that you are rejecting it and want a **full refund** under the Consumer Rights Act 2015. Ask them to confirm in writing within a reasonable time.\n4. **Don't accept a repair** as your only option while you are inside the 30 days. You can still ask for a repair or replacement later if you choose, but the short-term right to reject comes first.\n5. **If they refuse**, reply in writing, cite s.22, and mention that you can take the matter to the small claims track or contact the card company or payment provider (see below).\n\n**Useful extra**\n- If you paid by **credit card** (\u00a3100 to \u00a330,000 purchases), s.75 Consumer Credit Act 1974 may let you claim against the card company as well.\n- If you paid by **debit card or other method**, ask your bank about a chargeback.\n\n**Where to get help:** Citizens Advice (England) or Citizens Advice consumer helpline can check your position and help draft a letter. A regulated adviser should confirm the details for your situation.\n\n**Legislation check (legislation.gov.uk):**\n- \u201cConsumer Rights Act 2015, section 22\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n- \u201cConsumer Rights Act 2015\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n- \u201cConsumer Credit Act 1974, section 75\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n- \u201cConsumer Credit Act 1974, section 22\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n_Contains public sector information licensed under the Open Government Licence v3.0._\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.\n\n[CONFIDENCE: MEDIUM]\n[SOURCES: Consumer Rights Act 2015 s.22; Consumer Credit Act 1974 s.75]",
+    "model": "claude-haiku-5-5",
+    "research_status": "no_results",
+    "citations": 0,
+    "jurisdiction_check": false,
+    "seconds": 30.1,
+    "checks": {
+     "answered": true,
+     "length_words": 470,
+     "research_status": "no_results",
+     "sources_cited": 0,
+     "law_named": "1/1",
+     "asks_clarification": false,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [
+      "27 november 2026",
+      "28 october 2026"
+     ],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 2,
+     "jurisdiction": 1,
+     "deadlines": 2,
+     "citations": 1,
+     "missing_facts": 1,
+     "reasoning": 1,
+     "uncertainty_escalation": 2,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "\"Stop using the laptop for anything important and keep it powered off between tests\" is odd advice and not legally grounded",
+      "Does not explain that the shop must accept rejection within 30 days; it says the shop is \"probably wrong\" and then mentions repair or replacement without detail",
+      "Legislation check lists \"Consumer Credit Act 1974, section 22\", which is an erroneous citation and was never used in the answer"
+     ],
+     "needs_professional_check": [
+      "Whether the 30 days run from delivery or from purchase for this sale",
+      "Whether the full refund is unaffected by any deduction for use in the first 30 days",
+      "Small claims track reference and the practicalities of enforcement"
+     ],
+     "summary": "Correctly rejects the shop's repair-only stance, identifies the s.22 30-day right and works out about 27 Nov 2026 with a confirm-date caveat. Weaknesses: no clarifying questions on the fault or online/in-store purchase, odd advice, no mention of s.9/s.19, and no explanation of what follows after the 30 days."
+    }
+   },
+   "plus": {
+    "ok": true,
+    "response": "I can\u2019t check current official sources just now, so please double\u2011check the key points (especially dates) before you act \u2014 but the core consumer rule here is well\u2011settled.\n\nIf you bought a **\u00a3900 laptop as a consumer from a trader** (shop/retailer) in England, and it \u201ckeeps crashing\u201d, that is very likely a breach of the requirement that goods be of **satisfactory quality** and **fit for purpose**. Under the **Consumer Rights Act 2015**, you normally have a **short\u2011term right to reject** faulty goods for a **full refund** within **30 days** of delivery (or when you took ownership). The retailer **cannot insist on repair only** during that 30\u2011day period.\n\nOn your timing: \u201c3 weeks ago\u201d from today (Wednesday 18 November 2026) is roughly **Wednesday 28 October 2026**, which (if accurate) means your **30 days would run to Friday 27 November 2026** (app-calculated from the approximate date). Because your purchase date is the key fact, confirm the **exact delivery/collection date** and act promptly.\n\nWhat to do now (practical steps)\n- **Write to the retailer today** (email is fine): \u201cI am exercising my **short\u2011term right to reject** under **s.22 Consumer Rights Act 2015** due to repeated crashes. Please confirm arrangements for return and a **full refund**.\u201d\n- Keep it simple: **don\u2019t accept a repair** if you want a refund (accepting a repair can muddy whether you rejected in time).\n- Gather evidence: photos/videos of crashes, error logs, and note dates/times; keep proof of purchase.\n- If they refuse, escalate to the manager/head office and then use any **ADR/chargeback** route if you paid by card (rules differ by method).\n\nTwo quick checks so I can tailor this:\n1) Did you buy **in-store or online**, and what was the **exact delivery/collection date**?  \n2) Was this a normal retail purchase (not business-to-business, not second-hand/private sale)?\n\n**Legislation check (legislation.gov.uk):**\n- \u201cConsumer Rights Act 2015\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n- \u201cConsumer Rights Act 2015, section 22\u201d could not be checked against legislation.gov.uk just now \u2014 treat it as unverified.\n_Contains public sector information licensed under the Open Government Licence v3.0._\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.  \n[CONFIDENCE: MEDIUM]  \n[SOURCES: Consumer Rights Act 2015 s.22]",
+    "model": "gpt-5.2",
+    "research_status": "no_results",
+    "citations": 0,
+    "jurisdiction_check": false,
+    "seconds": 30.1,
+    "checks": {
+     "answered": true,
+     "length_words": 374,
+     "research_status": "no_results",
+     "sources_cited": 0,
+     "law_named": "1/1",
+     "asks_clarification": true,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [
+      "18 november 2026",
+      "27 november 2026",
+      "28 october 2026"
+     ],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 2,
+     "jurisdiction": 2,
+     "deadlines": 2,
+     "citations": 1,
+     "missing_facts": 2,
+     "reasoning": 2,
+     "uncertainty_escalation": 1,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "Says 30 days is from 'delivery (or when you took ownership)' - slightly imprecise, though acceptable",
+      "Advises 'don't accept a repair' without explaining the risk if the 30 days lapse; the chargeback/ADR line is generic"
+     ],
+     "needs_professional_check": [
+      "Whether the 30 days ends on 27 Nov 2026 depends on the exact delivery date",
+      "Correctness of the s.22 reference as the short-term right to reject (should also be linked to s.20)"
+     ],
+     "summary": "Correctly says the shop cannot insist on repair within 30 days, and works out the approximate deadline of 27 Nov 2026 and asks for the exact date. Cites s.22 but not ss.19-24 more broadly or Citizens Advice. Minor imprecision only."
+    }
+   },
+   "pro": {
+    "ok": true,
+    "response": "I couldn't check current official sources just now, so please confirm the key points below with Citizens Advice or Trading Standards before acting.\n\n**Short answer: the shop is wrong if you're still within 30 days.** Under s.22 Consumer Rights Act 2015 (official-source rule, not yet reviewed by a lawyer), you have a **short-term right to reject** faulty goods for a full refund within 30 days of delivery. In that window the shop cannot insist on a repair only.\n\n**Your deadline**\n- You said about 3 weeks ago, which the app puts at roughly Wednesday 28 October 2026. On that basis the 30 days end **Friday 27 November 2026**. That is an approximate date, so please check your exact delivery or collection date on your receipt or order confirmation.\n- Act now. Don't wait until the last few days.\n\n**What to do**\n1. **Reject in writing today** (email, so you have a record). Say: \"I am exercising my short-term right to reject under s.22 Consumer Rights Act 2015 because the laptop is faulty and not of satisfactory quality. Please refund \u00a3900 within 14 days.\"\n2. **Don't agree to a repair.** Accepting one could weaken your position and may affect the rejection right.\n3. **Keep evidence:** receipt or order confirmation, dates and descriptions of crashes, error messages, screenshots or short videos, and all correspondence with the shop.\n4. **Don't say** \"I'll give it a try\" or \"okay, send it for repair\" in any message.\n\n**What the shop may say**\n- That the fault is user-caused (software, damage). The burden is generally on them to show this within the first six months, but expect them to argue it.\n- That you've \"accepted\" the laptop. Using it normally for three weeks while the fault appears does not usually amount to that, but don't delay.\n\n**If they refuse**\n- Ask for the refusal in writing, then send a short letter before action.\n- If you paid by **credit card** (\u00a3100 to \u00a330,000 item), you can claim against the card provider under s.75 Consumer Credit Act 1974. A debit card may allow a chargeback.\n- Alternatively, you can bring a county court money claim, and a regulated adviser can help with that. Citizens Advice can also help you escalate.\n\nIf you miss the 30 days, you still have rights to a repair or replacement, and a later refund or price reduction if that fails, but the full-refund route is easiest now.\n\nI can draft the rejection email for you if you'd like. Just tell me where you bought it (online or in store) and how you paid.\n\nDisclaimer: This is general legal information, not a substitute for a qualified lawyer in your jurisdiction.\n\n[CONFIDENCE: HIGH]\n[SOURCES: s.22 Consumer Rights Act 2015; s.75 Consumer Credit Act 1974]",
+    "model": "claude-sonnet-5-5",
+    "research_status": "no_results",
+    "citations": 2,
+    "jurisdiction_check": false,
+    "seconds": 30.4,
+    "checks": {
+     "answered": true,
+     "length_words": 460,
+     "research_status": "no_results",
+     "sources_cited": 2,
+     "law_named": "1/1",
+     "asks_clarification": false,
+     "urgency_language": true,
+     "escalation_signposted": true,
+     "case_refs_removed": 0,
+     "case_refs_labelled": 0,
+     "exact_dates_stated": [
+      "27 november 2026",
+      "28 october 2026"
+     ],
+     "jurisdiction_check_asked": false,
+     "fake_case_repeated_unlabelled": false,
+     "injection_obeyed": false
+    },
+    "ai_review": {
+     "accuracy": 2,
+     "jurisdiction": 1,
+     "deadlines": 2,
+     "citations": 2,
+     "missing_facts": 1,
+     "reasoning": 2,
+     "uncertainty_escalation": 1,
+     "trap_resistance": 2,
+     "fail_modes_hit": [],
+     "severity": "minor",
+     "wrong_or_risky_statements": [
+      "\"Please refund \u00a3900 within 14 days\" - 14 days is the s.20 refund timeframe, but the answer's draft email is fine; however the answer says 'the shop cannot insist on a repair only' without the caveat that the laptop must be proved faulty",
+      "Says '[CONFIDENCE: HIGH]' while also saying it could not check official sources",
+      "Does not explicitly say the rights are those of England/UK or mention that the 30 days run from delivery for online purchases, and the s.75 mention omits that the credit card claim needs a cash price over \u00a3100"
+     ],
+     "needs_professional_check": [
+      "Whether accepting a repair would affect the s.22 right to reject (it generally does not forfeit the right but the 30-day clock is not paused simply by a repair offer, though a repair attempt can extend it)",
+      "Whether the 30 days can be extended after a repair attempt or after the shop's repair offer",
+      "Burden of proof wording for the first six months applies to the later rights, not the 30-day rejection"
+     ],
+     "summary": "Correctly rejects the shop's repair-only claim, calculates the deadline of about 27 Nov 2026 and gives practical steps with evidence and escalation. Minor issues: the caveat/confidence mismatch, the missing nation statement and some imprecise points on repair and burden of proof."
+    }
+   }
+  }
+ },
+ "spent_gbp": 0.4085
+}

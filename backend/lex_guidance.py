@@ -117,19 +117,19 @@ RULES = [
      "day after the parking ended (para 9(5)); in Scotland and Northern Ireland that keeper-liability scheme does not apply, so "
      "the operator generally has to show who was driving. ParkingEye v Beavis [2015] UKSC 67 upheld an £85 charge as not a "
      "penalty in that case. The government has published a Private Parking Code of Practice 2026 — check whether it applies "
-     "to this charge before relying on it. Ignoring letters can lead to a county court claim; never advise ignoring court "
+     "to this charge before relying on it. Ignoring letters can lead to a court claim (county court in England & Wales, sheriff court simple procedure in Scotland); never advise ignoring court "
      "papers.",
      ["https://www.legislation.gov.uk/ukpga/2012/9/schedule/4/paragraph/9", "https://www.popla.co.uk/appeal-guide",
       "https://www.gov.uk/government/publications/private-parking-code-of-practice"]),
     ("emergency_detention", r"(?:immigration|home office)[^.\n]{0,60}detain|detain\w*(?=[^.\n]{0,80}(?:removed|removal|deport|home office|immigration|flight))|removal directions|removal centre|deport|immigration centre|be removed from the uk",
      {"england", "wales", "scotland", "northern_ireland", None},
-     "Immigration detention / imminent removal (UK): the urgent step is a regulated immigration solicitor or OISC adviser NOW. "
-     "People in immigration removal centres can get free 30-minute legal advice sessions through the legal aid Detention Duty "
-     "Advice Scheme (ask the centre's welfare office to book); legal aid may also cover bail and judicial review. If removal is "
-     "imminent and there is a legal ground (e.g. a new human-rights or protection claim, or an unlawful decision), a solicitor "
-     "can apply urgently — including out of hours — to the Upper Tribunal or High Court for an injunction/judicial review. "
-     "Bail for Immigration Detainees and Detention Action give advice and information. Never promise removal can be stopped; "
-     "do not use police-station or criminal-caution guidance for immigration detention.",
+     "Immigration detention / imminent removal (UK): the urgent step is an immigration SOLICITOR now — only a solicitor or "
+     "barrister can bring court proceedings (OISC advisers cannot). People in immigration removal centres can get free "
+     "30-minute legal advice sessions through the legal aid Detention Duty Advice Scheme (ask the centre's welfare office to "
+     "book); legal aid may also cover bail and judicial review. If removal is imminent and there is a legal ground (e.g. a new "
+     "human-rights or protection claim, or an unlawful decision), a solicitor can apply urgently for an injunction/judicial "
+     "review — out of hours through the High Court's duty judge. Bail for Immigration Detainees and Detention Action give "
+     "advice and information. Never promise removal can be stopped. Cite only immigration-specific sources.",
      ["https://www.gov.uk/guidance/apply-for-a-judicial-review-in-an-immigration-or-asylum-case",
       "https://www.gov.uk/legal-aid/what-you-can-get-legal-aid-for"]),
     ("emergency_housing", r"locked (?:me )?out|changed the locks|illegal(?:ly)? evict|threw me out|homeless tonight|"

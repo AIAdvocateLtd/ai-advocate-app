@@ -168,9 +168,9 @@ HELP = {
                 "duty solicitor at any time, and should not answer questions in an interview without advice",
     "immigration": "an OISC-regulated immigration adviser or an immigration solicitor; legal aid may be available for asylum "
                    "and detention. If someone is detained or removal is imminent: a solicitor urgently (people in removal "
-                   "centres can book free 30-minute legal advice through the Detention Duty Advice Scheme; urgent judicial "
-                   "review/injunction applications can be made out of hours) and Bail for Immigration Detainees — do not use "
-                   "police-station guidance for immigration detention",
+                   "centres can book free 30-minute legal advice through the Detention Duty Advice Scheme; a solicitor can make "
+                   "an urgent out-of-hours injunction application to the High Court duty judge) and Bail for Immigration "
+                   "Detainees",
     "housing": "Shelter (England: 0808 800 4444), Shelter Cymru, Shelter Scotland, Housing Advice NI or the council's housing "
                "team; free on-the-day legal advice is often available at possession hearings",
     "court": "the court or tribunal office named on the papers, Citizens Advice, or a solicitor; legal aid or free advice "
