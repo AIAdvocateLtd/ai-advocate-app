@@ -53,6 +53,20 @@ const Audit = ({ audit }) => (
   </div>
 );
 
+const ScheduleControl = ({ st, dry, on, busy, schedule }) => {
+  const s = st.schedule || {};
+  return (
+    <div style={{ marginTop: 10 }} data-testid="law-watch-schedule">
+      <span data-testid="law-watch-schedule-state" style={{ ...pill(!s.enabled), marginRight: 8 }}>{s.enabled ? "daily monitoring ON" : "daily monitoring OFF"}</span>
+      {s.enabled
+        ? <button data-testid="law-watch-schedule-off-btn" onClick={() => schedule(false)} disabled={!!busy} style={btn("#ef4444", "#fff")}>Stop daily monitoring</button>
+        : <button data-testid="law-watch-schedule-on-btn" onClick={() => schedule(true)} disabled={!!busy || !on || !dry || st.kill_switch} style={btn("rgba(255,255,255,0.12)", "var(--text)")}>Turn on daily monitoring</button>}
+      {s.last_run && <span data-testid="law-watch-last-run" style={{ color: "var(--text-dim)" }}>Last run {s.last_run.day} · {s.last_run.result.replace(/_/g, " ")} · {s.last_run.proposed} to review</span>}
+      {!s.enabled && <div style={{ color: "var(--text-dim)", fontSize: 11, marginTop: 4 }}>Needs: writes on, the 17-law baseline saved, then a fresh 17-law dry run.</div>}
+    </div>
+  );
+};
+
 export const LawWatchAdminCard = ({ api }) => {
   const [open, setOpen] = useState(false);
   const [st, setSt] = useState(null);
@@ -70,11 +84,15 @@ export const LawWatchAdminCard = ({ api }) => {
     setBusy(name); setErr("");
     try { await fn(); } catch (e) { setErr(errMsg(e, "Action failed.")); } finally { setBusy(""); load(); }
   };
-  const runDry = () => act("dry", async () => { setRes(null); setDry((await api.post("/admin/law-watch/dry-run", { scope: "nine_provisions" })).data); });
+  const runDry = () => act("dry", async () => { setRes(null); setDry((await api.post("/admin/law-watch/dry-run", { scope: "all_17" })).data); });
   const toggle = (enabled) => act("switch", async () => { await api.post("/admin/law-watch/switch", { enabled }); });
   const apply = () => {
     if (!window.confirm(`Save ${dry.summary.to_write} verified provision record(s) with proposal ${dry.proposal_code}?`)) return;
     act("apply", async () => { setRes((await api.post("/admin/law-watch/apply", { token: dry.token })).data); setDry(null); });
+  };
+  const schedule = (enabled) => {
+    if (enabled && !window.confirm("Turn on daily 06:00 UK monitoring of all 17 laws? Changes go to the review queue; nothing is approved automatically.")) return;
+    act("schedule", async () => { await api.post("/admin/law-watch/schedule", { enabled, token: enabled ? dry?.token : "" }); if (enabled) setDry(null); });
   };
   const on = st?.enabled;
 
@@ -91,10 +109,10 @@ export const LawWatchAdminCard = ({ api }) => {
         <div style={{ marginTop: 12, fontSize: 12 }}>
           <div style={{ color: "var(--text-dim)", marginBottom: 10 }} data-testid="law-watch-status">
             {st.records} provision records · {st.history_versions} versions · emergency stop {st.kill_switch ? "ON" : "off"} ·
-            scheduled monitoring off · customer notifications off
+            daily monitoring {st.schedule?.enabled ? "ON (06:00 UK)" : "off"} · customer notifications off
           </div>
           <button data-testid="law-watch-dry-run-btn" onClick={runDry} disabled={!!busy} style={btn("var(--gold)")}>
-            {busy === "dry" ? "Checking legislation.gov.uk…" : "Run dry run (nine provisions)"}
+            {busy === "dry" ? "Checking legislation.gov.uk…" : "Run dry run (all 17 laws)"}
           </button>
           {on
             ? <button data-testid="law-watch-writes-off-btn" onClick={() => toggle(false)} disabled={!!busy} style={btn("#ef4444", "#fff")}>Turn writes off now</button>
@@ -102,6 +120,7 @@ export const LawWatchAdminCard = ({ api }) => {
           {dry && <button data-testid="law-watch-apply-btn" onClick={apply} disabled={!!busy || !on || !dry.summary.to_write} style={btn("#22c55e")}>
             {busy === "apply" ? "Saving…" : `Save ${dry.summary.to_write} verified records`}
           </button>}
+          <ScheduleControl st={st} dry={dry} on={on} busy={busy} schedule={schedule} />
           {err && <div data-testid="law-watch-error" style={{ color: "#fca5a5", marginTop: 8 }}>{err}</div>}
           {res && <div data-testid="law-watch-result" style={{ color: "#86efac", marginTop: 8 }}>
             Saved {res.saved_keys.length} record(s) · run {res.id.slice(0, 8)} · {res.summary.unchanged} unchanged · {res.summary.unavailable} unavailable

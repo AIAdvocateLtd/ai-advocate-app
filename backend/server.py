@@ -14363,6 +14363,53 @@ async def admin_law_watch_apply(data: LawWatchApply, admin: dict = Depends(requi
     return rep
 
 
+class LawWatchSchedule(BaseModel):
+    enabled: bool
+    token: str = Field("", max_length=2000)
+
+
+@api_router.post("/admin/law-watch/schedule")
+async def admin_law_watch_schedule(data: LawWatchSchedule, admin: dict = Depends(require_admin)):
+    """Daily 06:00 UK monitoring of all 17 provisions. ON needs a fresh 17-law approval code; OFF is immediate."""
+    rep = await law_watch.set_schedule(db, data.enabled, admin.get("email", ""), data.token, JWT_SECRET)
+    if rep.get("refused"):
+        raise HTTPException(409, rep["refused"])
+    return rep
+
+
+async def _law_watch_notify(subject: str, body_html: str):
+    from email_helper import send_email
+    for ae in [e.strip() for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",") if e.strip()]:
+        await send_email(to=ae, kind="firm", subject=subject, body_html=body_html)
+
+
+async def _job_law_watch(run_id: str):
+    try:
+        rep = await law_watch.scheduled_run(db, run_id, notify=_law_watch_notify)
+        logger.info(f"law-watch scheduled run: {rep}")
+    except Exception as e:
+        logger.warning(f"law-watch scheduled run failed: {e!r}")
+
+
+@api_router.post("/cron/law-watch")
+async def cron_law_watch(request: Request):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    secret = os.environ.get("WEBHOOK_CRON_SECRET") or ""
+    auth = request.headers.get("authorization") or ""
+    token = auth[7:] if auth.lower().startswith("bearer ") else ""
+    if not secret or not token or not _secrets.compare_digest(token, secret):
+        raise HTTPException(401, "Unauthorized")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid body")
+    run_id = request.headers.get("x-webhook-id") or (body or {}).get("run_id") or str(uuid.uuid4())
+    if not (await law_watch.schedule_state(db))["enabled"]:
+        return {"ok": True, "skipped": "schedule_off"}
+    asyncio.create_task(_job_law_watch(run_id))
+    return {"ok": True, "queued": True}
+
+
 @api_router.get("/admin/law-watch/records")
 async def admin_law_watch_records(_: dict = Depends(require_admin)):
     return await db.law_watch_records.find({}, {"_id": 0}).sort("key", 1).to_list(200)
@@ -14384,12 +14431,12 @@ class LawUpdateDecision(BaseModel):
 @api_router.get("/admin/law-updates")
 async def admin_law_updates(status: str = "", _: dict = Depends(require_admin)):
     q = {"status": status} if status else {}
-    return await db.law_update_proposals.find(q, {"_id": 1, "key": 1, "url": 1, "title": 1, "provision": 1, "jurisdiction": 1,
+    docs = await db.law_update_proposals.find(q, {"_id": 1, "key": 1, "url": 1, "title": 1, "provision": 1, "jurisdiction": 1,
                                                   "change_types": 1, "commencement": 1, "affecting_instruments": 1,
                                                   "detected_at": 1, "source_status": 1, "interpretation": 1, "status": 1,
                                                   "linked_rules": 1, "linked_lessons": 1, "decision": 1}
                                           ).sort("detected_at", -1).to_list(100)
-
+    return [{**{k: v for k, v in d.items() if k != "_id"}, "_id": str(d["_id"])} for d in docs]
 
 @api_router.post("/admin/law-updates/{pid}/decision")
 async def admin_law_update_decision(pid: str, data: LawUpdateDecision, admin: dict = Depends(require_admin)):

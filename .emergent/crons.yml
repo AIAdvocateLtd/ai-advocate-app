@@ -23,3 +23,11 @@ crons:
     endpoint: "{{BASE_URL}}/api/cron/lex-learning"
     method: POST
     enabled: true
+  - name: law-watch
+    description: "Daily 6am UK check of the 17 watched laws on legislation.gov.uk; no-op until admin enables it"
+    cron: "0 6 * * *"
+    timezone: "Europe/London"
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    endpoint: "{{BASE_URL}}/api/cron/law-watch"
+    method: POST
+    enabled: true

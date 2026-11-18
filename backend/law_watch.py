@@ -75,10 +75,15 @@ def _now() -> datetime:
 
 SCOPES = {"nine_provisions": {"label": "The nine approved provisions only", "feeds": False, "facts": False, "items": None},
           "official_rules_provisions": {"label": "PROPOSED — provisions behind Lex's official-source rules (not yet approved)",
-                                        "feeds": False, "facts": False, "items": "PROPOSED_WATCHLIST", "proposed": True}}
+                                        "feeds": False, "facts": False, "items": "PROPOSED_WATCHLIST", "proposed": True},
+          "all_17": {"label": "All 17 approved provisions (nine original + eight official-rule provisions)",
+                     "feeds": False, "facts": False, "items": "ALL_17"}}
+SCHEDULE_SCOPE = "all_17"
 
 
 def scope_items(sc: dict) -> List[dict]:
+    if sc.get("items") == "ALL_17":
+        return WATCHLIST + PROPOSED_WATCHLIST
     return PROPOSED_WATCHLIST if sc.get("items") == "PROPOSED_WATCHLIST" else WATCHLIST
 SWITCH_MINUTES, TOKEN_MINUTES = 30, 15
 
@@ -93,8 +98,108 @@ async def switch_state(db) -> dict:
     doc = await db.law_watch_settings.find_one({"_id": "writes"}) or {}
     until = doc.get("until") or ""
     on = bool(doc.get("enabled")) and until > _now().isoformat() and not kill_switch()
+    sched = await schedule_state(db)
     return {"enabled": on, "until": until if on else None, "changed_by": doc.get("by"), "changed_at": doc.get("at"),
-            "kill_switch": kill_switch(), "monitoring_scheduled": False, "customer_notifications": False}
+            "kill_switch": kill_switch(), "monitoring_scheduled": sched["enabled"], "schedule": sched,
+            "customer_notifications": False}
+
+
+async def schedule_state(db) -> dict:
+    """Daily monitoring switch, stored in law_watch_settings. Absent = OFF. The kill switch always wins."""
+    doc = await db.law_watch_settings.find_one({"_id": "schedule"}) or {}
+    return {"enabled": bool(doc.get("enabled")) and not kill_switch(), "scope": SCHEDULE_SCOPE, "time": "06:00 Europe/London",
+            "changed_by": doc.get("by"), "changed_at": doc.get("at"), "last_run": doc.get("last_run")}
+
+
+async def baseline_missing(db) -> List[str]:
+    keys = [item_key(it) for it in scope_items(SCOPES[SCHEDULE_SCOPE])]
+    have = {d["key"] async for d in db.law_watch_records.find({"key": {"$in": keys}}, {"key": 1})}
+    return [k for k in keys if k not in have]
+
+
+async def set_schedule(db, enabled: bool, actor: str, token: str = "", secret: str = "") -> dict:
+    """Turning ON needs: kill switch off, writes switch ON, the full 17-law baseline saved, and a fresh single-use
+    dry-run approval code for the 17-law scope from the same admin. OFF always works."""
+    now = _now().isoformat()
+    if enabled:
+        if kill_switch():
+            return {"refused": "Emergency stop is on — monitoring cannot be enabled."}
+        if not (await switch_state(db))["enabled"]:
+            return {"refused": "Turn tracker writes on first (30-minute window)."}
+        missing = await baseline_missing(db)
+        if missing:
+            return {"refused": f"The 17-law baseline is not complete ({len(missing)} missing). Save the baseline first."}
+        data, err = read_token(token, actor, secret)
+        if err:
+            return {"refused": err}
+        if data["scope"] != SCHEDULE_SCOPE:
+            return {"refused": "Use an approval code from a 17-law dry run."}
+        try:
+            await db.law_watch_audit.insert_one({"_id": "sched:" + hashlib.sha256(token.encode()).hexdigest()[:32], "at": now,
+                                                 "actor": actor, "action": "schedule_on", "scope": SCHEDULE_SCOPE})
+        except Exception:
+            return {"refused": "This approval code has already been used. Run a new dry run."}
+    else:
+        await db.law_watch_audit.insert_one({"_id": str(uuid.uuid4()), "at": now, "actor": actor, "action": "schedule_off"})
+    await db.law_watch_settings.update_one({"_id": "schedule"}, {"$set": {"enabled": enabled, "by": actor, "at": now}}, upsert=True)
+    return await schedule_state(db)
+
+
+def _london_day() -> str:
+    from zoneinfo import ZoneInfo
+    return _now().astimezone(ZoneInfo("Europe/London")).date().isoformat()
+
+
+async def scheduled_run(db, run_id: str, fetch=None, notify=None) -> dict:
+    """Daily check of all 17 provisions. Does nothing (and writes nothing) while the schedule is OFF. One run per UK day;
+    genuine changes go to the professional review queue as awaiting review — never approved."""
+    if not (await schedule_state(db))["enabled"]:
+        return {"skipped": "schedule_off"}
+    day = _london_day()
+    try:
+        await db.law_watch_audit.insert_one({"_id": f"daily:{day}", "at": _now().isoformat(), "actor": "scheduler",
+                                             "action": "scheduled_run", "run_key": run_id, "result": "started"})
+    except Exception:
+        return {"skipped": "already_ran_today", "day": day}
+    sc = SCOPES[SCHEDULE_SCOPE]
+    try:
+        rep = await run_check(db, fetch, dry_run=False, scheduled=True, items=scope_items(sc), feeds=sc["feeds"],
+                              facts=sc["facts"], actor="scheduler", scope=SCHEDULE_SCOPE)
+        s = rep["summary"]
+        failed = s["unavailable"] + s["not_found"] + s["held_unverified"] + s["rejected"]
+        out = {"day": day, "run_id": rep["id"], "result": "checked_with_failures" if failed else "checked",
+               "failed": failed, "proposed": len(rep["proposed_updates"]), "saved": len(rep["saved_keys"])}
+        problems = [i for i in rep["items"] if i["result"] != "checked"]
+    except Exception as e:
+        rep, problems = None, []
+        out = {"day": day, "result": "error", "error": type(e).__name__, "failed": len(scope_items(sc)), "proposed": 0, "saved": 0}
+    await db.law_watch_audit.update_one({"_id": f"daily:{day}"}, {"$set": out})
+    await db.law_watch_settings.update_one({"_id": "schedule"}, {"$set": {"last_run": {**out, "at": _now().isoformat()}}})
+    if notify and (out["failed"] or out["proposed"]):
+        try:
+            await notify(*alert_email(out, rep, problems))
+            out["notified"] = True
+        except Exception:
+            out["notified"] = False
+    return out
+
+
+def alert_email(out: dict, rep: Optional[dict], problems: List[dict]) -> Tuple[str, str]:
+    from html import escape
+    if out["result"] == "error":
+        return (f"AI Advocate law tracker: daily check failed ({out['day']})",
+                f"<p>The daily legislation.gov.uk check could not run ({escape(out['error'])}). Nothing was saved. "
+                "Lex keeps using the last recorded versions. It will try again tomorrow at 6:00am.</p>")
+    rows = "".join(f"<li>{escape(p['key'])} — {escape(', '.join(p['changes']))} → {escape(p['becomes'])}</li>"
+                   for p in rep["proposed_updates"])
+    bad = "".join(f"<li>{escape(p['key'])} — {escape(p['result'].replace('_', ' '))}</li>" for p in problems)
+    subj = f"AI Advocate law tracker: {out['proposed']} change(s) to review" if out["proposed"] else \
+        f"AI Advocate law tracker: {out['failed']} check(s) failed"
+    body = (f"<p>Daily check {out['day']} of the 17 watched provisions.</p>"
+            + (f"<p><b>Changes recorded on legislation.gov.uk (awaiting professional review):</b></p><ul>{rows}</ul>" if rows else "")
+            + (f"<p><b>Not checked this time (previous record kept):</b></p><ul>{bad}</ul>" if bad else "")
+            + "<p>These are official source facts only. Nothing has been approved; review them in Admin → Law tracker.</p>")
+    return subj, body
 
 
 async def set_switch(db, enabled: bool, actor: str) -> dict:
@@ -540,7 +645,7 @@ async def _write(db, results: List[dict], prevs: List[Optional[dict]], new_leg: 
 
 async def run_check(db, fetch=None, dry_run: bool = True, confirm: Optional[str] = None, items: Optional[List[dict]] = None,
                     today: Optional[date] = None, feeds: bool = True, facts: bool = True, actor: str = "",
-                    scope: Optional[str] = None, authorisation_id: Optional[str] = None) -> dict:
+                    scope: Optional[str] = None, authorisation_id: Optional[str] = None, scheduled: bool = False) -> dict:
     """Dry run (default) writes nothing and returns the proposed changes plus a proposal code. A write run fetches once,
     recomputes the code and writes only if it equals `confirm`. Only records with verified official metadata (A) are written."""
     fetch, today = fetch or _fetch, today or _now().date()
@@ -567,7 +672,7 @@ async def run_check(db, fetch=None, dry_run: bool = True, confirm: Optional[str]
     fact_checks = await check_fact_sources(db, fetch) if facts else []
     code = proposal_code(results, new_leg, fact_checks)
     refused = None
-    if not dry_run and confirm != code:
+    if not dry_run and not scheduled and confirm != code:
         refused = "Proposal code does not match this check — the official sources or records changed since the dry run, " \
                   "or no code was given. Nothing was written; run a new dry run and review it."
     wrote = not dry_run and not refused
