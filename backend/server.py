@@ -14350,8 +14350,8 @@ async def admin_law_watch_dry_run(data: LawWatchScope, admin: dict = Depends(req
     sc = law_watch.SCOPES.get(data.scope)
     if not sc:
         raise HTTPException(400, "Unsupported scope.")
-    rep = await law_watch.run_check(db, dry_run=True, feeds=sc["feeds"], facts=sc["facts"], actor=admin.get("email", ""),
-                                    scope=data.scope)
+    rep = await law_watch.run_check(db, dry_run=True, items=law_watch.scope_items(sc), feeds=sc["feeds"], facts=sc["facts"],
+                                    actor=admin.get("email", ""), scope=data.scope)
     return {**rep, **law_watch.issue_token(rep["proposal_code"], data.scope, admin.get("email", ""), JWT_SECRET)}
 
 
@@ -14371,6 +14371,32 @@ async def admin_law_watch_records(_: dict = Depends(require_admin)):
 @api_router.get("/admin/law-watch/history")
 async def admin_law_watch_history(key: str, _: dict = Depends(require_admin)):
     return await db.law_watch_history.find({"key": key}, {"_id": 0}).sort("recorded_at", 1).to_list(100)
+
+
+class LawUpdateDecision(BaseModel):
+    decision: str
+    reviewer_name: str = ""
+    regulator: str = ""
+    registration_number: str = ""
+    notes: str = ""
+
+
+@api_router.get("/admin/law-updates")
+async def admin_law_updates(status: str = "", _: dict = Depends(require_admin)):
+    q = {"status": status} if status else {}
+    return await db.law_update_proposals.find(q, {"_id": 1, "key": 1, "url": 1, "title": 1, "provision": 1, "jurisdiction": 1,
+                                                  "change_types": 1, "commencement": 1, "affecting_instruments": 1,
+                                                  "detected_at": 1, "source_status": 1, "interpretation": 1, "status": 1,
+                                                  "linked_rules": 1, "linked_lessons": 1, "decision": 1}
+                                          ).sort("detected_at", -1).to_list(100)
+
+
+@api_router.post("/admin/law-updates/{pid}/decision")
+async def admin_law_update_decision(pid: str, data: LawUpdateDecision, admin: dict = Depends(require_admin)):
+    rep = await law_watch.decide_update(db, pid, data.decision, data.model_dump(), data.notes, admin.get("email", ""))
+    if rep.get("refused"):
+        raise HTTPException(400, rep["refused"])
+    return rep
 
 
 @api_router.get("/admin/law-watch/runs")

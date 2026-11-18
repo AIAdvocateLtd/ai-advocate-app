@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { LawUpdateReview } from "./LawUpdateReview";
 
 const card = { background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, marginBottom: 12 };
 const btn = (bg, fg = "#1a1300") => ({ background: bg, border: "none", color: fg, padding: "8px 14px", borderRadius: 8,
@@ -106,6 +107,7 @@ export const LawWatchAdminCard = ({ api }) => {
             Saved {res.saved_keys.length} record(s) · run {res.id.slice(0, 8)} · {res.summary.unchanged} unchanged · {res.summary.unavailable} unavailable
           </div>}
           {dry && <Proposal dry={dry} />}
+          <LawUpdateReview api={api} />
           <Audit audit={st.audit} />
         </div>
       )}

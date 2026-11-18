@@ -163,7 +163,7 @@ def test_commenced_after_being_prospective():
 def test_pending_amendment_detected_and_effects_for_other_sections_ignored():
     check(Src(page(clml())))
     rep = check(Src(page(clml(effects=effect("substituted", "s. 194", None) + effect("words substituted", "s. 94(1)", None)))))
-    assert item(rep)["changes"] == ["amendment_pending"]
+    assert item(rep)["changes"] == ["amendment_pending", "new_affecting_instrument"]  # instrument label added (law-update integration)
     rec = run(TDB.law_watch_records.find_one({"key": "ukpga/1996/18/section/94"}))
     assert [e["affected"] for e in rec["pending_effects"]] == ["s. 94(1)"]
 

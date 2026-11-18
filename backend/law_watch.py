@@ -22,7 +22,7 @@ LEG = L.LEG
 SOURCE = "legislation.gov.uk"
 # Other jurisdictions can be added here with their own official source; UK law is never applied to them.
 JURISDICTIONS = {
-    "england_wales": {"label": "England and Wales", "country": "GB", "extent": "E+W", "types": ["ukpga", "uksi", "asc", "wsi"]},
+    "england_wales": {"label": "England and Wales", "country": "GB", "extent": "E+W", "types": ["ukpga", "uksi", "asc", "anaw", "wsi"]},
     "scotland": {"label": "Scotland", "country": "GB", "extent": "S", "types": ["asp", "ssi"]},
     "northern_ireland": {"label": "Northern Ireland", "country": "GB", "extent": "N", "types": ["nia", "nisr", "nisi"]},
     "uk": {"label": "UK-wide", "country": "GB", "extent": "E+W+S+N", "types": ["ukpga", "uksi"]},
@@ -43,6 +43,17 @@ WATCHLIST = [
     {"type": "asp", "year": "2016", "number": "19", "section": "51", "jurisdiction": "scotland", "topics": ["housing"]},
     {"type": "nisi", "year": "1996", "number": "1919", "section": "126", "jurisdiction": "northern_ireland", "topics": ["employment"]},
 ]
+# Proposed second scope: the provisions behind Lex's official-source rules (lex_guidance). Read-only until you approve it.
+PROPOSED_WATCHLIST = [
+    {"type": "ukpga", "year": "1996", "number": "18", "section": "23", "jurisdiction": "england_wales", "topics": ["employment"]},
+    {"type": "ukpga", "year": "1996", "number": "18", "section": "203", "jurisdiction": "england_wales", "topics": ["employment"]},
+    {"type": "ukpga", "year": "2010", "number": "15", "section": "123", "jurisdiction": "england_wales", "topics": ["discrimination", "employment"]},
+    {"type": "ukpga", "year": "2004", "number": "34", "section": "214", "jurisdiction": "england_wales", "topics": ["housing"]},
+    {"type": "anaw", "year": "2016", "number": "1", "section": "173", "jurisdiction": "england_wales", "topics": ["housing"]},
+    {"type": "ukpga", "year": "2015", "number": "15", "section": "22", "jurisdiction": "england_wales", "topics": ["consumer"]},
+    {"type": "ukpga", "year": "1980", "number": "58", "section": "28", "jurisdiction": "england_wales", "topics": ["limitation"]},
+    {"type": "nisi", "year": "1996", "number": "1919", "section": "140", "jurisdiction": "northern_ireland", "topics": ["employment"]},
+]
 NEW_FEEDS = ["ukpga", "asp", "asc", "nia"]  # newly published primary legislation, current year
 LIMITATIONS = [
     "legislation.gov.uk revised text may not yet include every amendment — see recorded pending changes.",
@@ -62,7 +73,13 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-SCOPES = {"nine_provisions": {"label": "The nine approved provisions only", "feeds": False, "facts": False}}
+SCOPES = {"nine_provisions": {"label": "The nine approved provisions only", "feeds": False, "facts": False, "items": None},
+          "official_rules_provisions": {"label": "PROPOSED — provisions behind Lex's official-source rules (not yet approved)",
+                                        "feeds": False, "facts": False, "items": "PROPOSED_WATCHLIST", "proposed": True}}
+
+
+def scope_items(sc: dict) -> List[dict]:
+    return PROPOSED_WATCHLIST if sc.get("items") == "PROPOSED_WATCHLIST" else WATCHLIST
 SWITCH_MINUTES, TOKEN_MINUTES = 30, 15
 
 
@@ -129,7 +146,7 @@ async def authorised_write(db, token: str, actor: str, secret: str, fetch=None) 
     except Exception:
         return {"refused": "This approval code has already been used. Run a new dry run."}
     sc = SCOPES[data["scope"]]
-    rep = await run_check(db, fetch, dry_run=False, confirm=data["code"], items=WATCHLIST, feeds=sc["feeds"],
+    rep = await run_check(db, fetch, dry_run=False, confirm=data["code"], items=scope_items(sc), feeds=sc["feeds"],
                           facts=sc["facts"], actor=actor, scope=data["scope"], authorisation_id=tid)
     await db.law_watch_audit.update_one({"_id": tid}, {"$set": {"result": "refused" if rep["refused"] else "saved",
                                                                  "run_id": rep["id"], "saved_keys": rep["saved_keys"]}})
@@ -284,6 +301,11 @@ def classify(prev: Optional[dict], cur: dict) -> List[str]:
         out.append("extent_changed")
     if _sig(cur.get("pending_effects")) != _sig(prev.get("pending_effects")):
         out.append("amendment_pending" if cur.get("pending_effects") else "pending_changes_applied")
+        if {e["by"] for e in cur.get("pending_effects") or []} - {e["by"] for e in prev.get("pending_effects") or []}:
+            out.append("new_affecting_instrument")
+    if (cur.get("commencement") or {}).get("date") != (prev.get("commencement") or {}).get("date") and \
+            (cur.get("commencement") or {}).get("date"):
+        out.append("commencement_date_recorded")
     return out or ["unchanged"]
 
 
@@ -324,6 +346,7 @@ async def check_item(it: dict, fetch, prev: Optional[dict], today: date) -> dict
                commencement=commencement(rec, today), limitations=LIMITATIONS[:4],
                provenance={"source": SOURCE, "url": f"{url}/data.xml", "licence": L.OGL, "http_status": code})
     rec["verification"] = verification(rec, True, (prev or {}).get("professional_review"))
+    rec["affecting_instruments"] = sorted({e["by"].rsplit("/id/", 1)[-1] for e in rec["pending_effects"] if e.get("by")})[:10]
     return {"key": key, "result": "checked", "changes": classify(prev, rec), "record": rec}
 
 
@@ -387,6 +410,75 @@ def affected_topics(changes: List[dict]) -> List[dict]:
     return out
 
 
+REAL_CHANGES = {"repealed", "partly_repealed", "commenced", "status_changed", "wording_amended", "extent_changed",
+                "amendment_pending", "pending_changes_applied", "new_affecting_instrument", "commencement_date_recorded",
+                "provision_not_found"}
+
+
+def _act_url(url: str) -> str:
+    return re.sub(r"/(?:section|article|regulation)/[^/]+$", "", url or "")
+
+
+async def linked_knowledge(db, rec: dict) -> dict:
+    """Lex knowledge that relies on this provision: official-source rules (lex_guidance) and stored facts (lex_lessons)."""
+    import lex_guidance
+    url, act = rec["url"].rstrip("/"), _act_url(rec["url"])
+    rules = [r[0] for r in lex_guidance.RULES if any(u.rstrip("/") in (url, act) or u.rstrip("/").startswith(url + "/")
+                                                     for u in r[4])]
+    rx = re.escape(act.split("legislation.gov.uk/")[-1])
+    lessons = [d["id"] async for d in db.lex_lessons.find(
+        {"$or": [{"review_meta.source_url": {"$regex": rx}}, {"why": {"$regex": rx}}, {"text": {"$regex": rx}}]}, {"id": 1})]
+    return {"rules": rules, "lessons": lessons[:50]}
+
+
+def proposal_for(res: dict, links: dict, now: str) -> dict:
+    """A detected source change awaiting professional review. Never an approved legal fact."""
+    rec = res["record"]
+    return {"_id": res["version_id"], "key": res["key"], "url": rec["url"], "title": rec.get("title"),
+            "provision": rec.get("provision"), "jurisdiction": rec.get("jurisdiction_label"), "change_types": res["changes"],
+            "commencement": rec.get("commencement"), "affecting_instruments": rec.get("affecting_instruments") or [],
+            "detected_at": now, "source_status": "source fact (official metadata verified)",
+            "interpretation": "not assessed", "status": "awaiting_review", "linked_rules": links["rules"],
+            "linked_lessons": links["lessons"], "decision": None}
+
+
+DECISIONS = {"approve": "approved", "reject": "rejected", "amend": "amend_requested"}
+
+
+async def decide_update(db, pid: str, decision: str, review: dict, notes: str, actor: str) -> dict:
+    """Qualified reviewer decision on a detected change. Approval needs a full regulated-reviewer record and records the
+    review on the source record only — linked Lex facts stay withheld until re-signed in the existing sign-off flow."""
+    if decision not in DECISIONS:
+        return {"refused": "Unknown decision."}
+    p = await db.law_update_proposals.find_one({"_id": pid})
+    if not p:
+        return {"refused": "No such update."}
+    if p["status"] not in ("awaiting_review", "amend_requested"):
+        return {"refused": f"This update is already {p['status']}."}
+    rs = review_status({**review, "reviewed_at": _now().isoformat()})
+    if decision == "approve" and not rs["verified"]:
+        return {"refused": "Approval needs the reviewer's name, regulator (e.g. SRA) and registration number."}
+    if decision != "approve" and not (review.get("reviewer_name") or "").strip():
+        return {"refused": "Please give the reviewer's name."}
+    if decision == "amend" and not (notes or "").strip():
+        return {"refused": "Please say what needs amending."}
+    now = _now().isoformat()
+    rec_review = {k: rs.get(k) for k in ("reviewer_name", "regulator", "registration_number", "reviewed_at")}
+    dec = {"decision": decision, "notes": (notes or "")[:2000], "by": actor, "at": now,
+           "reviewer": rec_review if rs["verified"] else {"reviewer_name": (review.get("reviewer_name") or "")[:120]}}
+    await db.law_update_proposals.update_one({"_id": pid}, {"$set": {"status": DECISIONS[decision], "decision": dec},
+                                                            "$push": {"history": dec}})
+    if decision == "approve":
+        await db.law_watch_records.update_one({"key": p["key"], "version_id": pid}, {"$set": {
+            "professional_review": {**rec_review, "scope": "effect of this recorded change"}, "review_pending": False}})
+    elif decision == "reject":
+        await db.law_watch_records.update_one({"key": p["key"], "version_id": pid}, {"$set": {"review_pending": False,
+                                                                                            "change_rejected": True}})
+    await db.law_watch_audit.insert_one({"_id": str(uuid.uuid4()), "at": now, "actor": actor, "action": f"update_{decision}",
+                                         "proposal": pid})
+    return {"ok": True, "status": DECISIONS[decision]}
+
+
 async def ensure_indexes(db) -> None:
     await db.law_watch_records.create_index("key", unique=True)
     await db.law_watch_records.create_index("url")
@@ -421,7 +513,17 @@ async def _write(db, results: List[dict], prevs: List[Optional[dict]], new_leg: 
             **{k: rec[k] for k in ("key", "title", "url", "status", "extent", "text_hash", "version_date", "version_start_date",
                                    "pending_effects", "commencement", "previous_version_id")},
             "change_types": res["changes"], "recorded_at": now, "superseded_at": None}}, upsert=True)
+        real = set(res["changes"]) & REAL_CHANGES
+        rec["review_pending"] = bool(real)
         await db.law_watch_records.update_one({"key": key}, {"$set": rec}, upsert=True)
+        if real:
+            links = await linked_knowledge(db, rec)
+            await db.law_update_proposals.update_one({"_id": res["version_id"]},
+                                                     {"$setOnInsert": proposal_for(res, links, now)}, upsert=True)
+            if links["lessons"]:  # signed-off facts that rely on a changed provision are withheld until re-reviewed
+                await db.lex_lessons.update_many({"id": {"$in": links["lessons"]}, "needs_review": {"$ne": True}}, {"$set": {
+                    "needs_review": True, "needs_review_since": now,
+                    "needs_review_reason": f"official source changed: {rec.get('title')} {rec.get('provision')}"}})
     for f in new_leg:
         for d in f["_docs"]:
             await db.law_watch_seen.update_one({"_id": d["_id"]}, {"$setOnInsert": {**d, "first_seen": now}}, upsert=True)
@@ -477,6 +579,12 @@ async def run_check(db, fetch=None, dry_run: bool = True, confirm: Optional[str]
                "new_legislation": sum(len(f.get("new") or []) for f in new_leg),
                "fact_sources_checked": len(fact_checks), "fact_sources_confirmed": sum(f["A_metadata"]["verified"] for f in fact_checks)}
     saved = [r["key"] for r in results if r.get("write") == "new_version"] if wrote else []
+    proposed = []
+    for r in results:
+        if r.get("write") == "new_version" and set(r["changes"]) & REAL_CHANGES:
+            links = await linked_knowledge(db, r["record"])
+            proposed.append({"key": r["key"], "changes": r["changes"], "linked_rules": links["rules"],
+                             "linked_lessons": len(links["lessons"]), "becomes": "awaiting professional review"})
     report = {"id": str(uuid.uuid4()), "at": now, "dry_run": dry_run, "written": wrote, "refused": refused,
               "proposal_code": code, "actor": actor, "scope": scope, "authorisation_id": authorisation_id,
               "saved_keys": saved, "summary": summary,
@@ -487,7 +595,7 @@ async def run_check(db, fetch=None, dry_run: bool = True, confirm: Optional[str]
                          "commencement": (r["record"] or {}).get("commencement"),
                          "verification": (r["record"] or {}).get("verification")} for r in results],
               "new_legislation": [{k: v for k, v in f.items() if k != "_docs"} for f in new_leg],
-              "affected_topics": affected_topics(changed), "notifications_sent": 0,
+              "affected_topics": affected_topics(changed), "notifications_sent": 0, "proposed_updates": proposed,
               "ms": int((_now() - started).total_seconds() * 1000)}
     if wrote:
         await db.law_watch_runs.insert_one({**report, "_id": report["id"]})
@@ -533,6 +641,9 @@ def notes_for(rec: dict, dates: List[date], today: date) -> List[str]:
         out.append(f"legislation.gov.uk records changes to {lab} that are not yet shown in its text"
                    + (f" (recorded as taking effect from {dated[0]})" if dated else " (no effective date recorded)")
                    + " — the current wording may not be the final position.")
+    if rec.get("review_pending"):
+        out.append(f"The official record shows a recent change to {lab} that hasn't been reviewed yet — check the current "
+                   f"official text before relying on it: {rec['url']}")
     ch = rec.get("last_change") or {}
     if ch.get("at") and set(ch.get("types") or []) - {"first_recorded"} and \
             (_d(ch["at"]) or date.min) >= today - timedelta(days=90):
