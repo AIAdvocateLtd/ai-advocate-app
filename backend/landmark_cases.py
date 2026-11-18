@@ -71,7 +71,7 @@ def find(left: str, right: str) -> Optional[tuple]:
 
 def cite_matches(entry: tuple, cite: str) -> bool:
     c = _norm(cite)
-    return not c or any(_norm(x) in c or c in _norm(x) for x in entry[3])
+    return not c or any(re.search(rf"(?<![\w]){re.escape(_norm(x))}(?![\w])", c) for x in entry[3])
 
 
 def citation(entry: tuple) -> dict:

@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="11" skipped="0" tests="34" time="2.698" timestamp="2026-11-18T15:03:48.049624+00:00" hostname="agent-env-99b5bebe-9f08-4692-ba1b-011288199bff"><testcase classname="tests.test_phase2e_probe_iter54" name="test_guidance_nation_filtering" time="0.002" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_guidance_not_for_non_uk[ES]" time="0.001" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_guidance_not_for_non_uk[US]" time="0.000" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_guidance_not_for_non_uk[IE]" time="0.000" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_guidance_not_for_non_uk[FR]" time="0.000" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_guidance_lowercase_gb_and_none" time="0.000" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_guidance_no_write_to_lessons" time="0.000" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_rule_regex_false_positives" time="0.000" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_case_list_false_positive_parkinsons" time="0.001"><failure message="AssertionError: PROBE: 'Parkinson' triggers parking case list&#10;assert 'ParkingEye' not in '\n\nSOURCED... / penalties'&#10;  &#10;  'ParkingEye' is contained here:&#10;    ources:&#10;    - ParkingEye Ltd v Beavis [2015] UKSC 67 — parking / penalties&#10;  ?   ++++++++++">def test_case_list_false_positive_parkinsons():
+        b = G.block("My mother has Parkinson's disease, what benefits can she get?", "", "england")
+&gt;       assert "ParkingEye" not in b, "PROBE: 'Parkinson' triggers parking case list"
+E       AssertionError: PROBE: 'Parkinson' triggers parking case list
+E       assert 'ParkingEye' not in '\n\nSOURCED... / penalties'
+E         
+E         'ParkingEye' is contained here:
+E           ources:
+E           - ParkingEye Ltd v Beavis [2015] UKSC 67 — parking / penalties
+E         ?   ++++++++++
+
+tests/test_phase2e_probe_iter54.py:54: AssertionError</failure></testcase><testcase classname="tests.test_phase2e_probe_iter54" name="test_landmark_kept_and_volume_cite_kept" time="0.001" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_invented_case_removed_no_fragments" time="0.001" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_wrong_cite_on_real_case_stripped" time="0.000" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_wrong_cite_prefix_of_real_cite_stripped" time="0.001"><failure message="AssertionError: PROBE: prefix of real citation accepted: ParkingEye Ltd v Beavis [2015] UKSC 6 is the key case.&#10;assert 'UKSC 6 ' not in 'ParkingEye ...e key case. '&#10;  &#10;  'UKSC 6 ' is contained here:&#10;    ParkingEye Ltd v Beavis [2015] UKSC 6 is the key case. &#10;  ?                                +++++++">def test_wrong_cite_prefix_of_real_cite_stripped():
+        # [2015] UKSC 6 is NOT ParkingEye's citation (it is [2015] UKSC 67)
+        out, rem, _, _ = g("ParkingEye Ltd v Beavis [2015] UKSC 6 is the key case.")
+&gt;       assert "UKSC 6 " not in out + " ", f"PROBE: prefix of real citation accepted: {out}"
+E       AssertionError: PROBE: prefix of real citation accepted: ParkingEye Ltd v Beavis [2015] UKSC 6 is the key case.
+E       assert 'UKSC 6 ' not in 'ParkingEye ...e key case. '
+E         
+E         'UKSC 6 ' is contained here:
+E           ParkingEye Ltd v Beavis [2015] UKSC 6 is the key case. 
+E         ?                                +++++++
+
+tests/test_phase2e_probe_iter54.py:80: AssertionError</failure></testcase><testcase classname="tests.test_phase2e_probe_iter54" name="test_customer_quoted_fake_labelled" time="0.000" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_separate_mentions_do_not_support" time="0.001" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_sports_and_ordinary_v_sentences" time="0.001"><failure message="AssertionError: PROBE false positive on ordinary sentence: I watched a court decision (reference removed — it could not be verified against a trusted source) with my landlord before he evicted me.&#10;assert 1 == 0">def test_sports_and_ordinary_v_sentences():
+        out, rem, _, _ = g("England v Wales is on Saturday.")
+        assert out == "England v Wales is on Saturday." and rem == 0
+        out, rem, _, _ = g("I watched Arsenal v Chelsea with my landlord before he evicted me.")
+&gt;       assert rem == 0, f"PROBE false positive on ordinary sentence: {out}"
+E       AssertionError: PROBE false positive on ordinary sentence: I watched a court decision (reference removed — it could not be verified against a trusted source) with my landlord before he evicted me.
+E       assert 1 == 0
+
+tests/test_phase2e_probe_iter54.py:100: AssertionError</failure></testcase><testcase classname="tests.test_phase2e_probe_iter54" name="test_sources_line_pruned" time="0.001" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_si_regex_false_positives" time="0.000"><failure message="AssertionError: assert ['Immigration...e Rules 1998'] == []&#10;  &#10;  Left contains one more item: 'Immigration Rules 2024 and the Civil Procedure Rules 1998'&#10;  Use -v to get more diff">def test_si_regex_false_positives():
+        labels = [r["label"] for r in LS.extract_sis(
+            "Under the Immigration Rules 2024 and the Civil Procedure Rules 1998 you may apply.")]
+&gt;       assert labels == []
+E       AssertionError: assert ['Immigration...e Rules 1998'] == []
+E         
+E         Left contains one more item: 'Immigration Rules 2024 and the Civil Procedure Rules 1998'
+E         Use -v to get more diff
+
+tests/test_phase2e_probe_iter54.py:117: AssertionError</failure></testcase><testcase classname="tests.test_phase2e_probe_iter54" name="test_ssi_number_not_looked_up_as_uksi" time="0.000"><failure message="AssertionError: PROBE: SSI read as UK SI [{'si_num': '2026/12', 'year': '2026', 'label': 'SI 2026/12', 'anchor': 'S.I. 2026/12'}]&#10;assert not True&#10; +  where True = any(&lt;generator object test_ssi_number_not_looked_up_as_uksi.&lt;locals&gt;.&lt;genexpr&gt; at 0xfc207424b220&gt;)">def test_ssi_number_not_looked_up_as_uksi():
+        refs = LS.extract_sis("See S.S.I. 2026/12 for Scotland.")
+&gt;       assert not any(r.get("si_num") == "2026/12" for r in refs), f"PROBE: SSI read as UK SI {refs}"
+E       AssertionError: PROBE: SSI read as UK SI [{'si_num': '2026/12', 'year': '2026', 'label': 'SI 2026/12', 'anchor': 'S.I. 2026/12'}]
+E       assert not True
+E        +  where True = any(&lt;generator object test_ssi_number_not_looked_up_as_uksi.&lt;locals&gt;.&lt;genexpr&gt; at 0xfc207424b220&gt;)
+
+tests/test_phase2e_probe_iter54.py:124: AssertionError</failure></testcase><testcase classname="tests.test_phase2e_probe_iter54" name="test_not_found_act_with_lead_words_pruned_from_sources" time="0.001" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_welsh_bilingual_si_and_existence_label" time="0.001" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_relative_dates_capitalised_last_week" time="0.000"><failure message="KeyError: 'Week'">def test_relative_dates_capitalised_last_week():
+&gt;       r = dc.relative_dates("Last Week my boss sacked me", T)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_phase2e_probe_iter54.py:154: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+text = 'Last Week my boss sacked me', today = datetime.date(2026, 11, 18)
+
+    def relative_dates(text: str, today: date) -&gt; List[str]:
+        """Deterministic reading of 'N weeks ago' style phrases (approximate — the customer should confirm the exact date)."""
+        out = []
+        for m in _REL.finditer(text or ""):
+            w = m.group(0).lower()
+            if w == "yesterday":
+                out.append(f"'yesterday' = {fmt(today - timedelta(days=1))}")
+                continue
+            if m.group(3):
+&gt;               span = {"week": (timedelta(days=13), timedelta(days=7)), "month": None}[m.group(3)]
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               KeyError: 'Week'
+
+deadline_calc.py:515: KeyError</failure></testcase><testcase classname="tests.test_phase2e_probe_iter54" name="test_relative_dates_last_month_caps" time="0.000"><failure message="KeyError: 'MONTH'">def test_relative_dates_last_month_caps():
+&gt;       assert dc.relative_dates("LAST MONTH I was dismissed", T)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_phase2e_probe_iter54.py:159: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+text = 'LAST MONTH I was dismissed', today = datetime.date(2026, 11, 18)
+
+    def relative_dates(text: str, today: date) -&gt; List[str]:
+        """Deterministic reading of 'N weeks ago' style phrases (approximate — the customer should confirm the exact date)."""
+        out = []
+        for m in _REL.finditer(text or ""):
+            w = m.group(0).lower()
+            if w == "yesterday":
+                out.append(f"'yesterday' = {fmt(today - timedelta(days=1))}")
+                continue
+            if m.group(3):
+&gt;               span = {"week": (timedelta(days=13), timedelta(days=7)), "month": None}[m.group(3)]
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               KeyError: 'MONTH'
+
+deadline_calc.py:515: KeyError</failure></testcase><testcase classname="tests.test_phase2e_probe_iter54" name="test_et_unknown_nation_safe_date_and_claim_warning" time="0.001"><failure message="AssertionError: PROBE: unknown nation path drops claim-type warning&#10;assert 'CLAIM TYPE NOT CONFIRMED' in 'UK nation of the workplace not confirmed. Employment tribunal (England, Wales, Scotland): act/dismissal on Tuesday 20...cy pay) have different limits — confirm with the LRA. Until confirmed, treat Tuesday 19 January 2027 as the safe date.'">def test_et_unknown_nation_safe_date_and_claim_warning():
+        items = dc._et({"event_date": "2026-10-20", "jurisdiction": "unknown", "claim_type": "unknown"})
+        assert items[0][2] == date(2027, 1, 19)  # NI 3 months less one day = safe
+&gt;       assert "CLAIM TYPE NOT CONFIRMED" in items[0][0], "PROBE: unknown nation path drops claim-type warning"
+E       AssertionError: PROBE: unknown nation path drops claim-type warning
+E       assert 'CLAIM TYPE NOT CONFIRMED' in 'UK nation of the workplace not confirmed. Employment tribunal (England, Wales, Scotland): act/dismissal on Tuesday 20...cy pay) have different limits — confirm with the LRA. Until confirmed, treat Tuesday 19 January 2027 as the safe date.'
+
+tests/test_phase2e_probe_iter54.py:165: AssertionError</failure></testcase><testcase classname="tests.test_phase2e_probe_iter54" name="test_et_dates_boundary" time="0.001" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_et_ni_and_passed_annotation" time="0.000" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_urgent_and_parking_unknown_service" time="0.000" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_build_deadlines_with_mocked_extraction_capitalised_relative" time="0.001"><failure message="KeyError: 'Week'">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0xfc2073f90450&gt;
+
+    def test_build_deadlines_with_mocked_extraction_capitalised_relative(monkeypatch):
+        class FakeChat:
+            def __init__(self, *a, **k): pass
+            def with_model(self, *a): return self
+            def with_params(self, **k): return self
+            async def send_message(self, m):
+                return '{"calcs":[{"type":"employment_tribunal","event_date":"2026-11-04","jurisdiction":"england","claim_type":"unfair_dismissal","approx":true}]}'
+        monkeypatch.setattr(dc, "LlmChat", FakeChat)
+&gt;       block, rem = run(dc.build_deadlines("I was dismissed Last Week, what is the tribunal deadline?", "", "k", "england"))
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_phase2e_probe_iter54.py:201: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_phase2e_probe_iter54.py:19: in run
+    return asyncio.get_event_loop().run_until_complete(c) if False else asyncio.new_event_loop().run_until_complete(c)
+                                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+deadline_calc.py:602: in build_deadlines
+    rel = relative_dates(message, today)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+text = 'I was dismissed Last Week, what is the tribunal deadline?'
+today = datetime.date(2026, 11, 18)
+
+    def relative_dates(text: str, today: date) -&gt; List[str]:
+        """Deterministic reading of 'N weeks ago' style phrases (approximate — the customer should confirm the exact date)."""
+        out = []
+        for m in _REL.finditer(text or ""):
+            w = m.group(0).lower()
+            if w == "yesterday":
+                out.append(f"'yesterday' = {fmt(today - timedelta(days=1))}")
+                continue
+            if m.group(3):
+&gt;               span = {"week": (timedelta(days=13), timedelta(days=7)), "month": None}[m.group(3)]
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               KeyError: 'Week'
+
+deadline_calc.py:515: KeyError</failure></testcase><testcase classname="tests.test_phase2e_probe_iter54" name="test_court_order_not_si" time="0.001"><failure message="AssertionError: PROBE: court order treated as SI: ['Child Arrangements Order 2025']&#10;assert ['Child Arran...s Order 2025'] == []&#10;  &#10;  Left contains one more item: 'Child Arrangements Order 2025'&#10;  Use -v to get more diff">def test_court_order_not_si():
+        labels = [r["label"] for r in LS.extract_sis("The court made a Child Arrangements Order 2025 last year.")]
+&gt;       assert labels == [], f"PROBE: court order treated as SI: {labels}"
+E       AssertionError: PROBE: court order treated as SI: ['Child Arrangements Order 2025']
+E       assert ['Child Arran...s Order 2025'] == []
+E         
+E         Left contains one more item: 'Child Arrangements Order 2025'
+E         Use -v to get more diff
+
+tests/test_phase2e_probe_iter54.py:207: AssertionError</failure></testcase><testcase classname="tests.test_phase2e_probe_iter54" name="test_immigration_rules_alone_skipped" time="0.000" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_chat_non_uk_user_gets_no_guidance" time="0.024" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_chat_glasgow_resident_cardiff_flat_gets_wales_rule" time="0.016" /><testcase classname="tests.test_phase2e_probe_iter54" name="test_chat_capitalised_last_week_keeps_guidance" time="0.018"><failure message="AssertionError: PROBE: guidance block lost when deadline builder raises&#10;assert 'OFFICIAL-SOURCE RULES' in &quot;TODAY'S DATE: Wednesday 18 November 2026 (UK time). Use this for ALL date calculations, deadlines and limitation peri...ctical next steps. Use the source labels from the HIGH-STAKES framework; the app re-checks every label claim by claim.&quot;">mk = &lt;function mk.&lt;locals&gt;.make at 0xfc207414d260&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0xfc207f4c0fd0&gt;
+
+    def test_chat_capitalised_last_week_keeps_guidance(mk, monkeypatch):  # noqa: F811
+        monkeypatch.setattr(dc, "LlmChat", _FakeExtract)
+        _, seen = _stream(mk("free"), monkeypatch, "Answer.",
+                          message="I was dismissed Last Week by my employer in Leeds. What is my tribunal deadline?")
+        sysm = seen["messages"][0]["content"]
+&gt;       assert "OFFICIAL-SOURCE RULES" in sysm, "PROBE: guidance block lost when deadline builder raises"
+E       AssertionError: PROBE: guidance block lost when deadline builder raises
+E       assert 'OFFICIAL-SOURCE RULES' in "TODAY'S DATE: Wednesday 18 November 2026 (UK time). Use this for ALL date calculations, deadlines and limitation peri...ctical next steps. Use the source labels from the HIGH-STAKES framework; the app re-checks every label claim by claim."
+
+tests/test_phase2e_probe_iter54.py:247: AssertionError</failure></testcase><testcase classname="tests.test_phase2e_probe_iter54" name="test_chat_lowercase_last_week_control" time="0.016" /></testsuite></testsuites>

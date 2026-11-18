@@ -18,17 +18,21 @@ BAD = {"not_found", "repealed", "partly_repealed", "not_in_force", "wrong_jurisd
 _cache: Dict[str, Tuple[float, object]] = {}
 
 _WORD = r"(?:[A-Z][A-Za-z'’\-]+|\([A-Z][A-Za-z ]+\))"
-_ACT_RE = re.compile(rf"\b({_WORD}(?:\s+(?:{_WORD}|of|and|the|for|to|in|on|from|with))*\s+Act)\s+((?:18|19|20)\d{{2}})\b")
+_ACT_RE = re.compile(rf"\b({_WORD}(?:,?\s+(?:{_WORD}|of|and|the|for|to|in|on|from|with))*\s+Act)\s+((?:18|19|20)\d{{2}})\b")
 _SEC_RE = re.compile(r"\b(?i:sections?|ss?\.|s)\s?(\d{1,4}[A-Z]{0,2}(?:(?:\s*,\s*|\s+(?i:and|or|&)\s+)\d{1,4}[A-Z]{0,2}\b"
                      r"(?!\s*(?i:months?|days?|weeks?|years?|%)))*)\b")
 _SEC_NUM = re.compile(r"\d{1,4}[A-Z]{0,2}")
 NAMES = {"E": "England", "W": "Wales", "S": "Scotland", "N": "Northern Ireland"}
 _LEAD = {"Under", "The", "See", "Section", "Sections", "Part", "Schedule", "In", "By", "And", "Per", "S", "Ss", "Your",
          "This", "That", "Their", "Its", "Our", "If", "As", "Both", "Also"}
+_PLACE_LEAD = {"England", "Wales", "Scotland", "Ireland", "Northern", "UK", "Britain", "Great"}
 _SENT = re.compile(r"(?<=[.!?])\s+|\n")
-_SIW = r"(?:[A-Z][A-Za-z'’\-]+|\([A-Z][A-Za-z0-9 .,'’\-]+\)|No\.\s?\d+|(?:18|19|20)\d{2})"
+_SIW = r"(?:[A-Z][A-Za-z'’\-]+|\([A-Z][A-Za-z0-9 .,'’\-]+\)|No\.\s?\d+|(?:18|19|20)\d{2}(?=\s+\())"
 _SI_RE = re.compile(rf"\b({_SIW}(?:\s+(?:{_SIW}|of|and|the|for|to|in|on|from|with))*\s+(?:Regulations|Order|Rules))\s+((?:19|20)\d{{2}})\b")
-_SI_NUM = re.compile(r"\bS\.?\s?I\.?\s?((?:19|20)\d{2})/(\d{1,4})\b")
+_SI_NUM = re.compile(r"(?<![A-Za-z.])S\.?\s?I\.?\s?((?:19|20)\d{2})/(\d{1,4})\b")
+_COURT_ORDERS = re.compile(r"\b(?:Arrangements|Molestation|Possession|Occupation|Protection|Prohibited Steps|Specific Issue|"
+                           r"Restraining|Charging|Attachment|Freezing|Care|Supervision|Adoption|Parental|Financial|Consent|"
+                           r"Placement|Emergency|Banning|Closure|Behaviour|Deprivation|Confiscation|Removal|Search)\s+Order$")
 
 
 def _get(key):
@@ -51,6 +55,20 @@ def _norm_title(t: str) -> str:
     return re.sub(r"^the ", "", re.sub(r"\s+", " ", (t or "").replace("’", "'")).strip().lower())
 
 
+def _loose(t: str) -> str:
+    t = re.sub(r"[\u2010-\u2015]", "-", (t or "").replace("’", "'")).lower()
+    return re.sub(r"\s+", " ", re.sub(r"^the ", "", re.sub(r"[(),]", " ", t).strip())).strip()
+
+
+def _title_match(cited: str, official: str) -> Optional[str]:
+    """'exact' when titles agree (ignoring case, 'The', brackets and commas); 'short' when the cited name is a contiguous
+    part of the official title (e.g. 'First-tier Tribunal (…) Rules 2014' for 'The Tribunal Procedure (First-tier …) Rules 2014')."""
+    a, b = _loose(cited), _loose(official)
+    if a == b:
+        return "exact"
+    return "short" if len(a.split()) >= 3 and re.search(rf"(?:^| ){re.escape(a)}$", b) else None
+
+
 def _entry_title(e: str) -> Optional[str]:
     """Plain or bilingual (xhtml) feed title — Welsh legislation uses <span xml:lang="en">."""
     en = re.search(r'<span xml:lang="en">([^<]*)</span>', e)
@@ -61,18 +79,21 @@ def _entry_title(e: str) -> Optional[str]:
 def extract_sis(text: str) -> List[dict]:
     """Statutory instrument references ('… Regulations 2021', 'SI 2026/954'). Capped at MAX_SIS."""
     out, seen = [], set()
-    for m in _SI_RE.finditer(text or ""):
-        words = m.group(1).split()
+    text = re.sub(r"[\u2010-\u2015]", "-", text or "")
+    for m in _SI_RE.finditer(text):
+        words = re.sub(r"^(?:Explanatory (?:Memorandum|Notes?)|Explanatory|Memorandum)\s+to\s+(?:the\s+)?", "", m.group(1)).split()
         while len(words) > 2 and (words[0] in _LEAD or words[0].lower() in ("of", "and", "the")):
             words = words[1:]
         title = " ".join(words)
         if title.split()[0] in ("Immigration", "Civil", "Criminal", "Family") and len(words) <= 3 and title.endswith("Rules"):
-            continue  # 'Immigration Rules', 'Civil Procedure Rules' — rule books, not looked up by title
+            continue
+        if len(words) <= 4 and _COURT_ORDERS.search(title):
+            continue  # court orders ('Child Arrangements Order'), not statutory instruments  # 'Immigration Rules', 'Civil Procedure Rules' — rule books, not looked up by title
         key = (title.lower(), m.group(2))
         if key not in seen:
             seen.add(key)
             out.append({"si": title, "year": m.group(2), "label": f"{title} {m.group(2)}", "anchor": m.group(0)})
-    for m in _SI_NUM.finditer(text or ""):
+    for m in _SI_NUM.finditer(text):
         key = ("#", m.group(1), m.group(2))
         if key not in seen:
             seen.add(key)
@@ -101,11 +122,13 @@ async def check_si(ref: dict) -> dict:
         code, body = await _fetch(f"{LEG}/secondary/{ref['year']}/data.feed?title={quote(ref['si'])}")
         if code != 200:
             raise RuntimeError(f"secondary feed {code}")
-        for e in re.findall(r"<entry>(.*?)</entry>", body, re.S):
-            t = _entry_title(e)
-            i_d = re.search(r"<id>https?://www\.legislation\.gov\.uk/id/([^<]+)</id>", e)
-            if t and i_d and _norm_title(t) == _norm_title(ref["label"]):
-                return {**res, **_put(key, {"verdict": "si_exists", "url": f"{LEG}/{i_d.group(1)}", "official_title": t}, ACT_TTL)}
+        for how_wanted in ("exact", "short"):
+            for e in re.findall(r"<entry>(.*?)</entry>", body, re.S):
+                t = _entry_title(e)
+                i_d = re.search(r"<id>https?://www\.legislation\.gov\.uk/id/([^<]+)</id>", e)
+                if t and i_d and _title_match(ref["label"], t) == how_wanted:
+                    return {**res, **_put(key, {"verdict": "si_exists", "url": f"{LEG}/{i_d.group(1)}", "official_title": t},
+                                          ACT_TTL)}
         return {**res, **_put(key, {"verdict": "not_found"}, ACT_TTL)}
     except Exception as e:
         logger.info(f"SI check failed for {ref.get('label')}: {e!r}")
@@ -126,6 +149,10 @@ def extract_refs(text: str) -> List[dict]:
             while len(words) > 2 and (words[0] in _LEAD or words[0].lower() in ("of", "and", "the")):
                 words = words[1:]
             a_title, year = " ".join(words), a.group(2)
+            w2 = a_title.split()
+            while len(w2) > 2 and (w2[0].strip(",") in _PLACE_LEAD or w2[0] in _LEAD or w2[0].lower() in ("of", "and", "the")):
+                w2 = w2[1:]
+            a_title = " ".join(w2)
             mine = [s for s in secs if min(acts, key=lambda x: abs(x.start() - s.start())) is a]
             for sec in ([n for s in mine for n in _SEC_NUM.findall(s.group(1))] or [None]):
                 key = (a_title.lower(), year, sec)
@@ -151,11 +178,17 @@ async def resolve_act(title: str, year: str) -> Optional[dict]:
         code, body = await _fetch(f"{LEG}/primary/{year}/data.feed?title={quote(cand)}")
         if code != 200:
             raise RuntimeError(f"legislation feed {code}")
+        short = None
         for e in re.findall(r"<entry>(.*?)</entry>", body, re.S):
             t = _entry_title(e)
             i_d = re.search(r"<id>https?://www\.legislation\.gov\.uk/id/([^<]+)</id>", e)
-            if t and i_d and _norm_title(t) == _norm_title(f"{cand} {year}"):
+            how = _title_match(f"{cand} {year}", t) if t and i_d else None
+            if how == "exact":
                 return _put(key, {"id": i_d.group(1), "title": t}, ACT_TTL)
+            if how == "short" and not short:
+                short = {"id": i_d.group(1), "title": t}
+        if short:
+            return _put(key, short, ACT_TTL)
     _put(key, {}, ACT_TTL)
     return None
 
@@ -363,7 +396,7 @@ async def check_answer(text: str, nation: Optional[str], citations: List[dict], 
                               "checked only — not whether it is in force, amended or applies to your situation)",
                               "url": r["url"], "source": "legislation", "claim_check": "status_checked"})
             next_n += 1
-    gone = [r["anchor"].lower() for r in results if r["verdict"] == "not_found"] + \
+    gone = [f"{r['act']} {r['year']}".lower() for r in results if r["verdict"] == "not_found"] + \
         [r["label"].lower() for r in si_results if r["verdict"] == "not_found"]
     if gone:
         import lex_safety

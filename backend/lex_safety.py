@@ -246,7 +246,9 @@ def _guidance_supported(sentence: str, src: str) -> bool:
 
 
 _CASE_STOP = {"england", "wales", "scotland", "ireland", "plus", "pro", "free", "employer", "employee", "landlord", "tenant",
-              "the", "and", "you", "your", "court"}
+              "the", "and", "you", "your", "court", "arsenal", "chelsea", "liverpool", "everton", "tottenham", "spurs", "celtic",
+              "rangers", "united", "villa", "wolves", "rovers", "france", "germany", "spain", "italy", "australia", "india",
+              "pakistan", "argentina", "brazil", "madrid", "barcelona", "munich"}
 _NAME_STOP = {"ltd", "limited", "plc", "llp", "co", "bv", "sa", "inc", "anor", "ors", "the", "of", "and", "for", "&", "r", "mr",
               "mrs", "ms", "council", "secretary", "state", "chief", "constable", "london", "borough", "city", "group"}
 _CASE_REF = re.compile(rf"(?P<name>{_CASE_NAME.pattern})(?:\s*,?\s*(?P<cite>{_NEUTRAL_CORE}))?|(?P<solo>{_NEUTRAL_CORE})")

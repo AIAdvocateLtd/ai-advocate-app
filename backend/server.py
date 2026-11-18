@@ -2225,6 +2225,9 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
             data.message, _ctx, _juris_nation(juris) or user.get("jurisdiction"), provider, data.country) + _dl_block
     except Exception as e:
         logger.warning(f"Deadline block failed: {e}")
+        if "OFFICIAL-SOURCE RULES" not in system_msg and "SOURCED CASE LIST" not in system_msg:
+            system_msg = system_msg + _fact_pack_block(data.message, _ctx) + lex_guidance.block(
+                data.message, _ctx, _juris_nation(juris) or user.get("jurisdiction"), provider, data.country)
 
     initial_messages = [{"role": "system", "content": system_msg}] + chat_memory.to_messages(history_ex)
 
@@ -2440,6 +2443,9 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
             data.message, _ctx, _juris_nation(juris) or user.get("jurisdiction"), provider, data.country) + _dl_block
     except Exception as e:
         logger.warning(f"Deadline block failed: {e}")
+        if "OFFICIAL-SOURCE RULES" not in system_msg and "SOURCED CASE LIST" not in system_msg:
+            system_msg = system_msg + _fact_pack_block(data.message, _ctx) + lex_guidance.block(
+                data.message, _ctx, _juris_nation(juris) or user.get("jurisdiction"), provider, data.country)
 
     messages = [{"role": "system", "content": system_msg}] + chat_memory.to_messages(history_ex)
     messages.append({"role": "user", "content": _date_anchor() + data.message + lex_output.concise_suffix(model_id)})

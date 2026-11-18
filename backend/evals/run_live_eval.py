@@ -131,7 +131,8 @@ critical = could cause the customer to miss a deadline, lose rights, act on fals
 
 async def grade(s, a):
     from emergentintegrations.llm.chat import LlmChat, UserMessage
-    ref = {k: s.get(k) for k in ("nation", "date", "clarify", "issues", "law", "guidance", "deadlines", "fail", "traps")}
+    ref = {k: s.get(k) for k in ("nation", "date", "clarify", "issues", "law", "guidance", "deadlines", "fail", "traps",
+                                 "corrected")}
     today = datetime.now(timezone.utc).strftime("%d %B %Y")
     prompt = (f"QUESTION ({s['id']}, {s['area']}, nation {s['nation']}). The app's real current date is {today}; dates in the "
               f"question are as the customer gave them (reference written as at {s['date']}).\n{s['q']}\n"
@@ -154,7 +155,11 @@ async def main():
     ap.add_argument("--ids", default="")
     ap.add_argument("--budget", type=float, default=9.5)
     ap.add_argument("--grade", action="store_true")
+    ap.add_argument("--out", default="")
+    ap.add_argument("--cleanup", action="store_true")
     args = ap.parse_args()
+    global OUT
+    OUT = os.path.join(os.path.dirname(__file__), args.out) if args.out else OUT
     _START = datetime.now(timezone.utc).isoformat()
     await _setup_users()
     _patch_research()
@@ -200,6 +205,11 @@ async def main():
     prev["spent_gbp"] = round(base + run["total_gbp"], 4)
     json.dump(prev, open(OUT, "w"), indent=1, default=str)
     print(json.dumps(run, indent=1, default=str))
+    if args.cleanup:
+        ids = [_uid(t) for t in TIERS]
+        for coll in ("users", "conversations", "usage", "lex_uploads"):
+            r = await db[coll].delete_many({"user_id": {"$in": ids}} if coll != "users" else {"id": {"$in": ids}})
+            print(f"cleanup {coll}: {r.deleted_count}")
 
 
 if __name__ == "__main__":

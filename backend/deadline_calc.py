@@ -124,10 +124,6 @@ def _et(c) -> List[Item]:
     gb_text = (f"Employment tribunal (England, Wales, Scotland){' — ' + kind if kind else ''}: act/dismissal on {fmt(ev)} → normal time limit "
                f"({months} months less one day) ends {fmt(limit)}. ACAS early conciliation must be started on or before this date."
                + _month_end_note(ev, months) + _closed_day_note(limit))
-    if _unknown(j):
-        safe = min(limit, ni_limit)
-        return [(f"UK nation of the workplace not confirmed. {gb_text} {ni_text} Until confirmed, treat {fmt(safe)} as the "
-                 "safe date.", "Latest date to start ACAS/LRA early conciliation (safe date)", safe)]
     if ct == "redundancy_pay":
         gb_text += (" Statutory redundancy pay already had a 6-month limit from the relevant date (Employment Rights Act 1996 "
                     "s.164), before and after 1 October 2026.")
@@ -152,6 +148,10 @@ def _et(c) -> List[Item]:
     gb_text += (" If this is one of a series of deductions from wages, or conduct extending over a period (e.g. continuing "
                 "discrimination), time usually runs from the last deduction or the end of that period — which may be later and "
                 "may fall under a different limit; get advice.")
+    if _unknown(j):
+        safe = min(limit, ni_limit)
+        return [(f"UK nation of the workplace not confirmed. {gb_text} {ni_text} Until confirmed, treat {fmt(safe)} as the "
+                 "safe date.", "Latest date to start ACAS/LRA early conciliation (safe date)", safe)]
     out: List[Item] = [(gb_text, "Latest date to start ACAS Early Conciliation", limit)]
     a, b = _d(c.get("acas_date")), _d(c.get("certificate_date"))
     if a and a > limit:
@@ -512,7 +512,7 @@ def relative_dates(text: str, today: date) -> List[str]:
             out.append(f"'yesterday' = {fmt(today - timedelta(days=1))}")
             continue
         if m.group(3):
-            span = {"week": (timedelta(days=13), timedelta(days=7)), "month": None}[m.group(3)]
+            span = {"week": (timedelta(days=13), timedelta(days=7)), "month": None}[m.group(3).lower()]
             if span:
                 out.append(f"'{w}' ≈ between {fmt(today - span[0])} and {fmt(today - span[1])}")
             else:
@@ -599,7 +599,11 @@ async def build_deadlines(message: str, context: str, api_key: str, jurisdiction
     facts += ("Each date belongs only to the event it is stated for. Never say the customer contacted ACAS, received a "
               "certificate, appealed, asked for reconsideration or submitted a claim — or give a date for it — unless they "
               "said so. If an important date is missing or unclear, ask for it.\n")
-    rel = relative_dates(message, today)
+    try:
+        rel = relative_dates(message, today)
+    except Exception as e:
+        logger.warning(f"relative date reading failed: {e!r}")
+        rel = []
     if rel:
         facts += ("RELATIVE DATES (approximate, worked out by the app from today's date): " + "; ".join(rel) +
                   ". Use these only as approximate dates and ask the customer for the exact date before relying on a deadline.\n")

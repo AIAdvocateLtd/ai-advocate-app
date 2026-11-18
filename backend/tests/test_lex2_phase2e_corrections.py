@@ -209,7 +209,7 @@ def test_no_uk_rules_for_non_uk_country_or_unrelated_question():
 # ---------------------------------------------------------------- wiring and reference standards
 def test_server_wiring_and_prompt_example():
     src = open(os.path.join(os.path.dirname(LS.__file__), "server.py")).read()
-    assert src.count("lex_guidance.block(") == 3 and "Smith v Jones [2019] EWCA Civ 123" not in src
+    assert src.count("lex_guidance.block(") == 5 and "Smith v Jones [2019] EWCA Civ 123" not in src
 
 
 def test_reference_standards_corrected_and_labelled():
@@ -254,3 +254,24 @@ def test_sourced_cases_offered_in_prompt_by_topic():
     assert "SOURCED CASE LIST" in b and "ParkingEye Ltd v Beavis [2015] UKSC 67" in b and "NOT reviewed by" in b
     assert "Bolam" in G.block("My GP missed my cancer — negligence?", "", "england")
     assert G.block("A private parking company charged me £100", "", "england", None, "FR") == ""
+
+
+# ---------------------------------------------------------------- defects found in the 45-answer retest (false "not found")
+def test_short_names_commas_and_memorandum_prefix_resolve(monkeypatch):
+    feeds = {"/primary/1988/": '<feed><entry><id>http://www.legislation.gov.uk/id/ukpga/1988/50</id><title>Housing Act 1988</title></entry></feed>',
+             "/primary/2020/": '<feed><entry><id>http://www.legislation.gov.uk/id/ukpga/2020/11</id><title>Divorce, Dissolution and Separation Act 2020</title></entry></feed>',
+             "/secondary/2014/": '<feed><entry><id>http://www.legislation.gov.uk/id/uksi/2014/2604</id><title>The Tribunal Procedure (First-tier Tribunal) (Immigration and Asylum Chamber) Rules 2014</title></entry></feed>',
+             "/secondary/2010/": '<feed><entry><id>http://www.legislation.gov.uk/id/uksi/2010/908</id><title>The Assured Tenancies (Amendment)(England) Order 2010</title></entry></feed>'}
+
+    async def fetch(url):
+        return 200, next((v for k, v in feeds.items() if k in url), "<feed></feed>")
+    LS._cache.clear()
+    monkeypatch.setattr(LS, "_fetch", fetch)
+    t = ("Divorce, Dissolution and Separation Act 2020 applies. In England, Wales and Scotland the Housing Act 1988 differs.\n"
+         "See the First\u2011tier Tribunal (Immigration and Asylum Chamber) Rules 2014 and the Explanatory Memorandum to the "
+         "Assured Tenancies (Amendment) (England) Order 2010.")
+    assert [r["label"] for r in LS.extract_refs(t)] == ["Divorce, Dissolution and Separation Act 2020", "Housing Act 1988"]
+    out, rep = asyncio.run(LS.check_answer(t, "england", []))
+    assert {s["verdict"] for s in rep["statutory_instruments"]} == {"si_exists"}
+    assert rep["verdicts"][0] == "act_exists" and "could not be found" not in out
+    assert LS._title_match("Fake Tribunal Rules 2014", "The Tribunal Procedure (First-tier Tribunal) Rules 2014") is None

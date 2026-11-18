@@ -88,7 +88,7 @@ RULES = [
      "businesses the Consumer Rights Act does not apply; unpaid commercial invoices can carry statutory interest and fixed "
      "compensation under the Late Payment of Commercial Debts (Interest) Act 1998. State these rules plainly when relevant.",
      [f"{LEG}/ukpga/2015/15/section/22", f"{LEG}/ukpga/1998/20"]),
-    ("parking_council", r"pcn|penalty charge|parking", {"england", "wales"},
+    ("parking_council", r"pcn\b|penalty charge|parking\b", {"england", "wales"},
      "Council PCNs (England & Wales): the 50% discount runs 14 days from service (21 days for camera/postal PCNs); if it has "
      "passed, the full charge applies unless the council re-offers the discount after an informal challenge. Formal "
      "representations are made within 28 days of the Notice to Owner, then appeal to the independent tribunal (Traffic "
@@ -111,7 +111,7 @@ PLUS_EXTRA = (
 CASE_TOPICS = [
     (r"employ|dismiss|sacked|fired|redundan|tribunal|wages?|holiday pay|discriminat|pregnan|worker|resign", ("employment", "discrimination", "holiday", "worker")),
     (r"negligen|surgery|hospital|gp\b|doctor|consent|injur|birth", ("negligence",)),
-    (r"park|penalt|charge notice", ("parking",)),
+    (r"park(?:ing|ed)?\b|penalty charge|charge notice|pcn\b", ("parking",)),
     (r"contract|builder|refund|faulty|invoice|damages|exclusion", ("contract",)),
     (r"landlord|tenan|evict|deposit|possession|homeless|licen[cs]e", ("tenancy", "lease", "possession", "homelessness")),
     (r"cohabit|common.law|divorc|separat|matrimonial|prenup|nuptial", ("cohabitants", "divorce", "nuptial")),
