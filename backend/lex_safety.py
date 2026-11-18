@@ -239,6 +239,35 @@ _GSTOP = set("this that with from have what your about under does would could sh
              "acas code practice guidance employer employee employees employers".split())
 
 
+_PERIOD = re.compile(r"\b(\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|twenty[- ]one|"
+                     r"twenty[- ]eight|thirty)[- ](?:calendar |working |clear )?(day|week|month|year)s?\b", re.I)
+_NUMW = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
+         "ten": "10", "eleven": "11", "twelve": "12", "fourteen": "14", "twenty-one": "21", "twenty one": "21",
+         "twenty-eight": "28", "twenty eight": "28", "thirty": "30"}
+_WORDN = {v: k for k, v in _NUMW.items()}
+NATION_HOSTS = {"gov.wales": "wales", "gov.scot": "scotland", "mygov.scot": "scotland", "scotcourts.gov.uk": "scotland",
+                "generalregulatorychamber.scot": "scotland", "nidirect.gov.uk": "northern_ireland",
+                "justice-ni.gov.uk": "northern_ireland", "lra.org.uk": "northern_ireland", "housingadviceni.org": "northern_ireland",
+                "sheltercymru.org.uk": "wales", "scotland.shelter.org.uk": "scotland"}
+
+
+def _src_nation(url: str) -> Optional[str]:
+    host = _norm(url or "").split("/", 1)[0]
+    return next((v for k, v in NATION_HOSTS.items() if host == k or host.endswith("." + k)), None)
+
+
+def _periods_in(sentence: str, src: str) -> Optional[bool]:
+    """None = the sentence states no time period; True = every stated number appears in the source (digits or words)."""
+    found = _PERIOD.findall(sentence)
+    if not found:
+        return None
+    for num, _unit in found:
+        d = _NUMW.get(num.lower().replace("  ", " "), num)
+        if not (re.search(rf"\b{d}\b", src) or (d in _WORDN and _WORDN[d] in src)):
+            return False
+    return True
+
+
 def _guidance_supported(sentence: str, src: str) -> bool:
     """A sentence citing official guidance must share at least two meaningful terms with the retrieved wording."""
     terms = {w[:6] for w in re.findall(r"[a-z]{4,}", re.sub(r"\[\d+\]", "", sentence).lower()) if w not in _GSTOP}
@@ -329,12 +358,14 @@ def prune_sources_line(text: str, drop) -> Tuple[str, int]:
     return _SOURCES_LINE.sub(fix, text or ""), n
 
 
-def verify_citations(text: str, citations: List[dict], sources: List[dict], customer_text: str = "") -> Tuple[str, dict]:
+def verify_citations(text: str, citations: List[dict], sources: List[dict], customer_text: str = "",
+                     nation: Optional[str] = None) -> Tuple[str, dict]:
     """Strips citation numbers/URLs that don't match retrieved sources; drops [n] where the source
     doesn't mention the Act/section claimed in that sentence. Returns (text, report)."""
     rep = {"removed_markers": 0, "unsupported_markers": 0, "urls_removed": 0, "urls_rerouted": 0,
-           "unverified_case_refs": [], "per_source": {}}
+           "unverified_case_refs": [], "per_source": {}, "claim_support": [], "uncertain_periods": []}
     valid = {int(c["n"]) for c in citations or [] if str(c.get("n", "")).isdigit()}
+    src_nation_by_n = {int(s["n"]): _src_nation(s.get("url") or "") for s in sources or []}
     src_by_n = {int(s["n"]): ((s.get("title") or "") + " " + (s.get("content") or "")).lower() for s in sources or []}
     retrieved = [_norm(c.get("url") or "") for c in citations or []]
     guidance_n = {int(s["n"]) for s in sources or [] if s.get("guidance")}
@@ -370,9 +401,21 @@ def verify_citations(text: str, citations: List[dict], sources: List[dict], cust
                 if n not in valid:
                     rep["removed_markers"] += 1
                     continue
-                ok = _refs_supported(sent, src_by_n.get(n, "")) if n in src_by_n else None
-                if ok is None and n in guidance_n:
-                    ok = _guidance_supported(sent, src_by_n[n])
+                src = src_by_n.get(n, "")
+                ok = _refs_supported(sent, src) if n in src_by_n else None
+                why = "the Act/section named is in the cited source" if ok else "the Act/section named is not in the cited source"
+                if ok is None and n in src_by_n:
+                    ok = _guidance_supported(sent, src)
+                    why = "the cited source covers this subject" if ok else "the cited source does not cover this subject"
+                sn = src_nation_by_n.get(n)
+                if ok and nation and sn and sn != nation:
+                    ok, why = False, f"the cited source covers {sn.replace('_', ' ').title()}, not this matter's UK nation"
+                status = "unsupported" if ok is False else "unchecked" if ok is None else "source_supported"
+                if ok and n in src_by_n and _periods_in(sent, src) is False:
+                    status, why = "uncertain", "the time period stated was not found in the cited source"
+                    rep["uncertain_periods"].append(n)
+                rep["claim_support"].append({"n": n, "status": status, "why": why,
+                                             "text": re.sub(r"\s+", " ", _NUM_MARK.sub("", sent)).strip()[:160]})
                 rep["per_source"].setdefault(n, set()).add({True: "supported", False: "not_confirmed", None: "unchecked"}[ok])
                 if ok is False:
                     rep["unsupported_markers"] += 1
@@ -436,12 +479,16 @@ _VERIFIED_CLAIM = re.compile(r"\b(I(?:'ve| have)\s+(?:just\s+)?(?:checked|verifi
 
 
 def finalize_answer(text: str, *, citations: List[dict], sources: List[dict], research_status: str, risk: str,
-                    language: str, legal_question: bool, customer_text: str = "") -> Tuple[str, dict]:
+                    language: str, legal_question: bool, customer_text: str = "", nation: Optional[str] = None) -> Tuple[str, dict]:
     out, reassure = no_false_reassurance(text)
-    out, rep = verify_citations(out, citations, sources, customer_text)
+    out, rep = verify_citations(out, citations, sources, customer_text, nation)
+    notes = []
+    if rep["uncertain_periods"]:
+        nums = ", ".join(f"[{n}]" for n in dict.fromkeys(rep["uncertain_periods"]))
+        notes.append(f"**Source check:** a time period stated next to {nums} was not found in that source's text, so treat it "
+                     "as unconfirmed and check it on the official page, your papers or with an adviser before relying on it.")
     rep["reassurance_removed"] = reassure
     failed = research_status in RESEARCH_FAILED and legal_question
-    notes = []
     if failed and (risk == "high" or _VERIFIED_CLAIM.search(out)):
         notes.append(note("research", language))
         if risk == "high":

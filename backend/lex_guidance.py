@@ -9,7 +9,7 @@ _GB = {"england", "wales", "scotland", None}
 
 # (id, topic regex, nations it applies to (None = nation unknown), text, sources)
 RULES = [
-    ("et_time_limits", r"employ|dismiss|sacked|fired|redundan|tribunal|acas|wages?|discriminat|pregnan|holiday pay|unpaid", _GB,
+    ("et_time_limits", r"employ|dismiss|sacked|fired|redundan|employment tribunal|acas|wages?|discriminat|pregnan|holiday pay", _GB,
      "Employment tribunal time limits (England, Wales, Scotland) depend on the DATE OF THE ACT (for unfair dismissal, the "
      "effective date of termination), not today's date: on or after 1 October 2026 most claims have 6 months less one day; "
      "before 1 October 2026, 3 months less one day (statutory redundancy pay and equal pay already had 6 months). The change "
@@ -91,9 +91,55 @@ RULES = [
     ("parking_council", r"pcn\b|penalty charge|parking\b", {"england", "wales"},
      "Council PCNs (England & Wales): the 50% discount runs 14 days from service (21 days for camera/postal PCNs); if it has "
      "passed, the full charge applies unless the council re-offers the discount after an informal challenge. Formal "
-     "representations are made within 28 days of the Notice to Owner, then appeal to the independent tribunal (Traffic "
-     "Penalty Tribunal, or London Tribunals in London). Unpaid after 28 days → charge certificate (+50%).",
-     ["https://www.gov.uk/parking-tickets"]),
+     "representations are made within 28 days of the Notice to Owner; if rejected, appeal within 28 days of the Notice of "
+     "Rejection to the independent tribunal (London Tribunals in London, otherwise the Traffic Penalty Tribunal). Unpaid after "
+     "28 days → charge certificate (+50%).",
+     ["https://www.gov.uk/parking-tickets", "https://www.tpt.gov.uk/how-to-appeal/"]),
+    ("parking_council_scotland", r"pcn\b|penalty charge|parking\b", {"scotland"},
+     "Council PCNs (Scotland): 14 days to pay at the discounted rate (you may challenge in that period); if unpaid after 28 days "
+     "the council issues a Notice to Owner, and representations must then be made; if rejected, appeal to the First-tier "
+     "Tribunal for Scotland (General Regulatory Chamber) within 28 days of the Notice of Rejection.",
+     ["https://www.generalregulatorychamber.scot/home/transportappeals/before-you-appeal"]),
+    ("parking_council_ni", r"pcn\b|penalty charge|parking\b", {"northern_ireland"},
+     "Parking PCNs (Northern Ireland, issued by DfI): £90, reduced to £45 if paid within 14 days; a challenge received within "
+     "14 days keeps the discount open while considered. Unpaid after 28 days → Notice to Owner, then 28 days to pay or make "
+     "representations; if rejected, appeal to the Northern Ireland Traffic Penalty Tribunal. Losing an appeal → pay within 28 "
+     "days or a charge certificate raises it to £135.",
+     ["https://www.nidirect.gov.uk/articles/parking-tickets-penalty-charge-notices"]),
+    ("parking_private", r"private (?:parking|company|operator|car park)|parking charge notice|supermarket car park|"
+     r"retail park|popla|\bias\b|parkingeye|euro car parks|\bpcn\b.*(?:private|supermarket)|car park", {"england", "wales", "scotland",
+                                                                                                  "northern_ireland", None},
+     "Private parking charges (UK) are contractual invoices, not fines or criminal penalties. Appeal to the operator first "
+     "within the period on the notice (operators' codes usually allow 28 days); if rejected, the independent appeal is POPLA "
+     "for British Parking Association members or the IAS for International Parking Community members, usually within 28 days "
+     "of the rejection. In England and Wales the registered KEEPER can only be pursued if the operator met the Protection of "
+     "Freedoms Act 2012 Sch.4 conditions — e.g. a postal Notice to Keeper must be delivered within 14 days beginning with the "
+     "day after the parking ended (para 9(5)); in Scotland and Northern Ireland that keeper-liability scheme does not apply, so "
+     "the operator generally has to show who was driving. ParkingEye v Beavis [2015] UKSC 67 upheld an £85 charge as not a "
+     "penalty in that case. The government has published a Private Parking Code of Practice 2026 — check whether it applies "
+     "to this charge before relying on it. Ignoring letters can lead to a county court claim; never advise ignoring court "
+     "papers.",
+     ["https://www.legislation.gov.uk/ukpga/2012/9/schedule/4/paragraph/9", "https://www.popla.co.uk/appeal-guide",
+      "https://www.gov.uk/government/publications/private-parking-code-of-practice"]),
+    ("emergency_detention", r"detain|removal|removed tomorrow|deport|removal centre|immigration centre|flight tonight",
+     {"england", "wales", "scotland", "northern_ireland", None},
+     "Immigration detention / imminent removal (UK): the urgent step is a regulated immigration solicitor or OISC adviser NOW. "
+     "People in immigration removal centres can get free 30-minute legal advice sessions through the legal aid Detention Duty "
+     "Advice Scheme (ask the centre's welfare office to book); legal aid may also cover bail and judicial review. If removal is "
+     "imminent and there is a legal ground (e.g. a new human-rights or protection claim, or an unlawful decision), a solicitor "
+     "can apply urgently — including out of hours — to the Upper Tribunal or High Court for an injunction/judicial review. "
+     "Bail for Immigration Detainees and Detention Action give advice and information. Never promise removal can be stopped; "
+     "do not use police-station or criminal-caution guidance for immigration detention.",
+     ["https://www.gov.uk/guidance/apply-for-a-judicial-review-in-an-immigration-or-asylum-case",
+      "https://www.gov.uk/legal-aid/what-you-can-get-legal-aid-for"]),
+    ("emergency_housing", r"locked (?:me )?out|changed the locks|illegal(?:ly)? evict|threw me out|homeless tonight|"
+     r"nowhere to (?:sleep|stay)|sleeping rough", {"england", "wales", "scotland", "northern_ireland", None},
+     "Housing emergencies: evicting a residential occupier without a court order or using harassment is a criminal offence "
+     "(Protection from Eviction Act 1977 s.1, England & Wales; equivalent protection in Scotland and Northern Ireland). Call "
+     "999 if there is violence or a threat of it; contact the council's housing or tenancy relations team (most councils have "
+     "an out-of-hours homelessness line) — councils must help people who are homeless or at risk. Free housing advice: Shelter "
+     "(England, 0808 800 4444), Shelter Cymru, Shelter Scotland, Housing Advice NI.",
+     ["https://www.legislation.gov.uk/ukpga/1977/43/section/1", "https://www.gov.uk/private-renting-evictions/harassment-and-illegal-evictions"]),
 ]
 _RX = {r[0]: re.compile(rf"\b(?:{r[1]})", re.I) for r in RULES}
 
@@ -129,7 +175,10 @@ def case_lines(text: str) -> List[str]:
 
 def matched(message: str, context: str, nation: Optional[str]) -> List[tuple]:
     text = f"{message}\n{context or ''}"
-    return [r for r in RULES if nation in r[2] and _RX[r[0]].search(text)]
+    out = [r for r in RULES if nation in r[2] and _RX[r[0]].search(text)]
+    if any(r[0] == "parking_private" for r in out) and not re.search(r"\bcouncil\b|penalty charge notice", text, re.I):
+        out = [r for r in out if not r[0].startswith("parking_council")]
+    return out
 
 
 def block(message: str, context: str, nation: Optional[str], provider: Optional[str] = None, country: Optional[str] = "GB") -> str:
@@ -143,7 +192,7 @@ def block(message: str, context: str, nation: Optional[str], provider: Optional[
                    "sources:\n- " + "\n- ".join(cases)) if cases else ""
     if not rules:
         return cases_block
-    lines = "\n".join(f"- {r[3]} (Sources: {', '.join(r[4])})" for r in rules[:5])
+    lines = "\n".join(f"- {r[3]} (Sources: {', '.join(r[4])})" for r in rules[:6])
     return cases_block + (f"\n\nOFFICIAL-SOURCE RULES (checked by the app against the official pages listed on {CHECKED}; NOT yet reviewed "
             "by a qualified lawyer — rely on them over older training knowledge, apply only the ones relevant to this "
             "customer's UK nation and facts, and say a regulated adviser should confirm):\n" + lines +

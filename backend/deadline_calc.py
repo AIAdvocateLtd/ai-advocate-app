@@ -24,7 +24,9 @@ _HINT_RE = re.compile(
     r"visa|overstay|expir|section 8|section 21|section 173|notice|evict|possession|landlord|tenan|deposit|debt|owe|contract|"
     r"injur|accident|negligen|limitation|small claim|benefit|universal credit|pip|esa|dwp|reconsideration|appeal|divorce|"
     r"deadline|how long|when can|how much time|time limit|too late|court|claim form|defence|ccj|summons|hearing|sheriff|"
-    r"parking|pcn|penalty charge|refund|faulty|reject|cancel\w* (?:my|the|an|our|this) (?:order|purchase|contract|booking))\w*", re.I)
+    r"parking|pcn|penalty charge|refund|faulty|reject|cancel\w* (?:my|the|an|our|this) (?:order|purchase|contract|booking)|"
+    r"bought|purchas|repair|broken|crash|stopped working|not working|pregnan|maternity|cut my hours|performance plan|"
+    r"harass|victimi|grievance|disciplinary|holiday pay|unpaid|detain|removal|removed|deport)\w*", re.I)
 _DATE_RE = re.compile(r"\d|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|\b(today|yesterday|tomorrow|"
                       r"last|next|ago|week|month|year)\b", re.I)
 
@@ -411,30 +413,51 @@ def _parking(c) -> List[Item]:
     issuer, served = (c.get("issuer") or "unknown").lower(), (c.get("served") or "unknown").lower()
     j = (c.get("jurisdiction") or "").lower()
     if issuer != "council":
-        return [(f"Parking notice dated {fmt(nd)}: {'a private parking charge' if issuer == 'private' else 'it is not clear whether this is a council PCN or a private parking charge'}"
-                 " — private operators set their own appeal and discount periods (often 14 days for the discount and 28 days to "
-                 "appeal), and Scotland has no keeper-liability law for private parking. The app cannot confirm an exact date: "
-                 "check the dates printed on the notice.", None, None)]
-    if _unknown(j) or j.startswith("northern"):
+        what = "a private parking charge" if issuer == "private" else ("it is not clear whether this is a council PCN or a "
+                                                                      "private parking charge — check who issued it")
+        keeper = (" Keeper liability: in England and Wales the registered keeper can only be pursued if the operator met the "
+                  "Protection of Freedoms Act 2012 Sch.4 conditions — for a postal Notice to Keeper, it must be delivered within "
+                  "14 days beginning with the day after the parking ended (para 9(5); presumed delivered on the second working day "
+                  "after posting)." if not (j.startswith("scot") or j.startswith("northern")) else
+                  " Keeper liability under the Protection of Freedoms Act 2012 does not apply in "
+                  f"{'Scotland' if j.startswith('scot') else 'Northern Ireland'}, so the operator generally has to show who was "
+                  "driving.")
+        return [(f"Parking notice dated {fmt(nd)}: {what}. A private charge is not a fine: appeal to the operator first within "
+                 "the period printed on the notice (operators' codes usually allow 28 days); if rejected, the independent appeal "
+                 "is POPLA (BPA members) or the IAS (IPC members), usually within 28 days of the rejection. Any early-payment "
+                 "discount is set by the operator — the app will not calculate a date; use the dates printed on the notice."
+                 + keeper, None, None)]
+    if _unknown(j):
         return [(f"Council penalty charge notice dated {fmt(nd)}: the discount and challenge periods depend on the UK nation and "
                  "how it was served — confirm these; the dates on the notice apply.", None, None)]
+    if j.startswith("northern"):
+        last = nd + timedelta(days=13)
+        return [(f"Northern Ireland PCN dated {fmt(nd)}: the 50% discount applies if paid within 14 days (nidirect) — SAFE "
+                 f"WORKING DATE {fmt(last)} (check the date on the PCN). A challenge received within 14 days keeps the discount "
+                 "open while it is considered. If unpaid after 28 days a Notice to Owner is issued; if representations are "
+                 "rejected, appeal to the Northern Ireland Traffic Penalty Tribunal within 28 days.",
+                 "Parking PCN discount ends (safe date)", last)]
+    appeal = (" If representations are rejected, appeal to the First-tier Tribunal for Scotland (General Regulatory Chamber) "
+              "within 28 days of the Notice of Rejection." if j.startswith("scot") else
+              " If representations are rejected, appeal to the independent tribunal (London Tribunals in London, otherwise the "
+              "Traffic Penalty Tribunal) within 28 days of the Notice of Rejection.")
     if served == "windscreen":
         last = nd + timedelta(days=13)
         return [(f"Council PCN fixed to the vehicle on {fmt(nd)}: the reduced (50%) rate is available for 14 days beginning with "
                  f"that date — SAFE WORKING DATE {fmt(last)}. An informal challenge made in that period usually keeps the "
-                 "discount open; formal representations are made within 28 days of any Notice to Owner.",
+                 "discount open; formal representations are made within 28 days of any Notice to Owner." + appeal,
                  "Parking PCN discount ends (safe date)", last)]
     if served == "post" and not j.startswith("scot"):
         last = nd + timedelta(days=20)
         return [(f"Council PCN sent by post, dated {fmt(nd)}: the reduced rate is available for 21 days beginning with the date of "
                  f"service, which is after the date on the notice — SAFE WORKING DATE {fmt(last)}. Representations: within 28 days "
-                 "of service.", "Parking PCN discount ends (safe date)", last)]
+                 "of service." + appeal, "Parking PCN discount ends (safe date)", last)]
     win, post = nd + timedelta(days=13), nd + timedelta(days=20)
     return [(f"Council PCN dated {fmt(nd)}, service method not given: if it was fixed to the vehicle or handed over, the "
              f"reduced (50%) rate ran for 14 days beginning with that date — SAFE WORKING DATE {fmt(win)}; if it was sent by post "
              "(camera/CCTV), the 21 days run from the date of service, which is later than the date on the notice"
              + ("" if j.startswith("scot") else f" — at least until {fmt(post)}") + ". Check how it arrived. Formal "
-             "representations are made within 28 days of a Notice to Owner (or of service of a postal PCN)."
+             "representations are made within 28 days of a Notice to Owner (or of service of a postal PCN)." + appeal
              + (f" ALREADY PASSED on the 'fixed to the vehicle' timing (today is {fmt(datetime.now(UK).date())}) — say so plainly; "
                 "the discount may also have ended if it was posted." if datetime.now(UK).date() > win else ""), None, None)]
 
@@ -623,6 +646,35 @@ async def build_deadlines(message: str, context: str, api_key: str, jurisdiction
     return block, [{"title": t, "due": d, "note": reminder_note(t)} for _, t, d in items if t and d and d >= today]
 
 
+_PASSED_WORDS = re.compile(r"\b(passed|expired|missed|ended|out of time|too late|late claim|ago)\b", re.I)
+
+
+def _date_in(answer: str, d: date) -> bool:
+    a = re.sub(r"\s+", " ", answer or "")
+    return f"{d.day} {d.strftime('%B')} {d.year}" in a or d.strftime("%d/%m/%Y") in a or f"{d.day}/{d.month}/{d.year}" in a
+
+
+def ensure_dates(answer: str, items: list, block: str) -> Tuple[str, dict]:
+    """App-calculated dates that the final answer dropped (or replaced) are restored in a short, clearly labelled section;
+    an already-passed date the answer does not mention is flagged. Never adds a date the app did not calculate."""
+    rep = {"restored": 0, "passed_flagged": False}
+    if not block or "EXACT DATES CALCULATED BY THE APP" not in block:
+        return answer, rep
+    import lex_safety
+    missing = [i for i in items or [] if i.get("due") and i.get("title") and not _date_in(answer, i["due"])]
+    lines = [f"- {i['title']}: **{fmt(i['due'])}**" for i in missing[:4]]
+    if "ALREADY PASSED" in block and not _PASSED_WORDS.search(answer or ""):
+        lines.append("- One of the dates worked out from what you said has **already passed** — that does not always mean it "
+                     "is too late; get advice urgently about what can still be done.")
+        rep["passed_flagged"] = True
+    if not lines:
+        return answer, rep
+    rep["restored"] = len(missing[:4])
+    return lex_safety.insert_before_tail(answer, "**Dates worked out by the app** (from the dates you gave — not legally "
+                                                 "confirmed; check them on your papers or with the court/tribunal, Acas/LRA or "
+                                                 "an adviser before relying on them):\n" + "\n".join(lines)), rep
+
+
 ET_NOTE = ("Based on the dismissal date you gave — confirm your effective date of termination (on your dismissal letter or "
            "payslip). Starting ACAS Early Conciliation (LRA in Northern Ireland) in time extends the tribunal claim deadline; "
            "recalculate once you have the certificate. Check with a regulated adviser.")
@@ -640,7 +692,10 @@ NO_CALC_BLOCK = (
     "Explain the rule in general terms (e.g. '3 months less one day from the dismissal'), say exactly which facts are needed "
     "(e.g. the date the notice or claim form was received, how it was served, the date on the decision letter, the UK nation), "
     "and tell the customer to check the date on their papers or with the court/tribunal/adviser. Court papers usually state "
-    "the response deadline — tell them to act on that.\n")
+    "the response deadline — tell them to act on that. You MUST still state the applicable time-limit rule for each "
+    "likely claim or step (the period, what it runs from, and the main exceptions for their UK nation — e.g. employment "
+    "tribunal limits depend on the date of the act and the claim type, continuing conduct runs from its end, a series of "
+    "deductions from the last one) using any official-source rules provided above. Leaving out the time limit is an error.\n")
 
 
 def reminder_due_iso(d: date) -> str:

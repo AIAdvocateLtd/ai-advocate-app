@@ -72,6 +72,8 @@ from app_crypto import encrypt_text, decrypt_text, encrypt_bytes, decrypt_bytes,
 import official_guidance  # noqa: E402
 import date_guard  # noqa: E402
 import lex_guidance  # noqa: E402
+import deadline_calc  # noqa: E402
+import source_ai_check  # noqa: E402
 from deadline_calc import build_deadlines, deadline_iso, deadline_label, NO_CALC_BLOCK, _HINT_RE as _DEADLINE_CALC_HINT_RE  # noqa: E402
 import legal_sources  # noqa: E402
 from lex_lessons import fact_pack_block as _fact_pack_block, lessons_block as _lessons_block, refresh_if_stale as _lessons_refresh_if_stale  # noqa: E402
@@ -2072,7 +2074,8 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
         out, rep = lex_safety.finalize_answer(text or "", citations=citations, sources=research.get("sources") or [],
                                               research_status=research.get("status"), risk=risk, language=language,
                                               legal_question=_looks_like_legal_question(message),
-                                              customer_text=f"{(juris or {}).get('customer_text') or ''}\n{message}")
+                                              customer_text=f"{(juris or {}).get('customer_text') or ''}\n{message}",
+                                              nation=_juris_nation(juris))
     except Exception as e:
         logger.warning(f"lex finalize failed (answer unchanged): {e!r}")
         return text, {"error": True}
@@ -2081,6 +2084,18 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
         out, claims_rep = legal_reasoning.verify_claims(out, leg, citations, research.get("sources") or [])
     except Exception as e:
         logger.warning(f"claim check failed (answer unchanged): {e!r}")
+    dates_rep = {}
+    try:
+        out, dates_rep = deadline_calc.ensure_dates(out, (juris or {}).get("deadline_items") or [],
+                                                    (juris or {}).get("deadline_text") or "")
+    except Exception as e:
+        logger.warning(f"deadline presence check failed (answer unchanged): {e!r}")
+    ai_rep = {}
+    try:
+        out, ai_rep = await source_ai_check.run(db, out, rep.get("claim_support") or [], research.get("sources") or [],
+                                                (juris or {}).get("high_stakes"), bool((juris or {}).get("deadline_items")))
+    except Exception as e:
+        logger.warning(f"optional AI source check failed (answer unchanged): {e!r}")
     lw_notes = []
     try:
         lw_notes = await law_watch.annotate(db, leg, (juris or {}).get("country"), _juris_nation(juris),
@@ -2100,7 +2115,9 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
         "acas_guidance": {"retrieved": research.get("guidance_keys") or [], "failed": research.get("guidance_failed") or [],
                           "notes": len(g_notes)},
         "legislation": leg, "high_stakes": hs_rep, "claims": claims_rep, "depth": (juris or {}).get("depth"),
-        "law_watch_notes": len(lw_notes)}
+        "law_watch_notes": len(lw_notes), "dates_restored": dates_rep, "ai_source_check": ai_rep,
+        "claim_support": {k: sum(1 for c in rep.get("claim_support") or [] if c["status"] == k)
+                          for k in ("source_supported", "uncertain", "unsupported", "unchecked")}}
 
 
 @api_router.post("/lex/chat")
@@ -2218,6 +2235,7 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         system_msg = system_msg + legal_reasoning.prompt_block(juris["depth"], _evidence, high_stakes.is_high(_hs))
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
         juris["deadline_text"] = _dl_block
+        juris["deadline_items"] = auto_reminders
         if auto_reminders and _HYPOTHETICAL_RE.search(data.message or ""):
             auto_reminders = []
             _dl_block += _HYPOTHETICAL_NOTE
@@ -2436,6 +2454,7 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
         system_msg = system_msg + legal_reasoning.prompt_block(juris["depth"], _evidence, high_stakes.is_high(_hs))
         _dl_block, auto_reminders = await build_deadlines(data.message, _ctx, EMERGENT_LLM_KEY, juris["deadline_jurisdiction"])
         juris["deadline_text"] = _dl_block
+        juris["deadline_items"] = auto_reminders
         if auto_reminders and _HYPOTHETICAL_RE.search(data.message or ""):
             auto_reminders = []
             _dl_block += _HYPOTHETICAL_NOTE

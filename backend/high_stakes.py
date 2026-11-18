@@ -18,7 +18,8 @@ DOMAINS: Dict[str, Dict[str, re.Pattern]] = {
     "immigration": {
         "topic": re.compile(r"\b(visas?|leave to remain|ilr|indefinite leave|brp|evisa|home office|deport\w*|removal|"
                             r"overstay\w*|asylum|curtail\w*|sponsor\w*|immigration|settlement|euss|settled status|"
-                            r"reporting centre|detention centre)\b", _I),
+                            r"reporting centre|detention centre|removal centre|(?:will|to|going to) be removed|being removed|"
+                            r"detained(?=[^.\n]{0,80}\b(?:removed|removal|deport\w*|home office|immigration|flight)))\b", _I),
         "urgent": re.compile(r"\b(visa (?:expires|expired|has expired|ends|is ending|runs out|ran out)|overstay\w*|"
                              r"removal (?:directions|notice|window)|detain\w*|deport\w*|refus\w*|curtail\w*|"
                              r"appeal (?:deadline|window)|reporting|section 3c|no leave)\b", _I),
@@ -59,7 +60,8 @@ DOMAINS: Dict[str, Dict[str, re.Pattern]] = {
     "employment": {
         "topic": re.compile(r"\b(dismiss\w*|sacked|fired|redundan\w*|employment tribunal|tribunal|acas|disciplinary|grievance|"
                             r"constructive(?:ly)? dismiss\w*|whistleblow\w*|discriminat\w*|unpaid wages|notice pay|"
-                            r"settlement agreement)\b", _I),
+                            r"settlement agreement|pregnan\w*|maternity|cut (?:my|our) hours|performance (?:plan|improvement plan)|"
+                            r"wages|holiday pay|my employer)\b", _I),
         "urgent": re.compile(r"\b(dismissed|sacked|fired|let go|made redundant|last day|tribunal|early conciliation|"
                              r"deadline|time limit|settlement agreement|disciplinary (?:hearing|meeting))\b", _I),
     },
@@ -163,7 +165,10 @@ HELP = {
     "criminal": "free, independent legal advice at the police station is available in every UK nation — they can ask for the "
                 "duty solicitor at any time, and should not answer questions in an interview without advice",
     "immigration": "an OISC-regulated immigration adviser or an immigration solicitor; legal aid may be available for asylum "
-                   "and detention",
+                   "and detention. If someone is detained or removal is imminent: a solicitor urgently (people in removal "
+                   "centres can book free 30-minute legal advice through the Detention Duty Advice Scheme; urgent judicial "
+                   "review/injunction applications can be made out of hours) and Bail for Immigration Detainees — do not use "
+                   "police-station guidance for immigration detention",
     "housing": "Shelter (England: 0808 800 4444), Shelter Cymru, Shelter Scotland, Housing Advice NI or the council's housing "
                "team; free on-the-day legal advice is often available at possession hearings",
     "court": "the court or tribunal office named on the papers, Citizens Advice, or a solicitor; legal aid or free advice "
