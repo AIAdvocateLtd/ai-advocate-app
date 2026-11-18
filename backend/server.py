@@ -14374,11 +14374,11 @@ async def admin_law_watch_history(key: str, _: dict = Depends(require_admin)):
 
 
 class LawUpdateDecision(BaseModel):
-    decision: str
-    reviewer_name: str = ""
-    regulator: str = ""
-    registration_number: str = ""
-    notes: str = ""
+    decision: str = Field(max_length=20)
+    reviewer_name: str = Field("", max_length=120)
+    regulator: str = Field("", max_length=60)
+    registration_number: str = Field("", max_length=40)
+    notes: str = Field("", max_length=2000)
 
 
 @api_router.get("/admin/law-updates")

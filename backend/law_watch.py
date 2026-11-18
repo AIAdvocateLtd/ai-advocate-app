@@ -425,7 +425,7 @@ async def linked_knowledge(db, rec: dict) -> dict:
     url, act = rec["url"].rstrip("/"), _act_url(rec["url"])
     rules = [r[0] for r in lex_guidance.RULES if any(u.rstrip("/") in (url, act) or u.rstrip("/").startswith(url + "/")
                                                      for u in r[4])]
-    rx = re.escape(act.split("legislation.gov.uk/")[-1])
+    rx = re.escape(act.split("legislation.gov.uk/")[-1]) + r"(?![0-9])"
     lessons = [d["id"] async for d in db.lex_lessons.find(
         {"$or": [{"review_meta.source_url": {"$regex": rx}}, {"why": {"$regex": rx}}, {"text": {"$regex": rx}}]}, {"id": 1})]
     return {"rules": rules, "lessons": lessons[:50]}
@@ -455,6 +455,8 @@ async def decide_update(db, pid: str, decision: str, review: dict, notes: str, a
         return {"refused": "No such update."}
     if p["status"] not in ("awaiting_review", "amend_requested"):
         return {"refused": f"This update is already {p['status']}."}
+    review = {k: str(review.get(k) or "").strip()[:120] for k in ("reviewer_name", "regulator", "registration_number")}
+    review["regulator"] = review["regulator"].upper()
     rs = review_status({**review, "reviewed_at": _now().isoformat()})
     if decision == "approve" and not rs["verified"]:
         return {"refused": "Approval needs the reviewer's name, regulator (e.g. SRA) and registration number."}
@@ -466,11 +468,16 @@ async def decide_update(db, pid: str, decision: str, review: dict, notes: str, a
     rec_review = {k: rs.get(k) for k in ("reviewer_name", "regulator", "registration_number", "reviewed_at")}
     dec = {"decision": decision, "notes": (notes or "")[:2000], "by": actor, "at": now,
            "reviewer": rec_review if rs["verified"] else {"reviewer_name": (review.get("reviewer_name") or "")[:120]}}
-    await db.law_update_proposals.update_one({"_id": pid}, {"$set": {"status": DECISIONS[decision], "decision": dec},
-                                                            "$push": {"history": dec}})
+    won = await db.law_update_proposals.update_one(
+        {"_id": pid, "status": {"$in": ["awaiting_review", "amend_requested"]}},
+        {"$set": {"status": DECISIONS[decision], "decision": dec}, "$push": {"history": dec}})
+    if not won.matched_count:  # another decision landed first
+        return {"refused": "This update was decided by someone else just now — reload to see it."}
     if decision == "approve":
+        pr = {**rec_review, "scope": "effect of this recorded change"}
         await db.law_watch_records.update_one({"key": p["key"], "version_id": pid}, {"$set": {
-            "professional_review": {**rec_review, "scope": "effect of this recorded change"}, "review_pending": False}})
+            "professional_review": pr, "review_pending": False,
+            "verification.D_professional_review": review_status(rec_review)}})
     elif decision == "reject":
         await db.law_watch_records.update_one({"key": p["key"], "version_id": pid}, {"$set": {"review_pending": False,
                                                                                             "change_rejected": True}})

@@ -48,6 +48,7 @@ export const LawUpdateReview = ({ api }) => {
       {err && <div style={{ color: "#fca5a5" }}>{err}</div>}
       {rows && rows.length === 0 && <div data-testid="law-update-empty" style={{ color: "var(--text-dim)" }}>No detected changes.</div>}
       {rows && rows.length > 0 && (
+        <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>{["Provision", "Change", "Linked Lex knowledge", "Status"].map(h => <th key={h} style={cell}>{h}</th>)}</tr></thead>
           <tbody>{rows.map(p => (
@@ -60,10 +61,12 @@ export const LawUpdateReview = ({ api }) => {
                 <div style={{ color: "var(--text-dim)" }}>interpretation: {p.interpretation}</div></td>
               <td style={cell}>{(p.linked_rules || []).join(", ") || "—"} · {(p.linked_lessons || []).length} fact(s) withheld</td>
               <td style={cell}><span data-testid={`law-update-status-${p._id}`}>{p.status.replace(/_/g, " ")}</span>
+                {p.decision && <div style={{ color: "var(--text-dim)" }}>last: {p.decision.decision} by {p.decision.reviewer?.reviewer_name || p.decision.by}{p.decision.notes ? ` — ${p.decision.notes}` : ""}</div>}
                 {["awaiting_review", "amend_requested"].includes(p.status) && <Decide p={p} api={api} done={load} />}</td>
             </tr>
           ))}</tbody>
         </table>
+        </div>
       )}
     </div>
   );

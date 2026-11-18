@@ -1,0 +1,44 @@
+{
+  "summary": "Phase 2C law-update integration tested. Backend: test_lex2_law_update_integration.py 14/14, test_lex2_2c_law_watch.py 43/43 (AIA_NO_PAID=1, one file per run). New edge suite test_lex2_law_update_edges.py 11/13 — 2 real defects (concurrent decisions both applied; act-number prefix over-links lessons). New public-URL API suite test_lex2_law_updates_api.py 9/9 (401/403, list + status filter, 400 unknown id/decision, 422 missing decision, writes still OFF). With the synthetic TEST-PROPOSAL-1: Approve with no details gave 400 'Approval needs the reviewer's name, regulator (e.g. SRA) and registration number.', a regulator not on the list was refused, Reject with no name and Amend with no notes were refused. UI flow fully works: row shown, Approve with no details showed law-update-error, Request amendment changed the status to 'amend requested', and the pill said 'writes OFF' the whole time. After cleanup the empty state 'No detected changes.' shows. Tracker writes were never turned on, apply/save was never clicked, no paid calls were made, and no law_watch_records were created.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "law_watch.decide_update / POST /api/admin/law-updates/{pid}/decision", "issue": "Race: find_one status check then unconditional update_one. Two concurrent decisions (approve + reject) BOTH succeed, so the proposal history has 2 decisions and the record gets both professional_review and change_rejected. Fix: update_one({'_id': pid, 'status': {'$in': ['awaiting_review','amend_requested']}}) and refuse if matched_count == 0, before touching law_watch_records."},
+      {"endpoint": "law_watch.linked_knowledge", "issue": "Lesson regex is re.escape('ukpga/1996/18') with no boundary, so lessons citing ukpga/1996/180 (or /181... /189) are linked and set to needs_review=True when ERA 1996 c.18 changes. Fix: add a boundary, e.g. rx + r'(?:/|$|[^0-9])'."},
+      {"endpoint": "decide_update approve", "issue": "Regulator is not stripped or normalised. ' SRA ' (pasted with spaces) is refused, and lowercase 'sra' is accepted but stored as lowercase in the review record. The existing /professional-review route strips and upper-cases it, so this is inconsistent. Approve also does not update verification.D_professional_review on the law_watch_record (the existing review route does)."},
+      {"endpoint": "LawUpdateDecision model", "issue": "There are no max_length limits on decision, regulator or registration_number. Only notes and the name are truncated, and the name only on the non-approve path."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Settings > Law tracker > Detected law changes table", "issues": [
+        "The 260px notes input pokes past the card's right edge inside the narrow Settings modal. The table has no overflowX:auto wrapper.",
+        "No success toast or confirmation after a decision. Only the status text changes.",
+        "The previous decision (reviewer, notes from 'amend requested') is not shown in the row, although GET returns the decision.",
+        "The input data-testids are not unique per row (law-update-reviewer-name etc.), which is ambiguous when there are several proposals."
+      ]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_lex2_law_update_edges.py", "/app/backend/tests/test_lex2_law_updates_api.py", "/app/backend/tests/test_lex2_law_update_integration.py", "/app/backend/tests/test_lex2_2c_law_watch.py"],
+  "action_items": [
+    "Make decide_update atomic (conditional update on status) so only one concurrent decision can win",
+    "Add a numeric boundary to the linked_knowledge lesson regex so act 18 does not match act 180",
+    "Strip and upper-case regulator in decide_update (or the route) to match the /professional-review route, and set verification.D_professional_review on approve",
+    "Optional UI: wrap the review table in overflowX:auto, show a success message and the last decision/notes, and use per-row testids"
+  ],
+  "critical_code_review_comments": [
+    "decide_update has a TOCTOU race (see minor issue)",
+    "linked_knowledge regex over-match (see minor issue)",
+    "server.py is 18k lines, far over the 700-line guideline. The law-update routes belong in a separate router module.",
+    "Pre-existing, out of scope: CORS returns Access-Control-Allow-Origin '*' with allow-credentials true for any Origin. Auth is a Bearer token, not an httpOnly cookie."
+  ],
+  "updated_files": ["/app/backend/tests/test_lex2_law_update_edges.py", "/app/backend/tests/test_lex2_law_updates_api.py", "/app/backend/tests/synthetic_proposal.py"],
+  "success_rate": {"backend": "95% (77/79 incl. 2 new edge-case defects)", "frontend": "100%"},
+  "seed_data_creation": "Inserted ONE synthetic doc law_update_proposals _id TEST-PROPOSAL-1 in the preview DB. It was deleted afterwards along with its single law_watch_audit row (proposal=TEST-PROPOSAL-1), and deletion was confirmed. No law_watch_records were created. The law_watch_settings writes doc was untouched (enabled=False). Edge unit tests use the isolated DB aia_law_watch_test.",
+  "test_credentials": "admin@aiadvocate.co.uk / AdminLex2026! ; test@advocate.app / Test12345! (non-admin 403 check)",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run each pytest file separately with AIA_NO_PAID=1. test_lex2_law_update_edges.py has 2 expected failures until fixed: test_concurrent_decisions_only_one_wins and test_act_number_prefix_false_positive. The API suite needs REACT_APP_BACKEND_URL exported. For the UI, use tests/synthetic_proposal.py insert|delete|show (always delete afterwards). Login trick: init_script with the aa_* localStorage keys (see iteration_51), then settings-btn -> admin-law-watch-toggle. Never click law-watch-writes-on-btn or law-watch-apply-btn."
+}
