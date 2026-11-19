@@ -83,6 +83,7 @@ import content_guard  # noqa: E402
 import high_stakes  # noqa: E402
 import legal_reasoning  # noqa: E402
 import law_watch  # noqa: E402
+import account_security as acct  # noqa: E402
 import account_erasure  # noqa: E402
 import lex_output  # noqa: E402
 
@@ -374,10 +375,11 @@ def verify_pw(pw: str, h: str) -> bool:
     except Exception:
         return False
 
-def make_token(user_id: str, email: str) -> str:
+def make_token(user_id: str, email: str, tv: int = 0) -> str:
     payload = {
         "sub": user_id,
         "email": email,
+        "tv": int(tv or 0),
         "exp": datetime.now(timezone.utc) + timedelta(days=30),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
@@ -571,6 +573,8 @@ async def get_user(creds: HTTPAuthorizationCredentials = Depends(security), requ
             raise HTTPException(401, "User not found")
         if user.get("deleted"):
             raise HTTPException(401, "Account has been deleted")
+        if not acct.session_valid(payload, user):
+            raise HTTPException(401, "Your session has ended. Please sign in again.")
         _ta = (user.get("topup_active") or {}).get("expires_at")
         if user.get("topup_queue") and (not _ta or _iso_dt(_ta) <= datetime.now(timezone.utc)):
             await _promote_queued_topups(user["id"])
@@ -619,7 +623,7 @@ async def get_user_optional(
     try:
         payload = jwt.decode(creds.credentials, JWT_SECRET, algorithms=["HS256"])
         u = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
-        if u and not u.get("deleted"):
+        if u and not u.get("deleted") and acct.session_valid(payload, u):
             return u
     except Exception:
         pass
@@ -1433,6 +1437,7 @@ import stage3  # noqa: E402
 import login_guard  # noqa: E402
 stage3.init(db)
 login_guard.init(db)
+acct.init(db)
 
 
 async def _stage3_refund_request():
@@ -1737,7 +1742,7 @@ async def auth_verify_email(data: VerifyEmailReq):
                     "email_verify_expires_at": ""}},
     )
     user["email_verified"] = True
-    return TokenResp(access_token=make_token(user["id"], user["email"]), user=user_to_public(user))
+    return TokenResp(access_token=_session_token(user), user=user_to_public(user))
 
 
 class ResendVerifyReq(BaseModel):
@@ -1805,15 +1810,13 @@ async def login(data: UserLogin, request: Request):
     # 🔐 2FA gate: if the user has TOTP enabled, do NOT issue the full JWT yet.
     # Return a short-lived tmp_token; the client then POSTs /auth/2fa/login
     # with that token + the 6-digit code (or a backup code) to get the real JWT.
-    if user.get("totp_enabled"):
-        from fastapi.responses import JSONResponse as _JSON
-        tmp = _issue_tmp_2fa_token(user["id"], "user")
-        return _JSON({"requires_2fa": True, "tmp_token": tmp, "email": user["email"]})
+    if acct.mfa_method(user):
+        return await _mfa_challenge(user)
     alert = await _check_geo_anomaly(user, request)
     pub = user_to_public(user)
     if alert:
         pub["security_alert"] = alert
-    return TokenResp(access_token=make_token(user["id"], user["email"]), user=pub)
+    return TokenResp(access_token=_session_token(user), user=pub)
 
 @api_router.post("/auth/google", response_model=TokenResp)
 async def google_login(data: GoogleLogin):
@@ -1846,15 +1849,21 @@ async def google_login(data: GoogleLogin):
                     "https://www.googleapis.com/oauth2/v3/userinfo",
                     headers={"Authorization": f"Bearer {data.access_token}"},
                 )
-            if r.status_code != 200:
-                raise HTTPException(401, f"Google rejected access token: {r.text[:200]}")
+                ti = await client.get("https://oauth2.googleapis.com/tokeninfo", params={"access_token": data.access_token})
+            if r.status_code != 200 or ti.status_code != 200:
+                raise HTTPException(401, "Google rejected access token")
+            tinfo = ti.json()
+            if not GOOGLE_CLIENT_ID or GOOGLE_CLIENT_ID not in (tinfo.get("aud"), tinfo.get("azp")):
+                raise HTTPException(401, "Google token was not issued for AI Advocate")
             info = r.json()
+            if tinfo.get("sub") and tinfo.get("sub") != info.get("sub"):
+                raise HTTPException(401, "Google token mismatch")
             google_sub = info.get("sub")
             email = info.get("email")
             name = info.get("name", "")
             if not google_sub or not email:
                 raise HTTPException(401, "Google userinfo missing sub/email")
-            if info.get("email_verified") is False:
+            if info.get("email_verified") is not True:
                 raise HTTPException(401, "Email not verified by Google")
         except HTTPException:
             raise
@@ -1862,12 +1871,8 @@ async def google_login(data: GoogleLogin):
             logger.exception("Google userinfo verification failed")
             raise HTTPException(401, f"Google verification failed: {str(e)}")
     else:
-        # Demo fallback (used while GOOGLE_CLIENT_ID is not set)
-        if not data.email or not data.google_id:
-            raise HTTPException(400, "Provide 'credential', 'access_token', or {email, google_id}")
-        google_sub = data.google_id
-        email = data.email
-        name = data.name or ""
+        # Unverified {email, google_id} sign-in removed (account-takeover risk).
+        raise HTTPException(400, "Google sign-in requires a valid Google token.")
 
     user = await db.users.find_one({"$or": [{"google_id": google_sub}, {"email": email}]})
     if user and user.get("deleted"):
@@ -1897,7 +1902,44 @@ async def google_login(data: GoogleLogin):
         if not user.get("email_verified"):
             await db.users.update_one({"id": user["id"]}, {"$set": {"email_verified": True}})
             user["email_verified"] = True
-    return TokenResp(access_token=make_token(user["id"], user["email"]), user=user_to_public(user))
+    return await _social_login_response(user)
+
+
+async def _social_login_response(user: dict):
+    """Social sign-ins honour the same two-step gate as password sign-in."""
+    if acct.mfa_method(user):
+        return await _mfa_challenge(user)
+    return TokenResp(access_token=_session_token(user), user=user_to_public(user))
+
+
+def _session_token(user: dict) -> str:
+    return make_token(user["id"], user["email"], user.get("token_version") or 0)
+
+
+async def _user_token_ok(payload: dict) -> bool:
+    u = await db.users.find_one({"id": payload.get("sub")}, {"_id": 0, "token_version": 1, "deleted": 1})
+    return bool(u) and not u.get("deleted") and acct.session_valid(payload, u)
+
+
+async def _send_login_code(email: str, code: str):
+    from email_helper import send_email
+    await send_email(to=email, subject=f"{code} is your AI Advocate security code",
+                     body_html=f"<p>Your AI Advocate security code is:</p><p style='font-size:28px;letter-spacing:6px'><b>{code}</b></p>"
+                               "<p>It expires in 5 minutes and can only be used once. If you didn't try to sign in, "
+                               "change your password now — someone may know it.</p>")
+
+
+async def _mfa_challenge(user: dict):
+    from fastapi.responses import JSONResponse as _JSON
+    method = acct.mfa_method(user)
+    out = {"requires_2fa": True, "method": method, "tmp_token": _issue_tmp_2fa_token(user["id"], "user"),
+           "email": acct.mask_email(user["email"])}
+    if method == "email":
+        try:
+            out["code_sent"] = (await acct.issue_email_code(user, "login", _send_login_code))["sent"]
+        except HTTPException as e:
+            out["code_sent"], out["code_note"] = False, e.detail
+    return _JSON(out)
 
 @api_router.post("/auth/apple", response_model=TokenResp)
 async def apple_login(data: AppleLogin):
@@ -1968,7 +2010,7 @@ async def apple_login(data: AppleLogin):
         if not user.get("email_verified"):
             await db.users.update_one({"id": user["id"]}, {"$set": {"email_verified": True}})
             user["email_verified"] = True
-    return TokenResp(access_token=make_token(user["id"], user["email"]), user=user_to_public(user))
+    return await _social_login_response(user)
 
 @api_router.get("/auth/providers")
 async def auth_providers():
@@ -1983,7 +2025,8 @@ async def auth_providers():
     return {
         "google_enabled": bool(GOOGLE_CLIENT_ID),
         "google_client_id": GOOGLE_CLIENT_ID,
-        "apple_enabled": bool(APPLE_SERVICES_ID),
+        # Hidden until the Services ID web return URL is registered with Apple (set APPLE_WEB_SIGNIN_ENABLED=1).
+        "apple_enabled": bool(APPLE_SERVICES_ID) and os.environ.get("APPLE_WEB_SIGNIN_ENABLED") == "1",
         "apple_services_id": APPLE_SERVICES_ID,
         "turnstile_site_key": (
             os.environ.get("REACT_APP_TURNSTILE_SITE_KEY")
@@ -8811,7 +8854,10 @@ async def auth_reset_password(data: ResetPasswordReq, request: Request):
         {"$set": {"password_hash": hash_pw(data.new_password), "password_changed_at": now_iso}},
     )
     await db.password_reset_tokens.update_one({"_id": rec["_id"]}, {"$set": {"used_at": now_iso}})
-    token = make_token(user["id"], user["email"])
+    user["token_version"] = await acct.revoke_sessions(user["id"], "password_reset")
+    if acct.mfa_method(user):
+        return await _mfa_challenge(user)
+    token = _session_token(user)
     user.pop("password_hash", None)
     return {"token": token, "access_token": token, "user": user}
 
@@ -8895,6 +8941,7 @@ class TOTPSetupReq(BaseModel):
 class TOTPVerifyReq(BaseModel):
     code: str
     password: Optional[str] = None  # required for /disable
+    email_code: Optional[str] = None
 
 
 class TOTPLoginReq(BaseModel):
@@ -8919,16 +8966,54 @@ def _decode_tmp_2fa_token(token: str) -> dict:
     return payload
 
 
+class FreshAuth(BaseModel):
+    password: Optional[str] = None
+    email_code: Optional[str] = None
+
+
+async def _fresh_auth(user: dict, password: Optional[str], email_code: Optional[str]):
+    """Re-check identity before a security change: password, or an emailed code for accounts without one."""
+    full = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 1})
+    if (full or {}).get("password_hash"):
+        if not password or not verify_pw(password, full["password_hash"]):
+            raise HTTPException(400, "Password is incorrect.")
+        return
+    if not email_code or not await acct.check_email_code(user, "reauth", email_code):
+        raise HTTPException(400, "Enter the security code we emailed you.")
+
+
+async def _totp_ok(user: dict, code: str) -> bool:
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0, "totp_secret": 1})
+    secret = acct.dec_secret((fresh or {}).get("totp_secret") or "")
+    return bool(secret) and pyotp.TOTP(secret).verify((code or "").strip().replace(" ", ""), valid_window=1)
+
+
+@api_router.post("/auth/security/reauth-code")
+async def auth_security_reauth_code(user: dict = Depends(get_user)):
+    return await acct.issue_email_code(user, "reauth", _send_login_code)
+
+
+@api_router.get("/auth/security/status")
+async def auth_security_status(user: dict = Depends(get_user)):
+    full = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 1, "totp_backup_codes": 1})
+    return {"method": acct.mfa_method(user), "totp_enabled": bool(user.get("totp_enabled")),
+            "email_2fa_enabled": bool(user.get("email_2fa_enabled")), "is_admin": acct.is_admin(user),
+            "admin_totp_required": await acct.admin_enforcement_on() if acct.is_admin(user) else False,
+            "recovery_codes_left": len((full or {}).get("totp_backup_codes") or []),
+            "has_password": bool((full or {}).get("password_hash")), "email": acct.mask_email(user.get("email", "")),
+            "sessions_revoked_at": user.get("sessions_revoked_at")}
+
+
 @api_router.post("/auth/2fa/setup")
-async def auth_2fa_setup(_req: TOTPSetupReq, current_user: dict = Depends(get_user)):
-    """Generate a fresh secret + QR. The secret is PENDING — only activated
-    after the user verifies the first code via /auth/2fa/verify."""
+async def auth_2fa_setup(data: FreshAuth, current_user: dict = Depends(get_user)):
+    """Generate a fresh secret + QR (pending until the first code is verified)."""
     if current_user.get("totp_enabled"):
-        raise HTTPException(400, "2FA is already enabled. Disable it first to re-pair.")
+        raise HTTPException(400, "Authenticator sign-in is already on. Turn it off first to re-pair.")
+    await _fresh_auth(current_user, data.password, data.email_code)
     secret = pyotp.random_base32()
     await db.users.update_one(
         {"id": current_user["id"]},
-        {"$set": {"totp_secret_pending": secret, "totp_pending_at": datetime.now(timezone.utc).isoformat()}},
+        {"$set": {"totp_secret_pending": acct.enc_secret(secret), "totp_pending_at": datetime.now(timezone.utc).isoformat()}},
     )
     qr = _otpauth_qr_data_url(secret, current_user["email"])
     return {"secret": secret, "qr_data_url": qr, "issuer": TOTP_ISSUER, "account": current_user["email"]}
@@ -8936,76 +9021,148 @@ async def auth_2fa_setup(_req: TOTPSetupReq, current_user: dict = Depends(get_us
 
 @api_router.post("/auth/2fa/verify")
 async def auth_2fa_verify(req: TOTPVerifyReq, current_user: dict = Depends(get_user)):
-    """Activate 2FA: verifies the first code against the pending secret, then
-    promotes it to the live secret + generates 10 backup codes."""
-    fresh = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "totp_secret_pending": 1})
-    secret = (fresh or {}).get("totp_secret_pending")
-    if not secret:
-        raise HTTPException(400, "No pending 2FA setup. Call /auth/2fa/setup first.")
-    totp = pyotp.TOTP(secret)
-    if not totp.verify(req.code.strip(), valid_window=1):
+    """Activate: verify the first code, store the encrypted secret, issue recovery codes, sign out other devices."""
+    fresh = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "totp_secret_pending": 1, "totp_pending_at": 1})
+    stored = (fresh or {}).get("totp_secret_pending")
+    if not stored or (fresh.get("totp_pending_at") or "") < (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat():
+        raise HTTPException(400, "Setup expired. Start again.")
+    await acct.guard_guesses(current_user["id"])
+    if not pyotp.TOTP(acct.dec_secret(stored)).verify(req.code.strip().replace(" ", ""), valid_window=1):
+        await acct.fail_guess(current_user["id"])
         raise HTTPException(400, "Incorrect code. Make sure your device clock is correct.")
     plain, hashed = _make_backup_codes()
     await db.users.update_one(
         {"id": current_user["id"]},
-        {"$set": {"totp_secret": secret, "totp_enabled": True,
-                  "totp_backup_codes": hashed,
-                  "totp_enabled_at": datetime.now(timezone.utc).isoformat()},
+        {"$set": {"totp_secret": stored, "totp_enabled": True, "email_2fa_enabled": False,
+                  "totp_backup_codes": hashed, "totp_enabled_at": datetime.now(timezone.utc).isoformat()},
          "$unset": {"totp_secret_pending": "", "totp_pending_at": ""}},
     )
-    return {"ok": True, "enabled": True, "backup_codes": plain,
-            "message": "Save these backup codes — they only show once."}
+    tv = await acct.revoke_sessions(current_user["id"], "authenticator_enabled")
+    await acct.log(current_user["id"], "mfa_enabled", {"method": "totp"})
+    return {"ok": True, "enabled": True, "backup_codes": plain, "access_token": make_token(current_user["id"], current_user["email"], tv),
+            "message": "Save these recovery codes — they only show once."}
 
 
 @api_router.post("/auth/2fa/disable")
 async def auth_2fa_disable(req: TOTPVerifyReq, current_user: dict = Depends(get_user)):
-    """Disable 2FA. Requires the user's password + a current valid TOTP code
-    so a stolen session can't disable 2FA on its own."""
-    fresh = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password_hash": 1, "totp_secret": 1, "totp_enabled": 1})
-    if not fresh or not fresh.get("totp_enabled"):
-        raise HTTPException(400, "2FA is not enabled.")
-    if not req.password or not verify_pw(req.password, fresh["password_hash"]):
-        raise HTTPException(400, "Password is incorrect.")
-    if not pyotp.TOTP(fresh["totp_secret"]).verify(req.code.strip(), valid_window=1):
-        raise HTTPException(400, "Incorrect 2FA code.")
+    """Turn off authenticator sign-in. Needs password (or emailed code) + a current authenticator/recovery code."""
+    if not current_user.get("totp_enabled"):
+        raise HTTPException(400, "Authenticator sign-in is not on.")
+    await _fresh_auth(current_user, req.password, req.email_code)
+    await acct.guard_guesses(current_user["id"])
+    if not await _totp_ok(current_user, req.code):
+        await acct.fail_guess(current_user["id"])
+        raise HTTPException(400, "Incorrect authenticator code.")
     await db.users.update_one(
         {"id": current_user["id"]},
         {"$set": {"totp_enabled": False, "totp_disabled_at": datetime.now(timezone.utc).isoformat()},
          "$unset": {"totp_secret": "", "totp_backup_codes": ""}},
     )
+    await acct.log(current_user["id"], "mfa_disabled", {"method": "totp"})
     return {"ok": True, "enabled": False}
+
+
+@api_router.post("/auth/2fa/recovery-codes")
+async def auth_2fa_recovery_codes(req: TOTPVerifyReq, current_user: dict = Depends(get_user)):
+    """Replace all recovery codes (old ones stop working). Needs a current authenticator code."""
+    if not current_user.get("totp_enabled"):
+        raise HTTPException(400, "Authenticator sign-in is not on.")
+    await acct.guard_guesses(current_user["id"])
+    if not await _totp_ok(current_user, req.code):
+        await acct.fail_guess(current_user["id"])
+        raise HTTPException(400, "Incorrect authenticator code.")
+    plain, hashed = _make_backup_codes()
+    await db.users.update_one({"id": current_user["id"]}, {"$set": {"totp_backup_codes": hashed}})
+    await acct.log(current_user["id"], "recovery_codes_replaced")
+    return {"backup_codes": plain}
+
+
+@api_router.post("/auth/2fa/email/enable")
+async def auth_2fa_email_enable(data: FreshAuth, current_user: dict = Depends(get_user)):
+    if acct.is_admin(current_user):
+        raise HTTPException(400, "Admin accounts must use an authenticator app.")
+    if current_user.get("totp_enabled"):
+        raise HTTPException(400, "Authenticator sign-in is already on (the stronger option).")
+    await _fresh_auth(current_user, data.password, data.email_code)
+    await db.users.update_one({"id": current_user["id"]}, {"$set": {"email_2fa_enabled": True,
+                                                                  "email_2fa_enabled_at": datetime.now(timezone.utc).isoformat()}})
+    tv = await acct.revoke_sessions(current_user["id"], "email_codes_enabled")
+    await acct.log(current_user["id"], "mfa_enabled", {"method": "email"})
+    return {"ok": True, "enabled": True, "access_token": make_token(current_user["id"], current_user["email"], tv)}
+
+
+@api_router.post("/auth/2fa/email/disable")
+async def auth_2fa_email_disable(data: FreshAuth, current_user: dict = Depends(get_user)):
+    if not current_user.get("email_2fa_enabled"):
+        raise HTTPException(400, "Email codes are not on.")
+    await _fresh_auth(current_user, data.password, data.email_code)
+    await db.users.update_one({"id": current_user["id"]}, {"$set": {"email_2fa_enabled": False}})
+    await acct.log(current_user["id"], "mfa_disabled", {"method": "email"})
+    return {"ok": True, "enabled": False}
+
+
+class TmpTokenReq(BaseModel):
+    tmp_token: str
+
+
+@api_router.post("/auth/2fa/email/resend")
+async def auth_2fa_email_resend(req: TmpTokenReq):
+    payload = _decode_tmp_2fa_token(req.tmp_token)
+    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+    if not user or acct.mfa_method(user) != "email":
+        raise HTTPException(400, "Email codes are not used for this account.")
+    return await acct.issue_email_code(user, "login", _send_login_code)
 
 
 @api_router.post("/auth/2fa/login", response_model=TokenResp)
 async def auth_2fa_login(req: TOTPLoginReq):
-    """Exchange a (tmp_token + 6-digit code OR backup code) for a full JWT.
-    Called after /auth/login returned {requires_2fa: true, tmp_token}."""
+    """Exchange tmp_token + code (authenticator, recovery code, or emailed code) for a full session."""
     payload = _decode_tmp_2fa_token(req.tmp_token)
     await login_guard.check_2fa(req.tmp_token)
     if payload.get("kind") != "user":
         raise HTTPException(400, "Wrong account kind for this endpoint.")
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
-    if not user or not user.get("totp_enabled"):
-        raise HTTPException(400, "2FA not configured for this account.")
-    code = (req.code or "").strip()
-    ok = pyotp.TOTP(user["totp_secret"]).verify(code, valid_window=1)
+    method = acct.mfa_method(user) if user else None
+    if not method:
+        raise HTTPException(400, "Two-step sign-in is not set up for this account.")
+    await acct.guard_guesses(user["id"])
+    code = (req.code or "").strip().replace(" ", "")
+    if method == "email":
+        ok = await acct.check_email_code(user, "login", code)
+    else:
+        totp, now_ts = pyotp.TOTP(acct.dec_secret(user["totp_secret"])), datetime.now(timezone.utc).timestamp()
+        step = next((int(now_ts // 30) + o for o in (-1, 0, 1) if _secrets.compare_digest(totp.at(now_ts + 30 * o), code)), None)
+        ok = False
+        if step is not None:  # each authenticator code works once
+            ok = await db.users.find_one_and_update({"id": user["id"], "totp_last_step": {"$not": {"$gte": step}}},
+                                                    {"$set": {"totp_last_step": step}}) is not None
+        if not ok:
+            backups = user.get("totp_backup_codes") or []
+            used_index = next((i for i, h in enumerate(backups) if verify_pw(req.code.strip(), h)), None)
+            if used_index is not None:
+                ok = True
+                await db.users.update_one({"id": user["id"]}, {"$pull": {"totp_backup_codes": backups[used_index]}})
+                await acct.log(user["id"], "recovery_code_used", {"left": len(backups) - 1})
     if not ok:
-        # Try backup codes
-        backups = user.get("totp_backup_codes") or []
-        used_index = None
-        for i, h in enumerate(backups):
-            if verify_pw(code, h):
-                used_index = i
-                break
-        if used_index is None:
-            await login_guard.fail_2fa(req.tmp_token)
-            raise HTTPException(401, "Incorrect 2FA code.")
-        # Mark backup code as consumed (remove from list)
-        new_backups = backups[:used_index] + backups[used_index+1:]
-        await db.users.update_one({"id": user["id"]}, {"$set": {"totp_backup_codes": new_backups}})
-    token = make_token(user["id"], user["email"])
+        await login_guard.fail_2fa(req.tmp_token)
+        await acct.fail_guess(user["id"])
+        raise HTTPException(401, "Incorrect code.")
+    token = _session_token(user)
     user.pop("password_hash", None)
-    return {"token": token, "access_token": token, "user": user}
+    for k in ("totp_secret", "totp_backup_codes", "totp_secret_pending"):
+        user.pop(k, None)
+    return {"token": token, "access_token": token, "user": user_to_public(user)}
+
+
+class RevokeSessionsReq(BaseModel):
+    keep_current: bool = True
+
+
+@api_router.post("/auth/sessions/revoke")
+async def auth_sessions_revoke(data: RevokeSessionsReq, current_user: dict = Depends(get_user)):
+    """Sign out of all devices. With keep_current, this device gets a fresh session."""
+    tv = await acct.revoke_sessions(current_user["id"], "user_sign_out_all")
+    return {"ok": True, "access_token": make_token(current_user["id"], current_user["email"], tv) if data.keep_current else None}
 
 
 # ==================== FOUNDER OPERATIONS DASHBOARD ====================
@@ -9023,6 +9180,7 @@ async def _check_founder_only(user: dict = Depends(get_user)):
     allowed = admin_emails | {founder_email}
     if (user.get("email") or "").lower() not in allowed:
         raise HTTPException(403, "Founder/admin access only.")
+    await _admin_mfa_gate(user)
     return user
 
 @api_router.get("/founder/overview")
@@ -10056,7 +10214,13 @@ async def _check_admin_user(user: dict = Depends(get_user)):
     admin_set = {e.strip().lower() for e in (os.environ.get("ADMIN_EMAILS") or "admin@aiadvocate.co.uk").split(",") if e.strip()}
     if (user.get("email") or "").lower() not in admin_set:
         raise HTTPException(403, "Admin access required.")
+    await _admin_mfa_gate(user)
     return user
+
+
+async def _admin_mfa_gate(user: dict):
+    if await acct.admin_enforcement_on() and not user.get("totp_enabled") and acct.mfa_method({**user, "totp_enabled": True}):
+        raise HTTPException(403, "Admin access needs authenticator two-step sign-in. Set it up in Settings → Security.")
 
 
 @api_router.get("/admin/sanity-checks")
@@ -11750,6 +11914,8 @@ async def close_engagement(eid: str, authorization: Optional[str] = Header(None)
         raise HTTPException(401, "Invalid token")
     kind = payload.get("kind") or "user"
     sub = payload.get("sub")
+    if kind != "firm" and not await _user_token_ok(payload):
+        raise HTTPException(401, "Invalid token")
     q = {"id": eid}
     if kind == "firm": q["firm_id"] = sub
     else:              q["client_user_id"] = sub
@@ -11772,6 +11938,8 @@ async def _resolve_engagement_for_request(eid: str, authorization: Optional[str]
         raise HTTPException(401, "Invalid token")
     kind = payload.get("kind") or "user"
     sub = payload.get("sub")
+    if kind != "firm" and not await _user_token_ok(payload):
+        raise HTTPException(401, "Invalid token")
     eng = await db.engagements.find_one({"id": eid}, {"_id": 0})
     if not eng: raise HTTPException(404, "Engagement not found")
     if eng.get("status") not in ("active", "invited"):
@@ -14294,7 +14462,48 @@ ADMIN_EMAILS = [e.strip().lower() for e in (os.environ.get("ADMIN_EMAILS") or "a
 async def require_admin(user: dict = Depends(get_user)):
     if user.get("email", "").lower() not in ADMIN_EMAILS:
         raise HTTPException(403, "Admin only")
+    await _admin_mfa_gate(user)
     return user
+
+class AdminReset2FA(BaseModel):
+    email: EmailStr
+    reason: str = Field(..., min_length=5, max_length=300)
+
+
+@api_router.post("/admin/users/reset-2fa")
+async def admin_users_reset_2fa(data: AdminReset2FA, admin: dict = Depends(require_admin)):
+    """Support-led recovery for a customer who lost their device and recovery codes (after identity checks)."""
+    target = await db.users.find_one({"email": data.email.lower()}, {"_id": 0, "id": 1, "email": 1, "is_owner": 1})
+    if not target:
+        raise HTTPException(404, "No account with that email.")
+    if acct.is_admin(target):
+        raise HTTPException(400, "Admin two-step sign-in cannot be reset here.")
+    await db.users.update_one({"id": target["id"]}, {"$set": {"totp_enabled": False, "email_2fa_enabled": False},
+                                                    "$unset": {"totp_secret": "", "totp_backup_codes": "", "totp_secret_pending": ""}})
+    await acct.revoke_sessions(target["id"], "admin_2fa_reset")
+    await acct.log(target["id"], "mfa_reset_by_admin", {"by": admin.get("email"), "reason": data.reason})
+    return {"ok": True}
+
+
+class AdminTotpRequired(BaseModel):
+    enabled: bool
+    code: str = ""
+
+
+@api_router.post("/admin/security/admin-totp-required")
+async def admin_security_totp_required(data: AdminTotpRequired, admin: dict = Depends(require_admin)):
+    """Controlled rollout: once ON, admin pages need an authenticator-protected admin. Turning ON needs your own
+    authenticator set up and a current code (so you cannot lock yourself out)."""
+    if data.enabled:
+        if not admin.get("totp_enabled"):
+            raise HTTPException(400, "Set up your authenticator app first.")
+        if not await _totp_ok(admin, data.code):
+            raise HTTPException(400, "Incorrect authenticator code.")
+    await db.app_settings.update_one({"_id": "security"}, {"$set": {"admin_totp_required": data.enabled, "by": admin.get("email"),
+                                                                   "at": datetime.now(timezone.utc).isoformat()}}, upsert=True)
+    await acct.log(admin["id"], "admin_totp_required", {"enabled": data.enabled})
+    return {"admin_totp_required": data.enabled}
+
 
 @api_router.get("/admin/attack_detections")
 async def admin_attack_detections(days: int = 30, _: dict = Depends(require_admin)):

@@ -33,6 +33,7 @@ import { AllowanceText, FairUseFootnote } from "./useAllowances";
 import ConveyancingModal from "@/Conveyancing";
 import { TrustpilotPrompt, AdminTestimonialsCard } from "@/Reviews";
 import { LawWatchAdminCard } from "./components/LawWatchAdminCard";
+import { SecuritySettingsCard } from "./components/SecuritySettingsCard";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
 // we hide all Subscribe / Upgrade buttons (and replace them with a web-billing notice).
@@ -661,7 +662,7 @@ function AuthScreen({ lang, country, onAuth }) {
       // 🔐 2FA gate — if the account has TOTP enabled, the backend returns
       // {requires_2fa, tmp_token} instead of a JWT. Show the 6-digit challenge.
       if (data?.requires_2fa && data.tmp_token) {
-        setTwofa({ tmp_token: data.tmp_token, email: data.email || email });
+        setTwofa({ tmp_token: data.tmp_token, email: data.email || email, method: data.method });
         return;
       }
       onAuth(data);
@@ -688,7 +689,12 @@ function AuthScreen({ lang, country, onAuth }) {
   };
 
   // 🔐 2FA challenge state — when set, render the code-entry screen instead of the form.
-  const [twofa, setTwofa] = useState(null); // { tmp_token, email } | null
+  const [twofa, setTwofa] = useState(null); // { tmp_token, email, method } | null
+  const [twofaNote, setTwofaNote] = useState("");
+  const resend2fa = async () => {
+    try { const { data } = await api.post("/auth/2fa/email/resend", { tmp_token: twofa.tmp_token }); setTwofaNote(`New code sent to ${data.to}.`); }
+    catch (e) { setTwofaNote(e?.response?.data?.detail || "Could not send a new code."); }
+  };
   const [twofaCode, setTwofaCode] = useState("");
 
   const submit2fa = async (e) => {
@@ -735,6 +741,7 @@ function AuthScreen({ lang, country, onAuth }) {
           if (!resp.access_token) { setErr("Google sign-in failed: no access token returned"); return; }
           try {
             const { data } = await api.post("/auth/google", { access_token: resp.access_token });
+            if (data?.requires_2fa && data.tmp_token) { setTwofa({ tmp_token: data.tmp_token, email: data.email, method: data.method }); return; }
             onAuth(data);
           } catch (e) { setErr(e?.response?.data?.detail || "Google sign-in failed"); }
         },
@@ -772,6 +779,7 @@ function AuthScreen({ lang, country, onAuth }) {
         identity_token: idToken,
         user: r.user,
       });
+      if (data?.requires_2fa && data.tmp_token) { setTwofa({ tmp_token: data.tmp_token, email: data.email, method: data.method }); return; }
       onAuth(data);
     } catch (e) {
       // Apple errors look like {error: "popup_closed_by_user", ...}
@@ -796,7 +804,9 @@ function AuthScreen({ lang, country, onAuth }) {
           <div style={{ background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 16, marginBottom: 14 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "var(--gold)", marginBottom: 6 }}>Two-factor authentication</div>
             <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
-              Enter the 6-digit code from your Authenticator app for <strong>{twofa.email}</strong>. You can also enter a backup code if you've lost your device.
+              {twofa.method === "email"
+                ? <>We've emailed a 6-digit code to <strong>{twofa.email}</strong>. It expires in 5 minutes.</>
+                : <>Enter the 6-digit code from your authenticator app for <strong>{twofa.email}</strong>. Lost your phone? Enter one of your recovery codes.</>}
             </div>
           </div>
           <input className="input" type="text" inputMode="numeric" autoComplete="one-time-code"
@@ -804,6 +814,12 @@ function AuthScreen({ lang, country, onAuth }) {
                  value={twofaCode} onChange={(e) => setTwofaCode(e.target.value)} autoFocus
                  style={{ marginBottom: 10, letterSpacing: "0.3em", textAlign: "center", fontSize: 18 }} />
           {err && <div style={{ color: "var(--danger)", fontSize: 13, marginBottom: 8 }}>{err}</div>}
+          {twofa.method === "email" && (
+            <div style={{ fontSize: 12, marginBottom: 8 }}>
+              <button type="button" data-testid="twofa-resend-btn" onClick={resend2fa} style={{ background: "none", border: "none", color: "var(--gold)", cursor: "pointer", textDecoration: "underline", padding: 0 }}>Send a new code</button>
+              {twofaNote && <span data-testid="twofa-resend-note" style={{ marginLeft: 8, color: "var(--text-muted)" }}>{twofaNote}</span>}
+            </div>
+          )}
           <button className="btn-gold w-full" data-testid="twofa-submit-btn" type="submit" disabled={busy || !twofaCode}>
             {busy ? <span className="spinner" /> : "Verify & sign in"}
           </button>
@@ -7954,6 +7970,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
 
         {/* 🛡 Admin-only widgets are wrapped in an error boundary so a crash in
             any one card cannot blank the entire Settings modal (defense-in-depth). */}
+        <SecuritySettingsCard api={api} onToken={(tk) => { if (tk) { localStorage.setItem("aa_token", tk); setAuthHeader(tk); } }} />
         {user?.is_owner && (
           <AdminSafeBoundary>
             {/* 🎁 OWNER ONLY — comp Pro access for family / friends / customer service */}
