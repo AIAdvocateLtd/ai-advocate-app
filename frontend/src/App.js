@@ -802,7 +802,7 @@ function AuthScreen({ lang, country, onAuth }) {
       {twofa && (
         <form onSubmit={submit2fa} style={{ width: "100%", maxWidth: 380, marginTop: 30 }} data-testid="twofa-screen">
           <div style={{ background: "rgba(247,201,72,0.06)", border: "1px solid var(--gold-deep)", borderRadius: 12, padding: 16, marginBottom: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--gold)", marginBottom: 6 }}>Two-factor authentication</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--gold)", marginBottom: 6 }}>Two-step sign-in</div>
             <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
               {twofa.method === "email"
                 ? <>We've emailed a 6-digit code to <strong>{twofa.email}</strong>. It expires in 5 minutes.</>

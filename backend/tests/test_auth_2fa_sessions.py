@@ -153,6 +153,8 @@ def test_authenticator_flow_encrypted_replay_and_recovery():
     assert run(server.db.users.find_one({"id": u["id"]}))["totp_secret"].startswith("enc:")
     ch = login(u).json()
     assert ch["method"] == "totp" and not SENT
+    assert run(call("POST", "/auth/2fa/login", json={"tmp_token": ch["tmp_token"], "code": pyotp.TOTP(secret).now()})).status_code == 401  # setup code reused
+    run(server.db.users.update_one({"id": u["id"]}, {"$set": {"totp_last_step": 0}}))
     code = pyotp.TOTP(secret).now()
     assert run(call("POST", "/auth/2fa/login", json={"tmp_token": ch["tmp_token"], "code": code})).status_code == 200
     ch2 = login(u).json()

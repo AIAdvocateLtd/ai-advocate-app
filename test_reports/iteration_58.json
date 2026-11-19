@@ -1,0 +1,48 @@
+{
+  "summary": "Preview-only test of the two-step sign-in system (authenticator app + email codes), sign out of other devices, Google/Apple sign-in buttons and how pre-2FA tokens are handled. Backend: the existing tests/test_auth_2fa_sessions.py ran 11/11 passing, plus direct curl checks. Frontend: all flows were driven end to end with Playwright on a synthetic user (synthetic-ui-2fa@synthetic-test.co.uk), which has since been deleted. Every feature in the request works as specified. No blocking bugs found.",
+  "verified": [
+    "The Settings 'Two-step sign-in' card (settings-security) shows 'Off', a 'Use an authenticator app (stronger)' button and a 'Use email codes' button",
+    "Authenticator setup: a wrong password shows 'Password is incorrect.'; the QR image (data URL) and the key are shown; a wrong code shows 'Incorrect code. Make sure your device clock is correct.'; a pyotp code turns it on; 10 recovery codes are shown; the state becomes 'On — authenticator app' with '10 recovery codes left'; the token is replaced (old token returns 401 on /auth/me, new token 200); the user is still signed in after reload",
+    "Signing in with TOTP on: twofa-screen shows the authenticator wording and has no resend button; a wrong code shows 'Incorrect code' and stays on the screen; a pyotp code signs in; a recovery code signs in once and the same code is rejected the second time (counter went to 9 left); cancel returns to the login form",
+    "Turn off: a wrong authenticator code shows 'Incorrect authenticator code.'; password plus a correct code sets the state to Off; the current session keeps working",
+    "Email codes: enabling sets the state to 'On — email codes' and replaces the token (the previous token returns 401); sign-in shows 'We've emailed a 6-digit code to sy***@...', 'It expires in 5 minutes' and the resend button; pressing resend straight away shows 'Please wait 30 seconds before asking for another code.' in twofa-resend-note",
+    "Sign out other devices: shows 'Signed out of all other devices.'; the previous token returns 401; the new token returns 200",
+    "The login screen shows google-btn and no apple-btn (providers.apple_enabled=false)",
+    "POST /api/auth/google {email, google_id} returns 400 'Google sign-in requires a valid Google token.'",
+    "Using the pre-2FA tmp_token as a Bearer token on /api/auth/me returns 401",
+    "Playbook checks: bcrypt hashes start with $2b$; the 6th bad password returns 429 (lockout after 5)"
+  ],
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/auth/2fa/verify, /api/auth/2fa/disable, /api/auth/2fa/recovery-codes", "issue": "These do not record totp_last_step, so the exact TOTP code used to finish setup (or to turn off) can be used again at /auth/2fa/login within about 90s. Low risk because a fresh password is also needed, but it is inconsistent with the 'each authenticator code works once' rule in /2fa/login."},
+      {"endpoint": "/api/auth/2fa/email/disable", "issue": "Turning off email codes needs only the password, not an emailed code. Acceptable, but weaker than the authenticator turn-off, which needs password + code."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SecuritySettingsCard Sessions", "issue": "The handlers for 'Sign out other devices' and 'Sign out all devices' have no try/catch. If the API call fails, the promise rejection is unhandled and the user gets no message.", "selector": "[data-testid='security-signout-others-btn']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "twofa-screen", "issues": ["The heading says 'Two-factor authentication' but Settings calls it 'Two-step sign-in'. The naming should be the same in both places."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_auth_2fa_sessions.py", "/app/backend/tests/_synthetic_2fa_user.py"],
+  "action_items": [
+    "Optional: set totp_last_step when a TOTP code is accepted in /2fa/verify and /2fa/disable so codes cannot be reused",
+    "Optional: wrap the Sessions revoke calls in try/catch and show an error",
+    "Optional: rename the twofa-screen heading to 'Two-step sign-in'"
+  ],
+  "critical_code_review_comments": [
+    "server.py is over 18k lines and should be split into modules. The new account_security.py helper module is a good pattern.",
+    "_admin_mfa_gate uses mfa_method({**user, totp_enabled: True}) only to detect the break-glass user. It works but is hard to read; an explicit break-glass check would be clearer.",
+    "tmp_token does not carry token_version, so a tmp_token issued before a password reset can still finish 2FA within 5 minutes. The second factor is still required, so the risk is low."
+  ],
+  "updated_files": ["/app/backend/tests/_synthetic_2fa_user.py (new helper to create, reset and delete the synthetic user)"],
+  "success_rate": {"backend": "100% (11/11 pytest + curl checks)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "Created synthetic-ui-2fa@synthetic-test.co.uk (id 9a076b9a-...) in preview Mongo. Deleted it afterwards together with its auth_codes, mfa_acct login_attempts, security_events, and the lockout login_attempts from the 5 bad-password tries (acct, acct_ip and the matching ip-scope rows). Scope '2fa' rows keyed by tmp_token hashes from wrong-code tries could not be linked to the user; they expire through the 24h TTL. The admin and test@advocate.app accounts were not touched (totp/email_2fa still unset).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "To skip the intro in UI tests, set localStorage aa_terms='1', aa_cookie_consent='essential' and aa_welcomed='1'. aa_welcomed matters: without it, skipping the welcome tour opens the taster-lex modal, which blocks clicks. pyotp is available inside browser_automation. Use tests/_synthetic_2fa_user.py create|reset|show|delete for the synthetic user."
+}

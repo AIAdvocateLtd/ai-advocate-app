@@ -99,10 +99,13 @@ const EmailCodesOn = ({ api, st, onDone, onToken }) => {
 
 const Sessions = ({ api, onToken }) => {
   const [msg, setMsg] = useState("");
-  const others = async () => { const { data } = await api.post("/auth/sessions/revoke", { keep_current: true }); onToken(data.access_token); setMsg("Signed out of all other devices."); };
+  const others = async () => {
+    try { const { data } = await api.post("/auth/sessions/revoke", { keep_current: true }); onToken(data.access_token); setMsg("Signed out of all other devices."); }
+    catch (e) { setMsg(err(e)); }
+  };
   const all = async () => {
     if (!window.confirm("Sign out everywhere, including this device?")) return;
-    await api.post("/auth/sessions/revoke", { keep_current: false });
+    try { await api.post("/auth/sessions/revoke", { keep_current: false }); } catch (e) { setMsg(err(e)); return; }
     localStorage.removeItem("aa_token"); window.location.reload();
   };
   return (

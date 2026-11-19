@@ -8982,10 +8982,22 @@ async def _fresh_auth(user: dict, password: Optional[str], email_code: Optional[
         raise HTTPException(400, "Enter the security code we emailed you.")
 
 
+async def _consume_totp(user_id: str, secret: str, code: str) -> bool:
+    """Valid within ±30s, and each authenticator code is accepted only once."""
+    code = (code or "").strip().replace(" ", "")
+    if not secret or not code:
+        return False
+    totp, now_ts = pyotp.TOTP(secret), datetime.now(timezone.utc).timestamp()
+    step = next((int(now_ts // 30) + o for o in (-1, 0, 1) if _secrets.compare_digest(totp.at(now_ts + 30 * o), code)), None)
+    if step is None:
+        return False
+    return await db.users.find_one_and_update({"id": user_id, "totp_last_step": {"$not": {"$gte": step}}},
+                                              {"$set": {"totp_last_step": step}}) is not None
+
+
 async def _totp_ok(user: dict, code: str) -> bool:
     fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0, "totp_secret": 1})
-    secret = acct.dec_secret((fresh or {}).get("totp_secret") or "")
-    return bool(secret) and pyotp.TOTP(secret).verify((code or "").strip().replace(" ", ""), valid_window=1)
+    return await _consume_totp(user["id"], acct.dec_secret((fresh or {}).get("totp_secret") or ""), code)
 
 
 @api_router.post("/auth/security/reauth-code")
@@ -9027,7 +9039,7 @@ async def auth_2fa_verify(req: TOTPVerifyReq, current_user: dict = Depends(get_u
     if not stored or (fresh.get("totp_pending_at") or "") < (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat():
         raise HTTPException(400, "Setup expired. Start again.")
     await acct.guard_guesses(current_user["id"])
-    if not pyotp.TOTP(acct.dec_secret(stored)).verify(req.code.strip().replace(" ", ""), valid_window=1):
+    if not await _consume_totp(current_user["id"], acct.dec_secret(stored), req.code):
         await acct.fail_guess(current_user["id"])
         raise HTTPException(400, "Incorrect code. Make sure your device clock is correct.")
     plain, hashed = _make_backup_codes()
@@ -9130,12 +9142,7 @@ async def auth_2fa_login(req: TOTPLoginReq):
     if method == "email":
         ok = await acct.check_email_code(user, "login", code)
     else:
-        totp, now_ts = pyotp.TOTP(acct.dec_secret(user["totp_secret"])), datetime.now(timezone.utc).timestamp()
-        step = next((int(now_ts // 30) + o for o in (-1, 0, 1) if _secrets.compare_digest(totp.at(now_ts + 30 * o), code)), None)
-        ok = False
-        if step is not None:  # each authenticator code works once
-            ok = await db.users.find_one_and_update({"id": user["id"], "totp_last_step": {"$not": {"$gte": step}}},
-                                                    {"$set": {"totp_last_step": step}}) is not None
+        ok = await _consume_totp(user["id"], acct.dec_secret(user["totp_secret"]), code)
         if not ok:
             backups = user.get("totp_backup_codes") or []
             used_index = next((i for i, h in enumerate(backups) if verify_pw(req.code.strip(), h)), None)
