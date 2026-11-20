@@ -70,14 +70,19 @@ def _no_paid_calls(monkeypatch):
 @pytest.fixture(autouse=True)
 def _stub_new_official_research(request, monkeypatch):
     """Older suites assert exact source lists; topic/EU research is covered by tests/test_legal_research.py."""
-    if request.module.__name__.endswith("test_legal_research"):
+    if request.module.__name__.endswith(("test_legal_research", "test_global_research")):
         yield
         return
     try:
-        import legal_research, eu_law, rag
+        import legal_research, eu_law, rag, global_law
     except Exception:
         yield
         return
+
+    async def no_global(*a, **k):
+        return {"sources": [], "notes": [], "tavily_calls": 0, "national_ok": {}, "meta": {}}
+    monkeypatch.setattr(global_law, "research", no_global)
+    monkeypatch.setattr(global_law, "plan_for", lambda m, c, s: {"primary": "GB", "all": [], "us_state": None})
 
     async def no_topic(*a, **k):
         return {"sources": [], "topics": [], "status": "not_uk"}

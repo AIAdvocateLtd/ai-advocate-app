@@ -184,7 +184,8 @@ def _format_block(label: str, items: List[Dict], start_index: int = 1) -> str:
     for i, it in enumerate(items, start_index):
         title = it.get("title") or "(untitled)"
         url = it.get("url") or ""
-        cap = 4000 if "legislation.gov.uk/" in url and "/section/" in url else 1800 if it.get("acas_key") else 350
+        cap = 4000 if "legislation.gov.uk/" in url and "/section/" in url else 1800 if it.get("acas_key") else \
+            1600 if (it.get("national") or it.get("eu") or it.get("topic_found")) else 350
         snippet = (it.get("content") or "")[:cap].replace("\n", " ").strip()
         lines.append(f"[{i}] {title}\n    {url}\n    {snippet}")
     return "\n".join(lines)
@@ -304,17 +305,35 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
 
     import legal_research
     import eu_law
+    import global_law
+    t_start = time.monotonic()
+    plan = global_law.plan_for(message, context, country)
+    foreign = plan["primary"] != "GB"
+    uk_c = "GB" if "GB" in plan["all"] else country
+    eu_c = plan["primary"] if plan["primary"] in eu_law.EU_COUNTRIES else country
+    keep_web = foreign and global_law.coverage(plan["primary"], plan.get("us_state")) == "general_only"
+    if foreign:  # search in the governing country's terms, not 'UK law'
+        base_q = f"{scrub(message)[:300]} {global_law.NAMES.get(plan['primary'], plan['primary'])} law"
+    uk_gap = not foreign and (country or "GB").upper() == "GB" and not legal_research.match_topics(f"{message}\n{context}")
+
+    async def _global():
+        try:
+            return await global_law.research(message, context, country, db=db, paid_ok=paid == "ok", nation=nation,
+                                             uk_gap=uk_gap)
+        except Exception as e:
+            logger.info("global research skipped: %r", e)
+            return {"sources": [], "notes": [], "tavily_calls": 0, "meta": {"error": str(e)[:80]}, "national_ok": {}}
 
     async def _topic():
         try:
-            return await legal_research.topic_sources(f"{message}\n{context}", nation, country)
+            return await legal_research.topic_sources(f"{message}\n{context}", nation, uk_c)
         except Exception as e:
             logger.info("topic legislation research skipped: %s", e)
             return {"sources": [], "topics": [], "status": "unavailable"}
 
     async def _eu():
         try:
-            return await eu_law.eu_sources(message, country)
+            return await eu_law.eu_sources(message, eu_c)
         except Exception as e:
             logger.info("EU research skipped: %s", e)
             return {"sources": [], "status": "unavailable", "note": ""}
@@ -327,6 +346,8 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
             return [], paid
         if include_domains is None and statute_topic:
             return [], "skipped_official"
+        if foreign and (include_domains is not None or not keep_web):
+            return [], "skipped_official"  # UK sites do not answer another country's law; national sources run instead
         try:
             return await asyncio.wait_for(_tavily_search_ex(base_q, include_domains=include_domains, max_results=n,
                                                             search_depth="basic"), timeout=8.5)
@@ -334,8 +355,8 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
             return [], "unavailable"
 
     try:
-        (official, s1), (web, s2), statute, (guidance, g_failed), topic, eu = await asyncio.wait_for(asyncio.gather(
-            _paid(AUTHORITY_DOMAINS, 3), _paid(None, 2), _statute(), _guidance(), _topic(), _eu(),
+        (official, s1), (web, s2), statute, (guidance, g_failed), topic, eu, glob = await asyncio.wait_for(asyncio.gather(
+            _paid(AUTHORITY_DOMAINS, 3), _paid(None, 2), _statute(), _guidance(), _topic(), _eu(), _global(),
         ), timeout=9.5)
     except asyncio.TimeoutError:
         logger.warning("Tavily RAG block timed out — continuing without grounding.")
@@ -343,16 +364,18 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
     except Exception as e:
         logger.warning("RAG gather failed: %s", e)
         return {**res, "status": "unavailable"}
-    await _increment_usage(db, sum(1 for st in (s1, s2) if st == "ok"))
-    if "quota_exhausted" in (s1, s2):
+    await _increment_usage(db, sum(1 for st in (s1, s2) if st == "ok") + glob.get("tavily_calls", 0))
+    if "quota_exhausted" in (s1, s2) or "quota_exhausted" in (glob.get("meta", {}).get("site") or {}).values():
         _quota_until[0] = time.time() + QUOTA_COOLDOWN
-    notes = [n for n in (eu.get("note"), eu_law.national_gap_note(country)) if n]
-    if topic["status"] in ("no_match", "search_only", "unavailable") and (country or "GB").upper() == "GB":
+    national = glob.get("notes", []) if glob.get("meta", {}).get("all") else [eu_law.national_gap_note(country)]
+    notes = [n for n in [eu.get("note")] + national if n]
+    if topic["status"] in ("no_match", "search_only", "unavailable") and not foreign and not glob.get("national_ok", {}).get("GB"):
         notes.append("LEGISLATION COVERAGE: Lex's topic search did not retrieve the wording of a specific provision for this "
                      "question" + (" (the official lookup failed)" if topic["status"] == "unavailable" else "") +
                      ". That does NOT mean no law applies — say what could not be checked.")
     o_meta = {"official_research": {"topics": topic.get("topics", []), "topic_status": topic["status"],
-                                    "eu_status": eu["status"], "notes": len(notes)}}
+                                    "eu_status": eu["status"], "notes": len(notes)},
+              "global_research": {k: v for k, v in (glob.get("meta") or {}).items() if k != "site"}}
 
     seen = set()
 
@@ -368,17 +391,22 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
     rel_q = scrub(message)
     paid_official = [it for it in dedupe(official) if _relevant(it, rel_q)]
     # A result only counts as official if its real host is an official domain, whatever its title or text claims.
-    official = dedupe(statute) + dedupe(topic["sources"]) + dedupe(guidance) + dedupe(eu["sources"]) + \
+    official = dedupe(statute) + dedupe(topic["sources"]) + dedupe(guidance) + dedupe(glob.get("sources") or []) + dedupe(eu["sources"]) + \
         [it for it in paid_official if content_guard.official_url(it.get("url"))]
     web = [it for it in paid_official if not content_guard.official_url(it.get("url"))] + \
         [it for it in dedupe(web) if _relevant(it, rel_q)]
     official, _, k1 = _guard_items(official, keep_suspicious=True)
     web, dropped, k2 = _guard_items(web, keep_suspicious=False)
     g_meta = {"guidance_keys": [it["acas_key"] for it in guidance], "guidance_failed": g_failed,
-              "paid_search": "ok" if "ok" in (s1, s2) else (paid if paid != "ok" else "unavailable"),
+              "paid_search": "ok" if "ok" in (s1, s2) or glob.get("tavily_calls") else (paid if paid != "ok" else (
+                  "not_needed" if {s1, s2} == {"skipped_official"} and glob.get("sources") else "unavailable")),
               "web_search_skipped": s2 == "skipped_official",
               "injection": {"dropped": dropped, "kinds": sorted(k1 | k2)}, **o_meta}
     notes_txt = ("\n\n" + "\n".join(notes)) if notes else ""
+    await global_law.record_metrics(db, {**(glob.get("meta") or {}), "uk_topic_status": topic["status"], "eu_status": eu["status"],
+                                         "official_count": len(official), "web_count": len(web),
+                                         "uk_paid_calls": sum(1 for st in (s1, s2) if st == "ok")},
+                                    int((time.monotonic() - t_start) * 1000), g_meta["paid_search"])
     if not official and not web:
         failed = {s1, s2} - {"ok", "skipped_official"}
         status = (paid if paid != "ok" else ("quota_exhausted" if "quota_exhausted" in failed else "unavailable")) \
@@ -386,7 +414,7 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
         return {**res, "status": status, "block": notes_txt, **g_meta}
 
     blocks, citations, sources, next_idx = [], [], [], 1
-    for label, items, kind in (("OFFICIAL LEGAL SOURCES (UK legislation, official guidance, EU law — each labelled)", official, "official"),
+    for label, items, kind in (("OFFICIAL LEGAL SOURCES (UK legislation, official guidance, national law of other countries, EU law — each labelled)", official, "official"),
                                ("SUPPORTING WEB SOURCES", web, "web")):
         if not items:
             continue
@@ -397,8 +425,8 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
                             "guidance": bool(it.get("acas_key"))})
             next_idx += 1
     body = content_guard.fence("\n\n".join(blocks), "RETRIEVED RESEARCH (web pages and official records)")
-    if g_meta["paid_search"] != "ok":
-        body += ("\n\nNOTE: only the free official lookups above (legislation.gov.uk / acas.org.uk / EU Publications Office) were available for this "
+    if g_meta["paid_search"] not in ("ok", "not_needed"):
+        body += ("\n\nNOTE: only the free official lookups above (legislation.gov.uk / acas.org.uk / EU Publications Office / connected national databases) were available for this "
                  "answer — wider research could not be run. Rely on these sources for what they cover; for anything else, "
                  "say plainly that it could not be checked against current sources just now.")
     block = (

@@ -175,8 +175,8 @@ def cross_border_note(text: str, country: str) -> str:
 
 
 async def eu_sources(text: str, country: str) -> dict:
-    """{'sources', 'status': ok|no_match|unavailable|not_wanted, 'note'}"""
-    note = cross_border_note(text, country)
+    """{'sources', 'status': ok|no_match|unavailable|not_wanted, 'note'}. Cross-border analysis is done by global_law."""
+    note = ""
     if not wanted(text, country):
         return {"sources": [], "status": "not_wanted", "note": note}
     acts = pick(text)

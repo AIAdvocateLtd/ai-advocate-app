@@ -33,6 +33,7 @@ import { AllowanceText, FairUseFootnote } from "./useAllowances";
 import ConveyancingModal from "@/Conveyancing";
 import { TrustpilotPrompt, AdminTestimonialsCard } from "@/Reviews";
 import { LawMonitoringCard } from "./components/LawMonitoringCard";
+import { ResearchHealthCard } from "./components/ResearchHealthCard";
 import { SecuritySettingsCard } from "./components/SecuritySettingsCard";
 
 // Apple Reader-App compliance — when running inside the native iOS binary,
@@ -7989,6 +7990,7 @@ function SettingsModal({ lang, country, user, onClose, onUpdate, setLang, setCou
             <AdminSubscribersCard api={api} toast={aaToast} />
             <AdminLexLessonsCard api={api} toast={aaToast} prompt={aaPrompt} confirm={aaConfirm} />
             <LawMonitoringCard api={api} />
+            <ResearchHealthCard api={api} />
             <AdminFairUseCard api={api} toast={aaToast} prompt={aaPrompt} confirm={aaConfirm} />
             <AdminFinanceCard api={api} toast={aaToast} />
             <AdminStripeResyncCard api={api} toast={aaToast} />

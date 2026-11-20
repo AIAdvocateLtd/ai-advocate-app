@@ -1069,8 +1069,7 @@ LANGUAGE — ABSOLUTE RULE (NON-NEGOTIABLE):
 - Use the natural legal terminology and idioms of {lang_name}. For Arabic, use Modern Standard Arabic with proper legal vocabulary. For Urdu, formal legal Urdu. For Chinese (Simplified), legal-register simplified Chinese.
 
 JURISDICTION:
-- Your user is in {country}. Apply the laws of {country} unless they explicitly tell you otherwise.
-- If they mention another country, switch jurisdictions and tell them you've done so.
+- Your user's selected country is {country}. Apply the laws of {country} unless the matter is governed by another country's law — decided by where the contract, property, job, purchase or court is, not by the user's language or where they live now. Then apply that law and tell them you've done so; for cross-border matters, keep each system separate and explain which applies to which point.
 - If the law differs by region/state within {country}, ask which one — then apply that.{juris_block}
 
 REASONING DISCIPLINE (think like a top barrister — IRAC method):
@@ -2090,6 +2089,11 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
         text, leg = await legal_sources.check_answer(text or "", _juris_nation(juris), citations)
     except Exception as e:
         logger.warning(f"legislation check failed (answer unchanged): {e!r}")
+    try:
+        import national_law
+        text, leg["national"] = await national_law.check_citations(text or "", citations)
+    except Exception as e:
+        logger.warning(f"national citation check failed (answer unchanged): {e!r}")
     g_notes, event_fixes = [], 0
     try:
         text, event_fixes = date_guard.guard_answer(text or "", (juris or {}).get("customer_text") or message)
@@ -18035,6 +18039,8 @@ async def admin_fair_use_exempt(data: FairUseUser, _: dict = Depends(require_adm
 
 app.include_router(api_router)
 app.include_router(_lessons_router, prefix="/api")
+import research_admin  # noqa: E402
+app.include_router(research_admin.build_router(db, require_admin), prefix="/api")
 
 # 🤝 Partner Programme — referral attribution + monthly commission ledger.
 # Keeps the B2B partner code separated from the consumer code path.
@@ -18090,7 +18096,15 @@ async def startup():
     from email_helper import set_email_translation
     set_email_translation(_email_lang_for, _translate_email)
     import eu_law
+    import national_law
+    import global_law
     asyncio.create_task(eu_law.prewarm())  # free official EU texts into the 7-day cache
+    national_law.set_db(db)
+    asyncio.create_task(national_law.prewarm())  # free official national texts into the 7-day cache
+    try:
+        await global_law.ensure_indexes(db)
+    except Exception:
+        logger.exception("research index setup failed (non-fatal)")
     try:
         await _seed_fact_packs(db)
         await _refresh_lessons(db)
