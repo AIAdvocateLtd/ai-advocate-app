@@ -14555,7 +14555,7 @@ async def admin_law_watch_status(_: dict = Depends(require_admin)):
 @api_router.post("/admin/law-watch/switch")
 async def admin_law_watch_switch(data: LawWatchSwitch, admin: dict = Depends(require_admin)):
     """Admin write switch. ON lasts 30 minutes then turns itself off; OFF takes effect immediately."""
-    if data.enabled and law_watch.kill_switch():
+    if data.enabled and await law_watch.stopped(db):
         raise HTTPException(403, "Emergency stop (LAW_WATCH_KILL_SWITCH) is on — tracker writes cannot be enabled.")
     return await law_watch.set_switch(db, data.enabled, admin.get("email", ""))
 
@@ -14577,6 +14577,37 @@ async def admin_law_watch_apply(data: LawWatchApply, admin: dict = Depends(requi
     if rep.get("refused"):
         raise HTTPException(409, rep["refused"])
     return rep
+
+
+class LawMonitoringSwitch(BaseModel):
+    enabled: bool
+    password: Optional[str] = Field(None, max_length=200)
+    email_code: Optional[str] = Field(None, max_length=12)
+
+
+@api_router.get("/admin/law-watch/overview")
+async def admin_law_watch_overview(_: dict = Depends(require_admin)):
+    return {**await law_watch.overview(db), "alerts_to": [acct.mask_email(e) for e in ADMIN_EMAILS]}
+
+
+@api_router.post("/admin/law-watch/monitoring")
+async def admin_law_watch_monitoring(data: LawMonitoringSwitch, admin: dict = Depends(require_admin)):
+    """The one Automatic-monitoring switch. ON needs your password again + a clean read-only check; OFF is immediate."""
+    if not data.enabled:
+        return await law_watch.set_schedule(db, False, admin.get("email", ""))
+    await _fresh_auth(admin, data.password, data.email_code)
+    rep = await law_watch.enable_monitoring(db, admin.get("email", ""))
+    if rep.get("refused"):
+        raise HTTPException(409, rep["refused"])
+    return rep
+
+
+@api_router.post("/admin/law-watch/emergency-stop")
+async def admin_law_watch_emergency_stop(data: LawMonitoringSwitch, admin: dict = Depends(require_admin)):
+    """ON is immediate (stops monitoring and writes). Releasing it needs your password again."""
+    if not data.enabled:
+        await _fresh_auth(admin, data.password, data.email_code)
+    return {"emergency_stop": await law_watch.set_emergency_stop(db, data.enabled, admin.get("email", ""))}
 
 
 class LawWatchSchedule(BaseModel):

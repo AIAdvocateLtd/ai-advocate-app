@@ -93,8 +93,10 @@ def excerpt(text: str, query: str, size: int = EXCERPT) -> str:
     return "\n".join(paras[i] for i in sorted(keep))
 
 
-async def guidance_sources(message: str, context: str = "") -> Tuple[List[dict], List[str]]:
-    """(research items, keys that were wanted but could not be retrieved)."""
+async def guidance_sources(message: str, context: str = "", country: str = "GB") -> Tuple[List[dict], List[str]]:
+    """(research items, keys that were wanted but could not be retrieved). Acas guidance is UK-only."""
+    if (country or "GB").upper() != "GB":
+        return [], []
     keys = pick(f"{message}\n{context[-600:] if context else ''}")
     if not keys:
         return [], []

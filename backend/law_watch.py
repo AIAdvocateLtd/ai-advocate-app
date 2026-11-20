@@ -93,21 +93,41 @@ def kill_switch() -> bool:
     return os.environ.get("LAW_WATCH_KILL_SWITCH") == "1"
 
 
+async def stopped(db) -> bool:
+    """Server kill switch OR the admin's in-app emergency stop."""
+    if kill_switch():
+        return True
+    doc = await db.law_watch_settings.find_one({"_id": "emergency_stop"}) or {}
+    return bool(doc.get("on"))
+
+
+async def set_emergency_stop(db, on: bool, actor: str) -> bool:
+    now = _now().isoformat()
+    await db.law_watch_settings.update_one({"_id": "emergency_stop"}, {"$set": {"on": on, "by": actor, "at": now}}, upsert=True)
+    if on:
+        await db.law_watch_settings.update_one({"_id": "writes"}, {"$set": {"enabled": False, "until": None, "by": actor, "at": now}})
+        await db.law_watch_settings.update_one({"_id": "schedule"}, {"$set": {"enabled": False, "by": actor, "at": now}})
+    await db.law_watch_audit.insert_one({"_id": str(uuid.uuid4()), "at": now, "actor": actor,
+                                         "action": "emergency_stop_on" if on else "emergency_stop_off"})
+    return on
+
+
 async def switch_state(db) -> dict:
     """Admin write switch, stored in law_watch_settings. Absent = OFF. Expires by itself after SWITCH_MINUTES."""
     doc = await db.law_watch_settings.find_one({"_id": "writes"}) or {}
     until = doc.get("until") or ""
-    on = bool(doc.get("enabled")) and until > _now().isoformat() and not kill_switch()
+    stop = await stopped(db)
+    on = bool(doc.get("enabled")) and until > _now().isoformat() and not stop
     sched = await schedule_state(db)
     return {"enabled": on, "until": until if on else None, "changed_by": doc.get("by"), "changed_at": doc.get("at"),
-            "kill_switch": kill_switch(), "monitoring_scheduled": sched["enabled"], "schedule": sched,
+            "kill_switch": stop, "monitoring_scheduled": sched["enabled"], "schedule": sched,
             "customer_notifications": False}
 
 
 async def schedule_state(db) -> dict:
     """Daily monitoring switch, stored in law_watch_settings. Absent = OFF. The kill switch always wins."""
     doc = await db.law_watch_settings.find_one({"_id": "schedule"}) or {}
-    return {"enabled": bool(doc.get("enabled")) and not kill_switch(), "scope": SCHEDULE_SCOPE, "time": "06:00 Europe/London",
+    return {"enabled": bool(doc.get("enabled")) and not await stopped(db), "scope": SCHEDULE_SCOPE, "time": "06:00 Europe/London",
             "changed_by": doc.get("by"), "changed_at": doc.get("at"), "last_run": doc.get("last_run")}
 
 
@@ -122,7 +142,7 @@ async def set_schedule(db, enabled: bool, actor: str, token: str = "", secret: s
     dry-run approval code for the 17-law scope from the same admin. OFF always works."""
     now = _now().isoformat()
     if enabled:
-        if kill_switch():
+        if await stopped(db):
             return {"refused": "Emergency stop is on — monitoring cannot be enabled."}
         if not (await switch_state(db))["enabled"]:
             return {"refused": "Turn tracker writes on first (30-minute window)."}
@@ -143,6 +163,42 @@ async def set_schedule(db, enabled: bool, actor: str, token: str = "", secret: s
         await db.law_watch_audit.insert_one({"_id": str(uuid.uuid4()), "at": now, "actor": actor, "action": "schedule_off"})
     await db.law_watch_settings.update_one({"_id": "schedule"}, {"$set": {"enabled": enabled, "by": actor, "at": now}}, upsert=True)
     return await schedule_state(db)
+
+
+async def enable_monitoring(db, actor: str, fetch=None) -> dict:
+    """One-switch ON (admin has re-entered their password): needs no emergency stop, the full 17-law baseline, and a
+    fresh read-only check that reached every official record. Writes nothing to legal records."""
+    if await stopped(db):
+        return {"refused": "Emergency stop is on — turn it off first."}
+    missing = await baseline_missing(db)
+    if missing:
+        return {"refused": f"The 17-law starting record is incomplete ({len(missing)} missing) — use Maintenance to save it."}
+    sc = SCOPES[SCHEDULE_SCOPE]
+    rep = await run_check(db, fetch, dry_run=True, items=scope_items(sc), feeds=sc["feeds"], facts=sc["facts"],
+                          actor=actor, scope=SCHEDULE_SCOPE)
+    s = rep["summary"]
+    if s["unavailable"] or s["not_found"] or s["held_unverified"] or s["rejected"]:
+        return {"refused": "legislation.gov.uk could not be fully checked just now — nothing was changed. Try again later.",
+                "summary": s}
+    now = _now().isoformat()
+    await db.law_watch_audit.insert_one({"_id": str(uuid.uuid4()), "at": now, "actor": actor, "action": "schedule_on",
+                                         "method": "monitoring_switch", "scope": SCHEDULE_SCOPE, "check_summary": s})
+    await db.law_watch_settings.update_one({"_id": "schedule"}, {"$set": {"enabled": True, "by": actor, "at": now}}, upsert=True)
+    return {**await schedule_state(db), "check_summary": s}
+
+
+async def overview(db) -> dict:
+    sched = await schedule_state(db)
+    last = sched.get("last_run") or {}
+    ok = await db.law_watch_audit.find({"_id": {"$regex": "^daily:"}, "result": {"$in": ["checked", "checked_with_failures"]}},
+                                       {"_id": 1, "at": 1, "result": 1, "failed": 1}).sort("at", -1).to_list(1)
+    return {"monitoring_on": sched["enabled"], "time": sched["time"], "emergency_stop": await stopped(db),
+            "server_kill_switch": kill_switch(), "baseline_complete": not await baseline_missing(db),
+            "records": await db.law_watch_records.count_documents({}), "last_run": last or None,
+            "last_successful_check": (ok[0]["at"] if ok else None), "last_failures": last.get("failed", 0),
+            "awaiting_review": await db.law_update_proposals.count_documents({"status": "awaiting_review"}),
+            "pending_amendments": await db.law_watch_records.count_documents({"pending_effects.0": {"$exists": True}}),
+            "changed_by": sched.get("changed_by"), "changed_at": sched.get("changed_at")}
 
 
 def _london_day() -> str:

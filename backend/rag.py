@@ -36,6 +36,8 @@ import content_guard
 logger = logging.getLogger("rag")
 
 TAVILY_ENDPOINT = "https://api.tavily.com/search"
+QUOTA_COOLDOWN = 1800  # after a plan-limit response, skip paid search for 30 minutes
+_quota_until = [0.0]
 QUOTA_STATUS_CODES = (402, 429, 432, 433)  # rate limit / plan or pay-as-you-go limit reached
 
 # Official UK legal sources — Tavily is told to *prefer* these so case law /
@@ -275,6 +277,8 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
     paid = "ok"
     if not is_enabled():
         paid = "not_configured"
+    elif time.time() < _quota_until[0]:
+        paid = "quota_exhausted"
     elif db is not None and not await _under_cap(db):
         logger.info("Tavily monthly cap reached — paid search skipped; free official lookups still run.")
         paid = "quota_exhausted"
@@ -293,10 +297,27 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
 
     async def _guidance():
         try:
-            return await official_guidance.guidance_sources(message, context)
+            return await official_guidance.guidance_sources(message, context, country)
         except Exception as e:
             logger.info("acas guidance skipped: %s", e)
             return [], []
+
+    import legal_research
+    import eu_law
+
+    async def _topic():
+        try:
+            return await legal_research.topic_sources(f"{message}\n{context}", nation, country)
+        except Exception as e:
+            logger.info("topic legislation research skipped: %s", e)
+            return {"sources": [], "topics": [], "status": "unavailable"}
+
+    async def _eu():
+        try:
+            return await eu_law.eu_sources(message, country)
+        except Exception as e:
+            logger.info("EU research skipped: %s", e)
+            return {"sources": [], "status": "unavailable", "note": ""}
 
     async def _paid(include_domains, n):
         if paid != "ok":
@@ -308,9 +329,9 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
             return [], "unavailable"
 
     try:
-        (official, s1), (web, s2), statute, (guidance, g_failed) = await asyncio.wait_for(asyncio.gather(
-            _paid(AUTHORITY_DOMAINS, 3), _paid(None, 2), _statute(), _guidance(),
-        ), timeout=9.0)
+        (official, s1), (web, s2), statute, (guidance, g_failed), topic, eu = await asyncio.wait_for(asyncio.gather(
+            _paid(AUTHORITY_DOMAINS, 3), _paid(None, 2), _statute(), _guidance(), _topic(), _eu(),
+        ), timeout=9.5)
     except asyncio.TimeoutError:
         logger.warning("Tavily RAG block timed out — continuing without grounding.")
         return {**res, "status": "unavailable"}
@@ -318,6 +339,15 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
         logger.warning("RAG gather failed: %s", e)
         return {**res, "status": "unavailable"}
     await _increment_usage(db, sum(1 for st in (s1, s2) if st == "ok"))
+    if "quota_exhausted" in (s1, s2):
+        _quota_until[0] = time.time() + QUOTA_COOLDOWN
+    notes = [n for n in (eu.get("note"), eu_law.national_gap_note(country)) if n]
+    if topic["status"] in ("no_match", "search_only", "unavailable") and (country or "GB").upper() == "GB":
+        notes.append("LEGISLATION COVERAGE: Lex's topic search did not retrieve the wording of a specific provision for this "
+                     "question" + (" (the official lookup failed)" if topic["status"] == "unavailable" else "") +
+                     ". That does NOT mean no law applies — say what could not be checked.")
+    o_meta = {"official_research": {"topics": topic.get("topics", []), "topic_status": topic["status"],
+                                    "eu_status": eu["status"], "notes": len(notes)}}
 
     seen = set()
 
@@ -333,22 +363,24 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
     rel_q = scrub(message)
     paid_official = [it for it in dedupe(official) if _relevant(it, rel_q)]
     # A result only counts as official if its real host is an official domain, whatever its title or text claims.
-    official = dedupe(statute) + dedupe(guidance) + [it for it in paid_official if content_guard.official_url(it.get("url"))]
+    official = dedupe(statute) + dedupe(topic["sources"]) + dedupe(guidance) + dedupe(eu["sources"]) + \
+        [it for it in paid_official if content_guard.official_url(it.get("url"))]
     web = [it for it in paid_official if not content_guard.official_url(it.get("url"))] + \
         [it for it in dedupe(web) if _relevant(it, rel_q)]
     official, _, k1 = _guard_items(official, keep_suspicious=True)
     web, dropped, k2 = _guard_items(web, keep_suspicious=False)
     g_meta = {"guidance_keys": [it["acas_key"] for it in guidance], "guidance_failed": g_failed,
               "paid_search": "ok" if "ok" in (s1, s2) else (paid if paid != "ok" else "unavailable"),
-              "injection": {"dropped": dropped, "kinds": sorted(k1 | k2)}}
+              "injection": {"dropped": dropped, "kinds": sorted(k1 | k2)}, **o_meta}
+    notes_txt = ("\n\n" + "\n".join(notes)) if notes else ""
     if not official and not web:
         failed = {s1, s2} - {"ok"}
         status = (paid if paid != "ok" else ("quota_exhausted" if "quota_exhausted" in failed else "unavailable")) \
             if failed else "no_results"
-        return {**res, "status": status, **g_meta}
+        return {**res, "status": status, "block": notes_txt, **g_meta}
 
     blocks, citations, sources, next_idx = [], [], [], 1
-    for label, items, kind in (("OFFICIAL UK LEGAL SOURCES (statute / case law)", official, "official"),
+    for label, items, kind in (("OFFICIAL LEGAL SOURCES (UK legislation, official guidance, EU law — each labelled)", official, "official"),
                                ("SUPPORTING WEB SOURCES", web, "web")):
         if not items:
             continue
@@ -360,12 +392,12 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
             next_idx += 1
     body = content_guard.fence("\n\n".join(blocks), "RETRIEVED RESEARCH (web pages and official records)")
     if g_meta["paid_search"] != "ok":
-        body += ("\n\nNOTE: only the free official lookups above (legislation.gov.uk / acas.org.uk) were available for this "
+        body += ("\n\nNOTE: only the free official lookups above (legislation.gov.uk / acas.org.uk / EU Publications Office) were available for this "
                  "answer — wider research could not be run. Rely on these sources for what they cover; for anything else, "
                  "say plainly that it could not be checked against current sources just now.")
     block = (
         "\n\n=== LIVE LEGAL RESEARCH (retrieved just now) ===\n"
-        f"{body}\n\n"
+        f"{body}{notes_txt}\n\n"
         "USE THESE SOURCES: Ground your answer in the material above. When you state "
         "a rule, cite the source like [1] or [2] matching the numbered list — only numbers 1 to "
         f"{next_idx - 1} exist. Only cite a number if that source actually says what you are claiming. Legislation and "
@@ -375,7 +407,7 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
         "provision exists and is in force; RETRIEVED WORDING shows what it says; neither proves your interpretation — say "
         "which applies, and if you rely on wording you were not given, say so plainly. Sources marked 'acas.org.uk "
         "(official guidance; wording retrieved …)' were fetched from Acas just now — cite them for points about Acas "
-        "guidance or the Acas Code. UK FACTS SIGNED OFF BY AI ADVOCATE'S REVIEWER are built-in knowledge, not retrieved text — where retrieved official sources conflict with them, say so. If the "
+        "guidance or the Acas Code. Sources labelled 'found from the topic of the question' were chosen by Lex's topic map — use them only if they fit the customer's facts. Sources labelled as EU law are never UK law, and an EU directive is not the national law of an EU country — keep UK law, EU law and national law separate and say which one you are relying on. A 'search match only' source has no wording — do not state what it says. UK FACTS SIGNED OFF BY AI ADVOCATE'S REVIEWER are built-in knowledge, not retrieved text — where retrieved official sources conflict with them, say so. If the "
         "retrieved material does NOT cover the user's question, say so and give your "
         "best general guidance — never invent a citation, case, section or URL."
     )

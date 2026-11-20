@@ -373,7 +373,8 @@ async def check_answer(text: str, nation: Optional[str], citations: List[dict], 
         line = _note_line(r, nation)
         if line:
             lines.append(line)
-            if not document and r["verdict"] in BAD and r["anchor"] in out:
+            if not document and r["verdict"] in BAD and r["anchor"] in out and \
+                    f"{r['anchor']} [⚠ see legislation check]" not in out:
                 out = out.replace(r["anchor"], f"{r['anchor']} [⚠ see legislation check]", 1)
         if r["verdict"] in ("in_force", "changes_pending") and r.get("url") and \
                 not any((c.get("url") or "").rstrip("/") == r["url"] for c in citations):

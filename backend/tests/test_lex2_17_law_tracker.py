@@ -223,3 +223,24 @@ def test_cron_endpoint_auth_and_off_state():
             return a.status_code, b.status_code, ok.status_code, ok.json()
     a, b, code, body = run(go())
     assert secret and a == 401 and b == 401 and code == 200 and body == {"ok": True, "skipped": "schedule_off"}
+
+
+def test_one_switch_monitoring_on_off_and_emergency_stop():
+    assert "incomplete" in run(W.enable_monitoring(TDB, ADMIN, fetch=Src(pages())))["refused"]
+    baseline()
+    bad = run(W.enable_monitoring(TDB, ADMIN, fetch=Src(pages({"ukpga/2010/15/section/13": (503, "")}))))
+    assert "could not be fully checked" in bad["refused"] and not run(W.schedule_state(TDB))["enabled"]
+    ok = run(W.enable_monitoring(TDB, ADMIN, fetch=Src(pages())))
+    assert ok["enabled"] is True and ok["check_summary"]["unchanged"] == 17
+    assert count("law_update_proposals") == 0 and count("law_watch_history") == 17
+    ov = run(W.overview(TDB))
+    assert ov["monitoring_on"] and ov["baseline_complete"] and ov["records"] == 17 and ov["emergency_stop"] is False
+    run(W.set_switch(TDB, True, ADMIN))
+    run(W.set_emergency_stop(TDB, True, ADMIN))
+    assert run(W.schedule_state(TDB))["enabled"] is False and run(W.switch_state(TDB))["enabled"] is False
+    assert daily(Src(pages())) == {"skipped": "schedule_off"}
+    assert "Emergency stop" in run(W.enable_monitoring(TDB, ADMIN, fetch=Src(pages())))["refused"]
+    run(W.set_emergency_stop(TDB, False, ADMIN))
+    assert run(W.schedule_state(TDB))["enabled"] is False  # releasing the stop does not silently restart monitoring
+    acts = [a["action"] for a in run(TDB.law_watch_audit.find({}).to_list(50))]
+    assert {"schedule_on", "emergency_stop_on", "emergency_stop_off"} <= set(acts)

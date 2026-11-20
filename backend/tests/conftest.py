@@ -65,3 +65,28 @@ def _no_paid_calls(monkeypatch):
     monkeypatch.setattr(httpx.Client, "send", s_send)
     monkeypatch.setattr(requests.Session, "send", r_send)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _stub_new_official_research(request, monkeypatch):
+    """Older suites assert exact source lists; topic/EU research is covered by tests/test_legal_research.py."""
+    if request.module.__name__.endswith("test_legal_research"):
+        yield
+        return
+    try:
+        import legal_research, eu_law, rag
+    except Exception:
+        yield
+        return
+
+    async def no_topic(*a, **k):
+        return {"sources": [], "topics": [], "status": "not_uk"}
+
+    async def no_eu(*a, **k):
+        return {"sources": [], "status": "not_wanted", "note": ""}
+    monkeypatch.setattr(legal_research, "topic_sources", no_topic)
+    monkeypatch.setattr(eu_law, "eu_sources", no_eu)
+    monkeypatch.setattr(eu_law, "national_gap_note", lambda c: "")
+    rag._quota_until[0] = 0
+    yield
+    rag._quota_until[0] = 0
