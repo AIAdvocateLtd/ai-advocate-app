@@ -52,7 +52,7 @@ const Audit = ({ audit }) => (
   </div>
 );
 
-export const LawWatchAdminCard = ({ api }) => {
+export const LawWatchAdminCard = ({ api, onChange }) => {
   const [open, setOpen] = useState(false);
   const [st, setSt] = useState(null);
   const [dry, setDry] = useState(null);
@@ -67,7 +67,7 @@ export const LawWatchAdminCard = ({ api }) => {
 
   const act = async (name, fn) => {
     setBusy(name); setErr("");
-    try { await fn(); } catch (e) { setErr(errMsg(e, "Action failed.")); } finally { setBusy(""); load(); }
+    try { await fn(); } catch (e) { setErr(errMsg(e, "Action failed.")); } finally { setBusy(""); load(); if (onChange) onChange(); }
   };
   const runDry = () => act("dry", async () => { setRes(null); setDry((await api.post("/admin/law-watch/dry-run", { scope: "all_17" })).data); });
   const toggle = (enabled) => act("switch", async () => { await api.post("/admin/law-watch/switch", { enabled }); });
@@ -82,7 +82,7 @@ export const LawWatchAdminCard = ({ api }) => {
       <button onClick={() => setOpen(o => !o)} data-testid="admin-law-watch-toggle"
               style={{ display: "flex", justifyContent: "space-between", width: "100%", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--gold)" }}>
         <span style={{ fontWeight: 700, fontSize: 14 }}>
-          Maintenance: law tracker {st && <span data-testid="law-watch-write-state" style={{ ...pill(!on), marginLeft: 8 }}>{on ? `writes ON until ${st.until.slice(11, 16)} UTC` : "writes OFF"}</span>}
+          Maintenance: law tracker {st && <span data-testid="law-watch-write-state" style={{ ...pill(!on), ...(on ? { background: "rgba(245,158,11,0.2)", color: "#fcd34d" } : {}), marginLeft: 8 }}>{on ? `writes ON until ${st.until.slice(11, 16)} UTC` : "writes OFF"}</span>}
         </span>
         <span style={{ color: "var(--text-dim)" }}>{open ? "▾" : "▸"}</span>
       </button>

@@ -79,7 +79,7 @@ export const LawMonitoringCard = ({ api }) => {
       </div>
       <div style={{ ...dim, marginTop: 8 }}>Detecting a change is an official-record fact; its legal meaning still needs professional review. 17 provisions do not cover all UK law.</div>
       <LawUpdateReview api={api} />
-      {maint && <div style={{ marginTop: 12 }}><LawWatchAdminCard api={api} /></div>}
+      {maint && <div style={{ marginTop: 12 }}><LawWatchAdminCard api={api} onChange={load} /></div>}
     </div>
   );
 };

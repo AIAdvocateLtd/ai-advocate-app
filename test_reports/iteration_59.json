@@ -1,0 +1,29 @@
+{
+  "summary": "Lex 2.0 law monitoring + official-source research tested in preview. Backend: 10/10 new API tests pass (overview auth 401/403, wrong/missing password 400, 409 when baseline incomplete, OFF without password, emergency stop cycle), plus a post-baseline test (ON -> emergency stop forces OFF -> release keeps OFF) passes. The existing unit suites test_legal_research.py and test_lex2_17_law_tracker.py pass (22 passed, 1 skipped). Research calls with no AI cost all match the spec. GB/england 'sacked' -> ERA 1996 s.94/98/108/111 from legislation.gov.uk, plus Acas. Cardiff/no nation -> Protection from Eviction Act 1977 s.1 and Renting Homes (Wales) Act 2016 s.173/s.45, each labelled 'UK nation is NOT confirmed — this is Wales law, chosen provisionally'. ES flight -> Reg (EC) 261/2004 Art 5/7 labelled 'directly applicable in Spain', and the block contains SOURCE LIMITS. US -> no citations, no UK/Acas sources, and a SOURCE LIMITS note. Frontend (admin, /app -> settings-btn): every listed flow works end to end. Card starts OFF with the 'starting record is incomplete' hint and the switch disabled. Maintenance path works: writes ON -> dry run (17 to save) -> apply with confirm -> 'Saved 17 record(s)'. Wrong password shows 'Password is incorrect.' in law-monitoring-error. Correct password -> 'ON · daily at 06:00 Europe/London' (green switch, aria-checked true). OFF needs no prompt. Emergency stop: confirm -> 'Emergency stop is ON', switch disabled; release with a wrong password is refused, with the right password it releases and monitoring stays OFF. Status rows show the expected values: pending=5 after baseline, alerts=ad***@aiadvocate.co.uk masked. settings-security still renders and the Ask Lex chat modal loads (no message sent). One UI bug: after the maintenance apply, the parent monitoring card does not refresh. Preview tracker collections were cleaned up afterwards.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "LawMonitoringCard / LawWatchAdminCard", "issue": "After the baseline is saved in Maintenance (law-watch-result shows 'Saved 17 record(s)'), the parent monitoring card stays stale: it still shows 'OFF · 0 of 17 provisions recorded', the 'starting record is incomplete' hint, pending=0, and the switch stays disabled. Only closing and reopening Settings or a reload shows '17 of 17' with the switch enabled. Root cause: LawWatchAdminCard has no callback to the parent's load(). Fix: pass onChange={load} to <LawWatchAdminCard> and call it after apply, switch and dry run.", "selector": "[data-testid=law-monitoring-state], [data-testid=law-monitoring-switch]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Maintenance: law tracker", "issues": ["The 'writes ON until …' pill is red and 'writes OFF' is green (pill(!on)). This is probably intentional, since writes ON is the risky state, but it reads backwards next to the green monitoring switch. Consider amber for ON."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_law_monitoring_api.py", "/app/backend/tests/test_law_monitoring_post_baseline.py", "/app/backend/tests/manual_research_check.py", "/app/test_reports/pytest/law_monitoring_api.xml"],
+  "action_items": ["Refresh the LawMonitoringCard overview after maintenance actions (apply, writes switch, dry run) so the switch becomes enabled right after the baseline is saved, without reopening Settings."],
+  "critical_code_review_comments": [
+    "_fresh_auth on /admin/law-watch/monitoring and emergency-stop release has no attempt limit or lockout. An admin session token could be used to brute-force the password. Consider reusing the login lockout counter.",
+    "LawMonitoringCard load() swallows errors (.catch(() => {})), and if the overview fails the card renders null with no error state.",
+    "enable_monitoring runs a full live 17-law check inside the request (takes several seconds), and the UI only disables the switch with no 'Checking…' text. Add a busy label.",
+    "In the ES research block, the generic NOTE line still mentions legislation.gov.uk and acas.org.uk as the sources that were available. The citations are correct, but that wording could confuse a non-UK answer. Consider making the note depend on the country.",
+    "server.py is more than 18k lines and App.js is very large: split them into modules."
+  ],
+  "updated_files": ["/app/backend/tests/test_law_monitoring_api.py", "/app/backend/tests/test_law_monitoring_post_baseline.py", "/app/backend/tests/manual_research_check.py"],
+  "success_rate": {"backend": "100%", "frontend": "95% (one stale-refresh bug)"},
+  "test_credentials": "admin@aiadvocate.co.uk / AdminLex2026! ; test@advocate.app / Test12345! (from /app/memory/test_credentials.md). Admin hash is $2b$ bcrypt. Password and 2FA were not changed.",
+  "seed_data_creation": "A 17-law baseline (law_watch_records/history/runs/audit/settings) was created through the UI and API while testing. All docs in law_watch_records, law_watch_history, law_watch_runs, law_watch_audit, law_watch_settings and law_update_proposals were deleted afterwards, as the main agent asked; all were empty before testing. Count is now 0.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The app UI is at /app. Inject aa_token, aa_terms='1' and aa_cookie_consent='essential' into localStorage, then dismiss 'I understand — continue'. test_law_monitoring_api.py expects the baseline to be incomplete (empty tracker collections), so run it first. test_law_monitoring_post_baseline.py needs the 17-law baseline saved first. Run both with -p no:xdist because they share state. Clean the tracker collections afterwards. Research checks: cd /app/backend && PYTHONPATH=. python tests/manual_research_check.py (no AI cost)."
+}
