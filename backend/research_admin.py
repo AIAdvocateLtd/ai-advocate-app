@@ -92,10 +92,15 @@ def build_router(db, require_admin) -> APIRouter:
     @r.post("/admin/lex-research/source-changes/{cid}/review")
     async def review(cid: str, body: Review, admin: dict = Depends(require_admin)):
         from bson import ObjectId
+        from bson.errors import InvalidId
+        try:
+            oid = ObjectId(cid)
+        except InvalidId:
+            raise HTTPException(404, "Not found")
         if body.outcome not in ("no_guidance_affected", "guidance_flagged_for_lawyer"):
             raise HTTPException(400, "Unknown outcome")
         res = await db.legal_source_changes.update_one(
-            {"_id": ObjectId(cid)}, {"$set": {"status": "reviewed", "outcome": body.outcome, "reviewed_by": admin["email"],
+            {"_id": oid}, {"$set": {"status": "reviewed", "outcome": body.outcome, "reviewed_by": admin["email"],
                                               "reviewed_at": datetime.now(timezone.utc).isoformat(),
                                               "professional_approval": False}})
         if not res.matched_count:

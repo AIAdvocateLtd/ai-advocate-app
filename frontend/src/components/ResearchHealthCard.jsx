@@ -6,12 +6,14 @@ const dim = { color: "var(--text-dim)", fontSize: 12 };
 const btn = { fontSize: 12, padding: "4px 10px", borderRadius: 999, border: "1px solid var(--line)", background: "transparent", color: "inherit", cursor: "pointer" };
 const COV = { verified: "Official source connected", official_site_search: "Official-site search only", general_only: "General information only" };
 const pct = (x) => `${Math.round((x || 0) * 100)}%`;
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+const display = (name) => { const s = name.replace(/^the /, ""); return s.charAt(0).toUpperCase() + s.slice(1); };
 
 const Coverage = ({ rows }) => (
   <div data-testid="research-coverage-list">
     {rows.map((j) => (
       <div key={j.code} style={row} data-testid={`research-coverage-${j.code}`}>
-        <span>{j.name}</span>
+        <span>{display(j.name)}</span>
         <span style={{ ...dim, textAlign: "right", color: j.coverage === "verified" ? "#86efac" : undefined }}>{COV[j.coverage]}</span>
       </div>
     ))}
@@ -22,8 +24,8 @@ const Health = ({ h }) => (
   <div data-testid="research-health-table">
     {Object.entries(h.by_jurisdiction).map(([j, b]) => (
       <div key={j} style={row} data-testid={`research-health-${j}`}>
-        <span>{j} · {b.questions} questions</span>
-        <span style={dim}>official {pct(b.official_source_rate)} · AI step {pct(b.ai_discovery_rate)} · {b.tavily_calls} searches · {b.avg_research_ms} ms</span>
+        <span>{j} · {plural(b.questions, "question")}</span>
+        <span style={dim}>official {pct(b.official_source_rate)} · AI step {pct(b.ai_discovery_rate)} · {b.tavily_calls} {b.tavily_calls === 1 ? "search" : "searches"} · {b.avg_research_ms} ms</span>
       </div>
     ))}
     {Object.entries(h.ai_cost_per_answer_by_tier).map(([t, c]) => (
@@ -38,20 +40,25 @@ export const ResearchHealthCard = ({ api }) => {
   const [cov, setCov] = useState([]);
   const [changes, setChanges] = useState([]);
   const [open, setOpen] = useState(false);
+  const [err, setErr] = useState("");
+  const fail = (e) => setErr(e?.response?.data?.detail || "Could not load research health.");
   const load = useCallback(() => {
-    api.get("/admin/lex-research/health").then((r) => setH(r.data)).catch(() => {});
+    setErr("");
+    api.get("/admin/lex-research/health").then((r) => setH(r.data)).catch(fail);
     api.get("/admin/lex-research/coverage").then((r) => setCov(r.data.jurisdictions)).catch(() => {});
     api.get("/admin/lex-research/source-changes").then((r) => setChanges(r.data.items)).catch(() => {});
   }, [api]);
   useEffect(() => { load(); }, [load]);
-  const review = (id, outcome) => api.post(`/admin/lex-research/source-changes/${id}/review`, { outcome }).finally(load);
-  const toggleAi = () => api.post("/admin/lex-research/ai-discovery", { enabled: !h.ai_discovery_enabled }).finally(load);
-  if (!h) return null;
+  const review = (id, outcome) => api.post(`/admin/lex-research/source-changes/${id}/review`, { outcome }).then(load).catch(fail);
+  const toggleAi = () => api.post("/admin/lex-research/ai-discovery", { enabled: !h.ai_discovery_enabled }).then(load).catch(fail);
+  if (!h) return err ? <div data-testid="research-health-error" style={{ ...card, ...dim }}>Lex legal research: {err}</div>
+    : <div data-testid="research-health-loading" style={{ ...card, ...dim }}>Loading Lex legal research…</div>;
   return (
     <div data-testid="research-health-card" style={card}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <div style={{ fontWeight: 600 }}>Lex legal research</div>
+          <div style={{ fontWeight: 700, color: "var(--gold)" }}>Lex legal research</div>
+          {err && <div data-testid="research-health-action-error" style={{ color: "#fca5a5", fontSize: 12 }}>{err}</div>}
           <div style={dim}>Last 30 days · {h.source_changes_awaiting_review} source change(s) awaiting review</div>
         </div>
         <button style={btn} data-testid="research-health-toggle" onClick={() => setOpen(!open)}>{open ? "Hide" : "Details"}</button>

@@ -64,3 +64,8 @@
 | PostHog analytics | ✅ Live | — |
 | vLex (paid case-law) | ⏳ Planned | Pro / Yearly (Reminder 2) |
 | Clio Firm Portal | ⏳ Planned | B2B (Reminder 3) |
+
+## Lex 2.0 global research — remaining (2026-11-20)
+- P0 owner: approve deploy of global research engine; add LEGIFRANCE_CLIENT_ID/SECRET (France verified retrieval); switch on 17-provision monitoring.
+- P1: deterministic deadline calculators for DE/ES/IT/PL/US (today only UK deadline maths); Portugal direct feed (diariodarepublica.pt is JS-only); Texas/CA/NY state pages are JS/blocked — rely on search extracts.
+- P2: extend national topic maps (family, inheritance, traffic, immigration per country); periodic re-check of cached national provisions for change detection beyond customer traffic.

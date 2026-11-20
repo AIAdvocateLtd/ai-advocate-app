@@ -459,6 +459,9 @@ def verify_citations(text: str, citations: List[dict], sources: List[dict], cust
     for c in citations or []:
         if c.get("claim_check") == "status_checked":
             continue
+        if c.get("source") == "official_site_search":  # search extract from an official site: never shown as checked
+            c["claim_check"] = "unchecked"
+            continue
         seen = rep["per_source"].get(int(c["n"]), set())
         c["claim_check"] = ("reference_found_in_source" if "supported" in seen else "not_confirmed" if seen == {"not_confirmed"}
                             else "unchecked" if seen else "not_cited")

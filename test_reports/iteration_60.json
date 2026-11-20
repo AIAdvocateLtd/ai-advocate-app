@@ -1,0 +1,44 @@
+{
+  "summary": "Tested Lex global research admin endpoints, the source-change review queue, the AI discovery switch, 4 paid national chat calls (DE, PL, US-Texas, GB) and the ResearchHealthCard in admin Settings. Backend: 12 of 13 pass. The one failure is a malformed change id returning 500. All 4 chat checks pass: DE cites BGB §573, §573c and §574 from gesetze-im-internet.de. PL says '21 dni' citing art. 264 (api.sejm.gov.pl ...#art-264). US-Texas uses no U.S. Code or govinfo citation, and the Texas site results are labelled 'currency and in-force status NOT confirmed'. The GB legislation.gov.uk ERA 1996 sources are still present. Frontend: the card renders, Details opens the table, coverage list, change rows and AI switch, and the switch turns off and back on. A UI-inserted change was marked 'no guidance affected' and disappeared. LawMonitoringCard still shows 'OFF · 0 of 17' and was not touched. The existing suite test_global_research.py is now flaky: 39 of 40 passed, and the PL link test fails about 2 times in 3 on a cold cache.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/lex-research/source-changes/{cid}/review", "issue": "An id that is not valid (e.g. 'not-an-id') returns 500: ObjectId(cid) raises bson.errors.InvalidId (seen in backend.err.log). Wrap it in try/except and return 404 (or 400)."},
+      {"endpoint": "national_law._pl_doc / read() (PL cold cache)", "issue": "Downloads are not shared. Each Polish article ref (KP 264/30/45/36) downloads and parses the whole multi-MB Kodeks pracy PDF on its own, and REF_WAIT is 2.5s with a semaphore of 3. On a cold cache only 2 of the 4 provisions come back in time. test_global_research.py::test_each_retrieved_provision_has_its_own_link_so_none_is_dropped fails about 2 times in 3 when run alone with AIA_NO_PAID=1. Fix: keep one shared download per law in _pl_doc (an in-flight future for pl-doc:{law}). The live server is fine while the Mongo legal_source_records cache is warm."},
+      {"endpoint": "global_law site_search (US-state)", "issue": "The Texas site results have claim_check='reference_found_in_source' while the title says 'no specific provision identified ... NOT confirmed'. The two signals contradict each other, so consider claim_check='unchecked' for site-search extracts. They are also tagged source='official' even though Lex could not open the page."},
+      {"endpoint": "Tavily", "issue": "backend.err.log shows 2 earlier 'Tavily 432: exceeds your plan's set usage limit' entries from before this run. Tavily worked during this run (Texas search returned results), but the plan limit is close."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Settings > ResearchHealthCard", "issues": [
+        "Card title 'Lex legal research' is white and plain. The cards next to it (e.g. 'Fair use & spending') use the gold heading style.",
+        "Plural wording: 'IT · 1 questions'.",
+        "Coverage names start with a lowercase article ('the United Kingdom', 'the UAE'). This looks odd in a list.",
+        "No loading or error state: the card returns null if the health call fails, so an admin gets no clue why it is missing. The review and toggle actions show no error feedback."
+      ]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_research_admin_api.py", "/app/test_reports/pytest/research_admin.xml", "/app/test_reports/pytest/research_chat_outputs.json"],
+  "action_items": [
+    "Return 404/400 instead of 500 for a malformed ObjectId in POST /api/admin/lex-research/source-changes/{cid}/review",
+    "Share one in-flight PDF download per law in national_law._pl_doc so a cold PL question returns all mapped provisions; this also fixes the flaky test_each_retrieved_provision_has_its_own_link_so_none_is_dropped",
+    "Optional: set claim_check to 'unchecked' for site-search (Tavily) extracts, to match the 'not confirmed' label",
+    "Optional: ResearchHealthCard design polish (gold heading, plural wording, error state)"
+  ],
+  "critical_code_review_comments": [
+    "research_admin.review: ObjectId(cid) is not validated, so a bad id gives a 500.",
+    "research_admin.changes: the 'status' query value is passed straight to Mongo. It is admin-only and a str, so the risk is low, but consider limiting it to an enum.",
+    "health(): the 'days' value returned in the response is the raw value, not the clamped one (e.g. days=999 reports 999 while the query uses 180).",
+    "ResearchHealthCard uses .catch(() => {}) everywhere, so errors are silently swallowed."
+  ],
+  "updated_files": ["/app/backend/tests/test_research_admin_api.py"],
+  "success_rate": {"backend": "92% (12/13 new); existing test_global_research 39/40 (1 flaky)", "frontend": "100%"},
+  "seed_data_creation": "Inserted 2 TEST_ docs into legal_source_changes (one via pytest, one for the UI test). Both were deleted by _id. app_settings lex_ai_discovery was confirmed enabled=true at the end. Law monitoring was not toggled.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Admin UI: open /app, put aa_token, aa_terms='1', aa_cookie_consent='essential' and aa_welcomed='1' in localStorage, then click settings-btn. ResearchHealthCard sits under LawMonitoringCard. Run tests/test_research_admin_api.py with -p no:xdist -o addopts=''. It makes 4 paid /lex/chat calls (deselect TestChat to avoid the cost) and writes the chat outputs to research_chat_outputs.json.",
+  "rca of the issue": "Flaky PL test: read() keeps one in-flight download per article key, but _pl_doc keeps no in-flight entry per law. Four refs to the same act start four PDF downloads and parses, limited by Semaphore(3). With REF_WAIT=2.5s the slower ones come back as pending/failed and are dropped. The test process never sets N._db, so it has no Mongo cache and always starts cold."
+}

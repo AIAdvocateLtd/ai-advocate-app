@@ -119,12 +119,28 @@ def _eli_key(i: str) -> Tuple[int, int]:
     return (int(p[1]), int(p[2])) if len(p) == 3 and p[1].isdigit() and p[2].isdigit() else (0, 0)
 
 
+_pl_loading: Dict[str, asyncio.Task] = {}
+
+
 async def _pl_doc(c: httpx.AsyncClient, law: str) -> dict:
-    """Newest official consolidated text (tekst jednolity) of a Polish act, as plain text. Cached 7 days."""
+    """Newest official consolidated text (tekst jednolity) of a Polish act, as plain text. Cached 7 days; one shared
+    download per act however many articles are asked for at once."""
     key = f"pl-doc:{law}"
     hit = _get(key)
     if hit:
         return hit
+    task = _pl_loading.get(key)
+    if task is None or task.done() and task.exception() is not None:
+        task = _pl_loading[key] = asyncio.ensure_future(_pl_load(law, key))
+    return await asyncio.shield(task)
+
+
+async def _pl_load(law: str, key: str) -> dict:
+    async with httpx.AsyncClient(timeout=TIMEOUT, headers=UA, follow_redirects=True) as c:
+        return await _pl_fetch(c, law, key)
+
+
+async def _pl_fetch(c: httpx.AsyncClient, law: str, key: str) -> dict:
     r = await c.get(f"{SEJM}/{law}")
     if r.status_code != 200:
         raise RuntimeError(f"sejm {r.status_code}")

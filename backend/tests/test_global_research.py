@@ -293,6 +293,7 @@ def test_national_citations_in_answers_are_checked_against_official_sources():
 
 
 def test_each_retrieved_provision_has_its_own_link_so_none_is_dropped(no_ai):
+    run(N.read(N.R("PL", N.KP, "264", "Kodeks pracy"), wait=60))  # production prewarms at start-up
     out = run(G.research("Pracodawca mnie zwolnił, ile mam czasu na odwołanie?", "", "PL", paid_ok=False))
     urls = [s["url"] for s in out["sources"]]
     assert len(urls) == len(set(urls)) >= 3

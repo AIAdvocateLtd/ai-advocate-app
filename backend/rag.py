@@ -420,7 +420,8 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
             continue
         blocks.append(_format_block(label, items, start_index=next_idx))
         for it in items:
-            citations.append({"n": next_idx, "title": it.get("title") or "(untitled)", "url": it.get("url") or "", "source": kind})
+            citations.append({"n": next_idx, "title": it.get("title") or "(untitled)", "url": it.get("url") or "",
+                              "source": "official_site_search" if it.get("site_search") else kind})
             sources.append({"n": next_idx, "title": it.get("title") or "", "content": it.get("content") or "",
                             "guidance": bool(it.get("acas_key"))})
             next_idx += 1
