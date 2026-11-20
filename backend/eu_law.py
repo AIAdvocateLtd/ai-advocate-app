@@ -9,13 +9,16 @@ from typing import Dict, List, Optional, Tuple
 import httpx
 
 logger = logging.getLogger(__name__)
-CELLAR = "http://publications.europa.eu/resource/celex/"
+CELLAR = "https://publications.europa.eu/resource/celex/"
 SPARQL = "https://publications.europa.eu/webapi/rdf/sparql"
 EURLEX = "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:"
 UA = {"User-Agent": "AIAdvocate/1.0 (+https://aiadvocate.co.uk; support@aiadvocate.co.uk)"}
 EU_COUNTRIES = {"ES": "Spain", "FR": "France", "PL": "Poland", "DE": "Germany", "IT": "Italy", "PT": "Portugal"}
-TTL, FAIL_TTL, TIMEOUT, MAX_ACTS, TEXT_CAP = 7 * 86400, 300, 8.0, 2, 2500
+TTL, FAIL_TTL, MAX_ACTS, TEXT_CAP = 7 * 86400, 600, 2, 2500
+FETCH_TIMEOUT = httpx.Timeout(30.0, connect=6.0)  # EU documents can be several MB; download runs in the background
+WAIT = 5.0  # how long a customer answer waits for an uncached EU text before saying it could not be retrieved
 _cache: Dict[str, Tuple[float, object]] = {}
+_inflight: Dict[str, asyncio.Task] = {}
 
 
 def A(celex, kind, label, articles, uk_path=None):
@@ -92,22 +95,53 @@ async def _in_force(client: httpx.AsyncClient, celex: str) -> Optional[bool]:
     return (b[0]["f"]["value"] in ("1", "true")) if b else None
 
 
-async def read_act(act: dict) -> dict:
+async def _download(act: dict) -> dict:
+    key = f"eu:{act['celex']}"
+    t0 = time.time()
+    try:
+        async with httpx.AsyncClient(timeout=FETCH_TIMEOUT, follow_redirects=True) as c:
+            r = await c.get(CELLAR + act["celex"], headers={**UA, "Accept": "application/xhtml+xml, text/html;q=0.9",
+                                                            "Accept-Language": "eng"})
+            if r.status_code != 200:
+                raise RuntimeError(f"cellar {r.status_code}")
+            try:
+                force = await asyncio.wait_for(_in_force(c, act["celex"]), timeout=6.0)
+            except Exception:
+                force = None  # status unknown is disclosed; the wording is still usable
+        text = _articles(r.text, act["articles"])
+        if not text:
+            raise RuntimeError("articles not found in document")
+        logger.info("EU text cached %s in %.1fs", act["celex"], time.time() - t0)
+        return _put(key, {**act, "text": text, "in_force": force,
+                          "retrieved": time.strftime("%d %B %Y", time.gmtime())}, TTL)
+    except Exception as e:
+        logger.info("EU lookup failed %s after %.1fs: %r", act["celex"], time.time() - t0, e)
+        return _put(key, {**act, "failed": True}, FAIL_TTL)  # no retry for 10 minutes
+    finally:
+        _inflight.pop(key, None)
+
+
+async def read_act(act: dict, wait: float = WAIT) -> dict:
+    """Cached for 7 days. An uncached text downloads in the background (one download per act at a time); the answer
+    waits at most `wait` seconds, then reports it as unavailable while the download finishes for later questions."""
     key = f"eu:{act['celex']}"
     hit = _get(key)
     if hit is not None:
         return hit
+    task = _inflight.get(key)
+    if task is None:
+        task = _inflight[key] = asyncio.ensure_future(_download(act))
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as c:
-            r, force = await asyncio.gather(
-                c.get(CELLAR + act["celex"], headers={**UA, "Accept": "application/xhtml+xml, text/html;q=0.9", "Accept-Language": "eng"}),
-                _in_force(c, act["celex"]))
-        if r.status_code != 200:
-            raise RuntimeError(f"cellar {r.status_code}")
-        return _put(key, {**act, "text": _articles(r.text, act["articles"]), "in_force": force}, TTL)
-    except Exception as e:
-        logger.info("EU lookup failed %s: %r", act["celex"], e)
-        return _put(key, {**act, "failed": True}, FAIL_TTL)
+        return await asyncio.wait_for(asyncio.shield(task), timeout=wait)
+    except asyncio.TimeoutError:
+        return {**act, "failed": True, "pending": True}
+
+
+async def prewarm():
+    """Fill the cache at start-up so customers rarely wait (9 small requests, free)."""
+    for _, acts in TOPICS:
+        for a in acts:
+            await read_act(a, wait=60)
 
 
 def as_source(r: dict, country: str) -> dict:
@@ -122,8 +156,9 @@ def as_source(r: dict, country: str) -> dict:
     else:
         where = f"EU regulation — directly applicable in {EU_COUNTRIES[c]}; national rules may add detail and were NOT retrieved"
     arts = ", ".join(f"Art {a}" for a in r["articles"])
-    return {"title": f"{r['label']} — {arts} (official EU text, Publications Office/EUR-Lex; original version as adopted, "
-                     f"later amendments may not be shown; {status}; {where})",
+    got = f"; retrieved {r['retrieved']}" if r.get("retrieved") else ""
+    return {"title": f"{r['label']} — {arts} (official EU text, Publications Office/EUR-Lex, CELEX {r['celex']}; original "
+                     f"version as adopted, later amendments may not be shown; {status}; {where}{got})",
             "url": EURLEX + r["celex"], "content": r.get("text", ""), "eu": True}
 
 
@@ -149,6 +184,10 @@ async def eu_sources(text: str, country: str) -> dict:
         return {"sources": [], "status": "no_match", "note": note}
     res = await asyncio.gather(*(read_act(a) for a in acts))
     good = [r for r in res if not r.get("failed")]
+    if len(good) < len(acts):
+        names = ", ".join(r["label"] for r in res if r.get("failed"))
+        note = (note + "\n" if note else "") + (f"EU SOURCE NOT RETRIEVED: the official EU text of {names} could not be "
+                                                 "retrieved just now. Do not quote or summarise it as checked; say it could not be verified.")
     srcs = [as_source(r, country) for r in good]
     if (country or "GB").upper() == "GB":
         srcs += [{"title": f"UK version of the {r['label']} (legislation.gov.uk — UK 'assimilated law'; wording NOT retrieved; "

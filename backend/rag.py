@@ -319,9 +319,14 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
             logger.info("EU research skipped: %s", e)
             return {"sources": [], "status": "unavailable", "note": ""}
 
+    # Official topic sources cover UK statute questions, so skip the general (non-official) web search for them.
+    statute_topic = (country or "GB").upper() == "GB" and bool(legal_research.match_topics(f"{message}\n{context}"))
+
     async def _paid(include_domains, n):
         if paid != "ok":
             return [], paid
+        if include_domains is None and statute_topic:
+            return [], "skipped_official"
         try:
             return await asyncio.wait_for(_tavily_search_ex(base_q, include_domains=include_domains, max_results=n,
                                                             search_depth="basic"), timeout=8.5)
@@ -371,10 +376,11 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
     web, dropped, k2 = _guard_items(web, keep_suspicious=False)
     g_meta = {"guidance_keys": [it["acas_key"] for it in guidance], "guidance_failed": g_failed,
               "paid_search": "ok" if "ok" in (s1, s2) else (paid if paid != "ok" else "unavailable"),
+              "web_search_skipped": s2 == "skipped_official",
               "injection": {"dropped": dropped, "kinds": sorted(k1 | k2)}, **o_meta}
     notes_txt = ("\n\n" + "\n".join(notes)) if notes else ""
     if not official and not web:
-        failed = {s1, s2} - {"ok"}
+        failed = {s1, s2} - {"ok", "skipped_official"}
         status = (paid if paid != "ok" else ("quota_exhausted" if "quota_exhausted" in failed else "unavailable")) \
             if failed else "no_results"
         return {**res, "status": status, "block": notes_txt, **g_meta}

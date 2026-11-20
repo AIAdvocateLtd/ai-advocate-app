@@ -205,3 +205,14 @@ def test_engagement_rejects_pre_2fa_token():
     ch = login(u).json()
     r = run(call("PATCH", "/engagements/nonexistent/close", ch["tmp_token"]))
     assert r.status_code == 401
+
+
+def test_invalid_encryption_key_fails_safely_before_enrolment(monkeypatch):
+    u = make_user()
+    t = login(u).json()["access_token"]
+    monkeypatch.setenv("TOTP_ENC_KEY", "not-a-valid-key")
+    r = run(call("POST", "/auth/2fa/setup", t, json={"password": PW}))
+    assert r.status_code == 503 and "Nothing was changed" in r.json()["detail"]
+    doc = run(server.db.users.find_one({"id": u["id"]}))
+    assert not doc.get("totp_secret_pending") and not doc.get("totp_enabled")
+    assert run(call("GET", "/auth/me", t)).status_code == 200

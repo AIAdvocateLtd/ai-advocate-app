@@ -31,7 +31,10 @@ def _fernet() -> Fernet:
     key = os.environ.get("TOTP_ENC_KEY")
     if not key:
         raise HTTPException(503, "Two-step sign-in is not configured on this server.")
-    return Fernet(key.encode())
+    try:
+        return Fernet(key.encode())
+    except (ValueError, TypeError):
+        raise HTTPException(503, "Two-step sign-in is not configured correctly on this server. Nothing was changed.")
 
 
 def enc_secret(secret: str) -> str:

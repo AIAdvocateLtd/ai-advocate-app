@@ -85,6 +85,7 @@ def _stub_new_official_research(request, monkeypatch):
     async def no_eu(*a, **k):
         return {"sources": [], "status": "not_wanted", "note": ""}
     monkeypatch.setattr(legal_research, "topic_sources", no_topic)
+    monkeypatch.setattr(legal_research, "match_topics", lambda t: [])
     monkeypatch.setattr(eu_law, "eu_sources", no_eu)
     monkeypatch.setattr(eu_law, "national_gap_note", lambda c: "")
     rag._quota_until[0] = 0

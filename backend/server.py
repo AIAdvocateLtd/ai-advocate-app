@@ -18089,6 +18089,8 @@ async def startup():
         logger.exception("Stage 3 index setup failed (non-fatal)")
     from email_helper import set_email_translation
     set_email_translation(_email_lang_for, _translate_email)
+    import eu_law
+    asyncio.create_task(eu_law.prewarm())  # free official EU texts into the 7-day cache
     try:
         await _seed_fact_packs(db)
         await _refresh_lessons(db)

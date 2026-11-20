@@ -32,6 +32,7 @@ def _iso(monkeypatch):
     asyncio.set_event_loop(LOOP)
     L._cache.clear()
     eu_law._cache.clear()
+    eu_law._inflight.clear()
     monkeypatch.setattr(rag, "is_enabled", lambda: False)
 
     async def no_guidance(*a, **k):
@@ -111,7 +112,7 @@ def test_tavily_quota_cooldown(monkeypatch):
     r1 = run(rag.research("I was sacked, is it unfair dismissal?", country="GB", nation="england"))
     n = len(calls)
     r2 = run(rag.research("I was sacked, is it unfair dismissal?", country="GB", nation="england"))
-    assert n == 2 and len(calls) == n and r2["paid_search"] == "quota_exhausted"
+    assert n == 1 and len(calls) == n and r2["paid_search"] == "quota_exhausted"
     assert r1["status"] != "ok" or r1["paid_search"] != "ok"
     rag._quota_until[0] = 0
 
@@ -152,5 +153,51 @@ def test_live_every_mapped_reference_resolves():
         return await asyncio.gather(*(one(i) for i in items))
     res = run(go())
     assert all(r["verdict"] not in ("not_found", "wrong_jurisdiction") for r in res), [r["path"] for r in res if r["verdict"] == "not_found"]
-    eu = run(asyncio.gather(*(eu_law.read_act(a) for _, acts in eu_law.TOPICS for a in acts)))
+    eu = run(asyncio.gather(*(eu_law.read_act(a, wait=60) for _, acts in eu_law.TOPICS for a in acts)))
     assert all(not r.get("failed") and r["text"] for r in eu)
+
+
+def test_eu_slow_download_waits_briefly_then_caches(monkeypatch):
+    act = eu_law.TOPICS[1][1][0]
+    gate = asyncio.Event()
+
+    async def slow(a):
+        await gate.wait()
+        return eu_law._put(f"eu:{a['celex']}", {**a, "text": "Article 5 Cancellation …", "in_force": True, "retrieved": "today"}, 60)
+    monkeypatch.setattr(eu_law, "_download", slow)
+    first = run(eu_law.read_act(act, wait=0.2))
+    assert first.get("failed") and first.get("pending") and len(eu_law._inflight) == 1
+    again = run(eu_law.read_act(act, wait=0.2))
+    assert again.get("pending") and len(eu_law._inflight) == 1  # no second download
+    gate.set()
+    run(asyncio.sleep(0.05))
+    eu_law._inflight.clear()
+    hit = run(eu_law.read_act(act, wait=0.2))
+    assert hit["text"].startswith("Article 5") and hit["retrieved"] == "today"
+    out = run(eu_law.eu_sources("my flight was cancelled by the airline", "ES"))
+    assert out["status"] == "ok" and "directly applicable in Spain" in out["sources"][0]["title"] and "retrieved today" in out["sources"][0]["title"]
+
+
+def test_eu_unavailable_is_disclosed(monkeypatch):
+    async def fail(a, wait=0):
+        return {**a, "failed": True}
+    monkeypatch.setattr(eu_law, "read_act", fail)
+    out = run(eu_law.eu_sources("my flight was cancelled by the airline", "ES"))
+    assert out["status"] == "unavailable" and "EU SOURCE NOT RETRIEVED" in out["note"]
+
+
+def test_general_web_search_skipped_for_uk_statute_topics(monkeypatch):
+    monkeypatch.setattr(rag, "is_enabled", lambda: True)
+    fake(monkeypatch, {})
+    calls = []
+
+    async def tav(q, include_domains=None, **k):
+        calls.append(include_domains)
+        return [], "ok"
+    monkeypatch.setattr(rag, "_tavily_search_ex", tav)
+    rag._quota_until[0] = 0
+    r = run(rag.research("I was sacked after 3 years, is that unfair dismissal?", country="GB", nation="england"))
+    assert calls and None not in calls and r["web_search_skipped"] is True
+    calls.clear()
+    run(rag.research("Can my neighbour's tree overhang my garden?", country="GB", nation="england"))
+    assert None in calls
