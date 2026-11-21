@@ -490,6 +490,7 @@ async def research(message: str, context: str, selected: str, db=None, paid_ok: 
     extra_notes = []
     if "dismissal" in topics:
         import national_deadlines
+        meta["deadline_gate"] = any(j in national_deadlines.RULES for j in want) and not national_deadlines.calc_enabled()
         retrieved = list(det_res) + [r for r in checked if r]
         for j in want:
             if j in national_deadlines.RULES:

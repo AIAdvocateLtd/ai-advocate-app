@@ -544,7 +544,7 @@ TOPIC_RX = {
                      r"Widerruf|desistimiento|rétractation|recesso|odstąpi|zwrot towaru|direito de livre resolução",
     "dismissal": r"dismiss|sacked|fired\b|let go|lost my job|terminat\w* (?:my|me)|Kündigung (?:durch|vom|meines) "
                  r"Arbeit|Arbeitgeber.{0,40}gekündigt|entlassen|Kündigungsschutz|despid|licenciement|licencié|licenzia|zwolnien|zwolnion|wypowiedzenie "
-                 r"umowy o pracę|zwolni|despedimento|despedid",
+                 r"umowy o pracę|zwolni|wypowiedzeni[a-ząćęłńóśźż]*(?![a-ząćęłńóśźż]| (?:umowy )?najmu)|sąd\w* pracy|odwołani\w* od wypowiedzenia|despedimento|despedid",
     "wages": r"unpaid wage|not (?:been )?paid|wages|overtime|minimum wage|Lohn|Gehalt|Mindestlohn|salario|nómina|"
              r"salaire|stipendio|retribuzion|wynagrodzen|pensja|salário|horas extra",
     "discrimination": r"discriminat|harass|Diskriminier|Belästigung|discrimin|acoso|harcèlement|molestie|dyskrymin|"
@@ -724,7 +724,9 @@ async def prewarm():
         refs.sort(key=lambda r: 0 if r in m.get("dismissal", []) else 1)
         for r in refs:
             await read(r, wait=60)
-    await asyncio.gather(*(one(j, m) for j, m in MAP.items() if j != "FR" or france_enabled()), return_exceptions=True)
+    maps = [(j, m) for j, m in MAP.items() if j != "FR" or france_enabled()]
+    maps += [(f"US-{st}", m) for st, m in STATE_MAP.items() if state_enabled(st)]
+    await asyncio.gather(*(one(j, m) for j, m in maps), return_exceptions=True)
 
 
 # ---------------- national citations in Lex's answer: checked against the official source ----------------
@@ -794,3 +796,43 @@ async def check_citations(text: str, citations: List[dict]) -> Tuple[str, dict]:
         if "not_found" in verdicts:
             out = re.sub(r"\[CONFIDENCE:\s*HIGH\]", "[CONFIDENCE: MEDIUM]", out)
     return out, {"refs": len(refs), "verdicts": verdicts}
+
+
+# ---------------- time periods in the answer must appear in the source they cite ----------------
+_NUMWORDS = {2: "zwei two dos due dwóch dwa", 3: "drei three tres tre trzech trzy", 4: "vier four cuatro quattro czterech",
+             6: "sechs six seis sei sześciu", 7: "sieben seven siete sette siedmiu siedem", 10: "zehn ten diez dieci dziesięciu",
+             14: "vierzehn fourteen catorce quattordici czternastu", 15: "fünfzehn fifteen quince quindici",
+             20: "zwanzig twenty veinte venti dwudziestu", 21: "einundzwanzig twenty-one veintiún ventuno",
+             30: "dreißig thirty treinta trenta trzydziestu", 60: "sechzig sixty sesenta sessanta sześćdziesięciu",
+             90: "neunzig ninety noventa novanta", 180: "centottanta ciento ochenta"}
+_WORD_VAL = {w: v for v, ws in _NUMWORDS.items() for w in ws.split()}
+_UNITS = r"(?:kalendarzowych\s+|roboczych\s+|hábiles\s+)?(?:dni|dnia|tygodni|miesięcy|Tagen?|Wochen|Monaten?|días|semanas|meses|giorni|settimane|mesi|days|weeks|months)\b"
+_PERIOD = re.compile(r"\b(\d{1,3}|" + "|".join(sorted((re.escape(w) for w in _WORD_VAL), key=len, reverse=True)) + r")\s+" + _UNITS, re.I)
+
+
+def _has_value(snippet: str, v: int) -> bool:
+    low = snippet.lower()
+    return bool(re.search(rf"(?<![\d.,]){v}(?![\d.,]\d)", low)) or any(w in low for w in _NUMWORDS.get(v, "").split())
+
+
+def check_periods(answer: str, block: str) -> Tuple[str, int]:
+    """A time limit followed by a citation [n] must appear in that source's retrieved text; otherwise it is flagged."""
+    snippets = {m.group(1): m.group(2) for m in re.finditer(r"^\[(\d+)\] [^\n]*\n\s+\S+\n\s+(.+)$", block or "", re.M)}
+    out, bad = answer or "", []
+    for m in list(_PERIOD.finditer(out)):
+        tok = m.group(1).lower()
+        v = int(tok) if tok.isdigit() else _WORD_VAL.get(tok)
+        marks = re.match(r"(?:[^\[\n]{0,150}?)((?:\s*\[\d+\])+)", out[m.end():])
+        if not v or not marks:
+            continue
+        cited = [n for n in re.findall(r"\d+", marks.group(1)) if len(snippets.get(n, "")) > 100]
+        if cited and not any(_has_value(snippets[n], v) for n in cited) and m.group(0) not in bad:
+            bad.append(m.group(0))
+    for b in bad:
+        out = out.replace(b, f"{b} [⚠ not in the cited source]", 1)
+    if bad:
+        import lex_safety
+        out = lex_safety.insert_before_tail(out, "**Source check:** " + ", ".join(f"“{b}”" for b in bad) + " could not be "
+                                            "found in the official text it cites — do not rely on it; check the provision "
+                                            "itself or ask a local lawyer.")
+    return out, len(bad)

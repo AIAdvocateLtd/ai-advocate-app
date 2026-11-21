@@ -2,6 +2,7 @@
 only when (1) the governing provision was retrieved from the official source in this research and its text contains
 the expected period, and (2) the customer gave an explicit trigger date. Output is always an ESTIMATE that needs
 confirmation — trigger-date evidence, regional holidays and exceptions are not verified by the app."""
+import os
 import re
 from datetime import date, timedelta
 from typing import List, Optional
@@ -58,11 +59,16 @@ _NUM = re.compile(r"\b(\d{1,2})[./-](\d{1,2})[./-](\d{4})\b|\b(\d{4})-(\d{2})-(\
 _TXT = re.compile(r"\b(\d{1,2})\.?\s*(?:de\s+)?(" + "|".join(sorted(MONTHS, key=len, reverse=True)) + r")\s+(?:de\s+)?(\d{4})\b", re.I)
 
 
+def calc_enabled() -> bool:
+    """Off unless LEX_NATIONAL_DEADLINE_CALC=on (to be set only after qualified review of RULES)."""
+    return os.environ.get("LEX_NATIONAL_DEADLINE_CALC") == "on"
+
+
 def explicit_dates(text: str) -> List[date]:
     out = []
     for m in _NUM.finditer(text or ""):
         try:
-            out.append(date(int(m[6]), int(m[5]), int(m[4])) if m[4] else date(int(m[3]), int(m[2]), int(m[1])))
+            out.append(date(int(m[4]), int(m[5]), int(m[6])) if m[4] else date(int(m[3]), int(m[2]), int(m[1])))
         except ValueError:
             pass
     for m in _TXT.finditer(text or ""):
@@ -71,6 +77,33 @@ def explicit_dates(text: str) -> List[date]:
         except ValueError:
             pass
     return out
+
+
+def _spans(text: str):
+    for rx, conv in ((_NUM, lambda m: date(int(m[4]), int(m[5]), int(m[6])) if m[4] else date(int(m[3]), int(m[2]), int(m[1]))),
+                     (_TXT, lambda m: date(int(m[3]), MONTHS[m[2].lower()], int(m[1])))):
+        for m in rx.finditer(text or ""):
+            try:
+                yield m.group(0), conv(m)
+            except (ValueError, KeyError):
+                pass
+
+
+def guard(answer: str, message: str) -> tuple:
+    """While calculation is switched off: remove any calendar date in the answer the customer did not give themselves."""
+    given = {d for _, d in _spans(message)}
+    out, n = answer or "", 0
+    for s, d in sorted(set(_spans(out)), key=lambda x: -len(x[0])):
+        if d not in given and s in out:
+            out, k = out.replace(s, "[⚠ date removed — not verified]"), out.count(s)
+            n += k
+    if n:
+        import lex_safety
+        out = lex_safety.insert_before_tail(out, "**Deadline date:** Lex does not yet calculate exact deadline dates for this "
+                                                 "country — the last day depends on when the notice was received and on rules "
+                                                 "that have not been professionally verified. Confirm it immediately with a "
+                                                 "local lawyer, union or the court.")
+    return out, n
 
 
 def _free(d: date, hol) -> bool:
@@ -108,6 +141,14 @@ def block(j: str, retrieved: List[dict], message: str, today: Optional[date] = N
         return (f"DEADLINE ({r['name']}): the official provision setting this time limit was not retrieved and checked "
                 "for this answer — do not state the period or any date as verified; tell the customer the limit is short "
                 "and to get advice immediately.")
+    quote = re.search(r["must"], src["text"], re.I).group(0)
+    if not calc_enabled():  # owner gate: no app-computed dates until the counting rules are professionally reviewed
+        return (f"DEADLINE ({r['name']}): the retrieved official text ({src['label']}) states the period “{quote}” — quote "
+                "and cite that wording. Lex's date calculation for this country is SWITCHED OFF pending qualified legal "
+                "review: do NOT work out, estimate or state any calendar end date (even if the customer gives dates), and "
+                "do not explain detailed counting, weekend/holiday or exception rules as checked. Say the time limit is "
+                "short, that the exact last day depends on when the notice was received and on rules Lex has not "
+                "verified, and that they must confirm it immediately with a local lawyer, union or the court.")
     head = (f"SOURCE-DRIVEN DEADLINE ({r['name']}): the retrieved official text ({src['label']}) states the period "
             f"(“{re.search(r['must'], src['text'], re.I).group(0)}”). Clock starts: {r['trigger']}. Counting rules: {r['rules']}. "
             f"Exceptions not reflected: {'; '.join(r['exceptions'])}.")

@@ -369,7 +369,16 @@ def test_deadline_arithmetic(j, trigger, expected, shifted):
     assert c["end"] == expected and bool(c["shifted_from"]) == shifted
 
 
-def test_deadline_estimate_only_with_retrieved_source_and_explicit_date():
+def test_deadline_dates_are_switched_off_by_default(monkeypatch):
+    monkeypatch.delenv("LEX_NATIONAL_DEADLINE_CALC", raising=False)
+    src = [{"j": "PL", "law": "DU/1974/141", "art": "264", "label": "Kodeks pracy — Art. 264", "text": "w ciągu 21 dni od dnia doręczenia"}]
+    note = D.block("PL", src, "Dostałem wypowiedzenie 3 marca 2026", _d(2026, 3, 10))
+    assert "SWITCHED OFF pending qualified legal review" in note and "“21 dni”" in note
+    assert "24/03/2026" not in note and "ESTIMATE" not in note and "art. 115" not in note
+
+
+def test_deadline_estimate_only_with_retrieved_source_and_explicit_date(monkeypatch):
+    monkeypatch.setenv("LEX_NATIONAL_DEADLINE_CALC", "on")
     src = [{"j": "PL", "law": "DU/1974/141", "art": "264", "label": "Kodeks pracy — Art. 264", "text": "w ciągu 21 dni od dnia doręczenia"}]
     est = D.block("PL", src, "Dostałem wypowiedzenie 3 marca 2026", _d(2026, 3, 10))
     assert "APP ESTIMATE, NOT A VERIFIED DATE" in est and "24/03/2026" in est and "art. 265" in est
@@ -379,10 +388,18 @@ def test_deadline_estimate_only_with_retrieved_source_and_explicit_date():
     assert "was not retrieved and checked" in D.block("PL", wrong, "3 marca 2026")
 
 
-def test_engine_adds_deadline_note_for_dismissal_with_official_text(no_ai):
+def test_engine_adds_deadline_note_for_dismissal_with_official_text(no_ai, monkeypatch):
+    monkeypatch.setenv("LEX_NATIONAL_DEADLINE_CALC", "on")
     out = run(G.research("Mein Arbeitgeber hat mir gekündigt, Zugang am 02.10.2026. Bis wann Klage?", "", "DE", paid_ok=False))
     note = next(n for n in out["notes"] if n.startswith("SOURCE-DRIVEN DEADLINE"))
     assert "23/10/2026" in note and "NOT A VERIFIED DATE" in note
+
+
+def test_engine_never_computes_dates_while_switched_off(no_ai, monkeypatch):
+    monkeypatch.delenv("LEX_NATIONAL_DEADLINE_CALC", raising=False)
+    out = run(G.research("Mein Arbeitgeber hat mir gekündigt, Zugang am 02.10.2026. Bis wann Klage?", "", "DE", paid_ok=False))
+    joined = " ".join(out["notes"])
+    assert "SWITCHED OFF" in joined and "23/10/2026" not in joined
 
 
 def test_family_inheritance_immigration_route_to_official_sources(no_ai):
@@ -400,3 +417,30 @@ def test_us_state_direct_official_text_for_texas(no_ai):
     out = run(G.research("My landlord in Texas won't return my security deposit", "", "US", paid_ok=False))
     assert any("tcss.legis.texas.gov" in s["url"] and "92.103" in s["title"] for s in out["sources"])
     assert not any("govinfo" in s["url"] for s in out["sources"])
+
+
+def test_unreviewed_dates_are_removed_from_answers_while_switched_off():
+    ans = "Masz 21 dni. Ostatni dzień to 24 marca 2026 (dostałeś pismo 3 marca 2026). Also 2026-03-24 and 24.03.2026."
+    out, n = D.guard(ans, "Wypowiedzenie doręczono mi 3 marca 2026")
+    assert n == 3 and "24 marca 2026" not in out and "24.03.2026" not in out and "3 marca 2026" in out
+    assert "does not yet calculate exact deadline dates" in out
+
+
+def test_deadline_gate_flag_reaches_the_answer_checks(no_ai, monkeypatch):
+    monkeypatch.delenv("LEX_NATIONAL_DEADLINE_CALC", raising=False)
+    out = run(G.research("Pracodawca mnie zwolnił 3 marca 2026, do kiedy odwołanie?", "", "PL", paid_ok=False))
+    assert out["meta"]["deadline_gate"] is True
+
+
+def test_periods_must_appear_in_the_cited_official_text():
+    blk = ("[1] Kodeks pracy — Art. 264\n    https://x#art-264\n    " + "Odwołanie wnosi się do sądu pracy w ciągu 21 dni od dnia "
+           "doręczenia pisma wypowiadającego umowę o pracę. " * 2 + "\n[2] KSchG § 4\n    https://y\n    " +
+           "Klage innerhalb von drei Wochen nach Zugang der schriftlichen Kündigung erheben. " * 2)
+    out, n = N.check_periods("Masz 7 dni [1]. Albo 21 dni [1]. Binnen 3 Wochen [2], nicht 4 Wochen [2].", blk)
+    assert n == 2 and "7 dni [⚠ not in the cited source]" in out and "4 Wochen [⚠" in out
+    assert "21 dni [⚠" not in out and "3 Wochen [⚠" not in out
+
+
+def test_polish_dismissal_wording_without_the_word_employer_is_recognised():
+    assert "dismissal" in N.topics("Wypowiedzenie doręczono mi 3 marca 2026. Jaki jest ostatni dzień na odwołanie?")
+    assert "dismissal" not in N.topics("Dostałem wypowiedzenie najmu mieszkania")

@@ -2094,6 +2094,13 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
         text, leg["national"] = await national_law.check_citations(text or "", citations)
     except Exception as e:
         logger.warning(f"national citation check failed (answer unchanged): {e!r}")
+    try:
+        text, leg["periods_flagged"] = national_law.check_periods(text or "", (research or {}).get("block") or "")
+    except Exception as e:
+        logger.warning(f"period check failed (answer unchanged): {e!r}")
+    if ((research or {}).get("global_research") or {}).get("deadline_gate"):
+        import national_deadlines
+        text, leg["national_dates_removed"] = national_deadlines.guard(text or "", message or "")
     g_notes, event_fixes = [], 0
     try:
         text, event_fixes = date_guard.guard_answer(text or "", (juris or {}).get("customer_text") or message)
