@@ -7,7 +7,7 @@ PERSONAL = "The Home Office refused my Skilled Worker visa last week. Do I quali
 GENERAL = "In general, what are the main requirements for a UK Skilled Worker visa?"
 OTHER = "My employer offered me a settlement agreement in England. What is it?"
 for tier in sys.argv[1:]:
-    em, pw = f"qa.{tier}.preview@aiadvocate.co.uk", f"QaPreview2026!{tier.rstrip('2')}"
+    em, pw = f"qa.{tier}.preview@aiadvocate.co.uk", f"QaPreview2026!{tier.rstrip('234')}"
     h = {"Authorization": "Bearer " + requests.post(f"{API}/api/auth/login", json={"email": em, "password": pw}).json()["access_token"]}
     print(tier, "actual tier:", requests.get(f"{API}/api/auth/me", headers=h).json().get("tier"))
     for name, q, cat in (("personal", PERSONAL, None), ("general", GENERAL, "immigration"), ("non-immigration", OTHER, None)):

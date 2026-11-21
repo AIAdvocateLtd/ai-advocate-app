@@ -4812,6 +4812,8 @@ async def analyze_contract(
         response, _flagged = content_guard.pop_marker(response)
         if _flagged:
             _ck.append("model_reported")
+        if immigration_scope.case_related(response, country):
+            response = immigration_scope.ANALYSIS_LIMIT
     except Exception as e:
         logger.exception("Contract analyze error")
         raise HTTPException(500, f"Analysis failed: {str(e)}")
@@ -4960,6 +4962,8 @@ async def analyze_recording(
         text=f"Here is the transcript of a legal interaction. Analyse it.\n\nTRANSCRIPT:\n{_tr}"
     ))
     analysis = await _security_notice(analysis, _tk, language, "recording")
+    if immigration_scope.case_related(f"{transcript}\n{analysis}", country):
+        analysis = immigration_scope.ANALYSIS_LIMIT
 
     rec = {
         "id": str(uuid.uuid4()),
@@ -6338,6 +6342,8 @@ async def analyze_evidence(
         try: os.unlink(tmp.name)
         except Exception: pass
     analysis = await _security_notice(analysis, _ek, language, "evidence")
+    if immigration_scope.case_related(f"{description}\n{analysis}", country):
+        analysis = immigration_scope.ANALYSIS_LIMIT
 
     doc = {
         "id": str(uuid.uuid4()),
@@ -8430,6 +8436,8 @@ Please:
     except Exception as e:
         raise HTTPException(500, f"Lex analysis failed: {str(e)}")
     analysis = await _security_notice(analysis, _vk, language, "video")
+    if immigration_scope.case_related(f"{transcript}\n{analysis}", country):
+        analysis = immigration_scope.ANALYSIS_LIMIT
 
     # Save evidence record
     ev_id = str(uuid.uuid4())
@@ -12264,11 +12272,17 @@ async def export_live_notes_pdf(session_id: str, user: dict = Depends(get_user))
 
 def _doc_imm_limit(parsed: dict, country: str):
     """UK immigration letters: explain what the letter says, but no drafted reply or case-specific steps."""
-    if parsed.get("category") == "immigration" and immigration_scope.applies("immigration", country):
+    blob = f"{parsed.get('summary') or ''}\n{parsed.get('suggested_response') or ''}"
+    if (parsed.get("category") == "immigration" and immigration_scope.applies("immigration", country)) or \
+            immigration_scope.case_related(blob, country):
+        parsed["summary"] = immigration_scope.strip(parsed.get("summary") or "")[0]
         parsed["suggested_response"] = immigration_scope.REFUSAL
         parsed["next_steps"] = ["Note any deadline in the letter and contact a regulated immigration adviser or "
                                 "solicitor straight away", "Official guidance: https://www.gov.uk/browse/visas-immigration",
                                 "Find an IAA-regulated adviser: https://www.gov.uk/find-an-immigration-adviser"]
+        parsed["next_steps"] = [f"Time limit mentioned: {d.get('label')} — ask a regulated adviser to confirm the exact date"
+                                for d in parsed.get("deadlines") or [] if d.get("label")][:3] + parsed["next_steps"]
+        parsed["deadlines"] = []
         parsed["immigration_general_only"] = True
 
 
@@ -13042,6 +13056,8 @@ If the document is NOT a contract, set contract_type=\"other\" and verdict_one_l
 """ + content_guard.RULES
     chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"contract-{uuid.uuid4()}", system_message=sysmsg)\
         .with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(max_tokens=2800)
+    if immigration_scope.case_related(extracted_text[:30000], country):
+        raise HTTPException(403, immigration_scope.REFUSAL)
     try:
         _ctext, _ckinds = content_guard.guard(extracted_text[:30000], "CONTRACT TEXT")
         resp = await chat.send_message(UserMessage(
@@ -13772,6 +13788,9 @@ Reply in {lang_name}. Return STRICT JSON:
     except Exception:
         analysis = {"summary": "(could not parse)", "key_points": [], "favourable_moments": [],
                     "unfavourable_moments": [], "next_actions": [], "follow_up_deadlines": []}
+    if immigration_scope.case_related(transcript or "", country):
+        analysis = {"summary": immigration_scope.ANALYSIS_LIMIT, "key_points": [], "favourable_moments": [],
+                    "unfavourable_moments": [], "next_actions": [], "follow_up_deadlines": [], "immigration_general_only": True}
 
     now = datetime.now(timezone.utc)
     doc = {
@@ -17033,6 +17052,9 @@ async def letters_counter_ladder(data: CounterLadderRequest, user: dict = Depend
     pub = user_to_public(user)
     if not pub.get("has_access"):
         raise HTTPException(402, "Subscription required.")
+    if data.category == "immigration" or immigration_scope.applies(
+            f"{data.received_letter_summary}\n{data.desired_outcome}\n{data.recipient}", user.get("country")):
+        raise HTTPException(403, immigration_scope.REFUSAL)
     await stage3.charge(user, pub["tier"], "letters_generate")
     lang_name = LANG_NAMES.get(data.language, "English")
     # Delimiter-based output is far more robust than nested JSON for long letter
@@ -17337,6 +17359,8 @@ async def witness_auto_draft(token: str, data: WitnessAutoDraftRequest):
 
     if not (data.bullet_points or "").strip() and not (inv.get("context_for_witness") or "").strip():
         raise HTTPException(400, "Need either your own notes OR the invite context to draft from.")
+    if immigration_scope.case_related(f"{data.bullet_points}\n{inv.get('context_for_witness') or ''}", "GB"):
+        raise HTTPException(403, immigration_scope.REFUSAL)
 
     lang_name = LANG_NAMES.get(data.language, "English")
     witness_name = data.witness_full_name or inv.get("witness_name") or "[Witness name]"

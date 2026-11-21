@@ -67,7 +67,24 @@ _PERSONAL = [re.compile(p, _I) for p in (
     r"\b(?:your|the) (?:application|appeal|claim|case) (?:is (?:likely|unlikely) to|will|would|should) (?:succeed|be "
     r"(?:granted|refused|successful|allowed|dismissed)|fail)\b",
     r"\byou have (?:a |an )?(?:very )?(?:strong|good|weak|reasonable|excellent|poor|realistic) (?:case|chance|claim|grounds|prospects)\b",
+    r"\b(?:in your (?:case|situation|circumstances)|based on (?:what you(?:'ve| have) (?:told|said|described|shared)|your "
+    r"(?:facts|circumstances|details|situation)))\b",
+    r"\b(?:right|best|suitable|ideal|safest|strongest) (?:route|visa|option|category|application) (?:for you|in your)\b",
+    r"\b(?:go for|opt for|choose|pick) (?:the |a |an )?[\w -]{0,30}(?:route|visa)(?: (?:now|first|instead))?[.!,]",
+    r"\bgives? you (?:the|a|your) (?:best|good|strong|better|realistic) (?:chance|prospects?|shot)\b",
+    r"\byour (?:chances|prospects)(?: of [\w ]{1,30})? (?:are|look|seem|would be)\b",
+    r"\b(?:that|this) (?:is|would be|looks like) (?:the|your) (?:way|route|option) to go\b",
 )]
+_ALLOWED_SITES = ("gov.uk", "lawsociety.org.uk", "legislation.gov.uk", "judiciary.uk", "barcouncil.org.uk",
+                  "barstandardsboard.org.uk", "sra.org.uk", "citizensadvice.org.uk")
+_SITE = re.compile(r"(?:https?://)?(?:www\.)?((?:[a-z0-9-]+\.)+(?:org\.uk|gov\.uk|co\.uk|org|com|net|uk))(?:/[^\s)\]]*)?", _I)
+
+
+def _drop_unverified_sites(text: str) -> str:
+    def sub(m):
+        host = m.group(1).lower()
+        return m.group(0) if any(host == a or host.endswith("." + a) for a in _ALLOWED_SITES) else "[adviser links below]"
+    return _SITE.sub(sub, text)
 _SENT = re.compile(r"(?<=[.!?])\s+")
 
 
@@ -78,8 +95,8 @@ def applies(text: str, country: Optional[str], category: Optional[str] = None) -
     return (country or "GB").strip().upper() in ("GB", "UK", "") or bool(_UK_ONLY.search(t))
 
 
-def enforce(answer: str) -> Tuple[str, int]:
-    """Removes sentences that assess the customer's own immigration position, then adds the signposting note."""
+def strip(answer: str) -> Tuple[str, int]:
+    """Removes sentences that assess the customer's own immigration position and unverified adviser websites."""
     lines, n = [], 0
     for line in (answer or "").split("\n"):
         keep = []
@@ -93,8 +110,28 @@ def enforce(answer: str) -> Tuple[str, int]:
             lines.append(new if keep else line)
         elif re.match(r"\s*(?:[-*•]|\d+[.)])\s*", line) is None:
             lines.append("")
-    out = "\n".join(lines)
+    return _drop_unverified_sites("\n".join(lines)), n
+
+
+def enforce(answer: str) -> Tuple[str, int]:
+    """strip() plus the fixed IAA signposting note."""
+    out, n = strip(answer)
     if "general information only" not in out:
         import lex_safety
         out = lex_safety.insert_before_tail(out, NOTE)
     return out, n
+
+
+_CASE = re.compile(
+    r"\b(the home office|home office (?:letter|decision|refus\w*|interview|caseworker|application)|ukvi|asylum|deport\w*|"
+    r"leave to remain|indefinite leave|immigration (?:tribunal|appeal|decision|officer|bail|detention|interview|"
+    r"application|status|enforcement|rules)|visa (?:refus\w*|application|appeal|decision|interview|curtail\w*)|"
+    r"immigration and asylum chamber|euss|eu settlement scheme|settled status|removal directions|biometric residence)\b", _I)
+ANALYSIS_LIMIT = ("This appears to concern a UK immigration matter, so AI Advocate cannot analyse it for your case, suggest "
+                  "arguments or next steps, or draft anything for it. " + REFUSAL)
+
+
+def case_related(text: str, country: Optional[str]) -> bool:
+    """Stricter check for document/recording tools: a UK immigration case or decision is in the material itself."""
+    t = text or ""
+    return bool(_CASE.search(t)) and ((country or "GB").strip().upper() in ("GB", "UK", "") or bool(_UK_ONLY.search(t)))
