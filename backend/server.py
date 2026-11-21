@@ -2100,7 +2100,9 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
         logger.warning(f"period check failed (answer unchanged): {e!r}")
     if ((research or {}).get("global_research") or {}).get("deadline_gate"):
         import national_deadlines
-        text, leg["national_dates_removed"] = national_deadlines.guard(text or "", message or "")
+        _off = {c.get("n") for c in research.get("citations") or [] if c.get("source") != "web"}
+        text, leg["national_dates_removed"] = national_deadlines.guard(
+            text or "", message or "", "\n".join(s.get("content") or "" for s in research.get("sources") or [] if s.get("n") in _off))
     g_notes, event_fixes = [], 0
     try:
         text, event_fixes = date_guard.guard_answer(text or "", (juris or {}).get("customer_text") or message)

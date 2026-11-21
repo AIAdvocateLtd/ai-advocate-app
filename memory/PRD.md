@@ -1235,3 +1235,11 @@ Production redeploy required. All env vars unchanged.
 - Tests: test_global_research.py 62 pass; all suites pass per file (evals/run_suites.sh); live evals/lex_reliability.py 8/8 PASS.
 - PRODUCTION DEPLOYED 2026-11-21 run 280594f1 (job c12aebe9): healthy, 0 startup errors, 0 lookup failures; legal_source_records 122 (DE33 ES27 PL25 IT23 US14); ES Código Civil OK; LEX_NATIONAL_DEADLINE_CALC / NYSENATE_API_KEY / LEGIFRANCE_* NOT set; monitoring OFF; law_watch_records 17; users 337, active subs 52. research_metrics=0 in prod at check time (no research-triggering Lex questions since deploy).
 - PREVIEW ONLY (next release): prewarm now also caches enabled US state provisions (TX/FL) — in prod they are fetched on first customer question.
+
+## 2026-06 — Owner decision + preview fixes (NOT yet deployed)
+- OWNER DECISION: full independent professional legal-review programme DEFERRED for budget. Do not commission reviewers. All safeguards stay; LEX_NATIONAL_DEADLINE_CALC stays OFF; nothing labelled professionally approved without review.
+- Fixed (preview): national date guard removed ALL non-customer dates incl. official enactment/commencement dates. Now keeps dates found in retrieved OFFICIAL source text (web sources excluded); unverified deadline dates still removed. Test: test_dates_in_retrieved_official_text_are_kept. Pro-tier eval: no computed dates, correct DE/PL periods.
+- Fixed (preview): Florida retrieval — flsenate.gov returns 500; falls back to official Florida Legislature Online Sunshine (leg.state.fl.us). Texas fetch works in preview (prod absence not reproducible in code).
+- Admin TOTP verified by existing tests (74 passed): admins cannot use email codes for 2FA; mandatory admin TOTP stays OFF until owner enrols.
+- Law-watch monitoring: activation requires owner's own admin sign-in + password (or email reauth code) via Admin panel → Automatic monitoring. Cron 06:00 Europe/London already configured, no-op until enabled.
+- Regulatory flag for owner: personalised UK immigration answers in a paid service may be "immigration advice" under s.84 Immigration and Asylum Act 1999 (OISC regulation) — disclaimers do not resolve this.

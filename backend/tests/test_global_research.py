@@ -426,6 +426,14 @@ def test_unreviewed_dates_are_removed_from_answers_while_switched_off():
     assert "does not yet calculate exact deadline dates" in out
 
 
+def test_dates_in_retrieved_official_text_are_kept():
+    src = "Ustawa z dnia 26 czerwca 1974 r. Kodeks pracy ... Kündigungsschutzgesetz vom 25. August 1969"
+    ans = "Kodeks pracy z dnia 26 czerwca 1974 r.; KSchG vom 25. August 1969. Ostatni dzień to 24 marca 2026."
+    out, n = D.guard(ans, "Zwolniono mnie", src)
+    assert n == 1 and "26 czerwca 1974" in out and "25. August 1969" in out and "24 marca 2026" not in out
+
+
+
 def test_deadline_gate_flag_reaches_the_answer_checks(no_ai, monkeypatch):
     monkeypatch.delenv("LEX_NATIONAL_DEADLINE_CALC", raising=False)
     out = run(G.research("Pracodawca mnie zwolnił 3 marca 2026, do kiedy odwołanie?", "", "PL", paid_ok=False))

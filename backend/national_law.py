@@ -395,16 +395,25 @@ async def _us_fl(c: httpx.AsyncClient, ref: dict) -> dict:
         url = f"https://www.flsenate.gov/Laws/Statutes/{y}/{ref['art']}"
         r = await c.get(url)
         if r.status_code == 200 and ref["art"] in r.text:
+            publisher = "Florida Senate"
             break
-    else:
-        raise RuntimeError(f"florida {r.status_code}")
+    else:  # Florida Legislature's Online Sunshine — same official statutes when flsenate.gov is down
+        ch, sec = ref["art"].split(".")
+        lo = int(ch) // 100 * 100
+        url = (f"https://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL={lo:04d}-{lo + 99:04d}/"
+               f"{int(ch):04d}/Sections/{int(ch):04d}.{sec}.html")
+        r = await c.get(url)
+        m = re.search(r"(\d{4}) Florida Statutes", r.text) if r.status_code == 200 else None
+        if not m or ref["art"] not in r.text:
+            raise RuntimeError(f"florida {r.status_code}")
+        y, publisher = m.group(1), "Florida Legislature, Online Sunshine"
     t = clean(r.text)
-    seg = _section(t, rf"{re.escape(ref['art'])}\s+[A-Z][^—]{{3,140}}—", r"History\.—|Note\.—", 6000)
+    seg = _section(t, rf"{re.escape(ref['art'])}\s+[A-Z][^—]{{3,140}}—", r"History\.\s?—|Note\.\s?—", 6000)
     if not seg:
         raise RuntimeError("section not found")
     head, _, body = seg.partition("—")
     return {"heading": head.strip(), "text": body.strip(), "url": url, "status": "in_force",
-            "version": f"Florida Statutes {y} edition (Florida Senate) — changes after that edition may not be included"}
+            "version": f"Florida Statutes {y} edition ({publisher}) — changes after that edition may not be included"}
 
 
 def ny_enabled() -> bool:

@@ -89,9 +89,10 @@ def _spans(text: str):
                 pass
 
 
-def guard(answer: str, message: str) -> tuple:
-    """While calculation is switched off: remove any calendar date in the answer the customer did not give themselves."""
-    given = {d for _, d in _spans(message)}
+def guard(answer: str, message: str, sources: str = "") -> tuple:
+    """While calculation is switched off: remove any calendar date the customer did not give and the retrieved official
+    sources do not contain (so commencement, enactment and judgment dates from those sources survive)."""
+    given = {d for _, d in _spans(f"{message}\n{sources}")}
     out, n = answer or "", 0
     for s, d in sorted(set(_spans(out)), key=lambda x: -len(x[0])):
         if d not in given and s in out:
