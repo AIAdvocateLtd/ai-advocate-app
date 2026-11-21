@@ -166,7 +166,7 @@ MISSING = {
 HELP = {
     "criminal": "free, independent legal advice at the police station is available in every UK nation — they can ask for the "
                 "duty solicitor at any time, and should not answer questions in an interview without advice",
-    "immigration": "an OISC-regulated immigration adviser or an immigration solicitor; legal aid may be available for asylum "
+    "immigration": "an adviser regulated by the Immigration Advice Authority (IAA, formerly OISC) or an immigration solicitor; legal aid may be available for asylum "
                    "and detention. If someone is detained or removal is imminent: a solicitor urgently (people in removal "
                    "centres can book free 30-minute legal advice through the Detention Duty Advice Scheme; a solicitor can make "
                    "an urgent out-of-hours injunction application to the High Court duty judge) and Bail for Immigration "

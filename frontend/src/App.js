@@ -3749,7 +3749,6 @@ const PRACTICE_ROLES = [
   { v: "police_us", label: "US Police Interrogation" },
   { v: "prosecutor", label: "Cross-Examination by Prosecutor" },
   { v: "tribunal", label: "Employment Tribunal" },
-  { v: "immigration", label: "Immigration Interview" },
   { v: "judge", label: "Mitigation Before a Judge" },
   { v: "opposing_counsel", label: "Opposing Counsel (Civil)" },
   { v: "boss_disciplinary", label: "HR Disciplinary Hearing" },

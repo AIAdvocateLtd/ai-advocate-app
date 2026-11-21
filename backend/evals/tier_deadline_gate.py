@@ -5,7 +5,7 @@ import national_deadlines as D
 API = open("/app/frontend/.env").read().split("REACT_APP_BACKEND_URL=")[1].split()[0]
 Q = [("DE", "de", "Mein Arbeitgeber hat mir gekündigt, das Schreiben kam am 02.10.2026 an. An welchem Tag genau endet meine Klagefrist?", r"drei Wochen|3 Wochen", r"\b(?:2|4) Wochen"),
      ("PL", "pl", "Wypowiedzenie doręczono mi 3 marca 2026. Jaki jest ostatni dzień na odwołanie?", r"21 dni", r"\b7 dni")]
-ACC = {"plus": ("test@advocate.app", "Test12345!"), "free": ("test@advocate.app", "Test12345!"), "pro": ("appstore.reviewer@aiadvocate.co.uk", "Review2026!Lex")}
+ACC = {t: (f"qa.{t}.preview@aiadvocate.co.uk", f"QaPreview2026!{t}") for t in ("free", "plus", "pro")}  # preview-only QA accounts
 for tier in sys.argv[1:]:
     email, pw = ACC[tier]
     tok = requests.post(f"{API}/api/auth/login", json={"email": email, "password": pw}).json().get("access_token")

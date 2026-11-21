@@ -83,6 +83,7 @@ import content_guard  # noqa: E402
 import high_stakes  # noqa: E402
 import legal_reasoning  # noqa: E402
 import law_watch  # noqa: E402
+import immigration_scope  # noqa: E402
 import account_security as acct  # noqa: E402
 import account_erasure  # noqa: E402
 import lex_output  # noqa: E402
@@ -1126,12 +1127,13 @@ CONVERSATION MEMORY (CRITICAL):
         "contract": "\n\nYou are now in CONTRACT REVIEW mode. Read the contract carefully. Flag: red-flag clauses, unfair terms, missing protections, technical jargon explained in plain language, negotiation suggestions.",
         "employment": "\n\nYou are now in EMPLOYMENT LAW mode. Focus: contracts, dismissal, discrimination, wages, working time, redundancy.",
         "property": "\n\nYou are now in PROPERTY LAW mode. Focus: tenancy, deposits, repairs, evictions, sale/purchase, neighbours.",
-        "immigration": "\n\nYou are now in IMMIGRATION & EXPAT mode. Focus: visas, residency, work permits, citizenship, deportation defence in the user's country.",
+        "immigration": "\n\nYou are now in IMMIGRATION & EXPAT mode. Focus: general information on visas, residency, work permits, citizenship and removal in the user's country. For UK immigration, general information only (see the UK IMMIGRATION rule).",
         "medical_negligence": "\n\nYou are now in MEDICAL NEGLIGENCE mode. Focus: standard of care, causation, limitation periods, evidence, complaints procedures.",
         "legal_letter": "\n\nYou are now drafting a FORMAL LEGAL LETTER. Use proper structure (sender, recipient, date, subject, body, sign-off). Be firm but professional. Reference the relevant law.",
         "record": "\n\nYou are reviewing a RECORDED LEGAL INTERACTION (police/court transcript). Flag: rights violations, leading questions, things the user should NOT have said, suggested follow-up actions.",
     }
-    return _today_uk_line() + _lessons_block() + base + addons.get(category, "") + LEX_PDF_INSTRUCTION + content_guard.RULES
+    return _today_uk_line() + _lessons_block() + base + addons.get(category, "") + immigration_scope.SHORT_RULE + \
+        LEX_PDF_INSTRUCTION + content_guard.RULES
 
 
 # Archived: no longer injected into prompts — these notes are now reviewable "law_note" items (fact_review.LAW_NOTES)
@@ -1153,7 +1155,7 @@ LEX_LAW_UPDATES = (
     "at least 12 months before applying, plus 5 years' UK residence and the absence limits. Exception: spouses/civil partners of "
     "British citizens can apply as soon as they get ILR (3 years' residence). Never tell someone to apply sooner than this. "
     "Refugees who arrived irregularly may face good-character refusals under Home Office guidance from February 2025 — flag this "
-    "and recommend a regulated immigration adviser (OISC or solicitor).\n"
+    "and recommend a regulated immigration adviser (Immigration Advice Authority, formerly OISC, or a solicitor).\n"
     "- Unpaid wages / unlawful deductions: the Wages Act 1986 was repealed in 1996 — never cite it as current law. The rules are "
     "in Part II of the Employment Rights Act 1996 (s.13 deductions; s.23 tribunal complaint).\n"
     "If you are unsure whether a rule has changed recently, say so and suggest checking GOV.UK.\n\n"
@@ -2164,6 +2166,10 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
                                                 "\n".join(f"- {n}" for n in lw_notes))
     except Exception as e:
         logger.warning(f"law-change check failed (answer unchanged): {e!r}")
+    imm_removed = None
+    if (juris or {}).get("uk_immigration") or immigration_scope.applies(
+            f"{(juris or {}).get('customer_text') or ''}\n{message}", (juris or {}).get("country")):
+        out, imm_removed = immigration_scope.enforce(out)
     named = {u.rstrip("/") for u in (leg or {}).get("urls", []) + official_guidance.named_urls(out)}
     citations[:] = [c for c in citations if c.get("claim_check") != "not_cited" or c.get("source") == "legislation"
                     or (c.get("url") or "").rstrip("/") in named]
@@ -2175,6 +2181,7 @@ async def _lex_finalize(text: str, citations: list, research: dict, risk: str, l
                           "notes": len(g_notes)},
         "legislation": leg, "high_stakes": hs_rep, "claims": claims_rep, "depth": (juris or {}).get("depth"),
         "law_watch_notes": len(lw_notes), "dates_restored": dates_rep, "ai_source_check": ai_rep,
+        "uk_immigration_removed": imm_removed,
         "claim_support": {k: sum(1 for c in rep.get("claim_support") or [] if c["status"] == k)
                           for k in ("source_supported", "uncertain", "unsupported", "unchecked")}}
 
@@ -2288,6 +2295,9 @@ async def lex_chat(data: ChatMessage, user: dict = Depends(get_user)):
         juris["country"] = data.country
         system_msg = system_msg + juris["block"] + high_stakes.prompt_block(
             _hs, bool(_juris_nation(juris) or user.get("jurisdiction")), data.country)
+        juris["uk_immigration"] = immigration_scope.applies(juris["customer_text"], data.country, data.category)
+        if juris["uk_immigration"]:
+            system_msg += immigration_scope.PROMPT
         _evidence = bool(data.doc_ids or data.case_id)
         juris["depth"] = legal_reasoning.depth(data.message, _ctx, _hs, _evidence)
         juris["evidence_text"] = _untrusted_block
@@ -2508,6 +2518,9 @@ async def lex_chat_stream(data: ChatMessage, user: dict = Depends(get_user)):
         juris["country"] = data.country
         system_msg = system_msg + juris["block"] + high_stakes.prompt_block(
             _hs, bool(_juris_nation(juris) or user.get("jurisdiction")), data.country)
+        juris["uk_immigration"] = immigration_scope.applies(juris["customer_text"], data.country, data.category)
+        if juris["uk_immigration"]:
+            system_msg += immigration_scope.PROMPT
         _evidence = bool(data.doc_ids or data.case_id)
         juris["depth"] = legal_reasoning.depth(data.message, _ctx, _hs, _evidence)
         juris["evidence_text"] = _untrusted_block
@@ -2729,6 +2742,7 @@ async def lex_taster(req: Request, data: TasterMessage):
     citations = research.get("citations") or []
     safety_ctx = (research.get("block") or "") + lex_safety.research_block(research["status"], risk, lex_safety.topics_of(text)) \
         + juris.get("block", "") + high_stakes.prompt_block(_hs, bool(_juris_nation(juris)), data.country) \
+        + (immigration_scope.PROMPT if immigration_scope.applies(text, data.country) else "") \
         + legal_reasoning.prompt_block(legal_reasoning.depth(text, "", _hs, False), False, high_stakes.is_high(_hs)) \
         + _fact_pack_block(text, "") + lex_guidance.block(text, "", _juris_nation(juris), None, data.country) \
         + (NO_CALC_BLOCK if _DEADLINE_CALC_HINT_RE.search(text) else "")
@@ -3007,6 +3021,8 @@ async def lex_practice(data: PracticeRequest, user: dict = Depends(get_user)):
     role_prompt = PRACTICE_ROLES.get(data.role)
     if not role_prompt:
         raise HTTPException(400, "Unknown practice role")
+    if data.role in immigration_scope.BLOCKED_PRACTICE:
+        raise HTTPException(403, immigration_scope.REFUSAL)
     await stage3.charge(user, pub["tier"], "lex_chat")
 
     lang_name = LANG_NAMES.get(data.language, "English")
@@ -3124,6 +3140,8 @@ async def lex_outcome_ladder(data: StrategicHelperRequest, user: dict = Depends(
     exchange = await _last_lex_exchange(user["id"], data.session_id)
     if not exchange:
         raise HTTPException(404, "No recent Lex conversation in this session to analyse")
+    if immigration_scope.applies(f"{exchange.get('user_message') or ''}\n{exchange.get('assistant_response') or ''}", data.country):
+        raise HTTPException(403, immigration_scope.REFUSAL)
     await stage3.charge(user, user_to_public(user)["tier"], "lex_chat")
 
     lang_name = LANG_NAMES.get(data.language, "English")
@@ -3215,6 +3233,8 @@ async def lex_do_nothing_sim(data: DoNothingRequest, user: dict = Depends(get_us
         source_text = (existing.get("text") or "")[:30000]
     if not source_text:
         raise HTTPException(400, "Provide either `doc_id` or `text`")
+    if immigration_scope.applies(source_text, data.country):
+        raise HTTPException(403, immigration_scope.REFUSAL)
     await stage3.charge(user, user_to_public(user)["tier"], "lex_chat")
 
     lang_name = LANG_NAMES.get(data.language, "English")
@@ -3385,6 +3405,8 @@ async def lex_devil_advocate(data: StrategicHelperRequest, user: dict = Depends(
     exchange = await _last_lex_exchange(user["id"], data.session_id)
     if not exchange:
         raise HTTPException(404, "No recent Lex conversation in this session to analyse")
+    if immigration_scope.applies(f"{exchange.get('user_message') or ''}\n{exchange.get('assistant_response') or ''}", data.country):
+        raise HTTPException(403, immigration_scope.REFUSAL)
     await stage3.charge(user, user_to_public(user)["tier"], "lex_chat")
 
     lang_name = LANG_NAMES.get(data.language, "English")
@@ -3454,6 +3476,8 @@ async def lex_live_assist(data: LiveAssistRequest, user: dict = Depends(get_user
     pub = user_to_public(user)
     if not tier_has_access(pub["tier"], "live_assist"):
         raise HTTPException(402, "Live Legal Assist requires Pro. Upgrade to unlock.")
+    if immigration_scope.applies(f"{data.other_party_said}\n{data.my_facts or ''}", data.country):
+        raise HTTPException(403, immigration_scope.REFUSAL)
 
     # Daily session cap — only count when starting a NEW session (session_id is None)
     if not data.session_id:
@@ -4247,7 +4271,7 @@ LETTER_TEMPLATES = [
 
 @api_router.get("/letters/templates")
 async def list_letter_templates():
-    return LETTER_TEMPLATES
+    return [t for t in LETTER_TEMPLATES if t["id"] not in immigration_scope.BLOCKED_TEMPLATES]
 
 
 # ==================== Legal Terms (multilingual, AI-translated + cached) ====================
@@ -4622,6 +4646,9 @@ async def generate_from_template(data: LetterFromTemplate, user: dict = Depends(
     tpl = next((t for t in LETTER_TEMPLATES if t["id"] == data.template_id), None)
     if not tpl:
         raise HTTPException(400, "Unknown template")
+    if tpl["id"] in immigration_scope.BLOCKED_TEMPLATES or \
+            immigration_scope.applies(f"{data.recipient}\n{data.facts}", data.country):
+        raise HTTPException(403, immigration_scope.REFUSAL)
     # Premium templates are Pro-only
     if tpl.get("premium") and not tier_has_access(tier, "premium_templates"):
         raise HTTPException(402, "This premium template requires Pro. Upgrade to unlock.")
@@ -4825,6 +4852,8 @@ async def generate_letter(data: LegalLetterRequest, user: dict = Depends(get_use
     pub = user_to_public(user)
     if not pub.get("has_access"):
         raise HTTPException(402, "Subscription required.")
+    if immigration_scope.applies(f"{data.letter_type}\n{data.recipient}\n{data.details}", user.get("country")):
+        raise HTTPException(403, immigration_scope.REFUSAL)
     _letter_juris = lex_safety.assess_jurisdiction(data.details or "", "", user.get("jurisdiction"), user.get("country"), None)
     _letter_research = {"status": "unavailable", "citations": [], "block": ""}
     try:
@@ -12233,6 +12262,16 @@ async def export_live_notes_pdf(session_id: str, user: dict = Depends(get_user))
 # council tax demand, employment letter, etc.) — Lex categorises it and drafts
 # an appropriate response in one call.
 
+def _doc_imm_limit(parsed: dict, country: str):
+    """UK immigration letters: explain what the letter says, but no drafted reply or case-specific steps."""
+    if parsed.get("category") == "immigration" and immigration_scope.applies("immigration", country):
+        parsed["suggested_response"] = immigration_scope.REFUSAL
+        parsed["next_steps"] = ["Note any deadline in the letter and contact a regulated immigration adviser or "
+                                "solicitor straight away", "Official guidance: https://www.gov.uk/browse/visas-immigration",
+                                "Find an IAA-regulated adviser: https://www.gov.uk/find-an-immigration-adviser"]
+        parsed["immigration_general_only"] = True
+
+
 class DocAnalyzeResponse(BaseModel):
     category: str
     summary: str
@@ -12300,6 +12339,7 @@ If the document is NOT a legal/official letter, set category=\"other\", severity
                 })
             except Exception:
                 pass
+    _doc_imm_limit(parsed, country)
     parsed["case_id"] = case_id
     return parsed
 
@@ -12444,6 +12484,7 @@ If the document is NOT a legal/official letter, set category=\"other\", severity
                 })
             except Exception:
                 pass
+    _doc_imm_limit(parsed, country)
     parsed["case_id"] = case_id
     return parsed
 
@@ -13495,6 +13536,8 @@ async def outcome_predict(data: OutcomePredictRequest, user: dict = Depends(get_
         raise HTTPException(402, "Outcome Predictor requires Pro. Upgrade to unlock.")
     if not data.case_summary or len(data.case_summary) < 20:
         raise HTTPException(400, "Please provide more detail (at least 20 chars)")
+    if immigration_scope.applies(data.case_summary, data.country, data.category):
+        raise HTTPException(403, immigration_scope.REFUSAL)
     await stage3.charge(user, pub["tier"], "doc_analyze")
     lang_name = LANG_NAMES.get(data.language, "English")
     sysmsg = f"""You are AI Advocate's outcome predictor. The user is in {data.country}.

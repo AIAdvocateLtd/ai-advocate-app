@@ -1243,3 +1243,9 @@ Production redeploy required. All env vars unchanged.
 - Admin TOTP verified by existing tests (74 passed): admins cannot use email codes for 2FA; mandatory admin TOTP stays OFF until owner enrols.
 - Law-watch monitoring: activation requires owner's own admin sign-in + password (or email reauth code) via Admin panel → Automatic monitoring. Cron 06:00 Europe/London already configured, no-op until enabled.
 - Regulatory flag for owner: personalised UK immigration answers in a paid service may be "immigration advice" under s.84 Immigration and Asylum Act 1999 (OISC regulation) — disclaimers do not resolve this.
+
+## 2026-06 — UK immigration scope limit (preview, awaiting owner deploy approval)
+- New backend/immigration_scope.py: UK immigration = general information only (no eligibility findings, route/strategy, refusal/appeal advice, representations). Prompt rule + deterministic removal of individual-determination sentences + IAA signposting note (Ask Lex chat/stream/taster).
+- Refused (403 + IAA signposting) for UK immigration matters: Home Office representations + asylum statement letter templates (hidden from list), custom/legal letters, Practice "Immigration Interview" (removed from UI), outcome ladder, devil's advocate, do-nothing sim, live assist, outcome predictor. Document analyser keeps the explanation, replaces drafted reply.
+- Tests: tests/test_immigration_scope.py; live evals evals/immigration_scope_live.py, evals/tier_deadline_gate.py (preview QA accounts).
+- Combined release pending: date-guard fix + Florida fallback + immigration limit.
