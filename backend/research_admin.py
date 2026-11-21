@@ -32,6 +32,11 @@ def coverage_register() -> list:
             import legal_research
             topics, n = [t[0] for t in legal_research.TOPICS], sum(len(t[2]) for t in legal_research.TOPICS)
         rows.append({"code": j, "name": name, "coverage": c, "sources": src, "mapped_topics": topics, "mapped_provisions": n})
+    for st, name in (("TX", "Texas"), ("FL", "Florida"), ("NY", "New York")):
+        on = national_law.state_enabled(st)
+        rows.append({"code": f"US-{st}", "name": f"{name} (US state)", "coverage": "verified" if on else "official_site_search",
+                     "sources": national_law.SOURCE_NAME[f"US-{st}"] + ("" if on else " — waiting for NYSENATE_API_KEY"),
+                     "mapped_topics": sorted(national_law.STATE_MAP[st]), "mapped_provisions": sum(len(v) for v in national_law.STATE_MAP[st].values())})
     return rows
 
 
@@ -74,7 +79,10 @@ def build_router(db, require_admin) -> APIRouter:
                                              {"$group": {"_id": None, "n": {"$sum": 1}, "gbp": {"$sum": "$cost_gbp"}}}]).to_list(1)
         tav = await db.llm_usage.aggregate([{"$match": {"ts": {"$gte": since.isoformat()}, "provider": "tavily"}},
                                             {"$group": {"_id": "$status", "n": {"$sum": 1}, "gbp": {"$sum": "$cost_gbp"}}}]).to_list(5)
+        answers = sum(b["questions"] for b in by_j.values()) or 1
+        research_gbp = (disc[0]["gbp"] if disc else 0) + sum((row["gbp"] or 0) for row in tav)
         return {"days": days, "by_jurisdiction": by_j, "ai_cost_per_answer_by_tier": cost,
+                "estimated_research_cost_per_answer_gbp": round(research_gbp / answers, 5),
                 "ai_discovery": {"calls": disc[0]["n"] if disc else 0, "cost_gbp": round(disc[0]["gbp"], 4) if disc else 0},
                 "tavily": {row["_id"]: {"calls": row["n"], "cost_gbp": round(row["gbp"] or 0, 4)} for row in tav},
                 "source_changes_awaiting_review": await db.legal_source_changes.count_documents({"status": "needs_review"}),

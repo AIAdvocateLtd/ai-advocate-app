@@ -56,7 +56,8 @@ def test_coverage_register_is_honest(monkeypatch):
     assert {j: G.coverage(j) for j in ("GB", "DE", "ES", "IT", "PL", "US")} == dict.fromkeys(
         ("GB", "DE", "ES", "IT", "PL", "US"), "verified")
     assert G.coverage("FR") == "official_site_search"  # Légifrance keys not yet supplied
-    assert G.coverage("PT") == "official_site_search" and G.coverage("US", "TX") == "official_site_search"
+    assert G.coverage("PT") == "official_site_search" and G.coverage("US", "OH") == "official_site_search"
+    assert G.coverage("US", "TX") == "verified" and G.coverage("US", "FL") == "verified"  # direct official state sources
     assert G.coverage("IQ") == "general_only" and G.coverage("CN") == "general_only"
 
 
@@ -141,11 +142,11 @@ def test_cross_border_keeps_systems_separate(no_ai):
 
 
 def test_us_state_question_never_answered_with_federal_law(no_ai):
-    out = run(G.research("My landlord in Texas won't return my security deposit", "", "US", paid_ok=False))
+    out = run(G.research("My landlord in Ohio won't return my security deposit", "", "US", paid_ok=False))
     assert not out["sources"]
     note = " ".join(out["notes"])
-    assert "Texas" in note and "Federal law does NOT answer a state-law question" in note
-    assert "could NOT retrieve Texas legislation" in note
+    assert "Ohio" in note and "Federal law does NOT answer a state-law question" in note
+    assert "could NOT retrieve Ohio legislation" in note
 
 
 def test_us_state_unknown_asks_for_state(no_ai):
@@ -327,7 +328,75 @@ def test_german_source_outage_falls_back_to_federal_neuris_service():
         r = run(N.read(N.R("DE", "kschg", "4", "KSchG"), wait=60))
         assert not r.get("failed") and "rechtsinformationen.bund.de" in r["url"] and "drei Wochen" in r["text"]
         b = run(N.read(N.R("DE", "bgb", "573", "BGB"), wait=60))
-        assert b.get("failed") and "not yet included" in b["error"]  # BGB not on NeuRIS yet: fails honestly
+        assert not b.get("failed") and "official XML from gesetze-im-internet.de" in b["version"]  # BGB not on NeuRIS: bundled copy
     finally:
         N._gii_down[0] = 0
         N._cache.clear()
+
+
+def test_german_civil_code_served_from_bundled_official_download_when_live_sources_fail(monkeypatch):
+    N._cache.clear()
+    N._gii_down[0] = time.time() + 600
+
+    async def neuris_down(c, ref):
+        raise RuntimeError("law not found on NeuRIS")
+    monkeypatch.setattr(N, "_de_neuris", neuris_down)
+    try:
+        r = run(N.read(N.R("DE", "bgb", "573c", "BGB"), wait=60))
+        assert not r.get("failed") and "dritten Werktag" in r["text"]
+        assert "official XML from gesetze-im-internet.de" in r["version"] and "newer changes cannot be ruled out" in r["version"]
+        assert run(N.read(N.R("DE", "bgb", "99999", "BGB"), wait=30)).get("failed")  # absent provision still rejected
+    finally:
+        N._gii_down[0] = 0
+        N._cache.clear()
+
+
+# ---------- source-driven national deadlines ----------
+import national_deadlines as D
+from datetime import date as _d
+
+
+@pytest.mark.parametrize("j,trigger,expected,shifted", [
+    ("PL", _d(2026, 3, 3), _d(2026, 3, 24), False),
+    ("PL", _d(2026, 10, 10), _d(2026, 11, 2), True),   # 31 Oct is Saturday, 1 Nov holiday/Sunday
+    ("DE", _d(2026, 10, 2), _d(2026, 10, 23), False),  # same weekday three weeks later (§ 188(2) BGB)
+    ("DE", _d(2025, 12, 4), _d(2025, 12, 29), True),   # 25/26 Dec holidays, then weekend (§ 193 BGB)
+    ("ES", _d(2026, 12, 1), _d(2026, 12, 31), False),  # 20 días hábiles, 8 and 25 Dec excluded
+    ("IT", _d(2026, 3, 2), _d(2026, 5, 1), False),
+])
+def test_deadline_arithmetic(j, trigger, expected, shifted):
+    c = D.compute(j, trigger)
+    assert c["end"] == expected and bool(c["shifted_from"]) == shifted
+
+
+def test_deadline_estimate_only_with_retrieved_source_and_explicit_date():
+    src = [{"j": "PL", "law": "DU/1974/141", "art": "264", "label": "Kodeks pracy — Art. 264", "text": "w ciągu 21 dni od dnia doręczenia"}]
+    est = D.block("PL", src, "Dostałem wypowiedzenie 3 marca 2026", _d(2026, 3, 10))
+    assert "APP ESTIMATE, NOT A VERIFIED DATE" in est and "24/03/2026" in est and "art. 265" in est
+    assert "do NOT give a calendar date" in D.block("PL", src, "Dostałem wypowiedzenie w zeszłym tygodniu")
+    assert "was not retrieved" in D.block("PL", [], "3 marca 2026")
+    wrong = [{**src[0], "text": "w ciągu 7 dni"}]  # source text does not contain the expected period
+    assert "was not retrieved and checked" in D.block("PL", wrong, "3 marca 2026")
+
+
+def test_engine_adds_deadline_note_for_dismissal_with_official_text(no_ai):
+    out = run(G.research("Mein Arbeitgeber hat mir gekündigt, Zugang am 02.10.2026. Bis wann Klage?", "", "DE", paid_ok=False))
+    note = next(n for n in out["notes"] if n.startswith("SOURCE-DRIVEN DEADLINE"))
+    assert "23/10/2026" in note and "NOT A VERIFIED DATE" in note
+
+
+def test_family_inheritance_immigration_route_to_official_sources(no_ai):
+    cases = [("Wir lassen uns scheiden, wie lange muss das Trennungsjahr sein?", "DE", "1566"),
+             ("Mi padre murió, ¿qué parte de la herencia es la legítima?", "ES", "808"),
+             ("Chcę odrzucić spadek, ile mam czasu?", "PL", "1015"),
+             ("Come ottengo il permesso di soggiorno di lungo periodo?", "IT", "Art. 9"),
+             ("Can I apply for asylum after one year in the US?", "US", "1158")]
+    for q, c, must in cases:
+        out = run(G.research(q, "", c, paid_ok=False))
+        assert any(must in s["title"] for s in out["sources"]), (q, [s["title"][:60] for s in out["sources"]])
+
+
+def test_us_state_direct_official_text_for_texas(no_ai):
+    out = run(G.research("My landlord in Texas won't return my security deposit", "", "US", paid_ok=False))
+    assert any("tcss.legis.texas.gov" in s["url"] and "92.103" in s["title"] for s in out["sources"])
+    assert not any("govinfo" in s["url"] for s in out["sources"])

@@ -31,6 +31,7 @@ const Health = ({ h }) => (
     {Object.entries(h.ai_cost_per_answer_by_tier).map(([t, c]) => (
       <div key={t} style={row} data-testid={`research-cost-${t}`}><span>AI cost per answer · {t}</span><span style={dim}>£{c.avg_cost_gbp_per_answer} ({c.answers} answers)</span></div>
     ))}
+    <div style={row}><span>Research cost per answer (AI step + web search)</span><span style={dim} data-testid="research-cost-per-answer">£{h.estimated_research_cost_per_answer_gbp}</span></div>
     <div style={row}><span>AI research step</span><span style={dim} data-testid="research-ai-discovery-cost">{h.ai_discovery.calls} calls · £{h.ai_discovery.cost_gbp}</span></div>
   </div>
 );

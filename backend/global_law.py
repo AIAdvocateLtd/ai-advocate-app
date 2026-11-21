@@ -113,7 +113,7 @@ def _put(k, v, ttl):
 def coverage(j: str, state: Optional[str] = None) -> str:
     """verified | official_site_search | general_only — what Lex can actually check for this jurisdiction."""
     if j == "US" and state:
-        return "official_site_search"
+        return "verified" if N.state_enabled(state) else "official_site_search"
     if j == "FR":
         return "verified" if N.france_enabled() else "official_site_search"
     if j in ("GB", "DE", "ES", "IT", "PL", "US"):
@@ -318,7 +318,8 @@ def _as_source(r: dict, j: str, how: str) -> dict:
              "exist on the official database — relevance to these facts not confirmed"}[how]
     src = "legislation.gov.uk" if j == "GB" else N.SOURCE_NAME.get(j, "official source")
     ext = f"; territorial extent: {r['extent']}" if r.get("extent") else ""
-    law = "US federal law" if j == "US" else "UK legislation" if j == "GB" else f"{NAMES.get(j, j)} national law"
+    law = "US federal law" if j == "US" else "UK legislation" if j == "GB" else \
+        f"{STATES[j[3:]][0]} state law" if j.startswith("US-") else f"{NAMES.get(j, j)} national law"
     return {"title": f"{r['label']} ({law} — official text from {src}; {found}; status: {status}; "
                      f"{r.get('version', '')}{ext}; retrieved in the original language)",
             "url": r["url"], "content": r.get("text", ""), "national": j}
@@ -367,6 +368,8 @@ def _notes(plan: dict, cov: Dict[str, str], got: Dict[str, int], site: dict, ai:
         if j == "US" and st and plan.get("state_issue"):
             n = got.get("US-state", 0)
             lines.append(f"US STATE LAW ({STATES[st][0]}): " + (
+                f"{n} provision(s) retrieved from the official {STATES[st][0]} statute source (listed above) — cite them; "
+                "this does not confirm your interpretation." if n and N.state_enabled(st) else
                 f"{n} result(s) found on the official {STATES[st][0]} legislature site — use them only as labelled; their "
                 "currency is not confirmed." if n else
                 f"Lex could NOT retrieve {STATES[st][0]} legislation for this answer.") +
@@ -425,10 +428,12 @@ async def research(message: str, context: str, selected: str, db=None, paid_ok: 
     for j in want:
         if j == "US":
             det += [r for r in N.pick("US", text) if r["topic"] not in N.US_STATE_TOPICS]  # federal points only
+            if st and state_issue:
+                det += N.pick_state(st, text)  # official state statute text where a direct source exists
         elif cov[j] == "verified":
             det += N.pick(j, text)
     meta["det_refs"] = len(det)
-    sources, got, ai = [], {}, None
+    sources, got, ai, checked = [], {}, None, []
     needs_ai = any(cov[j] == "verified" and not any(r["j"] == j for r in det) and not (j == "US" and state_issue)
                    for j in want) or any(cov[j] == "official_site_search" and not topics for j in want) or uk_ai
     use_ai = needs_ai and await _discovery_enabled(db)
@@ -440,7 +445,8 @@ async def research(message: str, context: str, selected: str, db=None, paid_ok: 
     for r in det_res:
         if not r.get("failed"):
             sources.append(_as_source(r, r["j"], "topic"))
-            got[r["j"]] = got.get(r["j"], 0) + 1
+            k = "US-state" if r["j"].startswith("US-") else r["j"]
+            got[k] = got.get(k, 0) + 1
     meta["det_ok"] = sum(got.values())
     meta["ai_used"] = use_ai
     if ai:
@@ -461,7 +467,7 @@ async def research(message: str, context: str, selected: str, db=None, paid_ok: 
                 meta["ai_verified"] += 1
     for j in want:
         jst = st if j == "US" else None
-        if j == "US" and not (jst and state_issue):
+        if j == "US" and (not (jst and state_issue) or got.get("US-state")):
             continue
         if coverage(j, jst) == "general_only" or (coverage(j, jst) == "verified" and got.get(j)):
             continue
@@ -481,10 +487,18 @@ async def research(message: str, context: str, selected: str, db=None, paid_ok: 
             k = "US-state" if jst else j
             got[k] = got.get(k, 0) + 1
     plan["state_issue"] = state_issue
+    extra_notes = []
+    if "dismissal" in topics:
+        import national_deadlines
+        retrieved = list(det_res) + [r for r in checked if r]
+        for j in want:
+            if j in national_deadlines.RULES:
+                extra_notes.append(national_deadlines.block(j, retrieved, message, datetime.now(timezone.utc).date()))
     notes = _notes(plan, cov, got, meta["site"], ai) if want else (
         ["UK PROVISIONS FROM THE AI RESEARCH STEP: the topic map had no match, so an AI step suggested the UK provisions "
          "listed above; each was confirmed to exist on legislation.gov.uk and its wording retrieved. Use them only if they "
          "actually fit the customer's facts."] if got.get("GB") else [])
+    notes += [x for x in extra_notes if x]
     meta["latency_ms"] = int((time.monotonic() - t0) * 1000)
     meta["sources"] = len(sources)
     return {"plan": plan, "sources": sources, "notes": notes, "national_ok": got, "tavily_calls": meta["tavily_calls"],

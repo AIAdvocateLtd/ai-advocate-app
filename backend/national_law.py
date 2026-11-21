@@ -57,12 +57,61 @@ _gii_down = [0.0]  # gesetze-im-internet.de unreachable until this time -> go st
 
 
 async def _de(c: httpx.AsyncClient, ref: dict) -> dict:
+    """gesetze-im-internet.de live -> NeuRIS (federal, test phase) -> bundled official XML download."""
     if time.time() > _gii_down[0]:
         try:
             return await _de_gii(c, ref)
         except (httpx.ConnectTimeout, httpx.ConnectError, httpx.ReadTimeout):
             _gii_down[0] = time.time() + 600
-    return await _de_neuris(c, ref)
+    try:
+        return await _de_neuris(c, ref)
+    except Exception as e:
+        bundled = _de_bundle(ref)
+        if bundled:
+            return bundled
+        raise e
+
+
+BUNDLE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "de")
+_bundles: Dict[str, dict] = {}
+
+
+def _de_bundle(ref: dict) -> Optional[dict]:
+    """Official XML from gesetze-im-internet.de, downloaded in preview and shipped with each release
+    (scripts_refresh_de_official.py). Used only when the live sources cannot be reached."""
+    slug = ref["law"].lower().split("_")[0]
+    if slug not in _bundles:
+        path = os.path.join(BUNDLE_DIR, f"{slug}.xml.zip")
+        if not os.path.exists(path):
+            _bundles[slug] = {}
+        else:
+            import zipfile
+            with zipfile.ZipFile(path) as z:
+                x = z.read(z.namelist()[0]).decode("utf-8")
+            stand = re.search(r"<standtyp>Stand</standtyp><standkommentar>(.*?)</standkommentar>", x)
+            build = re.search(r'builddate="(\d{8})', x)
+            norms = {}
+            for m in re.finditer(r"<norm\b.*?</norm>", x, re.S):
+                e = re.search(r"<enbez>(.*?)</enbez>", m.group(0))
+                if e:
+                    t = re.search(r"<titel[^>]*>(.*?)</titel>", m.group(0), re.S)
+                    body = re.search(r"<text[^>]*>(.*?)</text>", m.group(0), re.S)
+                    norms[clean(e.group(1))] = (clean(t.group(1)) if t else "", clean(body.group(1)) if body else "")
+            b = build.group(1) if build else ""
+            _bundles[slug] = {"norms": norms, "stand": clean(stand.group(1)) if stand else "",
+                              "built": f"{b[6:8]}/{b[4:6]}/{b[:4]}" if b else "", "built_raw": b}
+    doc = _bundles[slug]
+    hit = (doc.get("norms") or {}).get(f"§ {ref['art']}") or (doc.get("norms") or {}).get(f"Art {ref['art']}")
+    if not hit:
+        return None
+    age = (time.time() - time.mktime(time.strptime(doc["built_raw"], "%Y%m%d"))) / 86400 if doc.get("built_raw") else 999
+    warn = f"; WARNING: this copy is {int(age)} days old — later amendments may be missing" if age > 30 else ""
+    head, text = hit
+    return {"heading": f"§ {ref['art']} {head}".strip(), "text": text,
+            "url": f"https://www.gesetze-im-internet.de/{ref['law']}/__{ref['art']}.html",
+            "status": "repealed" if re.search(r"\(weggefallen\)|\(aufgehoben\)", head + text[:40]) else "in_force",
+            "version": f"official XML from gesetze-im-internet.de as published {doc['built']} ({doc['stand']}); the live site "
+                       f"could not be reached, so newer changes cannot be ruled out{warn}"}
 
 
 async def _de_neuris(c: httpx.AsyncClient, ref: dict) -> dict:
@@ -120,7 +169,10 @@ def _boe_date(d: str) -> str:
 
 async def _es(c: httpx.AsyncClient, ref: dict) -> dict:
     api = "https://www.boe.es/datosabiertos/api/legislacion-consolidada/id/" + ref["law"]
-    r = await c.get(f"{api}/texto/bloque/a{ref['art']}", headers={"Accept": "application/xml"})
+    for blk in (f"a{ref['art']}", f"art{ref['art']}"):  # block ids differ between acts (the Código Civil uses 'art86')
+        r = await c.get(f"{api}/texto/bloque/{blk}", headers={"Accept": "application/xml"})
+        if r.status_code == 200:
+            break
     if r.status_code != 200:
         raise RuntimeError(f"boe {r.status_code}")
     versions = re.findall(r'<version id_norma="([^"]+)"[^>]*fecha_vigencia="(\d*)"[^>]*>(.*?)</version>', r.text, re.S)
@@ -308,10 +360,78 @@ async def _us(c: httpx.AsyncClient, ref: dict) -> dict:
             "version": f"eCFR, up to date as of {day} (official editorial compilation)"}
 
 
-CONNECTORS = {"DE": _de, "ES": _es, "IT": _it, "PL": _pl, "FR": _fr, "US": _us}
+def _section(t: str, start_rx: str, next_rx: str, cap: int = 6000) -> Optional[str]:
+    m = re.search(start_rx, t)
+    if not m:
+        return None
+    nxt = re.search(next_rx, t[m.end():])
+    return t[m.start(): m.end() + (nxt.start() if nxt else cap)]
+
+
+async def _us_tx(c: httpx.AsyncClient, ref: dict) -> dict:
+    """Texas Legislature's official statute files (tcss.legis.texas.gov), one HTML file per code chapter."""
+    chapter = ref["art"].split(".")[0]
+    url = f"https://tcss.legis.texas.gov/resources/{ref['law']}/htm/{ref['law']}.{chapter}.htm"
+    key = f"tx:{url}"
+    t = _get(key)
+    if t is None:
+        r = await c.get(url)
+        if r.status_code != 200:
+            raise RuntimeError(f"texas {r.status_code}")
+        t = _put(key, clean(r.text), DOC_TTL)
+    seg = _section(t, rf"Sec\. {re.escape(ref['art'])}\. ", r"\sSec\. \d+[A-Z]?\.\d+[A-Z]?\. ")
+    if not seg:
+        raise RuntimeError("section not found")
+    head = re.match(r"Sec\. \S+ [A-Z0-9 ,;'\-]+?\.", seg)
+    head = head.group(0) if head else f"Sec. {ref['art']}"
+    return {"heading": head, "text": seg[len(head):].strip(), "url": f"{url}#{ref['art']}", "status": "in_force",
+            "version": "current statute text published by the Texas Legislative Council (tcss.legis.texas.gov)"}
+
+
+async def _us_fl(c: httpx.AsyncClient, ref: dict) -> dict:
+    """Florida Senate's official statutes site, current edition."""
+    year = time.gmtime().tm_year
+    for y in (year, year - 1):
+        url = f"https://www.flsenate.gov/Laws/Statutes/{y}/{ref['art']}"
+        r = await c.get(url)
+        if r.status_code == 200 and ref["art"] in r.text:
+            break
+    else:
+        raise RuntimeError(f"florida {r.status_code}")
+    t = clean(r.text)
+    seg = _section(t, rf"{re.escape(ref['art'])}\s+[A-Z][^—]{{3,140}}—", r"History\.—|Note\.—", 6000)
+    if not seg:
+        raise RuntimeError("section not found")
+    head, _, body = seg.partition("—")
+    return {"heading": head.strip(), "text": body.strip(), "url": url, "status": "in_force",
+            "version": f"Florida Statutes {y} edition (Florida Senate) — changes after that edition may not be included"}
+
+
+def ny_enabled() -> bool:
+    return bool(os.environ.get("NYSENATE_API_KEY"))
+
+
+async def _us_ny(c: httpx.AsyncClient, ref: dict) -> dict:
+    """New York Senate Open Legislation API (free key: NYSENATE_API_KEY). Untested until the key exists."""
+    if not ny_enabled():
+        raise RuntimeError("New York Open Legislation key not configured")
+    r = await c.get(f"https://legislation.nysenate.gov/api/3/laws/{ref['law']}/{ref['art']}",
+                    params={"key": os.environ["NYSENATE_API_KEY"]})
+    if r.status_code != 200 or not r.json().get("success"):
+        raise RuntimeError(f"ny openleg {r.status_code}")
+    res = r.json()["result"]
+    if str(res.get("locationId", "")).upper() != ref["art"].upper():
+        raise RuntimeError("section mismatch")
+    return {"heading": f"§ {res.get('docLevelId') or ref['art']} {res.get('title', '')}".strip(), "text": clean(res.get("text", "")),
+            "url": f"https://www.nysenate.gov/legislation/laws/{ref['law']}/{ref['art']}", "status": "in_force",
+            "version": f"NY Senate Open Legislation, active date {res.get('activeDate', 'not stated')}"}
+
+
+CONNECTORS = {"DE": _de, "ES": _es, "IT": _it, "PL": _pl, "FR": _fr, "US": _us, "US-TX": _us_tx, "US-FL": _us_fl, "US-NY": _us_ny}
 SOURCE_NAME = {"DE": "gesetze-im-internet.de / NeuRIS, Federal Ministry of Justice", "ES": "BOE — Agencia Estatal Boletín Oficial del Estado",
                "IT": "Normattiva — Italian Government", "PL": "Dziennik Ustaw via Sejm ELI API", "FR": "Légifrance (DILA)",
-               "US": "US Government Publishing Office / eCFR"}
+               "US": "US Government Publishing Office / eCFR", "US-TX": "Texas Legislative Council",
+               "US-FL": "Florida Senate", "US-NY": "New York State Senate Open Legislation"}
 
 
 async def _record(ref: dict, res: dict) -> None:
@@ -429,6 +549,18 @@ TOPIC_RX = {
              r"salaire|stipendio|retribuzion|wynagrodzen|pensja|salário|horas extra",
     "discrimination": r"discriminat|harass|Diskriminier|Belästigung|discrimin|acoso|harcèlement|molestie|dyskrymin|"
                       r"mobbing|molestowan|assédio",
+    "family": r"divorc|separat(?:ion|ed)|custody|child support|alimony|spousal (?:support|maintenance)|Scheidung|getrennt|"
+              r"Trennungsjahr|Unterhalt|Sorgerecht|divorcio|custodia|pensión (?:alimenticia|compensatoria)|divorzio|"
+              r"separazione|affidamento|assegno (?:di mantenimento|divorzile)|rozwód|rozwodu|alimenty|władza rodzicielska|"
+              r"opieka nad dzieckiem|divórcio|regulação (?:do exercício )?das responsabilidades parentais|pensão de alimentos",
+    "inheritance": r"inherit|\bwill\b(?= (?:says|leaves|left|is|was))|my (?:late|deceased)|estate of|probate|executor|"
+                   r"Erbe\b|Erben|Erbschaft|Testament|Pflichtteil|Nachlass|ausschlagen|herencia|heredero|testamento|legítima|"
+                   r"eredità|erede|successione|legittima|spadek|spadku|zachowek|testament|herança|herdeiro",
+    "immigration": r"visa\b|residence permit|work permit|deport|asylum|green card|citizenship|naturali[sz]|immigra|"
+                   r"Aufenthaltstitel|Aufenthaltserlaubnis|Niederlassungserlaubnis|Visum|Abschiebung|Einbürgerung|"
+                   r"permiso de residencia|autorización de residencia|arraigo|nacionalidad española|expulsión|"
+                   r"permesso di soggiorno|cittadinanza italiana|espulsione|karta pobytu|zezwolenie na pobyt|wiza|"
+                   r"obywatelstwo|autorização de residência|nacionalidade",
     "debt_collection": r"debt collect|collection agency|collector",
     "credit_report": r"credit report|credit bureau|credit score|equifax|experian|transunion",
     "family_leave": r"family leave|fmla|medical leave|maternity leave|paternity leave",
@@ -436,7 +568,7 @@ TOPIC_RX = {
 }
 _TOPIC_C = {k: re.compile(v, re.I) for k, v in TOPIC_RX.items()}
 # US topics that are governed by state law — never answered with federal law.
-US_STATE_TOPICS = {"housing", "deposit", "repairs", "faulty_goods", "online_cancel", "dismissal"}
+US_STATE_TOPICS = {"housing", "deposit", "repairs", "faulty_goods", "online_cancel", "dismissal", "family", "inheritance"}
 
 BGB, KSCHG, AGG = "bgb", "kschg", "agg"
 LAU, TRLGDCU, ET, LRJS = "BOE-A-1994-26003", "BOE-A-2007-20555", "BOE-A-2015-11430", "BOE-A-2011-15936"
@@ -444,6 +576,10 @@ CC_IT, CONS_IT = "regio.decreto:1942-03-16;262:2", "decreto.legislativo:2005-09-
 KC, LOK, PK_CONS, KP = "DU/1964/93", "DU/2001/733", "DU/2014/827", "DU/1974/141"
 MAP = {
     "DE": {
+        "family": [R("DE", BGB, "1565", "BGB"), R("DE", BGB, "1566", "BGB"), R("DE", BGB, "1570", "BGB"), R("DE", BGB, "1671", "BGB")],
+        "inheritance": [R("DE", BGB, "1924", "BGB"), R("DE", BGB, "1931", "BGB"), R("DE", BGB, "2303", "BGB"), R("DE", BGB, "1944", "BGB")],
+        "immigration": [R("DE", "aufenthg_2004", "4", "AufenthG"), R("DE", "aufenthg_2004", "9", "AufenthG"),
+                        R("DE", "aufenthg_2004", "18b", "AufenthG")],
         "housing": [R("DE", BGB, "573", "BGB"), R("DE", BGB, "573c", "BGB"), R("DE", BGB, "543", "BGB"), R("DE", BGB, "574", "BGB")],
         "deposit": [R("DE", BGB, "551", "BGB")],
         "repairs": [R("DE", BGB, "535", "BGB"), R("DE", BGB, "536", "BGB")],
@@ -455,6 +591,10 @@ MAP = {
         "discrimination": [R("DE", AGG, "1", "AGG"), R("DE", AGG, "7", "AGG"), R("DE", AGG, "15", "AGG")],
     },
     "ES": {
+        "family": [R("ES", "BOE-A-1889-4763", "86", "Código Civil"), R("ES", "BOE-A-1889-4763", "90", "Código Civil"), R("ES", "BOE-A-1889-4763", "97", "Código Civil")],
+        "inheritance": [R("ES", "BOE-A-1889-4763", "807", "Código Civil"), R("ES", "BOE-A-1889-4763", "808", "Código Civil"), R("ES", "BOE-A-1889-4763", "930", "Código Civil"),
+                        R("ES", "BOE-A-1889-4763", "1008", "Código Civil")],
+        "immigration": [R("ES", "BOE-A-2000-544", "31", "Ley Orgánica 4/2000 de extranjería"), R("ES", "BOE-A-2000-544", "32", "Ley Orgánica 4/2000 de extranjería")],
         "housing": [R("ES", LAU, "9", "Ley de Arrendamientos Urbanos"), R("ES", LAU, "10", "Ley de Arrendamientos Urbanos"),
                     R("ES", LAU, "27", "Ley de Arrendamientos Urbanos")],
         "deposit": [R("ES", LAU, "36", "Ley de Arrendamientos Urbanos")],
@@ -464,12 +604,17 @@ MAP = {
                          R("ES", TRLGDCU, "120", "Ley General para la Defensa de los Consumidores")],
         "online_cancel": [R("ES", TRLGDCU, "102", "Ley General para la Defensa de los Consumidores"),
                           R("ES", TRLGDCU, "104", "Ley General para la Defensa de los Consumidores")],
-        "dismissal": [R("ES", ET, "49", "Estatuto de los Trabajadores"), R("ES", ET, "55", "Estatuto de los Trabajadores"),
+        "dismissal": [R("ES", ET, "59", "Estatuto de los Trabajadores"), R("ES", ET, "55", "Estatuto de los Trabajadores"),
                       R("ES", ET, "56", "Estatuto de los Trabajadores"), R("ES", LRJS, "103", "Ley Reguladora de la Jurisdicción Social")],
         "wages": [R("ES", ET, "29", "Estatuto de los Trabajadores"), R("ES", ET, "27", "Estatuto de los Trabajadores")],
         "discrimination": [R("ES", ET, "17", "Estatuto de los Trabajadores")],
     },
     "IT": {
+        "family": [R("IT", "legge:1970-12-01;898", "3", "Legge 898/1970 (divorzio)"), R("IT", "legge:1970-12-01;898", "5", "Legge 898/1970 (divorzio)"),
+                   R("IT", CC_IT, "151", "Codice civile")],
+        "inheritance": [R("IT", CC_IT, "536", "Codice civile"), R("IT", CC_IT, "565", "Codice civile"), R("IT", CC_IT, "480", "Codice civile")],
+        "immigration": [R("IT", "decreto.legislativo:1998-07-25;286", "5", "Testo unico immigrazione"),
+                        R("IT", "decreto.legislativo:1998-07-25;286", "9", "Testo unico immigrazione")],
         "housing": [R("IT", "legge:1998-12-09;431", "2", "Legge 431/1998"), R("IT", "legge:1998-12-09;431", "3", "Legge 431/1998"),
                     R("IT", CC_IT, "1571", "Codice civile")],
         "deposit": [R("IT", "legge:1978-07-27;392", "11", "Legge 392/1978")],
@@ -482,6 +627,10 @@ MAP = {
         "discrimination": [R("IT", "decreto.legislativo:2006-04-11;198", "25", "Codice delle pari opportunità")],
     },
     "PL": {
+        "family": [R("PL", "DU/1964/59", "56", "Kodeks rodzinny i opiekuńczy"), R("PL", "DU/1964/59", "58", "Kodeks rodzinny i opiekuńczy"),
+                   R("PL", "DU/1964/59", "60", "Kodeks rodzinny i opiekuńczy")],
+        "inheritance": [R("PL", KC, "931", "Kodeks cywilny"), R("PL", KC, "991", "Kodeks cywilny"), R("PL", KC, "1015", "Kodeks cywilny")],
+        "immigration": [R("PL", "DU/2013/1650", "98", "Ustawa o cudzoziemcach"), R("PL", "DU/2013/1650", "195", "Ustawa o cudzoziemcach")],
         "housing": [R("PL", LOK, "11", "Ustawa o ochronie praw lokatorów"), R("PL", KC, "673", "Kodeks cywilny"),
                     R("PL", KC, "688", "Kodeks cywilny")],
         "deposit": [R("PL", LOK, "6", "Ustawa o ochronie praw lokatorów")],
@@ -505,6 +654,9 @@ MAP = {
         "discrimination": [R("FR", "Code du travail", "L1132-1", "Code du travail")],
     },
     "US": {
+        "immigration": [R("US", "usc:8", "1158", "Immigration and Nationality Act (8 U.S.C.)"),
+                        R("US", "usc:8", "1229b", "Immigration and Nationality Act (8 U.S.C.)"),
+                        R("US", "usc:8", "1255", "Immigration and Nationality Act (8 U.S.C.)")],
         "debt_collection": [R("US", "usc:15", "1692g", "Fair Debt Collection Practices Act (15 U.S.C.)"),
                             R("US", "usc:15", "1692c", "Fair Debt Collection Practices Act (15 U.S.C.)"),
                             R("US", "usc:15", "1692k", "Fair Debt Collection Practices Act (15 U.S.C.)")],
@@ -517,6 +669,35 @@ MAP = {
         "card_dispute": [R("US", "cfr:12", "1026.13", "Regulation Z (12 CFR)")],
     },
 }
+STATE_MAP = {
+    "TX": {"deposit": [R("US-TX", "PR", "92.103", "Texas Property Code"), R("US-TX", "PR", "92.104", "Texas Property Code"),
+                       R("US-TX", "PR", "92.109", "Texas Property Code")],
+           "housing": [R("US-TX", "PR", "24.005", "Texas Property Code"), R("US-TX", "PR", "91.001", "Texas Property Code")],
+           "repairs": [R("US-TX", "PR", "92.052", "Texas Property Code"), R("US-TX", "PR", "92.056", "Texas Property Code")]},
+    "FL": {"deposit": [R("US-FL", "FS", "83.49", "Florida Statutes")],
+           "housing": [R("US-FL", "FS", "83.56", "Florida Statutes"), R("US-FL", "FS", "83.57", "Florida Statutes")],
+           "repairs": [R("US-FL", "FS", "83.51", "Florida Statutes"), R("US-FL", "FS", "83.60", "Florida Statutes")]},
+    "NY": {"deposit": [R("US-NY", "GOB", "7-108", "NY General Obligations Law")],
+           "housing": [R("US-NY", "RPP", "226-C", "NY Real Property Law"), R("US-NY", "RPA", "711", "NY Real Property Actions and Proceedings Law")],
+           "repairs": [R("US-NY", "RPP", "235-B", "NY Real Property Law")]},
+}
+
+
+def state_enabled(st: str) -> bool:
+    return st in ("TX", "FL") or (st == "NY" and ny_enabled())
+
+
+def pick_state(st: str, text: str) -> List[dict]:
+    if not state_enabled(st):
+        return []
+    out = []
+    for t in topics(text):
+        for r in STATE_MAP.get(st, {}).get(t, []):
+            if r not in out:
+                out.append({**r, "topic": t})
+    return out[:MAX_REFS]
+
+
 MAX_REFS = 4
 
 

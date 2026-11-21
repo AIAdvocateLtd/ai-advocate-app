@@ -19,6 +19,12 @@ CASES = [
      None, r"europa\.eu|boe\.es|gesetze-im-internet"),
     ("usfed", "US", "en", "A debt collector keeps calling me at work even though I told them my employer doesn't allow it. Is that allowed?", r"1692c|Fair Debt", None,
      (r"1692c", r"govinfo\.gov.*1692c"), r"govinfo\.gov"),
+    ("dedate", "DE", "de", "Mein Arbeitgeber hat mir gekündigt, das Schreiben ist am 02.10.2026 bei mir angekommen. Bis wann muss ich klagen?",
+     r"23\.10\.2026|23\. Oktober 2026", None, (r"drei Wochen|3 Wochen", r"kschg"), r"kschg"),
+    ("esfam", "ES", "es", "Mi padre ha fallecido sin testamento. ¿Qué parte de la herencia nos corresponde a los hijos?", r"hijos", None,
+     None, r"boe\.es"),
+    ("txdep", "US", "en", "I moved out of my apartment in Houston 5 weeks ago and the landlord still hasn't returned my deposit.", r"30(th)? day|30 days", None,
+     (r"30(th)? day|30 days", r"tcss\.legis\.texas\.gov"), r"tcss\.legis\.texas\.gov"),
     ("tx", "US", "en", "My landlord in Texas has kept my whole security deposit a month after I moved out. What can I do?", r"Texas", None, None, None),
     ("xb", "GB", "en", "I live in Poland and work there for a German company. They fired me without notice. Which country's law applies and what can I do?", r"Poland|Polish", None, None, None),
 ]
