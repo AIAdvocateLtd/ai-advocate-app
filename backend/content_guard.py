@@ -89,7 +89,7 @@ _MARKER_RE = re.compile(r"\s*\[\[\s*AIA_INSTRUCTIONS_IGNORED\s*\]\]\s*", re.I)
 
 OFFICIAL_HOSTS = ("legislation.gov.uk", "bailii.org", "judiciary.uk", "supremecourt.uk", "gov.uk", "acas.org.uk",
                   "caselaw.nationalarchives.gov.uk", "gov.scot", "gov.wales", "nidirect.gov.uk", "lra.org.uk",
-                  "europa.eu", "gesetze-im-internet.de", "boe.es", "normattiva.it", "sejm.gov.pl", "legifrance.gouv.fr",
+                  "europa.eu", "gesetze-im-internet.de", "rechtsinformationen.bund.de", "boe.es", "normattiva.it", "sejm.gov.pl", "legifrance.gouv.fr",
                   "diariodarepublica.pt", "govinfo.gov", "ecfr.gov", "uscode.house.gov")
 
 RULES = (

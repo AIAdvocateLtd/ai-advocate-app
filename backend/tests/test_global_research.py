@@ -31,6 +31,8 @@ def run(c):
     ("Does German law let my landlord in London keep the deposit?", "GB", "DE", {"GB"}, None),
     ("My boss fired me yesterday", "FR", "FR", set(), None),
     ("Il padrone di casa a Roma vuole sfrattarmi", "IT", "IT", set(), None),
+    ("I live in Spain and bought a phone from a German shop", "ES", "ES", {"DE"}, None),
+    ("I live in Poland and work for a German company", "GB", "PL", {"DE", "GB"}, None),
 ])
 def test_detects_governing_jurisdiction(q, sel, primary, others, state):
     p = G.detect(q, sel)
@@ -298,3 +300,34 @@ def test_each_retrieved_provision_has_its_own_link_so_none_is_dropped(no_ai):
     urls = [s["url"] for s in out["sources"]]
     assert len(urls) == len(set(urls)) >= 3
     assert any("21 dni" in s["content"] for s in out["sources"])
+
+
+def test_official_text_overrides_memory_and_deadlines_are_not_invented(no_ai):
+    out = run(G.research("Pracodawca mnie zwolnił, ile mam czasu?", "", "PL", paid_ok=False))
+    notes = " ".join(out["notes"])
+    assert "OVERRIDES YOUR MEMORY" in notes and "never the remembered rule" in notes
+    assert "NATIONAL DEADLINES" in notes and "do not give a number from memory" in notes
+
+
+def test_slow_national_research_never_wipes_the_other_sources(monkeypatch):
+    async def slow(*a, **k):
+        await asyncio.sleep(30)
+    monkeypatch.setattr(G, "research", slow)
+    monkeypatch.setattr(rag, "is_enabled", lambda: False)
+    t = time.monotonic()
+    r = run(rag.research("Mi casero no me devuelve la fianza", country="ES"))
+    assert time.monotonic() - t < 9.8
+    assert "did not finish in time" in r["block"]
+
+
+def test_german_source_outage_falls_back_to_federal_neuris_service():
+    N._cache.clear()
+    N._gii_down[0] = time.time() + 600  # gesetze-im-internet.de unreachable (seen from production network)
+    try:
+        r = run(N.read(N.R("DE", "kschg", "4", "KSchG"), wait=60))
+        assert not r.get("failed") and "rechtsinformationen.bund.de" in r["url"] and "drei Wochen" in r["text"]
+        b = run(N.read(N.R("DE", "bgb", "573", "BGB"), wait=60))
+        assert b.get("failed") and "not yet included" in b["error"]  # BGB not on NeuRIS yet: fails honestly
+    finally:
+        N._gii_down[0] = 0
+        N._cache.clear()

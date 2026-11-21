@@ -318,8 +318,14 @@ async def research(message: str, country: str = "GB", db=None, context: str = ""
 
     async def _global():
         try:
-            return await global_law.research(message, context, country, db=db, paid_ok=paid == "ok", nation=nation,
-                                             uk_gap=uk_gap)
+            return await asyncio.wait_for(global_law.research(message, context, country, db=db, paid_ok=paid == "ok",
+                                                              nation=nation, uk_gap=uk_gap), timeout=9.0)
+        except asyncio.TimeoutError:
+            logger.warning("global research timed out — continuing with the other sources")
+            return {"sources": [], "tavily_calls": 0, "national_ok": {}, "meta": {"all": plan["all"], "error": "timeout"},
+                    "notes": ["SOURCE LIMITS: the national-law research for this question did not finish in time. Give "
+                              "clearly labelled general information only for non-UK law; no article numbers or deadlines as "
+                              "checked; never invent citations."] if foreign else []}
         except Exception as e:
             logger.info("global research skipped: %r", e)
             return {"sources": [], "notes": [], "tavily_calls": 0, "meta": {"error": str(e)[:80]}, "national_ok": {}}

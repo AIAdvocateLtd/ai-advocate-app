@@ -49,9 +49,59 @@ def R(j, law, art, name):
 
 
 # ---------------- connectors: each returns {heading, text, url, version, status} or raises ----------------
+NEURIS = "https://testphase.rechtsinformationen.bund.de"
+NEURIS_NAMES = {"kschg": "Kündigungsschutzgesetz", "agg": "Allgemeines Gleichbehandlungsgesetz", "milog": "Mindestlohngesetz",
+                "burlg": "Bundesurlaubsgesetz", "tzbfg": "Teilzeit- und Befristungsgesetz", "arbzg": "Arbeitszeitgesetz",
+                "entgfg": "Entgeltfortzahlungsgesetz", "betrvg": "Betriebsverfassungsgesetz"}
+_gii_down = [0.0]  # gesetze-im-internet.de unreachable until this time -> go straight to NeuRIS
+
+
 async def _de(c: httpx.AsyncClient, ref: dict) -> dict:
+    if time.time() > _gii_down[0]:
+        try:
+            return await _de_gii(c, ref)
+        except (httpx.ConnectTimeout, httpx.ConnectError, httpx.ReadTimeout):
+            _gii_down[0] = time.time() + 600
+    return await _de_neuris(c, ref)
+
+
+async def _de_neuris(c: httpx.AsyncClient, ref: dict) -> dict:
+    """Fallback: the Federal Government's NeuRIS legal information service (test phase). Not every law is there yet
+    (e.g. the BGB is missing) — then the lookup fails honestly."""
+    slug = ref["law"].lower()
+    key = f"neuris:{slug}"
+    doc = _get(key)
+    if doc is None:
+        s = await c.get(f"{NEURIS}/v1/legislation", params={"searchTerm": NEURIS_NAMES.get(slug, slug), "size": 20})
+        if s.status_code != 200:
+            raise RuntimeError(f"neuris search {s.status_code}")
+        item = next((m["item"] for m in s.json().get("member", []) if (m["item"].get("abbreviation") or "").lower() == slug
+                     and m["item"].get("legislationLegalForce") == "InForce"), None)
+        if not item:
+            raise RuntimeError("law not found on NeuRIS (not yet included in the test phase)")
+        path = next(e["contentUrl"] for e in item["encoding"] if e["encodingFormat"] == "text/html")
+        h = await c.get(NEURIS + path)
+        if h.status_code != 200:
+            raise RuntimeError(f"neuris text {h.status_code}")
+        doc = _put(key, {"html": h.text, "path": path}, DOC_TTL)
+    a = re.escape(ref["art"])
+    m = re.search(rf'<h2 class="einzelvorschrift"><span class="akn-num" id="art-z{a}_bezeichnung[^"]*">', doc["html"])
+    if not m:
+        raise RuntimeError("provision not found on page")
+    end = doc["html"].find('<h2 class="einzelvorschrift"', m.end())
+    seg = doc["html"][m.start(): end if end > 0 else m.start() + 40000]
+    head = clean(seg[: seg.find("</h2>")])
+    text = clean(seg[seg.find("</h2>"):])
+    ver = re.search(r"/(\d{4}-\d{2}-\d{2})/regelungstext", doc["path"])
+    return {"heading": head, "text": text, "url": f"{NEURIS}{doc['path']}#art-z{ref['art']}",
+            "status": "repealed" if re.search(r"\(weggefallen\)|\(aufgehoben\)", head + text[:40]) else "in_force",
+            "version": "consolidated text from the Federal Government's NeuRIS legal information service (test phase)"
+                       + (f", version of {ver.group(1)}" if ver else "")}
+
+
+async def _de_gii(c: httpx.AsyncClient, ref: dict) -> dict:
     url = f"https://www.gesetze-im-internet.de/{ref['law']}/__{ref['art']}.html"
-    r = await c.get(url)
+    r = await c.get(url, timeout=httpx.Timeout(20.0, connect=4.0))
     if r.status_code != 200:
         raise RuntimeError(f"gesetze-im-internet {r.status_code}")
     body = r.content.decode("iso-8859-1" if "iso-8859-1" in r.text[:600].lower() else "utf-8", "replace")
@@ -259,7 +309,7 @@ async def _us(c: httpx.AsyncClient, ref: dict) -> dict:
 
 
 CONNECTORS = {"DE": _de, "ES": _es, "IT": _it, "PL": _pl, "FR": _fr, "US": _us}
-SOURCE_NAME = {"DE": "gesetze-im-internet.de, Federal Ministry of Justice", "ES": "BOE — Agencia Estatal Boletín Oficial del Estado",
+SOURCE_NAME = {"DE": "gesetze-im-internet.de / NeuRIS, Federal Ministry of Justice", "ES": "BOE — Agencia Estatal Boletín Oficial del Estado",
                "IT": "Normattiva — Italian Government", "PL": "Dziennik Ustaw via Sejm ELI API", "FR": "Légifrance (DILA)",
                "US": "US Government Publishing Office / eCFR"}
 
@@ -366,7 +416,8 @@ TOPIC_RX = {
     "deposit": r"deposit|Kaution|fianza|dépôt de garantie|caution\b|cauzion|kaucj|caução",
     "repairs": r"repair|damp|mould|mold|leak|heating|Mietminderung|Mangel der Wohnung|Schimmel|reparaci|humedad|moisissure|"
                r"réparation|riparazion|muffa|naprawa|wilgo|grzyb|reparaç|humidade",
-    "faulty_goods": r"faulty|broken|defective|not as described|refund|warranty|guarantee|Mangel|defekt|Gewährleistung|"
+    "faulty_goods": r"faulty|broken|\bbroke\b|stopped working|doesn'?t work|defective|kaputt|funktioniert nicht|no funciona|"
+                    r"ne (?:marche|fonctionne) plus|non funziona|nie działa|zepsu|não funciona|avariad|not as described|refund|warranty|guarantee|Mangel|defekt|Gewährleistung|"
                     r"defectuos|garantía|devoluci|défectueux|garantie|remboursement|difettos|garanzia|rimborso|wadliw|"
                     r"reklamacj|rękojmi|zwrot pieniędzy|defeituos|garantia|reembolso",
     "online_cancel": r"cancel (?:my|an?|the) order|online (?:order|purchase)|bought online|withdraw from|cooling.off|"
@@ -483,14 +534,16 @@ def pick(j: str, text: str) -> List[dict]:
 
 
 async def prewarm():
-    """Fill the 7-day cache in the background so customers rarely wait (free official sources, one request at a time)."""
+    """Fill the cache in the background so customers rarely wait (free official sources). Each jurisdiction runs in
+    parallel, one request at a time; deadline (dismissal) provisions go first."""
     await asyncio.sleep(20)
-    for j, m in MAP.items():
-        if j == "FR" and not france_enabled():
-            continue
-        for refs in m.values():
-            for r in refs:
-                await read(r, wait=60)
+
+    async def one(j: str, m: dict):
+        refs = [r for rs in m.values() for r in rs]
+        refs.sort(key=lambda r: 0 if r in m.get("dismissal", []) else 1)
+        for r in refs:
+            await read(r, wait=60)
+    await asyncio.gather(*(one(j, m) for j, m in MAP.items() if j != "FR" or france_enabled()), return_exceptions=True)
 
 
 # ---------------- national citations in Lex's answer: checked against the official source ----------------

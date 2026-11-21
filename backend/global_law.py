@@ -48,6 +48,8 @@ _C = {
 }
 _CRX = {k: re.compile(rf"(?<![\w-])(?:{v})(?![\w-])", re.I) for k, v in _C.items()}
 _LAW_OF = re.compile(r"\b(german|french|spanish|italian|polish|portuguese|american|iraqi|indian|british|english|scottish) law\b", re.I)
+_PARTY_OF = re.compile(r"\b(german|french|spanish|italian|polish|portuguese|american|iraqi|indian|british|english|scottish) "
+                       r"(?:shop|store|seller|trader|retailer|website|company|firm|business|employer|landlord|bank|airline)\b", re.I)
 _DEMONYM = {"german": "DE", "french": "FR", "spanish": "ES", "italian": "IT", "polish": "PL", "portuguese": "PT",
             "american": "US", "iraqi": "IQ", "indian": "IN", "british": "GB", "english": "GB", "scottish": "GB"}
 STATES = {
@@ -94,7 +96,7 @@ SITE_TOPIC_QUERY = {"PT": {"housing": "NRAU Lei 6/2006 arrendamento urbano denú
 SETTINGS_ID = "lex_ai_discovery"
 MODEL = ("anthropic", "claude-haiku-4-5-20251001")
 EST_GBP_PER_DISCOVERY = 0.0022  # ~1,400 input + ~180 output tokens on Haiku 4.5 ($1/$5 per M)
-DISCOVERY_WAIT, REF_WAIT, MAX_AI_REFS, BUDGET = 4.0, 2.5, 3, 8.6
+DISCOVERY_WAIT, REF_WAIT, DET_WAIT, MAX_AI_REFS, BUDGET = 4.0, 2.5, 4.5, 3, 8.6
 _cache: Dict[str, tuple] = {}
 
 
@@ -129,6 +131,8 @@ def detect(text: str, selected: str) -> dict:
             hits.append((m.start(), code))
     for m in _LAW_OF.finditer(text or ""):
         hits.append((m.start() - 10000, _DEMONYM[m.group(1).lower()]))  # 'German law' outranks place names
+    for m in _PARTY_OF.finditer(text or ""):
+        hits.append((m.start(), _DEMONYM[m.group(1).lower()]))  # 'a German shop / company' = another jurisdiction involved
     st = None
     for m in _STATE_RX.finditer(text or ""):
         w = m.group(1).lower()
@@ -339,10 +343,18 @@ def _notes(plan: dict, cov: Dict[str, str], got: Dict[str, int], site: dict, ai:
              + (f"; AI research step suggested {NAMES.get(ai.get('primary'), ai.get('primary'))}" if ai and ai.get("primary") else "")
              + "). Decide which country's law governs from where the contract, property, job, purchase or court is — "
                "not only where the customer lives — and say which law you are applying."]
+    lines.append("NATIONAL DEADLINES: state a time limit only as written in a retrieved official text above, citing it. "
+                 "Do not turn it into an exact calendar date as if verified: what starts the clock (receipt, service, "
+                 "knowledge), weekend/holiday rules and exceptions have not been checked by Lex. If the customer gave "
+                 "dates, any date you work out is an estimate they must confirm urgently with a local lawyer or court. If "
+                 "no retrieved text states the period, say the deadline could not be verified from an official source "
+                 "and do not give a number from memory.")
     if plan["cross_border"]:
         lines.append("CROSS-BORDER: jurisdictions involved: " + ", ".join(NAMES.get(j, j) for j in plan["all"]) +
                      ". Keep each country's national law, EU law and UK law separate; never apply one country's rules in "
-                     "place of another's; explain any choice-of-law or which-court question as uncertain where it is.")
+                     "place of another's. Do not silently pick one country: name the jurisdictions that could apply, say "
+                     "which you think governs each point and why, and flag the choice-of-law / which-court question as "
+                     "uncertain where it is.")
     for j in plan["all"]:
         c = cov.get(j)
         if j == "GB" or c is None:
@@ -366,7 +378,9 @@ def _notes(plan: dict, cov: Dict[str, str], got: Dict[str, int], site: dict, ai:
         if c == "verified" and got.get(j):
             lines.append(f"{name.upper()} LAW: {got[j]} provision(s) retrieved from the official national database "
                          "(listed above, original language). Quote or translate faithfully, cite them, and say the text was "
-                         "retrieved from the official source; this does not confirm your interpretation.")
+                         "retrieved from the official source; this does not confirm your interpretation. THE RETRIEVED "
+                         "OFFICIAL TEXT OVERRIDES YOUR MEMORY: if what you remember (a period, amount, condition or article "
+                         "number) differs from the retrieved text, use the retrieved text and never the remembered rule.")
         elif c == "official_site_search" and got.get(j):
             lines.append(f"{name.upper()}: results come from searching official government sites only — not a verified "
                          "legislation feed. Treat them as unconfirmed pointers; do not call them verified.")
@@ -421,7 +435,7 @@ async def research(message: str, context: str, selected: str, db=None, paid_ok: 
 
     async def _nothing():
         return None
-    det_res, ai = await asyncio.gather(asyncio.gather(*(N.read(r, wait=REF_WAIT) for r in det)),
+    det_res, ai = await asyncio.gather(asyncio.gather(*(N.read(r, wait=DET_WAIT) for r in det)),
                                        _discover(text, plan["selected"], db) if use_ai else _nothing())
     for r in det_res:
         if not r.get("failed"):
@@ -435,7 +449,11 @@ async def research(message: str, context: str, selected: str, db=None, paid_ok: 
             meta["us_state"] = st
         refs = [r for r in ai.get("refs", []) if str(r.get("j", "")).upper() in want + (["GB"] if uk_ai else [])]
         meta["ai_refs"] = len(refs)
-        checked = await asyncio.gather(*(_verify_ai_ref(r, nation) for r in refs))
+        try:
+            checked = await asyncio.wait_for(asyncio.gather(*(_verify_ai_ref(r, nation) for r in refs)),
+                                             timeout=max(0.5, min(REF_WAIT + 0.5, BUDGET - 2.0 - (time.monotonic() - t0))))
+        except asyncio.TimeoutError:
+            checked = []
         for r in checked:
             if r and r.get("url") not in {s["url"] for s in sources}:
                 sources.append(_as_source(r, r["j"], "ai"))
